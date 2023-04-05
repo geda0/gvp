@@ -48,25 +48,48 @@
         }
 
         h1,
-        h2 {
+        h2,
+        h3 {
             margin-bottom: 30px;
         }
 
         .project {
-            margin: 30px 0;
+            margin: 20px 0;
+            background-color: #250435;
+            padding: 15px;
         }
 
         footer {
             background-color: #1a1a1a;
-            padding: 15px;
+            color: #fff;
+            padding-bottom: 7px;
             text-align: center;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 999;
+        }
+
+        footer p {
+            margin: 0;
         }
 
         .canvas-container {
-            position: relative;
-            min-height: 1000px;
+            top: 0;
+            left: 0;
+            min-height: 700px;
+            min-width: 500px;
+            overflow: auto;
+        }
+
+        #home {
+            position: absolute;
+            top: 0;
         }
     </style>
+</head>
+
 </head>
 
 <body>
@@ -78,134 +101,171 @@
     </header>
 
     <main>
-        <div class="canvas-container">
-            <canvas id="canvas"></canvas>
-        </div>
+        <main>
+            <canvas id="stickmanCanvas"></canvas>
+            <section id="home">
+                <h1>Hi, It's ME</h1>
+                <p>My name is Marwan Elgendy</p>
+                <p>I'm a Computerist "Software Engineer"</p>
+                <section id="projects">
+                    <h3>Projects (incomplete list)</h2>
+                        <div class="project">
+                            <img src="gvp.jpg" alt="GVP">
+                            <h4>Generative Video Platform
+                    </h3>
+                    <a href="https://gvp.marwanelgendy.link/" target="_blank">gvp.marwanelgendy.link/</a>
+                    </div>
+                    <!-- Add more projects as needed -->
+                </section>
+            </section>
+
+        </main>
     </main>
 
     <script>
-        document.querySelectorAll('nav a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
+        const canvas = document.getElementById("stickmanCanvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
 
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
-            });
-        });
+        function randomBetween(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+        const stickman = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            step: 2,
+            frame: 0,
+            target: null,
 
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+            draw() {
+                ctx.strokeStyle = "white";
+                ctx.lineWidth = 4;
 
-        const devicePixelRatio = window.devicePixelRatio || 1;
-        const backingStoreRatio = ctx.webkitBackingStorePixelRatio || ctx.mozBackingStorePixelRatio || ctx.msBackingStorePixelRatio || ctx.oBackingStorePixelRatio || ctx.backingStorePixelRatio || 1;
-        const ratio = devicePixelRatio / backingStoreRatio;
+                // Head
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 20, 0, 2 * Math.PI);
+                ctx.stroke();
 
-        function resizeCanvas() {
-            canvas.width = window.innerWidth * ratio;
-            
-            const canvasHeight = 500 + projects.length * (40 + 20) + 50;
-            canvas.height = Math.max(canvasHeight, window.innerHeight - 80) * ratio;
-            
-            canvas.style.width = window.innerWidth + 'px';
-            canvas.style.height = canvas.height / ratio + 'px';
+                // Body
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + 20);
+                ctx.lineTo(this.x, this.y + 60);
+                ctx.stroke();
 
-            const canvasContainer = document.querySelector('.canvas-container');
-            canvasContainer.style.height = canvas.style.height;
+                // Arms
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + 30);
+                if (this.frame % 20 < 10) {
+                    // Left arm forward
+                    ctx.lineTo(this.x - 20, this.y + 50);
+                    ctx.lineTo(this.x - 30, this.y + 40);
+                    // Right arm backward
+                    ctx.moveTo(this.x, this.y + 30);
+                    ctx.lineTo(this.x + 10, this.y + 50);
+                    ctx.lineTo(this.x + 20, this.y + 40);
+                } else {
+                    // Left arm backward
+                    ctx.lineTo(this.x - 10, this.y + 50);
+                    ctx.lineTo(this.x - 20, this.y + 40);
+                    // Right arm forward
+                    ctx.moveTo(this.x, this.y + 30);
+                    ctx.lineTo(this.x + 20, this.y + 50);
+                    ctx.lineTo(this.x + 30, this.y + 40);
+                }
+                ctx.stroke();
+
+                // Legs
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + 60);
+
+                if (this.frame % 20 < 10) {
+                    // Left leg forward
+                    ctx.lineTo(this.x - 20, this.y + 90);
+                    ctx.lineTo(this.x - 15, this.y + 100);
+                    // Right leg backward
+                    ctx.moveTo(this.x, this.y + 60);
+                    ctx.lineTo(this.x + 10, this.y + 90);
+                    ctx.lineTo(this.x + 15, this.y + 100);
+                } else {
+                    // Left leg backward
+                    ctx.lineTo(this.x - 10, this.y + 90);
+                    ctx.lineTo(this.x - 15, this.y + 100);
+                    // Right leg forward
+                    ctx.moveTo(this.x, this.y + 60);
+                    ctx.lineTo(this.x + 20, this.y + 90);
+                    ctx.lineTo(this.x + 15, this.y + 100);
+                }
+
+                ctx.stroke();
+            },
+            move(dx, dy) {
+                this.x += dx;
+                this.y += dy;
+                this.frame += 1;
+            },
+            moveTo(targetX, targetY) {
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance > this.step) {
+                    this.move((dx / distance) * this.step, (dy / distance) * this.step);
+                    return true;
+                }
+                return false;
+            },
+            setTarget(x, y) {
+                this.target = { x, y };
+            },
+            roam() {
+                if (!this.target) {
+                    this.setTarget(randomBetween(0, canvas.width), randomBetween(0, canvas.height));
+                }
+            },
+            update() {
+                if (this.target) {
+                    const walking = this.moveTo(this.target.x, this.target.y);
+                    if (!walking) {
+                        this.target = null;
+                    }
+                } else {
+                    this.roam();
+                }
+            }
+        };
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            stickman.draw();
         }
 
-        const projects = [
-            { name: 'Generative Video Platform', link: 'https://gvp.marwanelgendy.link' }
-        ];
+        function update() {
+            stickman.update();
+            draw();
+            requestAnimationFrame(update);
+        }
+        function updated(dx, dy) {
+            stickman.move(dx, dy);
+            draw();
+        }
 
+        update();
 
-        let hoveredProject = null;
-
-        function drawHome() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-ctx.save(); // Save the current context state
-ctx.scale(ratio, ratio); // Scale the context for sharper elements
-
-ctx.fillStyle = '#f5f5f5';
-ctx.font = '48px Roboto';
-ctx.textAlign = 'center';
-ctx.fillText("Hi It's ME", canvas.width / (2 * ratio), 150);
-ctx.font = '24px Roboto';
-ctx.fillText(`My name is Marwan Elgendy`, canvas.width / (2 * ratio), 200);
-ctx.fillText(`I'm a Computerist & Software Engineer`, canvas.width / (2 * ratio), 250);
-
-ctx.font = '32px Roboto';
-ctx.fillText("Projects (incomplete list)", canvas.width / (2 * ratio), 450);
-ctx.font = '24px Roboto';
-
-// Draw project boxes
-const boxWidth = 300;
-const boxHeight = 40;
-const boxMargin = 20;
-ctx.font = '20px Roboto';
-
-projects.forEach((project, index) => {
-    const boxX = (canvas.width / ratio - boxWidth) / 2;
-    const boxY = 500 + index * (boxHeight + boxMargin);
-
-    ctx.fillStyle = hoveredProject === project ? '#6a0dad' : '#f5f5f5';
-    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-
-    ctx.fillStyle = '#2c2c2c';
-    ctx.fillText(project.name, boxX + boxWidth / 2, boxY + 28);
-
-    project.x = boxX * ratio;
-    project.y = boxY * ratio;
-});
-
-ctx.restore(); // Restore the context state
-}
-
-function isProjectHovered(x, y, project, boxWidth, boxHeight) {
-return (
-    x >= project.x &&
-    x <= project.x + boxWidth &&
-    y >= project.y &&
-    y <= project.y + boxHeight
-);
-}
-
-canvas.addEventListener('click', e => {
-if (hoveredProject) {
-    window.open(hoveredProject.link, '_blank');
-}
-});
-
-canvas.addEventListener('mousemove', e => {
-const rect = canvas.getBoundingClientRect();
-const x = (e.clientX - rect.left) * ratio;
-const y = (e.clientY - rect.top) * ratio;
-
-hoveredProject = null;
-
-projects.forEach(project => {
-    if (isProjectHovered(x, y, project, 150 * ratio, 40 * ratio)) {
-        hoveredProject = project;
-    }
-});
-
-drawHome();
-});
-
-window.addEventListener('resize', () => {
-resizeCanvas();
-drawHome();
-});
-
-resizeCanvas();
-drawHome();
-</script>
-<footer>
-<p>© 2023 ME. All rights reserved.</p>
-<p><a href="https://www.linkedin.com/in/marwan-elgendy/">LinkedIn</a> | <a
-    href="mailto:marwan.gendy@gmail.com">marwan.gendy@gmail.com</a></p>
-</footer>
+        canvas.addEventListener("click", (e) => {
+            stickman.setTarget(e.clientX, e.clientY);
+        });
+        document.addEventListener("keydown", (e) => {
+            if (e.code === "ArrowUp") updated(0, -stickman.step);
+            if (e.code === "ArrowDown") updated(0, stickman.step);
+            if (e.code === "ArrowLeft") updated(-stickman.step, 0);
+            if (e.code === "ArrowRight") updated(stickman.step, 0);
+        });
+    </script>
+    <footer>
+        <p>© 2023 ME. All rights reserved.</p>
+        <p><a href="https://www.linkedin.com/in/marwan-elgendy/">LinkedIn</a> | <a
+                href="mailto:marwan.gendy@gmail.com">marwan.gendy@gmail.com</a></p>
+    </footer>
 </body>
 
 </html>
