@@ -76,6 +76,66 @@
             z-index: 100;
         }
 
+        .question-mark-button {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            font-size: 24px;
+            background-color: #6a0dad;
+            color: #f5f5f5;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            z-index: 1000;
+        }
+
+        .info-box {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(44, 44, 44, 0.9);
+            color: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .info-box h3 {
+            margin-top: 0;
+        }
+
+        .close-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+        }
+
+        .gotit-button {
+            position: absolute;
+            bottom: 10px;
+            right: 50px;
+            cursor: pointer;
+        }
+
+        #close-info-box {
+            background-color: #6a0dad;
+            color: #f5f5f5;
+            font-size: 16px;
+            padding: 8px 16px;
+            border: none;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        #close-info-box:hover {
+            background-color: #4b0075;
+        }
+
         footer p {
             margin: 0;
         }
@@ -97,6 +157,25 @@
         <label for="rainColorPicker" class="color-picker">Raindrop Color:</label>
         <input type="color" id="rainColorPicker" class="color-picker" value="#00f0ff">
     </div>
+    <div class="question-mark-button" id="questionMarkButton">?</div>
+
+    <div class="info-box" id="infoBox">
+        <h3>Generative Video Platform -under construction-</h3>
+        <p>
+            Generative Video Platform ©, Is a platform for creators.
+            Based on Thought Visualizer Technology ©.
+            This platform is intended to generate creative scenes, which are represented in the 4th dimention (the speed
+            of thought formation) or simply, time.
+
+            While the platform is under construction still, you can experience the 4th by zomming out (after talking,
+            an/or deploying)
+            The deployed character will "run" "Play" "Stop" if you ask.
+        </p>
+        <span class="close-button" id="closeButton">&times;</span>
+        <button id="close-info-box">OK</button>
+
+    </div>
+
 
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
@@ -268,7 +347,7 @@
                 folder4D.add(this.settings, 'rotationSpeed', -1, 1);
                 folder4D.add(this.settings, 'wPosition', -500, 500);
                 folder4D.add(this.settings, 'wRotation', -Math.PI, Math.PI);
-                folder4D.open();
+                // folder4D.open();
             }
 
             initScene() {
@@ -686,35 +765,35 @@
 
         function drawScene(transcript) {
             const words = transcript.split(" ");
-              // Load the Helvetiker font
-              const fontLoader = new FontLoader();
+            // Load the Helvetiker font
+            const fontLoader = new FontLoader();
             fontLoader.load("https://threejs.org/examples/fonts/helvetiker_regular.typeface.json", function (font) {
                 // Create a TextGeometry with the font
-            words.forEach(word => {
-                // Check if the recognized word matches any of the keywords
-                const matchedAnimation = animationKeywords.find(anim => anim.keyword === word.toLowerCase());
-                if (matchedAnimation) {
-                    // Trigger the corresponding animation
-                    playAnimation(matchedAnimation.index);
-                }
+                words.forEach(word => {
+                    // Check if the recognized word matches any of the keywords
+                    const matchedAnimation = animationKeywords.find(anim => anim.keyword === word.toLowerCase());
+                    if (matchedAnimation) {
+                        // Trigger the corresponding animation
+                        playAnimation(matchedAnimation.index);
+                    }
 
-                const textGeometry = new TextGeometry(word, {
-                    font: font,
-                    size: 10,
-                    height: 1
-                });
-                const textMaterial = new THREE.MeshBasicMaterial({ color: randomColor() });
-                const textMesh = new THREE.Mesh(textGeometry, textMaterial);
-                textMesh.position.set(
-                    Math.random() * 400 - 200,
-                    Math.random() * 200,
-                    Math.random() * 500 - 200
-                );
-                scene.add(textMesh);
+                    const textGeometry = new TextGeometry(word, {
+                        font: font,
+                        size: 10,
+                        height: 1
+                    });
+                    const textMaterial = new THREE.MeshBasicMaterial({ color: randomColor() });
+                    const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+                    textMesh.position.set(
+                        Math.random() * 400 - 200,
+                        Math.random() * 200,
+                        Math.random() * 500 - 200
+                    );
+                    scene.add(textMesh);
                     canvasWords.push({
                         mesh: textMesh,
                         time: Date.now()
-            });
+                    });
                 });
             });
 
@@ -740,6 +819,26 @@
             }
             requestAnimationFrame(updateCanvas);
         }
+
+
+        const questionMarkButton = document.getElementById('questionMarkButton');
+        const infoBox = document.getElementById('infoBox');
+        const closeButton = document.getElementById('closeButton');
+        const okbutton = document.getElementById('close-info-box')
+        
+        questionMarkButton.addEventListener('click', () => {
+            infoBox.style.display = 'block';
+        });
+
+        closeButton.addEventListener('click', () => {
+            infoBox.style.display = 'none';
+        });
+        okbutton.addEventListener('click', () => {
+            infoBox.style.display = 'none';
+        });
+
+
+
         updateCanvas();
 
         animate();
@@ -747,7 +846,7 @@
 
 </body>
 <footer>
-    <p>© 2023 ME</p>
+    <p>© 2023 ME. All rights reserved.</p>
     <p><a href="https://www.linkedin.com/in/marwan-elgendy/">LinkedIn</a> | <a
             href="mailto:marwan.gendy@gmail.com">marwan.gendy@gmail.com</a></p>
 </footer>
