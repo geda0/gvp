@@ -103,14 +103,6 @@
         img {
             width: 200px;
         }
-
-        .bat {
-            position: absolute;
-            width: 10px;
-            height: 60px;
-            background-color: #f5f5f5;
-            cursor: pointer;
-        }
     </style>
 </head>
 
@@ -161,9 +153,6 @@
             step: 0.5,
             frame: 0,
             target: null,
-            hasSuperpower: false,
-            learningRate: 0.01,
-            predictionOffset: 0,
 
             draw() {
                 ctx.strokeStyle = "white";
@@ -231,154 +220,183 @@
                 this.y += dy;
                 this.frame += 1;
             },
+            // Update this function inside the stickman object
             moveTo(targetX, targetY) {
                 const dx = targetX - this.x;
                 const dy = targetY - this.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
+
                 if (distance > this.step) {
-                    this.move((dx / distance) * this.step, (dy / distance) * this.step);
+                    const easingFactor = 0.15; // You can adjust this value to change the easing effect
+                    this.move(dx * easingFactor, dy * easingFactor);
                     return true;
                 }
                 return false;
             },
             setTarget(x, y) {
-                this.target = { x, y: y + this.predictionOffset };
+                this.target = { x, y };
             },
             roam() {
-                if (!this.target) {
-                    this.setTarget(randomBetween(0, canvas.width), randomBetween(0, canvas.height));
+                this.setTarget(ball.x, ball.y);
+            },
+            // Update this function inside the stickman object
+            kickBall() {
+                const dx = ball.x - this.x;
+                const dy = ball.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < this.step * 10) {
+                    ball.energy += Math.random() * 20; // Keep the energy added to the ball
+                    ball.spin = randomBetween(-0.05, 0.05); // Reduce the random spin range
+                    ball.direction = Math.atan2(dy, dx) + randomBetween(-Math.PI / 16, Math.PI / 16); // Reduce the random direction range
+                    ball.x += dx * 1.5;
+                    ball.y += dy * 1.5;
                 }
             },
-            // Update the stickman's update function
             update() {
-                if (this.hasSuperpower && this.target) {
-                    const dx = this.target.x - this.x;
-                    const dy = this.target.y - this.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    const superpowerSpeed = 10;
-                    if (distance > superpowerSpeed) {
-                        this.move((dx / distance) * superpowerSpeed, (dy / distance) * superpowerSpeed);
-                    } else {
+                if (this.target) {
+                    const walking = this.moveTo(this.target.x, this.target.y);
+                    if (!walking) {
+                        this.kickBall();
                         this.target = null;
-                        this.hasSuperpower = false;
                     }
                 } else {
-                    if (this.target) {
-                        const walking = this.moveTo(this.target.x, this.target.y);
-                        if (!walking) {
-                            this.target = null;
-                        }
-                    } else {
-                        this.roam();
-                    }
+                    this.roam();
                 }
-                // Adjust prediction offset based on the learning rate and distance to the ball
-                if (this.hasSuperpower && ball) {
-                    const ballDX = ball.x - this.x;
-                    const ballDY = ball.y - this.y;
-                    const ballDistance = Math.sqrt(ballDX * ballDX + ballDY * ballDY);
-                    this.predictionOffset += ballDistance * this.learningRate;
-                }
-            }
+            },
         };
 
-        const bat = document.createElement("div");
-        bat.classList.add("bat");
-        document.body.appendChild(bat);
-
-        function updateBatPosition(y) {
-            bat.style.top = y + "px";
-        }
-
-        document.addEventListener("mousemove", (e) => {
-            updateBatPosition(e.clientY - bat.offsetHeight / 2);
-        });
-
+        // Add this code after the stickman object definition
         const ball = {
             x: canvas.width / 2,
-            y: canvas.height / 2,
+            y: canvas.height / 3,
             radius: 10,
-            speed: 3,
-            dx: 1,
-            dy: 1,
 
             draw() {
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.radius, 0, 2 * Math.PI);
-                ctx.fillStyle = "#f5f5f5";
+                ctx.fillStyle = "black";
                 ctx.fill();
-                ctx.closePath();
+                ctx.stroke();
             },
+            energy: 0,
+            // Update this function inside the ball object
+            exertEnergy() {
+                if (this.energy > 0) {
+                    const dx = Math.cos(ball.direction) * this.energy;
+                    const dy = Math.sin(ball.direction) * this.energy;
 
-            move() {
-                this.x += this.dx * this.speed;
-                this.y += this.dy * this.speed;
-            },
+                    this.x += dx * 0.3;
+                    this.y += dy * 0.3;
 
-            collideWithBat() {
-                const batRect = bat.getBoundingClientRect();
-                return (
-                    this.y + this.radius >= batRect.top &&
-                    this.y - this.radius <= batRect.bottom &&
-                    this.x + this.radius >= batRect.left &&
-                    this.x - this.radius <= batRect.right
-                );
-            },
+                    this.energy -= 0.25;
+                    if (this.energy < 0) {
+                        this.energy = 0;
+                    }
 
-            collideWithStickman() {
-                return (
-                    this.y + this.radius >= stickman.y - 20 &&
-                    this.y - this.radius <= stickman.y + 60 &&
-                    this.x + this.radius >= stickman.x - 20 &&
-                    this.x - this.radius <= stickman.x + 20
-                );
-            },
-
-            checkCollisions() {
-                if (this.y + this.radius >= canvas.height || this.y - this.radius <= 0) {
-                    this.dy = -this.dy;
-                }
-                if (this.x + this.radius >= canvas.width || this.x - this.radius <= 0) {
-                    this.dx = -this.dx;
-                }
-                if (this.collideWithBat() || this.collideWithStickman()) {
-                    this.dx = -this.dx;
+                    // Apply the spin to the ball
+                    this.direction += this.spin;
                 }
             },
 
+
+            // Add this function inside the ball object
+            checkCornerCollision() {
+                const cornerThreshold = this.radius * 2;
+                const corners = [
+                    { x: cornerThreshold, y: cornerThreshold },
+                    { x: canvas.width - cornerThreshold, y: cornerThreshold },
+                    { x: cornerThreshold, y: canvas.height - cornerThreshold },
+                    { x: canvas.width - cornerThreshold, y: canvas.height - cornerThreshold },
+                ];
+
+                for (const corner of corners) {
+                    const dx = this.x - corner.x;
+                    const dy = this.y - corner.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < cornerThreshold) {
+                        this.energy += randomBetween(5, 20);
+                        this.x += dx * 1.5;
+                        this.y += dy * 1.5;
+                        return;
+                    }
+                }
+            },
+
+            randomAngleForce() {
+                const edgeThreshold = this.radius * 7;
+
+                const isNearEdge =
+                    this.x < edgeThreshold ||
+                    this.x > canvas.width - edgeThreshold ||
+                    this.y < edgeThreshold ||
+                    this.y > canvas.height - edgeThreshold;
+
+                if (isNearEdge) {
+                    const angle = randomBetween(0, 2 * Math.PI);
+                    const force = randomBetween(10, 20);
+                    const dx = Math.cos(angle) * force;
+                    const dy = Math.sin(angle) * force;
+
+                    this.x += dx;
+                    this.y += dy;
+                }
+            },
+
+            // Update the update() function in the ball object
             update() {
-                this.move();
-                this.checkCollisions();
-            }
+                this.exertEnergy();
+                this.randomAngleForce(); // Add this line
+
+                const dx = stickman.x - this.x;
+                const dy = stickman.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < stickman.step * 10) {
+                    this.x = stickman.x + dx * 0.9;
+                    this.y = stickman.y + dy * 0.9;
+                }
+
+                // Constrain ball's position to the canvas
+                this.x = Math.min(Math.max(this.x, this.radius), canvas.width - this.radius);
+                this.y = Math.min(Math.max(this.y, this.radius), canvas.height - this.radius * 10);
+            },
         };
 
+        // Modify the draw function to include ball.draw()
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             stickman.draw();
             ball.draw();
         }
 
-        function update() {
+        // Replace the update() function with this animationLoop() function
+        function animationLoop() {
             stickman.update();
             ball.update();
             draw();
-            requestAnimationFrame(update);
 
-            // Check if the ball is hit by the bat
-            if (ball.collideWithBat()) {
-                // Give the stickman superpowers
-                stickman.hasSuperpower = true;
-                stickman.setTarget(canvas.width - stickman.x, ball.y);
-            }
-
-            // Check if the ball is missed
-            if (ball.x - ball.radius <= 0) {
-                // Reset stickman superpowers
-                stickman.hasSuperpower = false;
-                stickman.target = null;
-            }
+            setTimeout(() => {
+                requestAnimationFrame(animationLoop);
+            }, 1000 / 60); // You can adjust this value to change the frame rate (currently set to 60 FPS)
         }
-        update();
+        // Replace the call to update() with the following line
+        animationLoop();
+
+        // Update the arrow key event listener
+        document.addEventListener("keydown", (e) => {
+            const ballStep = 5;
+
+            if (e.code === "ArrowUp") ball.y -= ballStep;
+            if (e.code === "ArrowDown") ball.y += ballStep;
+            if (e.code === "ArrowLeft") ball.x -= ballStep;
+            if (e.code === "ArrowRight") ball.x += ballStep;
+
+            // Constrain ball's position to the canvas
+            ball.x = Math.min(Math.max(ball.x, ball.radius), canvas.width - ball.radius);
+            ball.y = Math.min(Math.max(ball.y, ball.radius), canvas.height - ball.radius);
+        });
+
     </script>
     <footer>
         <p>© 2023 ME. All rights reserved.</p>
