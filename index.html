@@ -228,8 +228,8 @@
 <body>
     <nav>
         <ul>
-            <li><a href="#" id="homeNav" class="section-invisible">Home</a></li>
-            <li><a href="#" id="playgroundNav">Playground</a></li>
+            <li><a href="#home" id="homeNav" class="section-invisible">Home</a></li>
+            <li><a href="#playground" id="playgroundNav">Playground</a></li>
         </ul>
     </nav>
     <main>
@@ -264,29 +264,38 @@
     </main>
 
     <script>
+
+        function sendPageView(event) {
+            gtag('event', 'click', {
+                'event_category': 'Link Click',
+                'event_label': event.target.href,
+                'transport_type': 'beacon'
+            });
+        }
         var canvas = document.getElementById('canvas');
-        document.getElementById("playgroundNav").addEventListener("click", function () {
+        document.getElementById("playgroundNav").addEventListener("click", function (event) {
             document.getElementById("playgroundContent").classList.remove("hidden");
             document.getElementById("playgroundContent").classList.add("visible");
             document.getElementById("projects").classList.remove("hidden");
             document.getElementById("projects").classList.add("visible");
             document.getElementById("contentWrapper").style.transform = "translateY(0)";
-            document.getElementById("playgroundNav").classList.add("section-invisible");
+            this.classList.add("section-invisible");
             document.getElementById("homeNav").classList.remove("section-invisible");
-
             document.getElementById("projects").classList.remove("section-invisible");
+            sendPageView(event);
         });
 
         /* Restore the home section when the home button is clicked to the middle of the screen */
-        document.getElementById("homeNav").addEventListener("click", function () {
+        document.getElementById("homeNav").addEventListener("click", function (event) {
             document.getElementById("playgroundContent").classList.remove("visible");
             document.getElementById("playgroundContent").classList.add("hidden");
             document.getElementById("projects").classList.remove("visible");
             document.getElementById("projects").classList.add("hidden");
             document.getElementById("contentWrapper").style.transform = "translateY(20vh)";
             document.getElementById("playgroundNav").classList.remove("section-invisible");
-            document.getElementById("homeNav").classList.add("section-invisible");
+            this.classList.add("section-invisible");
             document.getElementById("projects").classList.add("section-invisible");
+            sendPageView(event);
         });
 
 
