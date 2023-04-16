@@ -305,7 +305,13 @@
             centerX = canvas.width / 2;
             centerY = canvas.height / 2;
             fl = canvas.width;
+            for (var i = 0; i < numStars; i++) {
+                stars[i].x = Math.random() * canvas.width;
+                stars[i].y = Math.random() * canvas.height;
+                stars[i].z = Math.random() * canvas.width;
+            }
         }
+
 
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
