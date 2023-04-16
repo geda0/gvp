@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shooting Stars</title>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        var canvas = document.getElementById('canvas');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        var c = canvas.getContext('2d');
+        var numStars = 3000;
+        var stars = [];
+        var size = 1;
+        var fl = canvas.width;
+        var centerX = canvas.width / 2;
+        var centerY = canvas.height / 2;
+        var speed = 1;
+
+        function randomColor() {
+            return 'hsl(' + Math.random() * 360 + ', 100%, 50%)';
+        }
+
+        for (var i = 0; i < numStars; i++) {
+            stars[i] = new Star();
+        }
+
+        function Star() {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            this.z = Math.random() * canvas.width;
+            this.color = randomColor();
+
+            this.move = function () {
+                this.z = this.z - speed;
+                if (this.z <= 0) {
+                    this.z = canvas.width;
+                    this.color = randomColor();
+                }
+            }
+
+            this.show = function () {
+                var x, y, s;
+                x = (this.x - centerX) * (fl / this.z);
+                x = x + centerX;
+
+                y = (this.y - centerY) * (fl / this.z);
+                y = y + centerY;
+
+                s = size * (fl / this.z);
+
+                var gradient = c.createRadialGradient(x, y, 0, x, y, s * 1.5);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'transparent');
+
+                c.beginPath();
+                c.fillStyle = gradient;
+                c.arc(x, y, s * 1.5, 0, Math.PI * 2);
+                c.fill();
+            }
+        }
+
+        function draw() {
+            c.fillStyle = 'black';
+            c.fillRect(0, 0, canvas.width, canvas.height);
+            for (var i = 0; i < numStars; i++) {
+                stars[i].show();
+                stars[i].move();
+            }
+        }
+
+        function update() {
+            draw();
+            window.requestAnimationFrame(update);
+        }
+
+        update();
+    </script>
+</body>
+</html>

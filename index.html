@@ -52,7 +52,7 @@
         h3 {
             margin-bottom: 30px;
             text-shadow: 2px 1px 2px #000;
-
+            line-height: 34px;
         }
 
         .project {
@@ -103,22 +103,36 @@
         img {
             width: 200px;
         }
+
+        #load {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+
+        canvas {
+            position: fixed;
+            z-index: -1;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
     </style>
 </head>
 
-</head>
-
 <body>
-    <header>
-    </header>
 
     <main>
-        <main>
-            <canvas id="stickmanCanvas"></canvas>
+        <canvas id="canvas"></canvas>
+        <div id="load">
             <section id="home">
-                <h1>Hi, It's ME</h1>
-                <p>My name is Marwan Elgendy</p>
-                <p>I'm a Computerist "Software Engineer"</p>
+                <h2>Hello, Welcome to my space.<br />
+                    <br />
+                    My name is Marwan Elgendy
+                    <br /> I am a Software Architect
+                </h2>
                 <section id="projects">
                     <h3>Projects -in progress-</h3>
                     <div class="project">
@@ -129,275 +143,104 @@
                     <div class="project">
                         <img src="day1.png" alt="Day 1">
                         <h4>Project Day 1</h4>
-                        <a href="https://day1.marwanelgendy.link/" target="_blank">gvp.marwanelgendy.link/</a>
+                        <a href="https://day1.marwanelgendy.link/" target="_blank">meta.marwanelgendy.link/</a>
                     </div>
                     <!-- Add more projects as needed -->
                 </section>
             </section>
-
-        </main>
+        </div>
     </main>
 
     <script>
-        const canvas = document.getElementById("stickmanCanvas");
-        const ctx = canvas.getContext("2d");
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        var canvas = document.getElementById('canvas');
 
-        function randomBetween(min, max) {
-            return Math.random() * (max - min) + min;
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            centerX = canvas.width / 2;
+            centerY = canvas.height / 2;
+            fl = canvas.width;
         }
-        const stickman = {
-            x: canvas.width / 2,
-            y: canvas.height / 2,
-            step: 0.5,
-            frame: 0,
-            target: null,
 
-            draw() {
-                ctx.strokeStyle = "white";
-                ctx.lineWidth = 4;
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
 
-                // Head
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, 20, 0, 2 * Math.PI);
-                ctx.stroke();
+        var c = canvas.getContext('2d');
+        var numStars = 1717;
+        var stars = [];
+        var size = 1;
+        var fl = canvas.width;
+        var centerX = canvas.width / 2;
+        var centerY = canvas.height / 2;
+        var baseSpeed = 1;
 
-                // Body
-                ctx.beginPath();
-                ctx.moveTo(this.x, this.y + 20);
-                ctx.lineTo(this.x, this.y + 60);
-                ctx.stroke();
+        function randomColor() {
+            return 'hsl(' + Math.random() * 360 + ', 100%, ' + (Math.random() * 20 + 50) + '%)';
+        }
 
-                // Arms
-                ctx.beginPath();
-                ctx.moveTo(this.x, this.y + 30);
-                if (this.frame % 20 < 10) {
-                    // Left arm forward
-                    ctx.lineTo(this.x - 20, this.y + 50);
-                    ctx.lineTo(this.x - 30, this.y + 40);
-                    // Right arm backward
-                    ctx.moveTo(this.x, this.y + 30);
-                    ctx.lineTo(this.x + 10, this.y + 50);
-                    ctx.lineTo(this.x + 20, this.y + 40);
-                } else {
-                    // Left arm backward
-                    ctx.lineTo(this.x - 10, this.y + 50);
-                    ctx.lineTo(this.x - 20, this.y + 40);
-                    // Right arm forward
-                    ctx.moveTo(this.x, this.y + 30);
-                    ctx.lineTo(this.x + 20, this.y + 50);
-                    ctx.lineTo(this.x + 30, this.y + 40);
+        for (var i = 0; i < numStars; i++) {
+            stars[i] = new Star();
+        }
+
+        function Star() {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            this.z = Math.random() * canvas.width;
+            this.color = randomColor();
+            this.size = Math.random() / 2;
+            this.glow = 0;
+            this.glowDirection = 1;
+
+            this.move = function () {
+                var speed = baseSpeed + (canvas.width - this.z) / canvas.width * 4;
+                this.z = this.z - speed;
+                if (this.z <= 0) {
+                    this.z = canvas.width;
+                    this.color = randomColor();
                 }
-                ctx.stroke();
+            }
 
-                // Legs
-                ctx.beginPath();
-                ctx.moveTo(this.x, this.y + 60);
+            this.show = function () {
+                var x, y, s;
+                x = (this.x - centerX) * (fl / this.z);
+                x = x + centerX;
 
-                if (this.frame % 20 < 10) {
-                    // Left leg forward
-                    ctx.lineTo(this.x - 20, this.y + 90);
-                    ctx.lineTo(this.x - 15, this.y + 100);
-                    // Right leg backward
-                    ctx.moveTo(this.x, this.y + 60);
-                    ctx.lineTo(this.x + 10, this.y + 90);
-                    ctx.lineTo(this.x + 15, this.y + 100);
-                } else {
-                    // Left leg backward
-                    ctx.lineTo(this.x - 10, this.y + 90);
-                    ctx.lineTo(this.x - 15, this.y + 100);
-                    // Right leg forward
-                    ctx.moveTo(this.x, this.y + 60);
-                    ctx.lineTo(this.x + 20, this.y + 90);
-                    ctx.lineTo(this.x + 15, this.y + 100);
-                }
+                y = (this.y - centerY) * (fl / this.z);
+                y = y + centerY;
 
-                ctx.stroke();
-            },
-            move(dx, dy) {
-                this.x += dx;
-                this.y += dy;
-                this.frame += 1;
-            },
-            // Update this function inside the stickman object
-            moveTo(targetX, targetY) {
-                const dx = targetX - this.x;
-                const dy = targetY - this.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                s = this.size * (fl / this.z);
 
-                if (distance > this.step) {
-                    const easingFactor = 0.15; // You can adjust this value to change the easing effect
-                    this.move(dx * easingFactor, dy * easingFactor);
-                    return true;
-                }
-                return false;
-            },
-            setTarget(x, y) {
-                this.target = { x, y };
-            },
-            roam() {
-                this.setTarget(ball.x, ball.y);
-            },
-            // Update this function inside the stickman object
-            kickBall() {
-                const dx = ball.x - this.x;
-                const dy = ball.y - this.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance < this.step * 10) {
-                    ball.energy += Math.random() * 20; // Keep the energy added to the ball
-                    ball.spin = randomBetween(-0.05, 0.05); // Reduce the random spin range
-                    ball.direction = Math.atan2(dy, dx) + randomBetween(-Math.PI / 16, Math.PI / 16); // Reduce the random direction range
-                    ball.x += dx * 1.5;
-                    ball.y += dy * 1.5;
-                }
-            },
-            update() {
-                if (this.target) {
-                    const walking = this.moveTo(this.target.x, this.target.y);
-                    if (!walking) {
-                        this.kickBall();
-                        this.target = null;
-                    }
-                } else {
-                    this.roam();
-                }
-            },
-        };
+                this.glow = (canvas.width - this.z) / canvas.width * 12;
 
-        // Add this code after the stickman object definition
-        const ball = {
-            x: canvas.width / 2,
-            y: canvas.height / 3,
-            radius: 10,
+                var gradient = c.createRadialGradient(x, y, 0, x, y, s * (1.5 + this.glow / 10));
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(1, 'transparent');
 
-            draw() {
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius, 0, 2 * Math.PI);
-                ctx.fillStyle = "black";
-                ctx.fill();
-                ctx.stroke();
-            },
-            energy: 0,
-            // Update this function inside the ball object
-            exertEnergy() {
-                if (this.energy > 0) {
-                    const dx = Math.cos(ball.direction) * this.energy;
-                    const dy = Math.sin(ball.direction) * this.energy;
+                c.beginPath();
+                c.fillStyle = gradient;
+                c.arc(x, y, s * (1.5 + this.glow / 10), 0, Math.PI * 2);
+                c.fill();
+            }
+        }
 
-                    this.x += dx * 0.3;
-                    this.y += dy * 0.3;
-
-                    this.energy -= 0.25;
-                    if (this.energy < 0) {
-                        this.energy = 0;
-                    }
-
-                    // Apply the spin to the ball
-                    this.direction += this.spin;
-                }
-            },
-
-
-            // Add this function inside the ball object
-            checkCornerCollision() {
-                const cornerThreshold = this.radius * 2;
-                const corners = [
-                    { x: cornerThreshold, y: cornerThreshold },
-                    { x: canvas.width - cornerThreshold, y: cornerThreshold },
-                    { x: cornerThreshold, y: canvas.height - cornerThreshold },
-                    { x: canvas.width - cornerThreshold, y: canvas.height - cornerThreshold },
-                ];
-
-                for (const corner of corners) {
-                    const dx = this.x - corner.x;
-                    const dy = this.y - corner.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-
-                    if (distance < cornerThreshold) {
-                        this.energy += randomBetween(5, 20);
-                        this.x += dx * 1.5;
-                        this.y += dy * 1.5;
-                        return;
-                    }
-                }
-            },
-
-            randomAngleForce() {
-                const edgeThreshold = this.radius * 7;
-
-                const isNearEdge =
-                    this.x < edgeThreshold ||
-                    this.x > canvas.width - edgeThreshold ||
-                    this.y < edgeThreshold ||
-                    this.y > canvas.height - edgeThreshold;
-
-                if (isNearEdge) {
-                    const angle = randomBetween(0, 2 * Math.PI);
-                    const force = randomBetween(10, 20);
-                    const dx = Math.cos(angle) * force;
-                    const dy = Math.sin(angle) * force;
-
-                    this.x += dx;
-                    this.y += dy;
-                }
-            },
-
-            // Update the update() function in the ball object
-            update() {
-                this.exertEnergy();
-                this.randomAngleForce(); // Add this line
-
-                const dx = stickman.x - this.x;
-                const dy = stickman.y - this.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < stickman.step * 10) {
-                    this.x = stickman.x + dx * 0.9;
-                    this.y = stickman.y + dy * 0.9;
-                }
-
-                // Constrain ball's position to the canvas
-                this.x = Math.min(Math.max(this.x, this.radius), canvas.width - this.radius);
-                this.y = Math.min(Math.max(this.y, this.radius), canvas.height - this.radius * 10);
-            },
-        };
-
-        // Modify the draw function to include ball.draw()
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            stickman.draw();
-            ball.draw();
+            c.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Lower alpha for motion blur effect
+            c.fillRect(0, 0, canvas.width, canvas.height);
+            for (var i = 0; i < numStars; i++) {
+                stars[i].show();
+                stars[i].move();
+            }
         }
 
-        // Replace the update() function with this animationLoop() function
-        function animationLoop() {
-            stickman.update();
-            ball.update();
+        function update() {
             draw();
-
-            setTimeout(() => {
-                requestAnimationFrame(animationLoop);
-            }, 1000 / 60); // You can adjust this value to change the frame rate (currently set to 60 FPS)
+            window.requestAnimationFrame(update);
         }
-        // Replace the call to update() with the following line
-        animationLoop();
 
-        // Update the arrow key event listener
-        document.addEventListener("keydown", (e) => {
-            const ballStep = 5;
-
-            if (e.code === "ArrowUp") ball.y -= ballStep;
-            if (e.code === "ArrowDown") ball.y += ballStep;
-            if (e.code === "ArrowLeft") ball.x -= ballStep;
-            if (e.code === "ArrowRight") ball.x += ballStep;
-
-            // Constrain ball's position to the canvas
-            ball.x = Math.min(Math.max(ball.x, ball.radius), canvas.width - ball.radius);
-            ball.y = Math.min(Math.max(ball.y, ball.radius), canvas.height - ball.radius);
-        });
+        update();
 
     </script>
+
     <footer>
         <p>© 2023 ME. All rights reserved.</p>
         <p><a href="https://www.linkedin.com/in/marwan-elgendy/">LinkedIn</a> | <a
