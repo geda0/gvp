@@ -10,7 +10,7 @@
 
     <style>
         body {
-            background-color: #2c2c2c;
+            background-color: #000000;
             font-family: "Roboto", sans-serif;
             color: #f5f5f5;
             margin: 0;
@@ -22,6 +22,12 @@
             position: fixed;
             width: 100%;
             z-index: 100;
+        }
+
+        nav {
+            width: 100%;
+            z-index: 100;
+            position: fixed;
         }
 
         nav ul {
@@ -45,6 +51,9 @@
         section {
             padding: 100px 50px;
             text-align: center;
+            min-height: 100vh;
+            overflow-y: auto;
+            transition: transform 1s ease;
         }
 
         h1,
@@ -53,6 +62,8 @@
             margin-bottom: 30px;
             text-shadow: 2px 1px 2px #000;
             line-height: 34px;
+            margin: 0 auto;
+            white-space: nowrap;
         }
 
         .project {
@@ -108,7 +119,8 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100%;
+            min-height: 100vh;
+            position: relative;
         }
 
         canvas {
@@ -119,40 +131,151 @@
             width: 100%;
             height: 100%;
         }
+
+        #playgroundContent.visible+#load {
+            padding-top: 70px;
+            margin-top: 0;
+            transition: margin-top 0.5s;
+        }
+
+        .hidden {
+            opacity: 0;
+            visibility: hidden;
+            height: 0;
+            transition: opacity 0.5s, visibility 0.5s, height 0.5s;
+        }
+
+        .visible {
+            opacity: 1;
+            visibility: visible;
+            height: auto;
+        }
+
+        #contentWrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            transition: all 1s ease;
+            transform: translateY(20vh);
+        }
+
+
+        #playgroundContent.visible+#load {
+            margin-top: 0;
+            transition: margin-top 1s ease;
+        }
+
+        .hidden {
+            opacity: 0;
+            visibility: hidden;
+            height: 0;
+            transition: opacity 1s ease, visibility 1s ease, height 1s ease;
+        }
+
+        .visible {
+            opacity: 1;
+            visibility: visible;
+            height: auto;
+        }
+
+        section#projects {
+            margin-top: 299px;
+        }
+
+        .section-invisible {
+            display: none;
+        }
+
+
+        /* Media queries for responsive design */
+        @media (max-width: 767px) {
+            nav ul {
+                flex-direction: column;
+            }
+
+            section {
+                padding: 80px 25px;
+            }
+
+            h1,
+            h2,
+            h3 {
+                font-size: 24px;
+            }
+
+            img {
+                width: 150px;
+            }
+        }
     </style>
 </head>
 
 <body>
-
+    <nav>
+        <ul>
+            <li><a href="#" id="homeNav" class="section-invisible">Home</a></li>
+            <li><a href="#" id="playgroundNav">Playground</a></li>
+        </ul>
+    </nav>
     <main>
         <canvas id="canvas"></canvas>
-        <div id="load">
-            <section id="home">
-                <h2>Hello, Welcome to my space.<br />
-                    <br />
-                    My name is Marwan Elgendy
-                    <br /> I am a Software Architect
-                </h2>
-                <section id="projects">
-                    <h3>Projects -in progress-</h3>
-                    <div class="project">
-                        <img src="gvp.png" alt="GVP">
-                        <h4>Generative Video Platform</h4>
-                        <a href="https://gvp-tv.marwanelgendy.link/" target="_blank">gvp.marwanelgendy.link/</a>
-                    </div>
-                    <div class="project">
-                        <img src="day1.png" alt="Day 1">
-                        <h4>Project Day 1</h4>
-                        <a href="https://day1.marwanelgendy.link/" target="_blank">meta.marwanelgendy.link/</a>
-                    </div>
-                    <!-- Add more projects as needed -->
+        <div id="contentWrapper">
+            <div id="load">
+                <section id="home">
+                    <h2>Hello, Welcome to my space.<br />
+                        <br />
+                        My name is Marwan Elgendy
+                        <br /> I am a Software Architect
+                    </h2>
                 </section>
-            </section>
+                <div id="playgroundContent" class="hidden">
+                    <section id="projects" class="hidden section-invisible">
+                        <h3>Projects -in progress-</h3>
+                        <div class="project">
+                            <img src="gvp.png" alt="GVP">
+                            <h4>Generative Video Platform</h4>
+                            <a href="https://gvp-tv.marwanelgendy.link/" target="_blank">gvp.marwanelgendy.link/</a>
+                        </div>
+                        <div class="project">
+                            <img src="day1.png" alt="Day 1">
+                            <h4>Project Day 1</h4>
+                            <a href="https://day1.marwanelgendy.link/" target="_blank">meta.marwanelgendy.link/</a>
+                        </div>
+                        <!-- Add more projects as needed -->
+                    </section>
+                </div>
+            </div>
         </div>
     </main>
 
     <script>
         var canvas = document.getElementById('canvas');
+        document.getElementById("playgroundNav").addEventListener("click", function () {
+            document.getElementById("playgroundContent").classList.remove("hidden");
+            document.getElementById("playgroundContent").classList.add("visible");
+            document.getElementById("projects").classList.remove("hidden");
+            document.getElementById("projects").classList.add("visible");
+            document.getElementById("contentWrapper").style.transform = "translateY(0)";
+            document.getElementById("playgroundNav").classList.add("section-invisible");
+            document.getElementById("homeNav").classList.remove("section-invisible");
+
+            document.getElementById("projects").classList.remove("section-invisible");
+        });
+
+        /* Restore the home section when the home button is clicked to the middle of the screen */
+        document.getElementById("homeNav").addEventListener("click", function () {
+            document.getElementById("playgroundContent").classList.remove("visible");
+            document.getElementById("playgroundContent").classList.add("hidden");
+            document.getElementById("projects").classList.remove("visible");
+            document.getElementById("projects").classList.add("hidden");
+            document.getElementById("contentWrapper").style.transform = "translateY(20vh)";
+            document.getElementById("playgroundNav").classList.remove("section-invisible");
+            document.getElementById("homeNav").classList.add("section-invisible");
+            document.getElementById("projects").classList.add("section-invisible");
+        });
+
 
         function resizeCanvas() {
             canvas.width = window.innerWidth;
@@ -166,7 +289,7 @@
         window.addEventListener('resize', resizeCanvas);
 
         var c = canvas.getContext('2d');
-        var numStars = 1717;
+        var numStars = 717;
         var stars = [];
         var size = 1;
         var fl = canvas.width;
