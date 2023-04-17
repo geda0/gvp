@@ -185,7 +185,7 @@
         }
 
         section#projects {
-            margin-top: 299px;
+            margin-top: 269px;
         }
 
         .section-invisible {
@@ -213,6 +213,34 @@
                 width: 150px;
             }
         }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+
+            to {
+                transform: scale(1);
+            }
+        }
+
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+            }
+
+            to {
+                opacity: 0;
+            }
+        }
+
+        .scale-in {
+            animation: scaleIn 2s ease-out forwards;
+        }
+
+        .fade-out {
+            animation: fadeOut 1s ease-out forwards;
+        }
     </style>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYTRKC93DL"></script>
@@ -236,15 +264,15 @@
         <canvas id="canvas"></canvas>
         <div id="contentWrapper">
             <div id="load">
-                <section id="home">
-                    <h2>Hello, Welcome to my space..<br />
+                <section id="home" class="scale-in">
+                    <h2>Hello, Welcome to my space!<br />
                         <br />
                         My name is Marwan Elgendy
                         <br /> I am a Software Architect
                     </h2>
                 </section>
                 <div id="playgroundContent" class="hidden">
-                    <section id="projects" class="hidden section-invisible">
+                    <section id="projects" class="hidden section-invisible scale-in">
                         <h3>Projects -in progress-</h3>
                         <div class="project">
                             <img src="gvp.png" alt="GVP">
@@ -276,12 +304,16 @@
         document.getElementById("playgroundNav").addEventListener("click", function (event) {
             document.getElementById("playgroundContent").classList.remove("hidden");
             document.getElementById("playgroundContent").classList.add("visible");
-            document.getElementById("projects").classList.remove("hidden");
-            document.getElementById("projects").classList.add("visible");
-            document.getElementById("contentWrapper").style.transform = "translateY(0)";
             this.classList.add("section-invisible");
             document.getElementById("homeNav").classList.remove("section-invisible");
-            document.getElementById("projects").classList.remove("section-invisible");
+            document.getElementById("contentWrapper").style.transform = "translateY(0)";
+
+            setTimeout(() => {
+                document.getElementById("projects").classList.remove("section-invisible");
+                document.getElementById("projects").classList.remove("hidden");
+                document.getElementById("projects").classList.add("visible");
+            }, 199);
+
             sendPageView(event);
         });
 
