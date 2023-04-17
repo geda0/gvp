@@ -331,25 +331,38 @@
         });
 
 
+        function calculateNumStars(width, height, cores) {
+            const area = width * height;
+            const scaleFactor = cores / 4; // Adjust this value to scale the number of stars based on performance
+            const baseStars = 717; // Base number of stars for a smaller screen
+            return Math.floor((area / (1920 * 1080)) * baseStars * scaleFactor);
+        }
+
+        function initStars(numStars) {
+            stars = [];
+            for (var i = 0; i < numStars; i++) {
+                stars[i] = new Star();
+            }
+        }
+        const cores = window.navigator.hardwareConcurrency || 4;
+
+
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             centerX = canvas.width / 2;
             centerY = canvas.height / 2;
             fl = canvas.width;
-            for (var i = 0; i < numStars; i++) {
-                stars[i].x = Math.random() * canvas.width;
-                stars[i].y = Math.random() * canvas.height;
-                stars[i].z = Math.random() * canvas.width;
-            }
+            numStars = calculateNumStars(canvas.width, canvas.height, cores);
+            initStars(numStars);
         }
-
 
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
         var c = canvas.getContext('2d');
-        var numStars = 717;
+        var numStars = calculateNumStars(canvas.width, canvas.height, cores);
+        console.log(`Number of stars: ${numStars}`);
         var stars = [];
         var size = 1;
         var fl = canvas.width;
@@ -365,20 +378,42 @@
             stars[i] = new Star();
         }
 
+        function throttle(func, limit) {
+            let lastFunc;
+            let lastRan;
+            return function () {
+                const context = this;
+                const args = arguments;
+                if (!lastRan) {
+                    func.apply(context, args);
+                    lastRan = Date.now();
+                } else {
+                    clearTimeout(lastFunc);
+                    lastFunc = setTimeout(function () {
+                        if ((Date.now() - lastRan) >= limit) {
+                            func.apply(context, args);
+                            lastRan = Date.now();
+                        }
+                    }, limit - (Date.now() - lastRan));
+                }
+            };
+        }
+
         function Star() {
             this.x = Math.random() * canvas.width;
             this.y = Math.random() * canvas.height;
             this.z = Math.random() * canvas.width;
             this.color = randomColor();
             this.size = Math.random() / 2;
-            this.glow = 0;
-            this.glowDirection = 1;
 
             this.move = function () {
                 var speed = baseSpeed + (canvas.width - this.z) / canvas.width * 4;
                 this.z = this.z - speed;
-                if (this.z <= 0) {
+
+                if (this.z <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
                     this.z = canvas.width;
+                    this.x = Math.random() * canvas.width;
+                    this.y = Math.random() * canvas.height;
                     this.color = randomColor();
                 }
             }
@@ -407,7 +442,7 @@
         }
 
         function draw() {
-            c.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Lower alpha for motion blur effect
+            c.fillStyle = 'rgba(0, 0, 0, 0.2)';
             c.fillRect(0, 0, canvas.width, canvas.height);
             for (var i = 0; i < numStars; i++) {
                 stars[i].show();
@@ -420,8 +455,8 @@
             window.requestAnimationFrame(update);
         }
 
-        update();
-
+        const throttledUpdate = throttle(update, 1000 / 120);
+        throttledUpdate();
     </script>
 
     <footer>
