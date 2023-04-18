@@ -344,8 +344,6 @@
         function toggleNavOnScroll() {
             if (window.scrollY > window.innerHeight / 4 && !activetab) { // Change the number 50 to the desired scroll distance
                 document.getElementById("playgroundNav").click();
-            } else if (activetab && window.scrollY < window.innerHeight / 5) {
-                document.getElementById("homeNav").click();
             }
         }
 
