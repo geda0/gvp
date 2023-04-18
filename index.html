@@ -235,7 +235,7 @@
         }
 
         .scale-in {
-            animation: scaleIn 2s ease-out forwards;
+            animation: scaleIn 1.5s ease-out forwards;
         }
 
         .fade-out {
@@ -300,11 +300,23 @@
                 'transport_type': 'beacon'
             });
         }
-        var canvas = document.getElementById('canvas');
-        document.getElementById("playgroundNav").addEventListener("click", function (event) {
+
+        function goHome() {
+            document.getElementById("playgroundContent").classList.remove("visible");
+            document.getElementById("playgroundContent").classList.add("hidden");
+            document.getElementById("projects").classList.remove("visible");
+            document.getElementById("projects").classList.add("hidden");
+            document.getElementById("contentWrapper").style.transform = "translateY(20vh)";
+            document.getElementById("playgroundNav").classList.remove("section-invisible");
+            document.getElementById("homeNav").classList.add("section-invisible");
+            document.getElementById("projects").classList.add("section-invisible");
+            sendPageView(event);
+        }
+
+        function goPlay() {
             document.getElementById("playgroundContent").classList.remove("hidden");
             document.getElementById("playgroundContent").classList.add("visible");
-            this.classList.add("section-invisible");
+            document.getElementById("playgroundNav").classList.add("section-invisible");
             document.getElementById("homeNav").classList.remove("section-invisible");
             document.getElementById("contentWrapper").style.transform = "translateY(0)";
 
@@ -315,21 +327,33 @@
             }, 199);
 
             sendPageView(event);
+        }
+        let activetab = false;
+        document.getElementById("playgroundNav").addEventListener("click", function (event) {
+            activetab = true;
+            goPlay(event);
         });
 
         /* Restore the home section when the home button is clicked to the middle of the screen */
         document.getElementById("homeNav").addEventListener("click", function (event) {
-            document.getElementById("playgroundContent").classList.remove("visible");
-            document.getElementById("playgroundContent").classList.add("hidden");
-            document.getElementById("projects").classList.remove("visible");
-            document.getElementById("projects").classList.add("hidden");
-            document.getElementById("contentWrapper").style.transform = "translateY(20vh)";
-            document.getElementById("playgroundNav").classList.remove("section-invisible");
-            this.classList.add("section-invisible");
-            document.getElementById("projects").classList.add("section-invisible");
-            sendPageView(event);
+            activetab = false;
+            goHome(event);
         });
 
+        // Function to toggle the navigation 
+        function toggleNavOnScroll() {
+            if (window.scrollY > window.innerHeight / 4 && !activetab) { // Change the number 50 to the desired scroll distance
+                document.getElementById("playgroundNav").click();
+            } else if (activetab && window.scrollY < window.innerHeight / 5) {
+                document.getElementById("homeNav").click();
+            }
+        }
+
+        // Add the event listener to the window scroll event
+        window.addEventListener("scroll", toggleNavOnScroll);
+
+
+        var canvas = document.getElementById('canvas');
 
         function calculateNumStars(width, height, cores) {
             const area = width * height;
