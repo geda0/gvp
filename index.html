@@ -72,6 +72,16 @@
             padding: 15px;
             border-radius: 20px;
             box-shadow: -8px 8px 8px rgba(0, 0, 0, 0.5), 8px 8px 5px rgba(0, 0, 0, 0.4);
+            max-width: 400px;
+        }
+
+        .project:hover {
+            box-shadow: -8px 8px 8px rgba(0, 0, 0, 0.5), 8px 8px 5px rgba(0, 0, 0, 0.4);
+            transform: scale(1.05);
+        }
+
+        #portfolioContent .project {
+            background-color: #185ca7;
         }
 
         footer {
@@ -132,6 +142,7 @@
             height: 100%;
         }
 
+        #portfolioContent.visible+#load,
         #playgroundContent.visible+#load {
             padding-top: 70px;
             margin-top: 0;
@@ -162,20 +173,21 @@
         }
 
 
+        #portfolioContent.visible+#load,
         #playgroundContent.visible+#load {
             margin-top: 0;
             transition: margin-top 1s ease;
         }
 
+        #portfolioContent,
         #playgroundContent {
             z-index: 100;
         }
 
         .hidden {
             opacity: 0;
-            visibility: hidden;
-            height: 0;
-            transition: opacity 1s ease, visibility 1s ease, height 1s ease;
+            display: none;
+            transition: opacity 0.2s ease-in-out;
         }
 
         .visible {
@@ -184,7 +196,8 @@
             height: auto;
         }
 
-        section#projects {
+        section#projects,
+        section#portfolioProjects {
             margin-top: 269px;
         }
 
@@ -224,22 +237,33 @@
             }
         }
 
-        @keyframes fadeOut {
-            from {
-                opacity: 1;
-            }
-
-            to {
-                opacity: 0;
-            }
-        }
-
         .scale-in {
             animation: scaleIn 1.5s ease-out forwards;
         }
 
-        .fade-out {
-            animation: fadeOut 1s ease-out forwards;
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #3333332e;
+            padding: 5px 10px;
+        }
+
+        .navbar-left,
+        .navbar-right {
+            display: flex;
+            align-items: center;
+        }
+
+        .navbar a {
+            color: #fff;
+            text-decoration: none;
+            padding: 8px 16px;
+        }
+
+        .navbar a:hover {
+            background-color: #ddd;
+            color: #333;
         }
     </style>
     <!-- Google tag (gtag.js) -->
@@ -254,12 +278,19 @@
 </head>
 
 <body>
-    <nav>
-        <ul>
-            <li><a href="#home" id="homeNav" class="section-invisible">Home</a></li>
-            <li><a href="#playground" id="playgroundNav">Playground</a></li>
-        </ul>
-    </nav>
+    <header>
+        <nav class="navbar">
+            <div class="navbar-left">
+                <a href="#home" id="homeNav" class="section-invisible">Home</a>
+            </div>
+            <div class="navbar-right">
+                <!-- Right-side menu items go here -->
+                <a href="#playground" id="playgroundNav">Playground</a>
+                <a href="#portfolio" id="portfolioNav">Portfolio</a>
+            </div>
+        </nav>
+    </header>
+
     <main>
         <canvas id="canvas"></canvas>
         <div id="contentWrapper">
@@ -287,6 +318,29 @@
                         <!-- Add more projects as needed -->
                     </section>
                 </div>
+                <div id="portfolioContent" class="hidden">
+                    <section id="portfolioProjects" class="hidden section-invisible scale-in">
+                        <h3>Portfolio</h3>
+                        <!-- Add your portfolio projects here -->
+                        <div class="project">
+                            <img src="jc.png" alt="Jumpcloud">
+                            <h4>Jumpcloud</h4>
+                            <a href="https://jumpcloud.com/" target="_blank">jumpcloud.com</a>
+                        </div>
+                        <div class="project">
+                            <img src="ii.png" alt="Instant Ink">
+                            <h4>Instant Ink</h4>
+                            <a href="https://instantink.hpconnected.com/" target="_blank">instantink.com</a>
+                        </div>
+                        <div class="project">
+                            <h4>Network Ticketing system (AT&T)</h4>
+                            <p> A ticketing system that is used by AT&T to manage their network tickets. </p>
+                            <p> I built TQL: ticketing query language, a SQL-like syntax based language to query
+                                tickets. </p>
+                        </div>
+
+                    </section>
+                </div>
             </div>
         </div>
     </main>
@@ -308,15 +362,25 @@
             document.getElementById("projects").classList.add("hidden");
             document.getElementById("contentWrapper").style.transform = "translateY(20vh)";
             document.getElementById("playgroundNav").classList.remove("section-invisible");
+            document.getElementById("portfolioNav").classList.remove("section-invisible");
             document.getElementById("homeNav").classList.add("section-invisible");
             document.getElementById("projects").classList.add("section-invisible");
+            document.getElementById("portfolioProjects").classList.remove("visible");
+            document.getElementById("portfolioProjects").classList.add("hidden");
+            document.getElementById("projects").classList.remove("visible");
+            document.getElementById("projects").classList.add("hidden");
             sendPageView(event);
         }
-
         function goPlay() {
+            document.getElementById("portfolioContent").classList.remove("visible");
+            document.getElementById("portfolioContent").classList.add("hidden");
+            document.getElementById("portfolioProjects").classList.remove("visible");
+            document.getElementById("portfolioProjects").classList.add("hidden");
+
             document.getElementById("playgroundContent").classList.remove("hidden");
             document.getElementById("playgroundContent").classList.add("visible");
             document.getElementById("playgroundNav").classList.add("section-invisible");
+            document.getElementById("portfolioNav").classList.remove("section-invisible");
             document.getElementById("homeNav").classList.remove("section-invisible");
             document.getElementById("contentWrapper").style.transform = "translateY(0)";
 
@@ -328,27 +392,61 @@
 
             sendPageView(event);
         }
+
+        function goPortfolio() {
+            document.getElementById("playgroundContent").classList.remove("visible");
+            document.getElementById("playgroundContent").classList.add("hidden");
+            document.getElementById("projects").classList.remove("visible");
+            document.getElementById("projects").classList.add("hidden");
+
+            document.getElementById("portfolioContent").classList.remove("hidden");
+            document.getElementById("portfolioContent").classList.add("visible");
+            document.getElementById("portfolioNav").classList.add("section-invisible");
+            document.getElementById("homeNav").classList.remove("section-invisible");
+            document.getElementById("playgroundNav").classList.remove("section-invisible");
+            document.getElementById("contentWrapper").style.transform = "translateY(0)";
+
+            setTimeout(() => {
+                document.getElementById("portfolioProjects").classList.remove("section-invisible");
+                document.getElementById("portfolioProjects").classList.remove("hidden");
+                document.getElementById("portfolioProjects").classList.add("visible");
+            }, 199);
+
+            sendPageView(event);
+        }
+
+
         let activetab = false;
+
+        /* Add event listeners to the nav links */
+        document.getElementById("portfolioNav").addEventListener("click", function (event) {
+            event.preventDefault();
+            activetab = true;
+            goPortfolio(event);
+        });
+
         document.getElementById("playgroundNav").addEventListener("click", function (event) {
+            event.preventDefault();
             activetab = true;
             goPlay(event);
         });
 
         /* Restore the home section when the home button is clicked to the middle of the screen */
         document.getElementById("homeNav").addEventListener("click", function (event) {
+            event.preventDefault();
             activetab = false;
             goHome(event);
         });
 
-        // Function to toggle the navigation 
         function toggleNavOnScroll() {
-            if (window.scrollY > window.innerHeight / 4 && !activetab) { // Change the number 50 to the desired scroll distance
+            if (window.scrollY > window.innerHeight / 4 && !activetab) {
                 document.getElementById("playgroundNav").click();
             }
         }
 
-        // Add the event listener to the window scroll event
-        window.addEventListener("scroll", toggleNavOnScroll);
+        /* Updated event listeners */
+        window.addEventListener("scroll", throttle(toggleNavOnScroll, 250));
+
 
 
         var canvas = document.getElementById('canvas');
