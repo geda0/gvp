@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fibonacci Visualization</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="fibonacciCanvas"></canvas>
+    <script>
+const canvas = document.getElementById('fibonacciCanvas');
+const ctx = canvas.getContext('2d');
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+function fibonacci(n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+const numPoints = 1000;
+const numFibonacci = 100; // Increase or decrease to control the complexity of the pattern
+const scale = 0.05; // Adjust this value to control the size of the pattern
+
+function drawHighResFibonacciArt() {
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+
+    for (let i = 1; i <= numPoints; i++) {
+        const radius = scale * Math.sqrt(i);
+        const angle = i * goldenAngle;
+
+        const x = centerX + radius * Math.cos(angle);
+        const y = centerY + radius * Math.sin(angle);
+
+        const fibIndex = Math.floor((i - 1) / numFibonacci);
+        const hue = (fibIndex * 5) % 360;
+
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, 2 * Math.PI);
+        ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+        ctx.fill();
+    }
+}
+
+drawHighResFibonacciArt();
+
+
+    </script>
+</body>
+
+</html>
