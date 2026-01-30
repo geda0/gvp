@@ -23,7 +23,7 @@
     {
       "id": "apptio",
       "title": "Apptio (an IBM company)",
-      "description": ".",
+      "description": "Technology Business Management (TBM) Software.<br> Data intensive SaaS platform for IT Financial Management.",
       "image": "ibm.jpeg",
       "imageAlt": "Apptio (IBM)",
       "link": "https://apptio.com/",
@@ -95,6 +95,12 @@
       "link": "https://5d-agency.com/",
       "linkText": "5d-agency.com",
       "hidden": true
+    },
+     {
+      "id": "early",
+      "title": "Early Startups",
+      "description": "<b>DDA Advertising</b>: ddaadvertising.net <br><b>OIG OS</b>: Linux based embedded system.<br><b>QREO</b>: Web apps, Scientific research"
+
     }
   ]
 }
