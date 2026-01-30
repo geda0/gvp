@@ -1,37 +1,69 @@
-// spaceman.js - AI Spaceman character controller
+// spaceman.js - Spaceman character controller
+
+const DEFAULTS = {
+  typingSpeed: 50,
+  reactionSpeed: 30,
+  messageDelay: 3000,
+  idleTimeout: 30000,
+  blinkInterval: { min: 3000, max: 6000 },
+  waveInterval: { min: 20000, max: 40000 },
+  boostDuration: 600,
+  stateChangeDuration: 500,
+  blinkDuration: 150,
+  waveDuration: 1500
+};
+
+const DEFAULT_DATA = {
+  states: {
+    idle: { messages: ['Hello! Welcome!'], typingSpeed: 50, messageDelay: 3000 },
+    playground: { messages: ['Exploring projects...'], typingSpeed: 50, messageDelay: 3000 },
+    portfolio: { messages: ['Professional work...'], typingSpeed: 50, messageDelay: 3000 },
+    home: { messages: ['Back home!'], typingSpeed: 50, messageDelay: 3000 }
+  },
+  reactions: { hover: 'Hi!', click: 'Wheee!', longIdle: '...' }
+};
 
 class Spaceman {
   constructor(containerId, dataUrl) {
     this.container = document.getElementById(containerId);
+    if (!this.container) return;
+
     this.state = 'idle';
     this.messageIndex = 0;
     this.data = null;
-    this.typingTimeout = null;
-    this.messageTimeout = null;
-    this.idleTimer = null;
-    this.blinkTimer = null;
-    this.waveTimer = null;
+    this.elements = {};
 
-    this.init(dataUrl);
+    this._timers = {
+      typing: null,
+      message: null,
+      idle: null,
+      blink: null,
+      wave: null
+    };
+
+    this._init(dataUrl);
   }
 
-  async init(dataUrl) {
-    // Load message data
+  async _init(dataUrl) {
+    this.data = await this._loadData(dataUrl);
+    this._render();
+    this._bindEvents();
+    this._startIdleAnimations();
+    this._startMessageCycle();
+  }
+
+  async _loadData(url) {
     try {
-      const response = await fetch(dataUrl);
-      this.data = await response.json();
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
     } catch (e) {
-      console.error('Failed to load spaceman data:', e);
-      this.data = this.getDefaultData();
+      console.warn('Spaceman: Using defaults', e.message);
+      return DEFAULT_DATA;
     }
-
-    this.render();
-    this.bindEvents();
-    this.startIdleAnimations();
-    this.startMessageCycle();
   }
 
-  render() {
+  _render() {
     this.container.innerHTML = `
       <div class="spaceman" id="spaceman">
         <div class="thought-bubble" id="thoughtBubble">
@@ -44,20 +76,13 @@ class Spaceman {
           <span class="bubble-dot dot-3"></span>
         </div>
         <div class="spaceman-body">
-          <!-- Jetpack with flames (behind everything) -->
           <div class="jetpack">
             <div class="pack"></div>
             <div class="flames-container">
-              <div class="flame left-flame">
-                <div class="flame-inner"></div>
-              </div>
-              <div class="flame right-flame">
-                <div class="flame-inner"></div>
-              </div>
+              <div class="flame left-flame"><div class="flame-inner"></div></div>
+              <div class="flame right-flame"><div class="flame-inner"></div></div>
             </div>
           </div>
-          
-          <!-- Helmet -->
           <div class="helmet">
             <div class="visor">
               <div class="visor-reflection"></div>
@@ -67,20 +92,14 @@ class Spaceman {
               </div>
             </div>
           </div>
-          
-          <!-- Arms -->
           <div class="arm left-arm"></div>
           <div class="arm right-arm"></div>
-          
-          <!-- Torso -->
           <div class="torso">
             <div class="chest-panel">
               <span class="light light-1"></span>
               <span class="light light-2"></span>
             </div>
           </div>
-          
-          <!-- Legs -->
           <div class="legs">
             <div class="leg left-leg"></div>
             <div class="leg right-leg"></div>
@@ -91,168 +110,165 @@ class Spaceman {
 
     this.elements = {
       spaceman: document.getElementById('spaceman'),
-      thoughtBubble: document.getElementById('thoughtBubble'),
-      thoughtText: document.getElementById('thoughtText')
+      text: document.getElementById('thoughtText')
     };
   }
 
-  bindEvents() {
-    // Hover reaction
-    this.elements.spaceman.addEventListener('mouseenter', () => {
-      this.react('hover');
+  _bindEvents() {
+    const { spaceman } = this.elements;
+    if (!spaceman) return;
+
+    spaceman.addEventListener('mouseenter', () => this._react('hover'));
+    spaceman.addEventListener('click', () => {
+      this._react('click');
+      this._triggerBoost();
     });
 
-    // Click reaction (jetpack boost)
-    this.elements.spaceman.addEventListener('click', () => {
-      this.react('click');
-      this.elements.spaceman.classList.add('boost');
-      setTimeout(() => {
-        this.elements.spaceman.classList.remove('boost');
-      }, 600);
-    });
-
-    // Long idle detection
-    this.resetIdleTimer();
-    document.addEventListener('mousemove', () => this.resetIdleTimer());
+    this._resetIdleTimer();
+    document.addEventListener('mousemove', () => this._resetIdleTimer());
   }
 
-  resetIdleTimer() {
-    clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => {
-      if (this.data?.reactions?.longIdle) {
-        this.typeMessage(this.data.reactions.longIdle);
-      }
-    }, 30000); // 30 seconds of no movement
-  }
-
+  // Public API
   setState(newState) {
     if (this.state === newState) return;
 
     this.state = newState;
     this.messageIndex = 0;
 
-    // Clear existing cycles
-    clearTimeout(this.typingTimeout);
-    clearTimeout(this.messageTimeout);
+    this._clearTimer('typing');
+    this._clearTimer('message');
 
-    // Animate state transition
-    this.elements.spaceman.classList.add('state-change');
-    setTimeout(() => {
-      this.elements.spaceman.classList.remove('state-change');
-    }, 500);
+    const { spaceman } = this.elements;
+    if (spaceman) {
+      spaceman.classList.add('state-change');
+      setTimeout(() => spaceman.classList.remove('state-change'), DEFAULTS.stateChangeDuration);
+    }
 
-    // Start new message cycle
-    this.startMessageCycle();
+    this._startMessageCycle();
   }
 
-  startMessageCycle() {
+  // Messaging
+  _startMessageCycle() {
     const stateData = this.data?.states?.[this.state];
-    if (!stateData) return;
+    if (!stateData?.messages?.length) return;
 
     const message = stateData.messages[this.messageIndex];
-    this.typeMessage(message, stateData.typingSpeed);
+    const speed = stateData.typingSpeed || DEFAULTS.typingSpeed;
+    const delay = stateData.messageDelay || DEFAULTS.messageDelay;
 
-    // Schedule next message
-    this.messageTimeout = setTimeout(() => {
+    this._typeMessage(message, speed);
+
+    this._timers.message = setTimeout(() => {
       this.messageIndex = (this.messageIndex + 1) % stateData.messages.length;
-      this.startMessageCycle();
-    }, stateData.messageDelay + (message.length * stateData.typingSpeed));
+      this._startMessageCycle();
+    }, delay + (message.length * speed));
   }
 
-  typeMessage(message, speed = 50) {
-    // Clear current message
-    this.elements.thoughtText.textContent = '';
-    clearTimeout(this.typingTimeout);
+  _typeMessage(message, speed = DEFAULTS.typingSpeed) {
+    const { text } = this.elements;
+    if (!text) return;
 
-    let charIndex = 0;
+    this._clearTimer('typing');
+    text.textContent = '';
 
+    let i = 0;
     const type = () => {
-      if (charIndex < message.length) {
-        this.elements.thoughtText.textContent += message[charIndex];
-        charIndex++;
-        this.typingTimeout = setTimeout(type, speed);
+      if (i < message.length) {
+        text.textContent += message[i++];
+        this._timers.typing = setTimeout(type, speed);
       }
     };
-
     type();
   }
 
-  react(reactionType) {
-    const reaction = this.data?.reactions?.[reactionType];
-    if (reaction) {
-      // Temporarily show reaction, then resume cycle
-      clearTimeout(this.typingTimeout);
-      clearTimeout(this.messageTimeout);
+  _react(type) {
+    const reaction = this.data?.reactions?.[type];
+    if (!reaction) return;
 
-      this.typeMessage(reaction, 30);
+    this._clearTimer('typing');
+    this._clearTimer('message');
 
-      this.messageTimeout = setTimeout(() => {
-        this.startMessageCycle();
-      }, 2000);
-    }
+    this._typeMessage(reaction, DEFAULTS.reactionSpeed);
+
+    this._timers.message = setTimeout(() => {
+      this._startMessageCycle();
+    }, 2000);
   }
 
-  startIdleAnimations() {
-    // Random blink every 3-6 seconds
-    const scheduleBlink = () => {
-      const delay = 3000 + Math.random() * 3000;
-      this.blinkTimer = setTimeout(() => {
-        this.triggerBlink();
-        scheduleBlink();
-      }, delay);
-    };
-    scheduleBlink();
-
-    // Random wave every 20-40 seconds (only in idle state)
-    const scheduleWave = () => {
-      const delay = 20000 + Math.random() * 20000;
-      this.waveTimer = setTimeout(() => {
-        if (this.state === 'idle') {
-          this.triggerWave();
-        }
-        scheduleWave();
-      }, delay);
-    };
-    scheduleWave();
+  // Idle animations
+  _startIdleAnimations() {
+    this._scheduleBlink();
+    this._scheduleWave();
   }
 
-  triggerBlink() {
-    const eyes = this.elements.spaceman.querySelectorAll('.eye');
-    eyes.forEach(eye => {
+  _scheduleBlink() {
+    const { min, max } = DEFAULTS.blinkInterval;
+    const delay = min + Math.random() * (max - min);
+
+    this._timers.blink = setTimeout(() => {
+      this._triggerBlink();
+      this._scheduleBlink();
+    }, delay);
+  }
+
+  _scheduleWave() {
+    const { min, max } = DEFAULTS.waveInterval;
+    const delay = min + Math.random() * (max - min);
+
+    this._timers.wave = setTimeout(() => {
+      if (this.state === 'idle') this._triggerWave();
+      this._scheduleWave();
+    }, delay);
+  }
+
+  _triggerBlink() {
+    const eyes = this.elements.spaceman?.querySelectorAll('.eye');
+    eyes?.forEach(eye => {
       eye.classList.add('blink');
-      setTimeout(() => eye.classList.remove('blink'), 150);
+      setTimeout(() => eye.classList.remove('blink'), DEFAULTS.blinkDuration);
     });
   }
 
-  triggerWave() {
-    const spaceman = this.elements.spaceman;
+  _triggerWave() {
+    const { spaceman } = this.elements;
+    if (!spaceman) return;
     spaceman.classList.add('wave');
-    setTimeout(() => spaceman.classList.remove('wave'), 1500);
+    setTimeout(() => spaceman.classList.remove('wave'), DEFAULTS.waveDuration);
   }
 
-  getDefaultData() {
-    return {
-      states: {
-        idle: { messages: ["Hello! Welcome!"], typingSpeed: 50, messageDelay: 3000 },
-        playground: { messages: ["Exploring projects..."], typingSpeed: 50, messageDelay: 3000 },
-        portfolio: { messages: ["Professional work..."], typingSpeed: 50, messageDelay: 3000 },
-        home: { messages: ["Back home!"], typingSpeed: 50, messageDelay: 3000 }
-      },
-      reactions: { hover: "Hi!", click: "Wheee!", longIdle: "..." }
-    };
+  _triggerBoost() {
+    const { spaceman } = this.elements;
+    if (!spaceman) return;
+    spaceman.classList.add('boost');
+    setTimeout(() => spaceman.classList.remove('boost'), DEFAULTS.boostDuration);
+  }
+
+  _resetIdleTimer() {
+    this._clearTimer('idle');
+    this._timers.idle = setTimeout(() => {
+      const msg = this.data?.reactions?.longIdle;
+      if (msg) this._typeMessage(msg);
+    }, DEFAULTS.idleTimeout);
+  }
+
+  // Timer utilities
+  _clearTimer(name) {
+    if (this._timers[name]) {
+      clearTimeout(this._timers[name]);
+      this._timers[name] = null;
+    }
+  }
+
+  _clearAllTimers() {
+    Object.keys(this._timers).forEach(k => this._clearTimer(k));
   }
 
   destroy() {
-    clearTimeout(this.typingTimeout);
-    clearTimeout(this.messageTimeout);
-    clearTimeout(this.idleTimer);
-    clearTimeout(this.blinkTimer);
-    clearTimeout(this.waveTimer);
-    this.container.innerHTML = '';
+    this._clearAllTimers();
+    if (this.container) this.container.innerHTML = '';
   }
 }
 
-// Export for module usage
 export function initSpaceman(containerId, dataUrl) {
   return new Spaceman(containerId, dataUrl);
 }
