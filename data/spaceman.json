@@ -1,0 +1,45 @@
+{
+  "states": {
+    "idle": {
+      "messages": [
+        "Hello! Welcome to my space! 👋",
+        "I'm Marwan's digital companion.",
+        "Click around to explore!"
+      ],
+      "typingSpeed": 50,
+      "messageDelay": 3000
+    },
+    "playground": {
+      "messages": [
+        "These are Marwan's experimental projects! 🚀",
+        "The Monday Rover was built with a Raspberry Pi.",
+        "GVP uses generative AI for video creation."
+      ],
+      "typingSpeed": 40,
+      "messageDelay": 4000
+    },
+    "portfolio": {
+      "messages": [
+        "Here's Marwan's professional journey! 💼",
+        "From startups to IBM - quite a ride!",
+        "Software architecture is his specialty."
+      ],
+      "typingSpeed": 40,
+      "messageDelay": 4000
+    },
+    "home": {
+      "messages": [
+        "Back to home base! 🏠",
+        "Feel free to explore anytime.",
+        "The stars are always shining here."
+      ],
+      "typingSpeed": 50,
+      "messageDelay": 3000
+    }
+  },
+  "reactions": {
+    "hover": "Oh, hello there! 👀",
+    "click": "Wheee! *jetpack boost*",
+    "longIdle": "Still here... floating in space... 🌌"
+  }
+}

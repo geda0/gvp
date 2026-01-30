@@ -5,7 +5,13 @@ const state = {
   activeTab: false
 };
 
-export function initNavigation() {
+let callbacks = {
+  onStateChange: null
+};
+
+export function initNavigation(options = {}) {
+  callbacks = { ...callbacks, ...options };
+
   const elements = {
     portfolioNav: document.getElementById('portfolioNav'),
     playgroundNav: document.getElementById('playgroundNav'),
@@ -21,18 +27,21 @@ export function initNavigation() {
     e.preventDefault();
     state.activeTab = true;
     goPortfolio(elements, e);
+    callbacks.onStateChange?.('portfolio'); // Hook for spaceman
   });
 
   elements.playgroundNav.addEventListener('click', (e) => {
     e.preventDefault();
     state.activeTab = true;
     goPlay(elements, e);
+    callbacks.onStateChange?.('playground'); // Hook for spaceman
   });
 
   elements.homeNav.addEventListener('click', (e) => {
     e.preventDefault();
     state.activeTab = false;
     goHome(elements, e);
+    callbacks.onStateChange?.('home'); // Hook for spaceman
   });
 }
 
