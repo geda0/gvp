@@ -6,7 +6,8 @@
       "image": "rpi.jpg",
       "imageAlt": "raspberry pi",
       "link": "https://www.youtube.com/shorts/WZMmlTcG3n8/",
-      "linkText": "mdayrover.marwanelgendy.link"
+      "linkText": "mdayrover.marwanelgendy.link",
+      "hidden": true
     },
     {
       "id": "gvp",
@@ -14,7 +15,8 @@
       "image": "gvp.png",
       "imageAlt": "GVP",
       "link": "https://gvp-tv.marwanelgendy.link/",
-      "linkText": "gvp.marwanelgendy.link"
+      "linkText": "gvp.marwanelgendy.link",
+      "hidden": true
     }
   ],
   "portfolio": [
@@ -25,7 +27,8 @@
       "image": "ibm.jpeg",
       "imageAlt": "Apptio (IBM)",
       "link": "https://apptio.com/",
-      "linkText": "Apptio.com"
+      "linkText": "Apptio.com",
+      "hidden": true
     },
     {
       "id": "jumpcloud",
@@ -34,7 +37,8 @@
       "image": "jc.png",
       "imageAlt": "Jumpcloud",
       "link": "https://jumpcloud.com/",
-      "linkText": "jumpcloud.com"
+      "linkText": "jumpcloud.com",
+      "hidden": true
     },
     {
       "id": "instant-ink",
@@ -43,14 +47,16 @@
       "image": "ii.png",
       "imageAlt": "Instant Ink",
       "link": "https://instantink.hpconnected.com/",
-      "linkText": "instantink.com"
+      "linkText": "instantink.com",
+      "hidden": true
     },
     {
       "id": "att",
       "title": "AT&T",
       "description": "I built TQL: ticketing query language, a SQL-like syntax based language to query tickets.",
       "image": "att.png",
-      "imageAlt": "AT&T"
+      "imageAlt": "AT&T",
+      "hidden": true
     },
     {
       "id": "miu",
@@ -59,7 +65,8 @@
       "image": "mumf.jpeg",
       "imageAlt": "MIU",
       "link": "https://www.miu.edu/",
-      "linkText": "miu.edu"
+      "linkText": "miu.edu",
+      "hidden": true
     },
     {
       "id": "sunrise",
@@ -68,7 +75,8 @@
       "image": "sr.png",
       "imageAlt": "Sunrise Resorts",
       "link": "https://www.sunrise-resorts.com",
-      "linkText": "sunrise-resorts.com"
+      "linkText": "sunrise-resorts.com",
+      "hidden": true
     },
     {
       "id": "campus-party",
@@ -77,31 +85,16 @@
       "image": "cp.jpeg",
       "imageAlt": "Campus Party",
       "link": "https://www.facebook.com/campuspartymilenio/",
-      "linkText": "facebook.com/campuspartymilenio"
+      "linkText": "facebook.com/campuspartymilenio",
+      "hidden": true
     },
     {
       "id": "5d-agency",
       "title": "5d-agency (SWI)",
       "description": "Web based & mobile Games! Augmented Reality, CMS, Joomla, Drupal, Unity 3D, Mobile Apps.",
       "link": "https://5d-agency.com/",
-      "linkText": "5d-agency.com"
-    },
-    {
-      "id": "dda",
-      "title": "DDA",
-      "description": "App development, Linux hosting.",
-      "link": "https://www.ddaadvertising.net/",
-      "linkText": "ddaadvertising.net"
-    },
-    {
-      "id": "oig-os",
-      "title": "OIG OS",
-      "description": "Linux based imbedded system for satellite TV channel receivers."
-    },
-    {
-      "id": "qreo",
-      "title": "QREO",
-      "description": "Desktop & Web apps, Scientific research."
+      "linkText": "5d-agency.com",
+      "hidden": true
     }
   ]
 }

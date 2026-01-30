@@ -1,0 +1,18 @@
+[    {
+      "id": "dda",
+      "title": "DDA",
+      "description": "App development, Linux hosting.",
+      "link": "https://www.ddaadvertising.net/",
+      "linkText": "ddaadvertising.net"
+    },
+    {
+      "id": "oig-os",
+      "title": "OIG OS",
+      "description": "Linux based imbedded system for satellite TV channel receivers."
+    },
+    {
+      "id": "qreo",
+      "title": "QREO",
+      "description": "Desktop & Web apps, Scientific research."
+    }
+]
