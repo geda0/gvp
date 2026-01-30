@@ -1,0 +1,107 @@
+{
+  "playground": [
+    {
+      "id": "monday-rover",
+      "title": "Monday Rover (Raspberry Pi)",
+      "image": "rpi.jpg",
+      "imageAlt": "raspberry pi",
+      "link": "https://www.youtube.com/shorts/WZMmlTcG3n8/",
+      "linkText": "mdayrover.marwanelgendy.link"
+    },
+    {
+      "id": "gvp",
+      "title": "Generative Video Platform",
+      "image": "gvp.png",
+      "imageAlt": "GVP",
+      "link": "https://gvp-tv.marwanelgendy.link/",
+      "linkText": "gvp.marwanelgendy.link"
+    }
+  ],
+  "portfolio": [
+    {
+      "id": "apptio",
+      "title": "Apptio (an IBM company)",
+      "description": ".",
+      "image": "ibm.jpeg",
+      "imageAlt": "Apptio (IBM)",
+      "link": "https://apptio.com/",
+      "linkText": "Apptio.com"
+    },
+    {
+      "id": "jumpcloud",
+      "title": "Jumpcloud",
+      "description": "A cloud-based directory service that allows users to manage their devices and applications.",
+      "image": "jc.png",
+      "imageAlt": "Jumpcloud",
+      "link": "https://jumpcloud.com/",
+      "linkText": "jumpcloud.com"
+    },
+    {
+      "id": "instant-ink",
+      "title": "Instant Ink (HP)",
+      "description": "A subscription service that allows users to print documents without having to worry about ink.",
+      "image": "ii.png",
+      "imageAlt": "Instant Ink",
+      "link": "https://instantink.hpconnected.com/",
+      "linkText": "instantink.com"
+    },
+    {
+      "id": "att",
+      "title": "AT&T",
+      "description": "I built TQL: ticketing query language, a SQL-like syntax based language to query tickets.",
+      "image": "att.png",
+      "imageAlt": "AT&T"
+    },
+    {
+      "id": "miu",
+      "title": "Master's in Computer Science",
+      "description": "Machine Learning, Data Science, SDLC.",
+      "image": "mumf.jpeg",
+      "imageAlt": "MIU",
+      "link": "https://www.miu.edu/",
+      "linkText": "miu.edu"
+    },
+    {
+      "id": "sunrise",
+      "title": "Sunrise Resorts & Cruises",
+      "description": "I built Datacenters, Network Infrastructure, VPN, Asset Management Software, Interfaces.",
+      "image": "sr.png",
+      "imageAlt": "Sunrise Resorts",
+      "link": "https://www.sunrise-resorts.com",
+      "linkText": "sunrise-resorts.com"
+    },
+    {
+      "id": "campus-party",
+      "title": "Campus Party Milenio (Spain)",
+      "description": "I got to share unique ideas and collaborate with innovators.",
+      "image": "cp.jpeg",
+      "imageAlt": "Campus Party",
+      "link": "https://www.facebook.com/campuspartymilenio/",
+      "linkText": "facebook.com/campuspartymilenio"
+    },
+    {
+      "id": "5d-agency",
+      "title": "5d-agency (SWI)",
+      "description": "Web based & mobile Games! Augmented Reality, CMS, Joomla, Drupal, Unity 3D, Mobile Apps.",
+      "link": "https://5d-agency.com/",
+      "linkText": "5d-agency.com"
+    },
+    {
+      "id": "dda",
+      "title": "DDA",
+      "description": "App development, Linux hosting.",
+      "link": "https://www.ddaadvertising.net/",
+      "linkText": "ddaadvertising.net"
+    },
+    {
+      "id": "oig-os",
+      "title": "OIG OS",
+      "description": "Linux based imbedded system for satellite TV channel receivers."
+    },
+    {
+      "id": "qreo",
+      "title": "QREO",
+      "description": "Desktop & Web apps, Scientific research."
+    }
+  ]
+}
