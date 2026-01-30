@@ -2,6 +2,7 @@
 
 class SpacemanPosition {
   constructor(spacemanElement, options = {}) {
+    
     this.spaceman = spacemanElement;
     this.container = spacemanElement.closest('#spacemanContainer') || spacemanElement.parentElement;
     this.movable = this.container;
@@ -38,6 +39,10 @@ class SpacemanPosition {
     this.observeResize();
     this.observeContent();
 
+    // Also watch spacemanContainer/spaceman for size changes (bubble typing, fonts)
+    this._spacemanRO = new ResizeObserver(() => this.updatePosition());
+    this._spacemanRO.observe(this.container); // #spacemanContainer
+
     // Initial position
     this.updatePosition();
 
@@ -64,26 +69,31 @@ class SpacemanPosition {
   }
 
   observeContent() {
-    const contentAreas = ['playgroundContent', 'portfolioContent'];
-
     // Class changes
     this._mutationObserver = new MutationObserver(() => {
       this.updatePosition();
     });
+
+    // Named handler for cleanup / transition-triggered reposition
+    this._onContentTransitionEnd = (e) => {
+      if (e.propertyName !== 'transform' && e.propertyName !== 'opacity') return;
+      this.updatePosition();
+    };
 
     // Cache wrapper elements and observe class changes on them
     this._playgroundWrap = document.getElementById('playgroundContent');
     this._portfolioWrap = document.getElementById('portfolioContent');
 
     [this._playgroundWrap, this._portfolioWrap].forEach(el => {
-      if (el) {
-        this._mutationObserver.observe(el, {
-          attributes: true,
-          attributeFilter: ['class']
-        });
-        // listen for transitions on wrappers as well
-        el.addEventListener('transitionend', this._onContentTransitionEnd);
-      }
+      if (!el) return;
+
+      this._mutationObserver.observe(el, {
+        attributes: true,
+        attributeFilter: ['class']
+      });
+
+      // Listen for transitions on wrappers (NOW handler is defined)
+      el.addEventListener('transitionend', this._onContentTransitionEnd);
     });
 
     // Size changes (images, content)
@@ -91,12 +101,6 @@ class SpacemanPosition {
 
     this._projects = document.getElementById('projects');
     this._portfolio = document.getElementById('portfolioProjects');
-
-    // Named handler for cleanup / transition-triggered reposition
-    this._onContentTransitionEnd = (e) => {
-      if (e.propertyName !== 'transform' && e.propertyName !== 'opacity') return;
-      this.updatePosition();
-    };
 
     // Observe and attach transition listeners to inner sections
     if (this._projects) {
@@ -210,7 +214,9 @@ class SpacemanPosition {
   }
 
   getSpacemanSize() {
-    const rect = this.container.getBoundingClientRect();
+    // Measure only the body so "top-right" means astronaut, not bubble+tail
+    const body = this.spaceman?.querySelector('.spaceman-body');
+    const rect = (body || this.container).getBoundingClientRect();
     return {
       width: rect.width || 200,
       height: rect.height || 320
@@ -249,7 +255,7 @@ class SpacemanPosition {
   }
 
   calculateAvoidancePosition(viewport, content, spacemanSize) {
-    const padding = this.options.padding;
+    const padding = this.options.padding; // your existing option (currently 125)
     let x = 0;
     let y = 0;
     let scale = 1;
@@ -264,22 +270,25 @@ class SpacemanPosition {
     // Header height / nav area offset
     const navOffset = 60;
 
+    // IMPORTANT: separate padding types
+    // - dialogPad: how far from the dialog corner we want to sit
+    // - edgePad: how far from the viewport edge we must stay to avoid clipping
+    const dialogPad = Math.min(40, padding); // cap dialog spacing
+    const edgePad = 20;                     // small safe edge inset
+
     // Helper: clamp X/Y so the *center* of the spaceman cluster stays on-screen
     const clampToViewport = (cx, cy, scaled) => {
-      const minX = -(viewport.width / 2) + (scaled.width / 2) + padding;
-      const maxX =  (viewport.width / 2) - (scaled.width / 2) - padding;
+      const minX = -(viewport.width / 2) + (scaled.width / 2) + edgePad;
+      const maxX =  (viewport.width / 2) - (scaled.width / 2) - edgePad;
 
-      const minY = -(viewport.height / 2) + (scaled.height / 2) + padding + navOffset;
-      const maxY =  (viewport.height / 2) - (scaled.height / 2) - padding;
+      const minY = -(viewport.height / 2) + (scaled.height / 2) + edgePad + navOffset;
+      const maxY =  (viewport.height / 2) - (scaled.height / 2) - edgePad;
 
       return {
         x: clamp(cx, minX, maxX),
         y: clamp(cy, minY, maxY)
       };
     };
-
-    // Preferred behavior: anchor near the dialog's top-right corner when possible.
-    // Still allow left-side placement if there's clearly more room on the left.
 
     // Choose base scale per viewport
     if (viewport.isMobile) {
@@ -294,23 +303,26 @@ class SpacemanPosition {
     const spaceRight = viewport.width - content.right;
     const spaceLeft = content.left;
 
-    // Primary: anchor to top-right of content (use safe top for scroll)
-    const cornerScaled = scaled; // use scaled values for primary anchor
-    const targetCenterX = (content.right + padding + (cornerScaled.width / 2)) - (viewport.width / 2);
+    // Primary: anchor to TOP-RIGHT of dialog (use safeTop for scroll)
     const safeTop = Math.max(content.top, 0);
-    const targetCenterY = (safeTop + navOffset + (cornerScaled.height / 2)) - (viewport.height / 2);
 
-    // If there's clearly more room on the left, prefer left-side placement (vertically centered)
-    if (spaceLeft > cornerScaled.width + padding && spaceLeft > spaceRight) {
-      // Place to the left, vertically centered
-      x = (content.left - padding - (cornerScaled.width / 2)) - (viewport.width / 2);
+    const targetCenterX =
+      (content.right + dialogPad + (scaled.width / 2)) - (viewport.width / 2);
+
+    // after (FIX)
+    const targetCenterY =
+      (safeTop + dialogPad + (scaled.height / 2)) - (viewport.height / 2);
+      
+    // If there's clearly more room on the left, prefer left-side placement
+    if (spaceLeft > scaled.width + dialogPad && spaceLeft > spaceRight) {
+      x = (content.left - dialogPad - (scaled.width / 2)) - (viewport.width / 2);
       y = 0;
-      ({ x, y } = clampToViewport(x, y, cornerScaled));
+      ({ x, y } = clampToViewport(x, y, scaled));
       return { x, y, scale };
     }
 
-    // Otherwise use top-right anchor and clamp to viewport to avoid clipping
-    ({ x, y } = clampToViewport(targetCenterX, targetCenterY, cornerScaled));
+    // Otherwise clamp top-right anchor so it never clips offscreen
+    ({ x, y } = clampToViewport(targetCenterX, targetCenterY, scaled));
 
     return { x, y, scale };
   }
@@ -366,6 +378,8 @@ class SpacemanPosition {
     if (this._onEnd) {
       this.movable.removeEventListener('transitionend', this._onEnd);
     }
+
+    if (this._spacemanRO) this._spacemanRO.disconnect();
 
     // Remove content transition listeners
     if (this._onContentTransitionEnd) {
