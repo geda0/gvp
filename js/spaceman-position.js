@@ -1,6 +1,5 @@
-// spaceman-position.js - Definitive positioning controller
-// Keeps spaceman anchored near the dialog’s TOP-RIGHT, clamps fully on-screen,
-// and prevents the *bubble* from ever going under the top nav.
+// spaceman-position.js - Simplified positioning controller
+// Anchors spaceman near dialog TOP-RIGHT, clamps to viewport, respects nav
 
 class SpacemanPosition {
   constructor(spacemanElement, options = {}) {
@@ -11,390 +10,184 @@ class SpacemanPosition {
 
     this.options = {
       minScale: 0.5,
-      maxScale: 1,
-      padding: 125,          // legacy spacing “feel”
+      padding: 40,
+      navHeight: 60,
+      edgePad: 20,
       transitionSpeed: 0.5,
       ...options
     };
 
-    this.currentPosition = { x: 0, y: 0 };
     this.currentScale = 1;
-
+    this._updateT = null;
     this._cleanupTimer = null;
     this._onEnd = null;
-    this._updateT = null;
-
-    this._settleKey = null;
-    this._settleT1 = null;
-    this._settleT2 = null;
-    this._settleT3 = null;
-
-    this._contentRO = null;
-    this._spacemanRO = null;
-    this._mutationObserver = null;
-
-    this._onContentTransitionEnd = null;
-    this._projects = null;
-    this._portfolio = null;
-    this._playgroundWrap = null;
-    this._portfolioWrap = null;
 
     this.init();
   }
 
   init() {
-    // CSS handles transition; we just update vars
-    this.movable.style.willChange = 'transform';
+    this._bindObservers();
 
-    this.observeResize();
-    this.observeContent();
-
-    // Bubble typing + fonts can change spaceman size → reposition
-    this._spacemanRO = new ResizeObserver(() => this.updatePosition());
-    this._spacemanRO.observe(this.container);
-
-    // Initial position
+    // Initial + post-paint
     this.updatePosition();
-
-    // Post-layout settle (first paint)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => this.updatePosition());
     });
 
-    // After all assets load
+    // After assets/fonts
     window.addEventListener('load', () => this.updatePosition(), { once: true });
-
-    // After fonts load (text reflow changes dialog layout)
-    if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(() => this.updatePosition());
-    }
+    document.fonts?.ready?.then(() => this.updatePosition());
   }
 
-  observeResize() {
-    let resizeTimeout;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => this.updatePosition(), 100);
-    });
-  }
+  _bindObservers() {
+    const contentEls = [
+      document.getElementById('playgroundContent'),
+      document.getElementById('portfolioContent'),
+      document.getElementById('projects'),
+      document.getElementById('portfolioProjects')
+    ].filter(Boolean);
 
-  observeContent() {
-    // Cache elements
-    this._playgroundWrap = document.getElementById('playgroundContent');
-    this._portfolioWrap = document.getElementById('portfolioContent');
-    this._projects = document.getElementById('projects');
-    this._portfolio = document.getElementById('portfolioProjects');
-
-    // Class changes (open/close) -> reposition
-    this._mutationObserver = new MutationObserver(() => {
-      this.updatePosition();
+    // Class changes -> reposition
+    this._mutationObs = new MutationObserver(() => this.updatePosition());
+    contentEls.slice(0, 2).forEach(el => {
+      this._mutationObs.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
 
-    [this._playgroundWrap, this._portfolioWrap].forEach(el => {
-      if (!el) return;
-      this._mutationObserver.observe(el, {
-        attributes: true,
-        attributeFilter: ['class']
-      });
-    });
+    // Size changes -> reposition
+    this._resizeObs = new ResizeObserver(() => this.updatePosition());
+    contentEls.forEach(el => this._resizeObs.observe(el));
+    this._resizeObs.observe(this.container);
 
-    // Transition end (content anim finishes) -> final reposition
-    this._onContentTransitionEnd = (e) => {
-      if (e.propertyName !== 'transform' && e.propertyName !== 'opacity') return;
-      this.updatePosition();
+    // Transition end -> reposition
+    this._onTransitionEnd = (e) => {
+      if (e.propertyName === 'transform' || e.propertyName === 'opacity') {
+        this.updatePosition();
+      }
     };
+    contentEls.forEach(el => el.addEventListener('transitionend', this._onTransitionEnd));
+    this._contentEls = contentEls;
 
-    [this._playgroundWrap, this._portfolioWrap, this._projects, this._portfolio].forEach(el => {
-      if (!el) return;
-      el.addEventListener('transitionend', this._onContentTransitionEnd);
-    });
-
-    // Size changes (images, dynamic content) -> reposition
-    this._contentRO = new ResizeObserver(() => this.updatePosition());
-    [this._playgroundWrap, this._portfolioWrap, this._projects, this._portfolio].forEach(el => {
-      if (el) this._contentRO.observe(el);
+    // Window resize
+    let resizeT;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeT);
+      resizeT = setTimeout(() => this.updatePosition(), 100);
     });
   }
 
   updatePosition() {
     clearTimeout(this._updateT);
-    this._updateT = setTimeout(() => this._updatePositionNow(), 80);
+    this._updateT = setTimeout(() => this._update(), 50);
   }
 
-  _updatePositionNow() {
-    const viewport = this.getViewport();
-    const visible = this.getVisibleContent();
-    const content = visible ? visible.rect : null;
+  _update() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isMobile = vw < 768;
+    const isTablet = vw >= 768 && vw < 1024;
 
-    // Toggle z-index class
+    const content = this._getVisibleContent();
     document.body.classList.toggle('content-open', !!content);
 
-    let targetX = 0;
-    let targetY = 0;
-    let targetScale = 1;
+    let x = 0, y = 0, scale = 1;
 
     if (content) {
-      // Schedule a single settle pass per “open”
-      if (visible && visible.wrapper) {
-        const key = visible.wrapper.id || 'content';
-        if (this._settleKey !== key) {
-          this._settleKey = key;
-          this.scheduleFinalReposition(visible.wrapper);
-          this.settleReposition();
-        }
-      } else {
-        this._settleKey = null;
-      }
-
-      const spacemanSize = this.getSpacemanSize(); // astronaut-ish size
-      const pos = this.calculateAvoidancePosition(viewport, content, spacemanSize);
-      targetX = pos.x;
-      targetY = pos.y;
-      targetScale = pos.scale;
+      scale = isMobile ? this.options.minScale : isTablet ? 0.75 : 1;
+      const pos = this._calcPosition(vw, vh, content, scale);
+      x = pos.x;
+      y = pos.y;
     } else {
-      this._settleKey = null;
-      // Home state
-      targetX = 0;
-      targetY = 0;
-      if (viewport.isMobile) targetScale = viewport.width < 480 ? 0.55 : 0.7;
-      else if (viewport.isTablet) targetScale = 0.85;
-      else targetScale = 1;
+      // Home: centered
+      scale = isMobile ? (vw < 480 ? 0.55 : 0.7) : isTablet ? 0.85 : 1;
     }
 
-    this.moveTo(targetX, targetY, targetScale);
+    this._moveTo(x, y, scale);
   }
 
-  getViewport() {
-    return {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      isMobile: window.innerWidth < 768,
-      isTablet: window.innerWidth >= 768 && window.innerWidth < 1024
-    };
-  }
-
-  getVisibleContent() {
-    const playgroundWrap = document.getElementById('playgroundContent');
-    const portfolioWrap = document.getElementById('portfolioContent');
-
-    const isActuallyVisible = (el) => {
-      if (!el) return false;
-      if (el.classList.contains('hidden')) return false;
-      if (el.classList.contains('section-invisible')) return false;
-      const rect = el.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0;
-    };
-
-    const isVisible = (el) =>
-      el && (el.classList.contains('visible') || isActuallyVisible(el));
-
-    if (isVisible(playgroundWrap)) {
-      const section = document.getElementById('projects') || playgroundWrap;
+  _getVisibleContent() {
+    const check = (wrapperId, sectionId) => {
+      const wrapper = document.getElementById(wrapperId);
+      if (!wrapper) return null;
+      if (wrapper.classList.contains('hidden') || wrapper.classList.contains('section-invisible')) return null;
+      if (!wrapper.classList.contains('visible')) {
+        const r = wrapper.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return null;
+      }
+      const section = document.getElementById(sectionId) || wrapper;
       const rect = section.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) return { rect, wrapper: playgroundWrap };
-    }
+      return (rect.width > 0 && rect.height > 0) ? rect : null;
+    };
 
-    if (isVisible(portfolioWrap)) {
-      const section = document.getElementById('portfolioProjects') || portfolioWrap;
-      const rect = section.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) return { rect, wrapper: portfolioWrap };
-    }
-
-    return null;
+    return check('playgroundContent', 'projects') || check('portfolioContent', 'portfolioProjects');
   }
 
-  getSpacemanSize() {
-    // Use body for anchoring “top-right” feel (astronaut), not bubble tail
-    const body = this.spaceman?.querySelector('.spaceman-body');
-    const rect = (body || this.spaceman || this.container).getBoundingClientRect();
-    return {
-      width: rect.width || 200,
-      height: rect.height || 320
-    };
-  }
+  _calcPosition(vw, vh, content, scale) {
+    const { padding, navHeight, edgePad } = this.options;
 
-  // Schedule a final reposition after layout/transition settles for `el`.
-  scheduleFinalReposition(el) {
-    if (!el) return;
+    // Get full container size (includes bubble), unscale to base
+    const rect = this.container.getBoundingClientRect();
+    const baseW = (rect.width / (this.currentScale || 1)) || 200;
+    const baseH = (rect.height / (this.currentScale || 1)) || 320;
+    const w = baseW * scale;
+    const h = baseH * scale;
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => this.updatePosition());
-    });
+    // Clamp bounds
+    const minX = -vw/2 + w/2 + edgePad;
+    const maxX = vw/2 - w/2 - edgePad;
+    const minY = -vh/2 + h/2 + edgePad + navHeight;
+    const maxY = vh/2 - h/2 - edgePad;
 
-    const handler = (e) => {
-      if (e.propertyName !== 'transform' && e.propertyName !== 'opacity') return;
-      this.updatePosition();
-      el.removeEventListener('transitionend', handler);
-    };
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-    el.addEventListener('transitionend', handler);
-  }
-
-  // Catch late layout shifts (images, fonts, transitions)
-  settleReposition() {
-    clearTimeout(this._settleT1);
-    clearTimeout(this._settleT2);
-    clearTimeout(this._settleT3);
-
-    this.updatePosition();
-    this._settleT1 = setTimeout(() => this.updatePosition(), 80);
-    this._settleT2 = setTimeout(() => this.updatePosition(), 180);
-    this._settleT3 = setTimeout(() => this.updatePosition(), 320);
-  }
-
-  calculateAvoidancePosition(viewport, content, spacemanSize) {
-    const padding = this.options.padding;
-    let x = 0;
-    let y = 0;
-    let scale = 1;
-
-    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-
-    // Nav safe zone
-    const navOffset = 60;         // your header height estimate
-    const NAV_SAFE_MARGIN = 16;   // extra breathing room so bubble never touches nav
-
-    // Spacing:
-    // - dialogPad: how far from dialog corner we *prefer*
-    // - edgePad: how far from viewport edges we *must* stay (anti-clipping)
-    const dialogPad = Math.min(40, padding);
-    const edgePad = 20;
-
-    // Choose base scale per viewport
-    if (viewport.isMobile) scale = this.options.minScale;
-    else if (viewport.isTablet) scale = 0.75;
-    else scale = 1;
-
-    // "Anchor sizing" (astronaut-ish) for placing near top-right
-    const anchorScaled = {
-      width: spacemanSize.width * scale,
-      height: spacemanSize.height * scale
-    };
-
-    // "Visual sizing" (bubble included) for clamping so bubble never goes under nav
-    // container.getBoundingClientRect is scaled by current transform; unscale back to base
-    const fullRect = this.container.getBoundingClientRect();
-    const unscale = this.currentScale || 1;
-
-    const visualBase = {
-      width: (fullRect.width / unscale) || spacemanSize.width,
-      height: (fullRect.height / unscale) || spacemanSize.height
-    };
-
-    const visualScaled = {
-      width: visualBase.width * scale,
-      height: visualBase.height * scale
-    };
-
-    const clampToViewport = (cx, cy) => {
-      const minX = -(viewport.width / 2) + (visualScaled.width / 2) + edgePad;
-      const maxX =  (viewport.width / 2) - (visualScaled.width / 2) - edgePad;
-
-      const minY =
-        -(viewport.height / 2) +
-        (visualScaled.height / 2) +
-        edgePad +
-        navOffset +
-        NAV_SAFE_MARGIN;
-
-      const maxY = (viewport.height / 2) - (visualScaled.height / 2) - edgePad;
-
-      return {
-        x: clamp(cx, minX, maxX),
-        y: clamp(cy, minY, maxY)
-      };
-    };
-
-    const spaceRight = viewport.width - content.right;
-    const spaceLeft = content.left;
-
-    // TOP-RIGHT anchor target (use safeTop for scroll)
+    // Target: top-right of content
     const safeTop = Math.max(content.top, 0);
+    let x = (content.right + padding + w/2) - vw/2;
+    let y = (safeTop + padding + h/2) - vh/2;
 
-    const targetCenterX =
-      (content.right + dialogPad + (anchorScaled.width / 2)) - (viewport.width / 2);
-
-    const targetCenterY =
-      (safeTop + dialogPad + (anchorScaled.height / 2)) - (viewport.height / 2);
-
-    // If left has clearly more room, go left-center (still clamp for nav)
-    if (spaceLeft > anchorScaled.width + dialogPad && spaceLeft > spaceRight) {
-      const leftX =
-        (content.left - dialogPad - (anchorScaled.width / 2)) - (viewport.width / 2);
-      const leftY = 0;
-
-      ({ x, y } = clampToViewport(leftX, leftY));
-      return { x, y, scale };
+    // If more space on left, go left instead
+    if (content.left > vw - content.right && content.left > w + padding) {
+      x = (content.left - padding - w/2) - vw/2;
+      y = 0;
     }
 
-    // Default: top-right anchor, but clamp using full visual size (bubble-safe)
-    ({ x, y } = clampToViewport(targetCenterX, targetCenterY));
-    return { x, y, scale };
+    return { x: clamp(x, minX, maxX), y: clamp(y, minY, maxY) };
   }
 
-  moveTo(x, y, scale) {
-    if (this._cleanupTimer) clearTimeout(this._cleanupTimer);
-
+  _moveTo(x, y, scale) {
+    clearTimeout(this._cleanupTimer);
     this.movable.classList.add('moving', 'thrust');
 
-    // Disable wobble when content is open (prevents “jitter” near dialog)
-    const allowWobble = !document.body.classList.contains('content-open');
-    const wobbleX = allowWobble ? (Math.random() - 0.5) * 5 : 0;
-    const wobbleY = allowWobble ? (Math.random() - 0.5) * 5 : 0;
+    // No wobble when content open
+    const wobble = document.body.classList.contains('content-open') ? 0 : (Math.random() - 0.5) * 5;
 
-    // Force reflow to ensure transition is applied
-    void this.movable.offsetWidth;
-
-    this.movable.style.setProperty('--sx', `${x + wobbleX}px`);
-    this.movable.style.setProperty('--sy', `${y + wobbleY}px`);
+    this.movable.style.setProperty('--sx', `${x + wobble}px`);
+    this.movable.style.setProperty('--sy', `${y + wobble}px`);
     this.movable.style.setProperty('--ss', `${scale}`);
-
-    this.currentPosition = { x, y };
     this.currentScale = scale;
 
-    const onEnd = (e) => {
-      if (e.propertyName !== 'transform') return;
+    const cleanup = () => {
       this.movable.classList.remove('thrust', 'moving');
       this.movable.removeEventListener('transitionend', onEnd);
     };
 
-    if (this._onEnd) {
-      this.movable.removeEventListener('transitionend', this._onEnd);
-    }
+    const onEnd = (e) => {
+      if (e.propertyName === 'transform') cleanup();
+    };
+
+    if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._onEnd = onEnd;
     this.movable.addEventListener('transitionend', onEnd);
 
-    this._cleanupTimer = setTimeout(() => {
-      this.movable.classList.remove('thrust', 'moving');
-      this.movable.removeEventListener('transitionend', onEnd);
-    }, (this.options.transitionSpeed * 1000) + 50);
-  }
-
-  setPosition(x, y, scale = 1) {
-    this.moveTo(x, y, scale);
+    this._cleanupTimer = setTimeout(cleanup, this.options.transitionSpeed * 1000 + 50);
   }
 
   destroy() {
-    clearTimeout(this._cleanupTimer);
     clearTimeout(this._updateT);
-    clearTimeout(this._settleT1);
-    clearTimeout(this._settleT2);
-    clearTimeout(this._settleT3);
-
-    if (this._onEnd) {
-      this.movable.removeEventListener('transitionend', this._onEnd);
-    }
-
-    if (this._spacemanRO) this._spacemanRO.disconnect();
-
-    if (this._onContentTransitionEnd) {
-      [this._playgroundWrap, this._portfolioWrap, this._projects, this._portfolio].forEach(el => {
-        if (el) el.removeEventListener('transitionend', this._onContentTransitionEnd);
-      });
-    }
-
-    if (this._contentRO) this._contentRO.disconnect();
-    if (this._mutationObserver) this._mutationObserver.disconnect();
+    clearTimeout(this._cleanupTimer);
+    if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
+    this._mutationObs?.disconnect();
+    this._resizeObs?.disconnect();
+    this._contentEls?.forEach(el => el.removeEventListener('transitionend', this._onTransitionEnd));
   }
 }
 
