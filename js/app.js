@@ -4,9 +4,11 @@ import { initNavigation } from './navigation.js';
 import { initStarfield } from './starfield.js';
 import { loadProjects, renderProjects } from './projects.js';
 import { initSpaceman } from './spaceman.js';
+import { initSpacemanPosition } from './spaceman-position.js';
 
 // Global spaceman reference for navigation hooks
 let spaceman = null;
+let spacemanPosition = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize modules in order
@@ -16,11 +18,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize spaceman (replaces hero text)
   spaceman = initSpaceman('spacemanContainer', '/data/spaceman.json');
 
+  // Wait for spaceman to render, then init positioning
+  setTimeout(() => {
+    const spacemanEl = document.getElementById('spaceman');
+    if (spacemanEl) {
+      spacemanPosition = initSpacemanPosition(spacemanEl);
+    }
+  }, 100);
+
   // Initialize navigation with spaceman hook
   initNavigation({
     onStateChange: (state) => {
       if (spaceman) {
         spaceman.setState(state);
+      }
+      // Position update is debounced internally - no need for extra timeout
+      if (spacemanPosition) {
+        spacemanPosition.updatePosition();
       }
     }
   });
@@ -31,4 +45,4 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderProjects('portfolioContent', data.portfolio);
 });
 
-export { spaceman };
+export { spaceman, spacemanPosition };

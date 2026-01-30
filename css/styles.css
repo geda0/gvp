@@ -71,6 +71,8 @@ h3 {
     border-radius: 20px;
     box-shadow: -8px 8px 8px rgba(0, 0, 0, 0.5), 8px 8px 5px rgba(0, 0, 0, 0.4);
     max-width: 323px;
+    position: relative;
+    z-index: 101;
 }
 
 .project:hover {
@@ -197,6 +199,8 @@ canvas {
 section#projects,
 section#portfolioProjects {
     margin-top: 269px;
+    position: relative;
+    z-index: 100;
 }
 
 .section-invisible {

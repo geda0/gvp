@@ -9,6 +9,8 @@ class Spaceman {
     this.typingTimeout = null;
     this.messageTimeout = null;
     this.idleTimer = null;
+    this.blinkTimer = null;
+    this.waveTimer = null;
 
     this.init(dataUrl);
   }
@@ -25,6 +27,7 @@ class Spaceman {
 
     this.render();
     this.bindEvents();
+    this.startIdleAnimations();
     this.startMessageCycle();
   }
 
@@ -189,6 +192,44 @@ class Spaceman {
     }
   }
 
+  startIdleAnimations() {
+    // Random blink every 3-6 seconds
+    const scheduleBlink = () => {
+      const delay = 3000 + Math.random() * 3000;
+      this.blinkTimer = setTimeout(() => {
+        this.triggerBlink();
+        scheduleBlink();
+      }, delay);
+    };
+    scheduleBlink();
+
+    // Random wave every 20-40 seconds (only in idle state)
+    const scheduleWave = () => {
+      const delay = 20000 + Math.random() * 20000;
+      this.waveTimer = setTimeout(() => {
+        if (this.state === 'idle') {
+          this.triggerWave();
+        }
+        scheduleWave();
+      }, delay);
+    };
+    scheduleWave();
+  }
+
+  triggerBlink() {
+    const eyes = this.elements.spaceman.querySelectorAll('.eye');
+    eyes.forEach(eye => {
+      eye.classList.add('blink');
+      setTimeout(() => eye.classList.remove('blink'), 150);
+    });
+  }
+
+  triggerWave() {
+    const spaceman = this.elements.spaceman;
+    spaceman.classList.add('wave');
+    setTimeout(() => spaceman.classList.remove('wave'), 1500);
+  }
+
   getDefaultData() {
     return {
       states: {
@@ -205,6 +246,8 @@ class Spaceman {
     clearTimeout(this.typingTimeout);
     clearTimeout(this.messageTimeout);
     clearTimeout(this.idleTimer);
+    clearTimeout(this.blinkTimer);
+    clearTimeout(this.waveTimer);
     this.container.innerHTML = '';
   }
 }

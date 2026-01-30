@@ -412,17 +412,100 @@
   100% { transform: scaleY(1.5) scaleX(0.95); }
 }
 
+/* ===== RESTORED ANIMATIONS ===== */
 
+/* Blink */
+.eye.blink {
+  animation: blinkEye 0.15s ease-in-out;
+}
 
-/* ===== RESPONSIVE ===== */
+@keyframes blinkEye {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.1); }
+}
+
+/* Wave */
+.spaceman.wave .right-arm {
+  animation: waveHello 0.5s ease-in-out 3;
+}
+
+@keyframes waveHello {
+  0%, 100% { transform: rotate(10deg); }
+  50% { transform: rotate(-45deg); }
+}
+
+/* ===== SPACEMAN POSITIONING & MOVEMENT ===== */
+
+#spacemanContainer {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  /* CSS always centers; JS only changes variables */
+  transform: translate(-50%, -50%)
+             translate(var(--sx, 0px), var(--sy, 0px))
+             scale(var(--ss, 1));
+  z-index: 50;
+  pointer-events: none;
+  transition: transform 0.5s ease-out;
+  will-change: transform;
+}
+
+#spacemanContainer .spaceman {
+  pointer-events: auto;  /* But spaceman itself is clickable */
+}
+
+/* Movement state - boost flames */
+.spaceman.thrust .flame {
+  height: 50px;
+}
+
+.spaceman.thrust .flame-inner {
+  animation: thrustFlame 0.1s ease-in-out infinite alternate;
+}
+
+@keyframes thrustFlame {
+  0% { transform: scaleY(1.3) scaleX(1); }
+  100% { transform: scaleY(1.6) scaleX(0.85); }
+}
+
+/* Moving state - slight tilt */
+.spaceman.moving {
+  animation: moveTilt 0.5s ease-out;
+}
+
+@keyframes moveTilt {
+  0% { filter: none; }
+  50% { filter: drop-shadow(0 0 20px rgba(251, 146, 60, 0.5)); }
+  100% { filter: none; }
+}
+
+/* ===== Z-INDEX MANAGEMENT ===== */
+
+/* Lower spaceman when content is open to allow clicking content */
+body.content-open #spacemanContainer {
+  z-index: 10;
+}
+
+/* ===== RESPONSIVE SCALING ===== */
+
+/* Mobile - smaller by default */
 @media (max-width: 767px) {
-  .spaceman-body {
-    transform: scale(0.8);
+  .thought-bubble {
+    max-width: 200px;
+    padding: 12px 16px;
+    font-size: 12px;
   }
 
+  .spaceman-body {
+    transform: scale(0.85);
+  }
+}
+
+/* Very small screens */
+@media (max-width: 480px) {
   .thought-bubble {
-    max-width: 220px;
-    padding: 12px 16px;
-    font-size: 13px;
+    max-width: 160px;
+    padding: 10px 12px;
+    font-size: 11px;
   }
 }

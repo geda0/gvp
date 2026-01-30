@@ -32,20 +32,24 @@
     <main>
         <canvas id="canvas"></canvas>
         <div id="light"></div>
+
+        <!-- Spaceman is now fixed position, separate from content flow -->
+        <div id="spacemanContainer"></div>
+
         <div id="contentWrapper">
             <div id="load">
                 <section id="home" class="scale-in">
-                    <div id="spacemanContainer">
-                        <!-- Spaceman renders here dynamically -->
-                    </div>
+                    <!-- Spaceman container moved outside -->
                 </section>
                 <div id="playgroundContent" class="hidden">
                     <section id="projects" class="hidden section-invisible scale-in">
+                        <h3>Playground</h3>
                         <!-- Projects rendered dynamically -->
                     </section>
                 </div>
                 <div id="portfolioContent" class="hidden">
                     <section id="portfolioProjects" class="hidden section-invisible scale-in">
+                        <h2> .Portfolio </h2>
                         <!-- Projects rendered dynamically -->
                     </section>
                 </div>
