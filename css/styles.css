@@ -19,12 +19,12 @@
 
 [data-theme="garden"] {
     --bg-primary: linear-gradient(180deg, #87ceeb 0%, #b8e0b8 50%, #6b8e6b 100%);
-    --text-primary: #1a2f1a;
+    --text-primary: #0b1a0b;
     --nav-bg: rgba(60, 90, 60, 0.92);
     --nav-inner-bg: rgba(45, 75, 45, 0.95);
     --footer-bg: rgba(45, 70, 45, 0.95);
-    --link-color: #2d5a2d;
-    --link-visited: #3d6b3d;
+    --link-color: #001000;
+    --link-visited: #121f12;
     --link-hover: #1e4d1e;
     --navbar-bg: rgba(55, 85, 55, 0.85);
     --navbar-link: #e8f0e8;
