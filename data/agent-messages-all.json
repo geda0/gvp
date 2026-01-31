@@ -2,7 +2,7 @@
   "reactions": {
     "hover": ["Oh, hello there! 👀"],
     "click": ["Wheee! *jetpack boost*", "Wheee! *floating up*"],
-    "longIdle": ["Still here... floating in space... 🌌", "Still here... enjoying the garden... 🌿"]
+    "longIdle": ["Still here... floating in space... 🌌", "Still here... enjoying the space... 🌿"]
   },
   "stateMessages": {
     "space": {
@@ -112,7 +112,7 @@
     "Wheee! *jetpack boost*",
     "Wheee! *floating up*",
     "Still here... floating in space... 🌌",
-    "Still here... enjoying the garden... 🌿",
+    "Still here... enjoying the space... 🌿",
     "Hello! Welcome to my space! 👋",
     "I'm Marwan's digital companion.",
     "Click around to explore!",
