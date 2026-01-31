@@ -31,6 +31,7 @@ class Spaceman {
 
     this.state = 'idle';
     this.messageIndex = 0;
+    this._firstMessageShown = false;
     this.data = null;
     this.resume = null;
     this.context = null;
@@ -121,7 +122,21 @@ class Spaceman {
     return short ? `That's ${this.context.projectTitle} — ${short}…` : `That's ${this.context.projectTitle}.`;
   }
 
+  _getWelcomeMessage() {
+    const { states } = this._getThemeData();
+    const theme = getTheme();
+    const idleMessages = states?.idle?.messages ?? states?.home?.messages ?? [];
+    const welcomeMsg = idleMessages.find(m => /welcome\s+to\s+my\s+(world|space|garden)/i.test(m));
+    if (welcomeMsg) return welcomeMsg;
+    if (theme === 'garden') return 'Welcome to my garden!';
+    return 'Welcome to my space!';
+  }
+
   _getNextMessage() {
+    if (!this._firstMessageShown) {
+      const welcome = this._getWelcomeMessage();
+      return { message: welcome, fromMergedArray: false };
+    }
     const messages = this._getMergedMessages(this.state);
     if (!messages.length) return { message: null, fromMergedArray: false };
     const useProject =
@@ -138,6 +153,7 @@ class Spaceman {
     this._clearTimer('typing');
     this._clearTimer('message');
     this.messageIndex = 0;
+    this._firstMessageShown = false;
     this._startMessageCycle();
   }
 
@@ -239,6 +255,7 @@ class Spaceman {
 
     this.state = newState;
     this.messageIndex = 0;
+    this._firstMessageShown = false;
 
     this._clearTimer('typing');
     this._clearTimer('message');
@@ -257,11 +274,11 @@ class Spaceman {
     const { states } = this._getThemeData();
     const stateData = states?.[this.state];
     const messages = this._getMergedMessages(this.state);
-    if (!messages.length) return;
 
     const { message, fromMergedArray } = this._getNextMessage();
     if (!message) return;
 
+    this._firstMessageShown = true;
     const speed = stateData?.typingSpeed || DEFAULTS.typingSpeed;
     const delay = stateData?.messageDelay || DEFAULTS.messageDelay;
 
