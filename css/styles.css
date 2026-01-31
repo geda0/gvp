@@ -47,6 +47,18 @@
     display: block;
 }
 
+/* Ocean on the horizon */
+.garden-ocean {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 18vh;
+    height: 4vh;
+    background: linear-gradient(180deg, #4a9bd9 0%, #2e75a8 40%, #1e547a 100%);
+    z-index: 0;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
+}
+
 /* Garden ground band */
 .garden-ground {
     position: absolute;
