@@ -147,6 +147,7 @@ body {
 [data-theme="garden"] body {
     background: var(--bg-primary);
     background-color: transparent;
+    background-attachment: fixed;
 }
 
 #light {
