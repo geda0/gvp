@@ -447,6 +447,7 @@
   transform: translate(-50%, -50%)
              translate(var(--sx, 0px), var(--sy, 0px))
              scale(var(--ss, 1));
+  transform-origin: center center;
   z-index: 50;
   pointer-events: none;
   transition: transform 0.5s ease-out;
@@ -491,7 +492,7 @@ body.content-open #spacemanContainer {
 
 /* ===== RESPONSIVE SCALING ===== */
 
-/* Mobile */
+/* Mobile: single scale from JS (--ss) - no extra body scale to avoid double scaling and misaligned bounds */
 @media (max-width: 767px) {
   .thought-bubble {
     max-width: 180px;
@@ -499,9 +500,15 @@ body.content-open #spacemanContainer {
     font-size: 12px;
   }
 
-  .spaceman-body {
-    transform: scale(0.9);
+  /* Gentler float so movement stays within safe area on small screens */
+  .spaceman {
+    animation: floatMobile 4s ease-in-out infinite;
   }
+}
+
+@keyframes floatMobile {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
 }
 
 /* Small mobile */
@@ -512,9 +519,13 @@ body.content-open #spacemanContainer {
     font-size: 11px;
   }
 
-  .spaceman-body {
-    transform: scale(0.8);
+  .thought-tail {
+    margin-left: -32px;
   }
+
+  .dot-1 { margin-left: 24px; }
+  .dot-2 { margin-left: 14px; }
+  .dot-3 { margin-left: 4px; }
 }
 
 /* Touch devices - disable hover effects */

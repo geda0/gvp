@@ -92,18 +92,35 @@ class SpacemanPosition {
     let x = 0, y = 0, scale = 1;
 
     if (content) {
-      // Content open: position near content
+      // Content open: position near content (above content on mobile)
       scale = isMobile ? 0.6 : isTablet ? 0.75 : 1;
       const pos = this._calcPosition(vw, vh, content, scale, isMobile);
       x = pos.x;
       y = pos.y;
     } else {
-      // Home: centered, slightly above on mobile
+      // Home: centered, slightly above on mobile, clamped to safe bounds
       scale = isMobile ? (vw < 480 ? 0.65 : 0.75) : isTablet ? 0.85 : 1;
-      y = isMobile ? -30 : 0;
+      const bounds = this._getBounds(vw, vh, scale);
+      const desiredY = isMobile ? -30 : 0;
+      y = Math.max(bounds.minY, Math.min(bounds.maxY, desiredY));
     }
 
     this._moveTo(x, y, scale);
+  }
+
+  _getBounds(vw, vh, scale) {
+    const { edgePad, navHeight } = this.options;
+    const rect = this.container.getBoundingClientRect();
+    const baseW = (rect.width / (this.currentScale || 1)) || 200;
+    const baseH = (rect.height / (this.currentScale || 1)) || 320;
+    const w = baseW * scale;
+    const h = baseH * scale;
+    return {
+      minX: -vw / 2 + w / 2 + edgePad,
+      maxX: vw / 2 - w / 2 - edgePad,
+      minY: -vh / 2 + h / 2 + edgePad + navHeight,
+      maxY: vh / 2 - h / 2 - edgePad
+    };
   }
 
   _getVisibleContent() {
@@ -124,37 +141,26 @@ class SpacemanPosition {
   }
 
   _calcPosition(vw, vh, content, scale, isMobile = false) {
-    const { padding, navHeight, edgePad } = this.options;
+    const { padding } = this.options;
+    const bounds = this._getBounds(vw, vh, scale);
+    const { minX, maxX, minY, maxY } = bounds;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-    // Get full container size (includes bubble), unscale to base
     const rect = this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;
     const w = baseW * scale;
     const h = baseH * scale;
 
-    // Clamp bounds
-    const minX = -vw/2 + w/2 + edgePad;
-    const maxX = vw/2 - w/2 - edgePad;
-    const minY = -vh/2 + h/2 + edgePad + navHeight;
-    const maxY = vh/2 - h/2 - edgePad;
-
-    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-
-    // Mobile: position at top center above content
-    if (isMobile) {
-      return { x: 0, y: clamp(minY, minY, maxY) };
-    }
-
-    // Desktop/tablet: position near content edge
+    // Same as desktop: beside content (right or left), vertically aligned with content top
     const safeTop = Math.max(content.top, 0);
-    let x = (content.right + padding + w/2) - vw/2;
-    let y = (safeTop + padding + h/2) - vh/2;
+    let x = (content.right + padding + w / 2) - vw / 2;
+    let y = (safeTop + padding + h / 2) - vh / 2;
 
-    // If more space on left, go left instead
+    // If more space on left, place spaceman to the left of content
     if (content.left > vw - content.right && content.left > w + padding) {
-      x = (content.left - padding - w/2) - vw/2;
-      y = 0;
+      x = (content.left - padding - w / 2) - vw / 2;
+      y = (safeTop + padding + h / 2) - vh / 2;
     }
 
     return { x: clamp(x, minX, maxX), y: clamp(y, minY, maxY) };
