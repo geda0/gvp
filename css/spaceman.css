@@ -101,23 +101,48 @@
   animation: blink 0.8s infinite;
 }
 
+/* Tail: connects bubble (bottom-left) to head; dots curve from left toward center */
 .thought-tail {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  margin-left: -50px;
-  margin-top: -2px;
+  margin-top: -6px;
+  margin-left: -36px;
+  margin-bottom: 2px;
 }
 
 .bubble-dot {
   background: var(--spaceman-tail-dot-bg);
   border-radius: 50%;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
 }
 
-.dot-1 { width: 14px; height: 14px; margin-left: 35px; }
-.dot-2 { width: 10px; height: 10px; margin-left: 18px; margin-top: 3px; }
-.dot-3 { width: 6px; height: 6px; margin-left: 5px; margin-top: 3px; }
+[data-theme="garden"] .bubble-dot {
+  box-shadow: 0 2px 8px rgba(30, 50, 30, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* Dots curve from bubble (left) toward head (right): small → larger offset */
+.dot-1 {
+  width: 12px;
+  height: 12px;
+  margin-left: 0;
+  margin-top: 0;
+}
+
+.dot-2 {
+  width: 10px;
+  height: 10px;
+  margin-left: 10px;
+  margin-top: 2px;
+}
+
+.dot-3 {
+  width: 8px;
+  height: 8px;
+  margin-left: 18px;
+  margin-top: 2px;
+}
 
 /* ===== SPACEMAN BODY ===== */
 .spaceman-body {
@@ -738,12 +763,12 @@ body.content-open #spacemanContainer {
   }
 
   .thought-tail {
-    margin-left: -32px;
+    margin-left: -28px;
   }
 
-  .dot-1 { margin-left: 24px; }
-  .dot-2 { margin-left: 14px; }
-  .dot-3 { margin-left: 4px; }
+  .dot-1 { width: 10px; height: 10px; }
+  .dot-2 { width: 8px; height: 8px; margin-left: 8px; }
+  .dot-3 { width: 6px; height: 6px; margin-left: 14px; }
 }
 
 /* Touch devices - disable hover effects */
