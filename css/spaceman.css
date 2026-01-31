@@ -516,3 +516,31 @@ body.content-open #spacemanContainer {
     transform: scale(0.8);
   }
 }
+
+/* Touch devices - disable hover effects */
+@media (hover: none) {
+  .spaceman:hover {
+    transform: none;
+  }
+
+  .spaceman:active {
+    transform: scale(0.95);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .spaceman,
+  .eye,
+  .arm,
+  .leg,
+  .flame-inner,
+  .thought-bubble,
+  #spacemanContainer {
+    animation: none !important;
+  }
+
+  #spacemanContainer {
+    transition: transform 0.1s ease-out;
+  }
+}

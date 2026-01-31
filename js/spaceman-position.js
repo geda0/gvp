@@ -92,13 +92,15 @@ class SpacemanPosition {
     let x = 0, y = 0, scale = 1;
 
     if (content) {
-      scale = isMobile ? this.options.minScale : isTablet ? 0.75 : 1;
-      const pos = this._calcPosition(vw, vh, content, scale);
+      // Content open: position near content
+      scale = isMobile ? 0.6 : isTablet ? 0.75 : 1;
+      const pos = this._calcPosition(vw, vh, content, scale, isMobile);
       x = pos.x;
       y = pos.y;
     } else {
-      // Home: centered
-      scale = isMobile ? (vw < 480 ? 0.55 : 0.7) : isTablet ? 0.85 : 1;
+      // Home: centered, slightly above on mobile
+      scale = isMobile ? (vw < 480 ? 0.65 : 0.75) : isTablet ? 0.85 : 1;
+      y = isMobile ? -30 : 0;
     }
 
     this._moveTo(x, y, scale);
@@ -121,7 +123,7 @@ class SpacemanPosition {
     return check('playgroundContent', 'projects') || check('portfolioContent', 'portfolioProjects');
   }
 
-  _calcPosition(vw, vh, content, scale) {
+  _calcPosition(vw, vh, content, scale, isMobile = false) {
     const { padding, navHeight, edgePad } = this.options;
 
     // Get full container size (includes bubble), unscale to base
@@ -139,7 +141,12 @@ class SpacemanPosition {
 
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-    // Target: top-right of content
+    // Mobile: position at top center above content
+    if (isMobile) {
+      return { x: 0, y: clamp(minY, minY, maxY) };
+    }
+
+    // Desktop/tablet: position near content edge
     const safeTop = Math.max(content.top, 0);
     let x = (content.right + padding + w/2) - vw/2;
     let y = (safeTop + padding + h/2) - vh/2;
