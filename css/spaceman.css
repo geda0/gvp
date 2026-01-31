@@ -121,6 +121,82 @@
   margin-top: 10px;
 }
 
+/* Hero head (garden theme – bare head, hair, domino mask) */
+.hero-head {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 70px;
+  height: 70px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+[data-theme="garden"] .hero-head {
+  display: block;
+}
+
+[data-theme="garden"] .helmet {
+  display: none;
+}
+
+.hero-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #e8c4a0 0%, #d4a574 40%, #c4956a 100%);
+  box-shadow: inset -3px -3px 8px rgba(0, 0, 0, 0.15), inset 3px 3px 8px rgba(255, 255, 255, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.hero-hair {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 78px;
+  height: 42px;
+  background: #2c2416;
+  border-radius: 50% 50% 45% 45% / 60% 60% 40% 40%;
+  clip-path: ellipse(52% 45% at 50% 30%);
+  box-shadow: inset -2px 0 4px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.25);
+  z-index: 0;
+}
+
+.hero-mask {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 20px;
+  background: linear-gradient(180deg, #1a1510 0%, #2c2416 100%);
+  border-radius: 50% 50% 45% 45%;
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.1), 0 2px 4px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+}
+
+.hero-eyes {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+}
+
+.hero-eyes .eye {
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+  animation: eyeGlow 2s ease-in-out infinite alternate;
+}
+
 /* Helmet */
 .helmet {
   width: 80px;
@@ -191,6 +267,13 @@
   z-index: 2;
 }
 
+[data-theme="garden"] .torso {
+  width: 48px;
+  height: 50px;
+  top: 68px;
+  border-radius: 12px 12px 16px 16px;
+}
+
 .chest-panel {
   width: 30px;
   height: 20px;
@@ -225,11 +308,12 @@
 }
 
 [data-theme="garden"] .chest-panel {
-  width: 36px;
-  height: 28px;
+  width: 28px;
+  height: 22px;
   border-radius: 50% 50% 45% 45%;
   border: 2px solid #b45309;
   box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
+  top: 12px;
 }
 
 [data-theme="garden"] .chest-panel .light {
@@ -252,6 +336,13 @@
     0 2px 4px rgba(0, 0, 0, 0.2),
     inset 0 -2px 4px rgba(0, 0, 0, 0.1);
   z-index: 1;
+}
+
+[data-theme="garden"] .arm {
+  width: 22px;
+  height: 12px;
+  top: 82px;
+  border-radius: 5px;
 }
 
 .left-arm {
@@ -362,11 +453,16 @@
 
 [data-theme="garden"] .hero-cape {
   display: block;
+  width: 55px;
+  height: 100px;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 [data-theme="garden"] .hero-cape .cape-cloth {
   background: var(--hero-cape-bg);
-  animation: capeFlow 3s ease-in-out infinite;
+  animation: capeFlow 4s ease-in-out infinite;
 }
 
 [data-theme="garden"] .jetpack .pack,
@@ -378,9 +474,18 @@
   animation: capeBoost 0.6s ease-out;
 }
 
+[data-theme="garden"] .spaceman.wave .hero-cape .cape-cloth {
+  animation: capeWave 0.5s ease-in-out 3;
+}
+
 @keyframes capeFlow {
-  0%, 100% { transform: scaleY(1) scaleX(1) skewX(0deg); }
-  50% { transform: scaleY(1.02) scaleX(1.05) skewX(-2deg); }
+  0%, 100% { transform: scaleY(1) skewX(2deg); }
+  50% { transform: scaleY(1.02) skewX(-3deg); }
+}
+
+@keyframes capeWave {
+  0%, 100% { transform: scaleY(1) skewX(2deg); }
+  50% { transform: scaleY(1.08) skewX(-5deg); }
 }
 
 @keyframes capeBoost {
@@ -409,6 +514,16 @@
   box-shadow:
     inset -2px 0 4px rgba(0, 0, 0, 0.1),
     0 3px 6px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="garden"] .leg {
+  width: 14px;
+  height: 42px;
+  border-radius: 6px 6px 10px 10px;
+}
+
+[data-theme="garden"] .legs {
+  top: 118px;
 }
 
 .left-leg {

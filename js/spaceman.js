@@ -103,6 +103,15 @@ class Spaceman {
           <div class="hero-cape" aria-hidden="true">
             <div class="cape-cloth"></div>
           </div>
+          <div class="hero-head" aria-hidden="true">
+            <div class="hero-face"></div>
+            <div class="hero-hair"></div>
+            <div class="hero-mask"></div>
+            <div class="hero-eyes">
+              <span class="eye left-eye"></span>
+              <span class="eye right-eye"></span>
+            </div>
+          </div>
           <div class="helmet">
             <div class="visor">
               <div class="visor-reflection"></div>

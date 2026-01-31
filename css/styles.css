@@ -47,35 +47,93 @@
     display: block;
 }
 
+/* Garden ground band */
+.garden-ground {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 18vh;
+    min-height: 100px;
+    background: linear-gradient(180deg, #5a8f5a 0%, #3d6b3d 40%, #2d5a2d 100%);
+    z-index: 1;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Trees: trunk + foliage (column-reverse so trunk is at bottom, foliage on top) */
 .garden-scene .tree {
     position: absolute;
     bottom: 0;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    z-index: 2;
+}
+
+.garden-scene .tree-trunk {
+    width: 24px;
+    height: 22vh;
+    min-height: 55px;
+    max-height: 90px;
+    background: linear-gradient(90deg, #5d4037 0%, #6d4c41 50%, #4e342e 100%);
+    border-radius: 2px 2px 0 0;
+    box-shadow: inset 2px 0 4px rgba(0, 0, 0, 0.3), 2px 0 4px rgba(0, 0, 0, 0.2);
+}
+
+.garden-scene .tree-foliage {
     width: 0;
     height: 0;
     border-style: solid;
-    border-color: transparent transparent #2d5a2d transparent;
+    margin-top: -2px;
 }
 
 .garden-scene .tree-left {
     left: -2%;
-    border-width: 0 min(12vw, 90px) min(45vh, 320px) min(12vw, 90px);
-    border-bottom-color: #1e4d1e;
-    opacity: 0.85;
+}
+
+.garden-scene .tree-left .tree-trunk {
+    width: 26px;
+    height: 24vh;
+    background: linear-gradient(90deg, #4e342e 0%, #5d4037 50%, #3e2723 100%);
+}
+
+.garden-scene .tree-left .tree-foliage {
+    border-width: 0 min(12vw, 90px) min(38vh, 260px) min(12vw, 90px);
+    border-color: transparent transparent #1e4d1e transparent;
+    filter: drop-shadow(4px 2px 6px rgba(0, 0, 0, 0.2));
 }
 
 .garden-scene .tree-right {
     right: -2%;
-    border-width: 0 min(11vw, 85px) min(40vh, 280px) min(11vw, 85px);
-    border-bottom-color: #2d5a2d;
-    opacity: 0.9;
+}
+
+.garden-scene .tree-right .tree-trunk {
+    width: 22px;
+    height: 20vh;
+    background: linear-gradient(90deg, #3e2723 0%, #6d4c41 50%, #5d4037 100%);
+}
+
+.garden-scene .tree-right .tree-foliage {
+    border-width: 0 min(11vw, 85px) min(34vh, 230px) min(11vw, 85px);
+    border-color: transparent transparent #2d5a2d transparent;
+    filter: drop-shadow(-4px 2px 6px rgba(0, 0, 0, 0.2));
 }
 
 .garden-scene .tree-center {
     left: 50%;
     transform: translateX(-50%);
-    border-width: 0 min(10vw, 70px) min(35vh, 240px) min(10vw, 70px);
-    border-bottom-color: #256b25;
-    opacity: 0.8;
+}
+
+.garden-scene .tree-center .tree-trunk {
+    width: 20px;
+    height: 18vh;
+    background: linear-gradient(90deg, #5d4037 0%, #4e342e 100%);
+}
+
+.garden-scene .tree-center .tree-foliage {
+    border-width: 0 min(10vw, 70px) min(30vh, 200px) min(10vw, 70px);
+    border-color: transparent transparent #256b25 transparent;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15));
 }
 
 body {
