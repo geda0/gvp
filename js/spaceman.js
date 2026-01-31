@@ -65,6 +65,7 @@ class Spaceman {
   _onThemeChange() {
     this._clearTimer('typing');
     this._clearTimer('message');
+    this.messageIndex = 0;
     this._startMessageCycle();
   }
 
@@ -100,9 +101,14 @@ class Spaceman {
             </div>
           </div>
           <div class="hero-cape" aria-hidden="true">
-            <div class="cape-cloth"></div>
+            <div class="cape-cloth">
+              <div class="cape-panel cape-panel-left"></div>
+              <div class="cape-panel cape-panel-center"></div>
+              <div class="cape-panel cape-panel-right"></div>
+            </div>
           </div>
           <div class="helmet">
+            <div class="hero-hair" aria-hidden="true"></div>
             <div class="visor">
               <div class="visor-reflection"></div>
               <div class="eyes">

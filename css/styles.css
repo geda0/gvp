@@ -34,7 +34,7 @@
     --heading-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-/* Garden scene: trees (only visible in garden theme) */
+/* Garden scene: ground + trees (only visible in garden theme) */
 .garden-scene {
     display: none;
     position: fixed;
@@ -47,35 +47,96 @@
     display: block;
 }
 
+/* Meadow ground */
+.garden-ground {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 38vh;
+    min-height: 180px;
+    background: linear-gradient(
+        180deg,
+        transparent 0%,
+        rgba(80, 120, 60, 0.4) 15%,
+        #4a7c3a 40%,
+        #3d6b2f 70%,
+        #2d4a22 100%
+    );
+    border-radius: 50% 50% 0 0 / 15% 15% 0 0;
+    box-shadow: inset 0 -20px 40px rgba(0, 0, 0, 0.15);
+}
+
+/* Trees: trunk + layered foliage */
 .garden-scene .tree {
     position: absolute;
     bottom: 0;
-    width: 0;
-    height: 0;
-    border-style: solid;
-    border-color: transparent transparent #2d5a2d transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.garden-scene .tree-trunk {
+    width: min(4vw, 28px);
+    height: min(32vh, 200px);
+    background: linear-gradient(90deg, #5c4033, #4a3529, #3d2b22);
+    border-radius: 2px;
+    box-shadow: inset 2px 0 4px rgba(255,255,255,0.08), 2px 0 6px rgba(0,0,0,0.2);
+}
+
+.garden-scene .tree-foliage {
+    position: relative;
+    margin-bottom: min(-2vh, -12px);
+    height: min(18vh, 130px);
+}
+
+.garden-scene .foliage-layer {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 50%;
+    background: radial-gradient(
+        circle at 30% 30%,
+        #5a8c4a,
+        #3d6b32 50%,
+        #2d5a28
+    );
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.garden-scene .foliage-bottom {
+    width: min(14vw, 100px);
+    height: min(10vh, 75px);
+    top: 0;
+}
+
+.garden-scene .foliage-mid {
+    width: min(11vw, 80px);
+    height: min(9vh, 65px);
+    top: min(-4vh, -28px);
+}
+
+.garden-scene .foliage-top {
+    width: min(8vw, 55px);
+    height: min(7vh, 50px);
+    top: min(-8vh, -55px);
 }
 
 .garden-scene .tree-left {
-    left: -2%;
-    border-width: 0 min(12vw, 90px) min(45vh, 320px) min(12vw, 90px);
-    border-bottom-color: #1e4d1e;
-    opacity: 0.85;
+    left: 3%;
+    opacity: 0.9;
 }
 
 .garden-scene .tree-right {
-    right: -2%;
-    border-width: 0 min(11vw, 85px) min(40vh, 280px) min(11vw, 85px);
-    border-bottom-color: #2d5a2d;
-    opacity: 0.9;
+    right: 3%;
+    left: auto;
+    opacity: 0.92;
 }
 
 .garden-scene .tree-center {
     left: 50%;
     transform: translateX(-50%);
-    border-width: 0 min(10vw, 70px) min(35vh, 240px) min(10vw, 70px);
-    border-bottom-color: #256b25;
-    opacity: 0.8;
+    opacity: 0.88;
 }
 
 body {
@@ -372,9 +433,11 @@ section#portfolioProjects {
     margin-right: 8px;
 }
 
-.theme-toggle:hover {
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
     background-color: var(--navbar-link-hover-bg);
     color: var(--navbar-link-hover-color);
+    outline: none;
 }
 
 body {
