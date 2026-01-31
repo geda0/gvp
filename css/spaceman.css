@@ -1,6 +1,51 @@
 /* ===================================
    AI SPACEMAN - CSS-First Animation
+   Theme-aware via CSS variables
    =================================== */
+
+/* Space theme (default) */
+:root,
+[data-theme="space"] {
+  --spaceman-bubble-bg: rgba(255, 255, 255, 0.97);
+  --spaceman-bubble-text: #1a1a1a;
+  --spaceman-bubble-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --spaceman-cursor-color: #6a0dad;
+  --spaceman-tail-dot-bg: rgba(255, 255, 255, 0.95);
+  --spaceman-helmet-bg: linear-gradient(145deg, #e8e8e8, #c4c4c4);
+  --spaceman-helmet-shadow: inset -5px -5px 15px rgba(0, 0, 0, 0.2), inset 5px 5px 15px rgba(255, 255, 255, 0.5), 0 5px 20px rgba(0, 0, 0, 0.3);
+  --spaceman-visor-bg: linear-gradient(135deg, #1a1a3e, #2d2d5e, #1a1a3e);
+  --spaceman-torso-bg: linear-gradient(180deg, #e0e0e0, #b8b8b8);
+  --spaceman-chest-panel-bg: #2a2a2a;
+  --spaceman-arm-bg: linear-gradient(90deg, #d0d0d0, #e0e0e0, #d0d0d0);
+  --spaceman-leg-bg: linear-gradient(180deg, #e0e0e0, #c8c8c8, #b0b0b0);
+  --spaceman-pack-bg: linear-gradient(180deg, #5a5a5a, #3a3a3a, #2a2a2a);
+  --spaceman-pack-nozzle-bg: linear-gradient(180deg, #4a4a4a, #2a2a2a);
+  --spaceman-flame-bg: linear-gradient(180deg, rgba(255, 200, 100, 1) 0%, #fbbf24 15%, #f97316 40%, #ef4444 65%, rgba(239, 68, 68, 0.5) 85%, transparent 100%);
+  --spaceman-flame-shadow: 0 0 8px #f97316, 0 0 15px #fbbf24, 0 0 25px rgba(251, 191, 36, 0.4);
+  --spaceman-legs-glow: drop-shadow(0 8px 12px rgba(251, 146, 60, 0.3));
+}
+
+[data-theme="garden"] {
+  --spaceman-bubble-bg: rgba(255, 252, 240, 0.96);
+  --spaceman-bubble-text: #1a2f1a;
+  --spaceman-bubble-shadow: 0 4px 16px rgba(30, 50, 30, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --spaceman-cursor-color: #b22222;
+  --spaceman-tail-dot-bg: rgba(255, 252, 240, 0.95);
+  /* Superman-style: head/hair, blue suit, red cape, yellow shield */
+  --spaceman-helmet-bg: linear-gradient(145deg, #2c2416, #1a1510);
+  --spaceman-helmet-shadow: inset -3px -3px 10px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+  --spaceman-visor-bg: linear-gradient(135deg, #1a1a2e, #2d2d4e, #1a1a2e);
+  --spaceman-torso-bg: linear-gradient(180deg, #1e3a8a, #1565c0, #0d47a1);
+  --spaceman-chest-panel-bg: linear-gradient(180deg, #fbbf24, #f59e0b);
+  --spaceman-arm-bg: linear-gradient(90deg, #1565c0, #1e3a8a, #1565c0);
+  --spaceman-leg-bg: linear-gradient(180deg, #1e3a8a 0%, #1565c0 55%, #b22222 55%, #dc2626 100%);
+  --spaceman-pack-bg: transparent;
+  --spaceman-pack-nozzle-bg: transparent;
+  --spaceman-flame-bg: transparent;
+  --spaceman-flame-shadow: none;
+  --spaceman-legs-glow: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+  --hero-cape-bg: linear-gradient(180deg, #b91c1c 0%, #dc2626 30%, #991b1b 100%);
+}
 
 /* Container */
 .spaceman {
@@ -23,15 +68,12 @@
 
 /* ===== THOUGHT BUBBLE ===== */
 .thought-bubble {
-  background: rgba(255, 255, 255, 0.97);
-  color: #1a1a1a;
+  background: var(--spaceman-bubble-bg);
+  color: var(--spaceman-bubble-text);
   padding: 12px 16px;
   border-radius: 18px;
   max-width: 240px;
-  /* No min-height - adapts to content */
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
+  box-shadow: var(--spaceman-bubble-shadow);
   position: relative;
   font-family: 'Open Sans', sans-serif;
   font-size: 13px;
@@ -47,7 +89,7 @@
 
 .cursor {
   display: inline-block;
-  color: #6a0dad;
+  color: var(--spaceman-cursor-color);
   font-weight: bold;
   margin-left: 1px;
   animation: blink 0.8s infinite;
@@ -62,7 +104,7 @@
 }
 
 .bubble-dot {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--spaceman-tail-dot-bg);
   border-radius: 50%;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
@@ -83,16 +125,13 @@
 .helmet {
   width: 80px;
   height: 80px;
-  background: linear-gradient(145deg, #e8e8e8, #c4c4c4);
+  background: var(--spaceman-helmet-bg);
   border-radius: 50%;
   position: absolute;
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  box-shadow:
-    inset -5px -5px 15px rgba(0, 0, 0, 0.2),
-    inset 5px 5px 15px rgba(255, 255, 255, 0.5),
-    0 5px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--spaceman-helmet-shadow);
   overflow: hidden;
   z-index: 3;
 }
@@ -100,7 +139,7 @@
 .visor {
   width: 60px;
   height: 45px;
-  background: linear-gradient(135deg, #1a1a3e, #2d2d5e, #1a1a3e);
+  background: var(--spaceman-visor-bg);
   border-radius: 30px 30px 25px 25px;
   position: absolute;
   top: 15px;
@@ -140,7 +179,7 @@
 .torso {
   width: 60px;
   height: 55px;
-  background: linear-gradient(180deg, #e0e0e0, #b8b8b8);
+  background: var(--spaceman-torso-bg);
   border-radius: 15px 15px 20px 20px;
   position: absolute;
   top: 70px;
@@ -155,7 +194,7 @@
 .chest-panel {
   width: 30px;
   height: 20px;
-  background: #2a2a2a;
+  background: var(--spaceman-chest-panel-bg);
   border-radius: 5px;
   position: absolute;
   top: 15px;
@@ -183,6 +222,22 @@
   background: #60a5fa;
   box-shadow: 0 0 8px #60a5fa;
   animation: lightPulse 1.5s ease-in-out infinite 0.5s;
+}
+
+[data-theme="garden"] .chest-panel {
+  width: 36px;
+  height: 28px;
+  border-radius: 50% 50% 45% 45%;
+  border: 2px solid #b45309;
+  box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="garden"] .chest-panel .light {
+  width: 4px;
+  height: 4px;
+  background: #1a1a2e;
+  box-shadow: none;
+  animation: none;
 }
 
 /* Arms */
@@ -226,7 +281,7 @@
 .pack {
   width: 40px;
   height: 50px;
-  background: linear-gradient(180deg, #5a5a5a, #3a3a3a, #2a2a2a);
+  background: var(--spaceman-pack-bg);
   border-radius: 8px 8px 5px 5px;
   box-shadow: 
     inset 2px 0 4px rgba(255, 255, 255, 0.1),
@@ -242,7 +297,7 @@
   bottom: -8px;
   width: 12px;
   height: 10px;
-  background: linear-gradient(180deg, #4a4a4a, #2a2a2a);
+  background: var(--spaceman-pack-nozzle-bg);
   border-radius: 2px 2px 4px 4px;
 }
 
@@ -274,21 +329,64 @@
 .flame-inner {
   width: 100%;
   height: 100%;
-  background: linear-gradient(180deg, 
-    rgba(255, 200, 100, 1) 0%,
-    #fbbf24 15%, 
-    #f97316 40%, 
-    #ef4444 65%,
-    rgba(239, 68, 68, 0.5) 85%,
-    transparent 100%
-  );
+  background: var(--spaceman-flame-bg);
   border-radius: 50% 50% 50% 50% / 20% 20% 80% 80%;
   animation: flameFlicker 0.12s ease-in-out infinite alternate;
   filter: blur(0.5px);
-  box-shadow: 
-    0 0 8px #f97316,
-    0 0 15px #fbbf24,
-    0 0 25px rgba(251, 191, 36, 0.4);
+  box-shadow: var(--spaceman-flame-shadow);
+}
+
+/* ===== HERO CAPE (garden theme – replaces thrust/jetpack) ===== */
+.hero-cape {
+  display: none;
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 140px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.hero-cape .cape-cloth {
+  width: 100%;
+  height: 100%;
+  background: var(--hero-cape-bg, linear-gradient(180deg, #b91c1c, #991b1b));
+  border-radius: 0 0 50% 50% / 0 0 30% 30%;
+  box-shadow:
+    inset -10px 0 20px rgba(0, 0, 0, 0.2),
+    4px 8px 16px rgba(0, 0, 0, 0.25);
+  transform-origin: top center;
+}
+
+[data-theme="garden"] .hero-cape {
+  display: block;
+}
+
+[data-theme="garden"] .hero-cape .cape-cloth {
+  background: var(--hero-cape-bg);
+  animation: capeFlow 3s ease-in-out infinite;
+}
+
+[data-theme="garden"] .jetpack .pack,
+[data-theme="garden"] .jetpack .flames-container {
+  display: none !important;
+}
+
+[data-theme="garden"] .spaceman.boost .hero-cape .cape-cloth {
+  animation: capeBoost 0.6s ease-out;
+}
+
+@keyframes capeFlow {
+  0%, 100% { transform: scaleY(1) scaleX(1) skewX(0deg); }
+  50% { transform: scaleY(1.02) scaleX(1.05) skewX(-2deg); }
+}
+
+@keyframes capeBoost {
+  0% { transform: scaleY(1) scaleX(1); }
+  40% { transform: scaleY(1.25) scaleX(1.1); }
+  100% { transform: scaleY(1) scaleX(1); }
 }
 
 /* Legs */
@@ -300,14 +398,13 @@
   display: flex;
   gap: 8px;
   z-index: 2;
-  /* Add subtle orange glow from flames below */
-  filter: drop-shadow(0 8px 12px rgba(251, 146, 60, 0.3));
+  filter: var(--spaceman-legs-glow);
 }
 
 .leg {
   width: 18px;
   height: 45px;
-  background: linear-gradient(180deg, #e0e0e0, #c8c8c8, #b0b0b0);
+  background: var(--spaceman-leg-bg);
   border-radius: 8px 8px 12px 12px;
   box-shadow:
     inset -2px 0 4px rgba(0, 0, 0, 0.1),
@@ -547,6 +644,7 @@ body.content-open #spacemanContainer {
   .leg,
   .flame-inner,
   .thought-bubble,
+  .hero-cape .cape-cloth,
   #spacemanContainer {
     animation: none !important;
   }

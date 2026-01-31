@@ -22,7 +22,7 @@
                 <a href="#home" id="homeNav" class="section-invisible">Home</a>
             </div>
             <div class="navbar-right">
-                <!-- Right-side menu items go here -->
+                <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle theme">Space / Garden</button>
                 <a href="#playground" id="playgroundNav">Playground</a>
                 <a href="#portfolio" id="portfolioNav">Portfolio</a>
             </div>
@@ -30,6 +30,11 @@
     </header>
 
     <main>
+        <div id="gardenScene" class="garden-scene" aria-hidden="true">
+            <div class="tree tree-left"></div>
+            <div class="tree tree-right"></div>
+            <div class="tree tree-center"></div>
+        </div>
         <canvas id="canvas"></canvas>
         <div id="light"></div>
 

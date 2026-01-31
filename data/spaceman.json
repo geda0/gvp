@@ -41,5 +41,52 @@
     "hover": "Oh, hello there! 👀",
     "click": "Wheee! *jetpack boost*",
     "longIdle": "Still here... floating in space... 🌌"
+  },
+  "themeMessages": {
+    "garden": {
+      "states": {
+        "idle": {
+          "messages": [
+            "Hello! Welcome to the garden! 👋",
+            "I'm Marwan's digital companion.",
+            "Strolling here with the summer rain."
+          ],
+          "typingSpeed": 50,
+          "messageDelay": 3000
+        },
+        "playground": {
+          "messages": [
+            "These are Marwan's experimental projects! 🌱",
+            "The Monday Rover was built with a Raspberry Pi.",
+            "GVP uses generative AI for video creation."
+          ],
+          "typingSpeed": 40,
+          "messageDelay": 4000
+        },
+        "portfolio": {
+          "messages": [
+            "Here's Marwan's professional journey! 💼",
+            "From startups to IBM - quite a ride!",
+            "Software architecture is his specialty."
+          ],
+          "typingSpeed": 40,
+          "messageDelay": 4000
+        },
+        "home": {
+          "messages": [
+            "Back to the meadow! 🏠",
+            "Feel free to explore anytime.",
+            "The sun and rain are lovely here."
+          ],
+          "typingSpeed": 50,
+          "messageDelay": 3000
+        }
+      },
+      "reactions": {
+        "hover": "Oh, hello there! 👀",
+        "click": "Wheee! *floating up*",
+        "longIdle": "Still here... enjoying the garden... 🌿"
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 // app.js - Main initialization
 import { initAnalytics } from './analytics.js';
 import { initNavigation } from './navigation.js';
+import { initTheme, getTheme, setTheme } from './theme.js';
 import { initStarfield } from './starfield.js';
 import { loadProjects, renderProjects } from './projects.js';
 import { initSpaceman } from './spaceman.js';
@@ -13,7 +14,22 @@ let spacemanPosition = null;
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize modules in order
   initAnalytics();
-  initStarfield('canvas');
+  initTheme();
+  initStarfield('canvas', { getTheme });
+
+  // Theme toggle
+  const themeToggle = document.getElementById('themeToggle');
+  const updateToggleLabel = () => {
+    if (themeToggle) themeToggle.textContent = getTheme() === 'space' ? 'Switch to Garden' : 'Switch to Space';
+  };
+  if (themeToggle) {
+    updateToggleLabel();
+    themeToggle.addEventListener('click', () => {
+      setTheme(getTheme() === 'space' ? 'garden' : 'space');
+      updateToggleLabel();
+    });
+  }
+  window.addEventListener('themechange', updateToggleLabel);
 
   // Initialize spaceman (replaces hero text)
   spaceman = initSpaceman('spacemanContainer', '/data/spaceman.json');

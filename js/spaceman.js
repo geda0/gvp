@@ -1,4 +1,5 @@
-// spaceman.js - Spaceman character controller
+// spaceman.js - Spaceman character controller (theme-aware messages)
+import { getTheme } from './theme.js';
 
 const DEFAULTS = {
   typingSpeed: 50,
@@ -50,6 +51,21 @@ class Spaceman {
     this._bindEvents();
     this._startIdleAnimations();
     this._startMessageCycle();
+    this._themeChangeHandler = () => this._onThemeChange();
+    window.addEventListener('themechange', this._themeChangeHandler);
+  }
+
+  _getThemeData() {
+    const theme = getTheme();
+    const themed = this.data?.themeMessages?.[theme];
+    if (themed) return { states: themed.states, reactions: themed.reactions };
+    return { states: this.data?.states, reactions: this.data?.reactions };
+  }
+
+  _onThemeChange() {
+    this._clearTimer('typing');
+    this._clearTimer('message');
+    this._startMessageCycle();
   }
 
   async _loadData(url) {
@@ -82,6 +98,9 @@ class Spaceman {
               <div class="flame left-flame"><div class="flame-inner"></div></div>
               <div class="flame right-flame"><div class="flame-inner"></div></div>
             </div>
+          </div>
+          <div class="hero-cape" aria-hidden="true">
+            <div class="cape-cloth"></div>
           </div>
           <div class="helmet">
             <div class="visor">
@@ -149,7 +168,8 @@ class Spaceman {
 
   // Messaging
   _startMessageCycle() {
-    const stateData = this.data?.states?.[this.state];
+    const { states } = this._getThemeData();
+    const stateData = states?.[this.state];
     if (!stateData?.messages?.length) return;
 
     const message = stateData.messages[this.messageIndex];
@@ -182,7 +202,8 @@ class Spaceman {
   }
 
   _react(type) {
-    const reaction = this.data?.reactions?.[type];
+    const { reactions } = this._getThemeData();
+    const reaction = reactions?.[type];
     if (!reaction) return;
 
     this._clearTimer('typing');
@@ -246,7 +267,8 @@ class Spaceman {
   _resetIdleTimer() {
     this._clearTimer('idle');
     this._timers.idle = setTimeout(() => {
-      const msg = this.data?.reactions?.longIdle;
+      const { reactions } = this._getThemeData();
+      const msg = reactions?.longIdle;
       if (msg) this._typeMessage(msg);
     }, DEFAULTS.idleTimeout);
   }
@@ -265,6 +287,7 @@ class Spaceman {
 
   destroy() {
     this._clearAllTimers();
+    window.removeEventListener('themechange', this._themeChangeHandler);
     if (this.container) this.container.innerHTML = '';
   }
 }
