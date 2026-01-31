@@ -29,16 +29,16 @@ When `resume/resume.json` loads, extra lines are **appended** per state (see sec
 | **idle**  | Hello! Welcome to my space! 👋 • I'm Marwan's digital companion. • Click around to explore! |
 | **home**  | Back to home base! 🏠 • Feel free to explore anytime. • The stars are always shining here. |
 | **playground** | These are Marwan's experimental projects! 🚀 • The Monday Rover was built with a Raspberry Pi. • GVP uses generative AI for video creation. |
-| **portfolio** | Here's Marwan's professional journey! 💼 • From startups to IBM - quite a ride! • Software architecture is his specialty. |
+| **portfolio** | Here's Marwan's professional journey! 💼 • From startups to IBM — quite a ride! • Software architecture is his specialty. |
 
 ### Garden theme
 
 | State      | Messages |
 |-----------|----------|
-| **idle**  | Hello! Welcome to my world! 👋 • I'm Marwan's digital companion. • Strolling here with the summer rain. |
+| **idle**  | Hello! Welcome to my world! 👋 • I'm Marwan's digital companion. • Strolling here in the summer rain. |
 | **home**  | Back to my world! 🏠 • Feel free to explore anytime. • The sun and rain are lovely here. |
 | **playground** | These are Marwan's experimental projects! 🌱 • The Monday Rover was built with a Raspberry Pi. • GVP uses generative AI for video creation. |
-| **portfolio** | Here's Marwan's professional journey! 💼 • From startups to IBM - quite a ride! • Software architecture is his specialty. |
+| **portfolio** | Here's Marwan's professional journey! 💼 • From startups to IBM — quite a ride! • Software architecture is his specialty. |
 
 ---
 
@@ -48,26 +48,23 @@ Appended to the state message list in `_getMergedMessages()`.
 
 ### Portfolio (when state === 'portfolio')
 
-- At Apptio (IBM) Marwan worked on TBM / IT Financial Management.
-- Apptio (IBM): Data intensive SaaS platform
-- At JumpCloud Marwan worked on Directory & Device Management.
-- JumpCloud: Cloud-based directory as a  service
-- At Instant Ink (HP) Marwan worked on Subscription & Financial services.
-- Instant Ink (HP): Subscription service, print without worrying about ink
-- At AT&T Marwan worked on Full-stack Developer.
-- AT&T: TQL: SQL-like ticketing query language
-- At Sunrise Resorts & Cruises Marwan worked on Datacenters & Infrastructure.
-- Sunrise Resorts & Cruises: Datacenters, VPN, Asset Management Software
+- At Apptio (IBM), Marwan worked on TBM / IT Financial Management.
+- Apptio (IBM): A data-intensive SaaS platform
+- At JumpCloud, Marwan worked on Directory & Device Management.
+- JumpCloud: A cloud-based directory as a service
+- At Instant Ink (HP), Marwan worked on Subscription & Financial Services.
+- Instant Ink (HP): A subscription service — print without worrying about ink
+- At AT&T, Marwan worked as a Full-stack Developer.
+- AT&T: TQL — a SQL-like ticketing query language
+- At Sunrise Resorts & Cruises, Marwan worked on Datacenters & Infrastructure.
+- Sunrise Resorts & Cruises: Datacenters, VPNs, Asset Management Software
 
-(First 5 experience entries only; 2 lines per entry: “At X Marwan worked on Y.” and “X: highlight”.)
+(First 5 experience entries only; 2 lines per entry: “At X, Marwan worked [on | as a] Y.” and “X: highlight”. AT&T uses `workVerb: "as a"`.)
 
 ### Playground (when state === 'playground')
 
-- **One random skill line:** `Marwan builds with {skill}.`  
-  Skills: Software Architecture, SaaS, Full-stack, Raspberry Pi, Generative AI, Video Platform, Data-intensive systems, Machine Learning.
-- **One random project line** (from first 3 resume projects):  
-  `{title} – {blurb}` or `{title}`  
-  Examples: Monday Rover – Built with Raspberry Pi. • Generative Video Platform – A platform for generative storytelling. • Apptio (IBM) – Technology Business Management, IT Financial Management.
+- **One random skill line:** Normalized phrasing for some skills (e.g. “Marwan builds SaaS platforms.”, “Marwan builds full-stack applications.”, “Marwan builds video platforms.”, “Marwan builds data-intensive systems.”); others use “Marwan builds with {skill}.”
+- **One random project line** (from first 3 resume projects): `{title} — {blurb}` (em dash).
 
 ### Home / Idle (when state === 'home' or 'idle')
 
@@ -77,27 +74,26 @@ Appended to the state message list in `_getMergedMessages()`.
 
 ## 4. Project-in-view messages (context-aware)
 
-When the user is on **Playground** or **Portfolio** and a project card is “most in view,” the agent has a **35% chance** per cycle to say a project-specific line instead of the next message in the list.  
-Format: `That's {projectTitle} – {first 60 chars of description}…` or, if no description, `That's {projectTitle}.`
+When the user is on **Playground** or **Portfolio** and a project card is “most in view,” the agent has a **35% chance** per cycle to say a project-specific line instead of the next message in the list.
 
-Titles and descriptions come from the **card’s data attributes**, which are set from `data/projects.json` (description is plain text, HTML stripped). So the exact text can match the following.
+**Flow:** If the project has a `callout` in `resume/resume.json` (matched by `projectId`), that string is used. Otherwise the agent builds “That's {projectTitle} — {first 60 chars of description}…” from the card’s `data-project-*` attributes (from `data/projects.json`). All portfolio projects now have callouts, so fallback truncation is rarely used.
 
 ### Playground (no description in projects.json)
 
 - That's Monday Rover (Raspberry Pi).
 - That's Generative Video Platform.
 
-### Portfolio (with description; first ~60 chars used)
+### Portfolio (callouts from resume; em dash, third person where applicable)
 
-- That's Apptio (an IBM company) – Technology Business Management (TBM) Software. Data intensive SaaS platform for IT Financial…
-- That's Jumpcloud – A cloud-based directory service that allows users to manage their devices and…
-- That's Instant Ink (HP) – A subscription service that allows users to print documents without having to…
-- That's AT&T – I built TQL: ticketing query language, a SQL-like syntax based language to query…
-- That's Master's in Computer Science – Machine Learning, Data Science, SDLC.…
-- That's Sunrise Resorts & Cruises – I built Datacenters, Network Infrastructure, VPN, Asset Management Soft…
-- That's Campus Party Milenio (Spain) – I got to share unique ideas and collaborate with innovators.…
-- That's 5d-agency (SWI) – Web based & mobile Games! Augmented Reality, CMS, Joomla, Drupal, Unity 3D, Mobile…
-- That's Early Startups – DDA Advertising: ddaadvertising.net OIG OS: Linux based embedded system. QREO: Web apps, Scien…
+- That's Apptio (an IBM company) — Technology Business Management, IT Financial Management, data-intensive SaaS.
+- That's JumpCloud — a cloud-based directory service for managing users and devices.
+- That's Instant Ink (HP) — A subscription service — print without worrying about ink.
+- That's AT&T — He built TQL, a SQL-like ticketing query language.
+- That's Master's in Computer Science — Machine Learning, Data Science, SDLC.
+- That's Sunrise Resorts & Cruises — Datacenters, network infrastructure, VPNs, asset management software.
+- That's Campus Party Milenio (Spain) — Sharing ideas and collaborating with innovators.
+- That's 5d-agency (Switzerland) — web & mobile games, AR, CMS, Unity.
+- That's early startups — embedded systems, Linux-based platforms, and advertising tech.
 
 ---
 
@@ -112,17 +108,11 @@ If `spaceman.json` fails to load, defaults in `js/spaceman.js` (`DEFAULT_DATA`) 
 
 ---
 
-## Summary counts (unique possible strings)
+## Message flow summary
 
-| Category              | Approx count |
-|-----------------------|--------------|
-| Reactions             | 6 (3 × 2 themes) |
-| State messages (space)| 12 (3 per state × 4 states) |
-| State messages (garden)| 12 |
-| Resume portfolio      | 10 |
-| Resume playground     | 8 skills + 3 project blurbs (one picked at build time) |
-| Resume home/idle      | 1 (summary) |
-| Project-in-view       | 2 (playground) + 9 (portfolio) = 11 templates |
-| Fallback              | 4 |
+1. **Load:** `spaceman.json` (state messages, reactions, theme overrides) and `resume/resume.json` (experience, skills, projects with optional callouts).
+2. **Cycle:** For the current state and theme, merged list = state messages + resume-generated lines for that state. Message index advances only when a message from this list is shown (not when a project-in-view message is shown).
+3. **Project-in-view:** When on Playground/Portfolio and a card is “most in view” (Intersection Observer), context = `{ projectId, projectTitle, projectDescription }`. 35% of the time the next message is the project line: resume `callout` if present, else “That's {title} — {truncated description}…”.
+4. **Reactions:** Hover, click, and long-idle override the cycle briefly with theme-specific strings.
 
 The **cycle** for a given state = state messages (theme) + resume lines for that state. **Project-in-view** lines are chosen 35% of the time when context has a visible project; otherwise the next message in the cycle is used.

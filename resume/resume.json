@@ -16,13 +16,13 @@
   "projects": [
     { "id": "monday-rover", "title": "Monday Rover", "blurb": "Built with Raspberry Pi." },
     { "id": "gvp", "title": "Generative Video Platform", "blurb": "A platform for generative storytelling." },
-    { "id": "apptio", "title": "Apptio (IBM)", "blurb": "Technology Business Management, IT Financial Management." },
+    { "id": "apptio", "title": "Apptio (IBM)", "blurb": "Technology Business Management, IT Financial Management.", "callout": "That's Apptio (an IBM company) — Technology Business Management, IT Financial Management, data-intensive SaaS." },
     { "id": "jumpcloud", "title": "JumpCloud", "blurb": "Cloud-based directory and device management.", "callout": "That's JumpCloud — a cloud-based directory service for managing users and devices." },
-    { "id": "instant-ink", "title": "Instant Ink (HP)", "blurb": "A printer subscription service." },
-    { "id": "att", "title": "AT&T", "blurb": "TQL: ticketing query language.", "callout": "That's AT&T — I built TQL, a SQL-like ticketing query language." },
-    { "id": "miu", "title": "Master's in Computer Science", "blurb": "Machine Learning, Data Science, SDLC." },
+    { "id": "instant-ink", "title": "Instant Ink (HP)", "blurb": "A printer subscription service.", "callout": "That's Instant Ink (HP) — A subscription service — print without worrying about ink." },
+    { "id": "att", "title": "AT&T", "blurb": "TQL: ticketing query language.", "callout": "That's AT&T — He built TQL, a SQL-like ticketing query language." },
+    { "id": "miu", "title": "Master's in Computer Science", "blurb": "Machine Learning, Data Science, SDLC.", "callout": "That's Master's in Computer Science — Machine Learning, Data Science, SDLC." },
     { "id": "sunrise", "title": "Sunrise Resorts & Cruises", "blurb": "Datacenters, VPN, Asset Management.", "callout": "That's Sunrise Resorts & Cruises — Datacenters, network infrastructure, VPNs, asset management software." },
-    { "id": "campus-party", "title": "Campus Party Milenio", "blurb": "Shared ideas and collaborated with innovators." },
+    { "id": "campus-party", "title": "Campus Party Milenio", "blurb": "Shared ideas and collaborated with innovators.", "callout": "That's Campus Party Milenio (Spain) — Sharing ideas and collaborating with innovators." },
     { "id": "5d-agency", "title": "5d-agency (SWI)", "blurb": "Web & mobile games, AR, Unity 3D.", "callout": "That's 5d-agency (Switzerland) — web & mobile games, AR, CMS, Unity." },
     { "id": "early", "title": "Early Startups", "blurb": "DDA, OIG OS, QREO.", "callout": "That's early startups — embedded systems, Linux-based platforms, and advertising tech." }
   ]
