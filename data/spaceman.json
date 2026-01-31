@@ -47,7 +47,7 @@
       "states": {
         "idle": {
           "messages": [
-            "Hello! Welcome to the garden! 👋",
+            "Hello! Welcome to my world! 👋",
             "I'm Marwan's digital companion.",
             "Strolling here with the summer rain."
           ],
@@ -74,7 +74,7 @@
         },
         "home": {
           "messages": [
-            "Back to the meadow! 🏠",
+            "Back to my world! 🏠",
             "Feel free to explore anytime.",
             "The sun and rain are lovely here."
           ],
