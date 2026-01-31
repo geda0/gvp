@@ -20,7 +20,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Theme toggle
   const themeToggle = document.getElementById('themeToggle');
   const updateToggleLabel = () => {
-    if (themeToggle) themeToggle.textContent = getTheme() === 'space' ? 'Switch to Garden' : 'Switch to Space';
+    if (!themeToggle) return;
+    const isSpace = getTheme() === 'space';
+    const icon = isSpace ? '🦸' : '🚀';
+    const text = isSpace ? 'Switch to Garden' : 'Switch to Space';
+    themeToggle.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span> ${text}`;
   };
   if (themeToggle) {
     updateToggleLabel();

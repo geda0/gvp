@@ -5,7 +5,7 @@ const THEMES = ['space', 'garden'];
 export function getTheme() {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (THEMES.includes(stored)) return stored;
-  return 'space';
+  return 'garden';
 }
 
 export function setTheme(theme) {

@@ -399,6 +399,7 @@ section#portfolioProjects {
     align-items: center;
     background-color: var(--navbar-bg);
     padding: 5px 0;
+    position: relative;
 }
 
 .navbar-left,
@@ -406,6 +407,14 @@ section#portfolioProjects {
     display: flex;
     align-items: center;
     margin: 0 10px;
+}
+
+.navbar-center {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
 }
 
 .navbar a {
@@ -427,7 +436,10 @@ section#portfolioProjects {
     border-radius: 6px;
     cursor: pointer;
     font-size: 0.85em;
-    margin-right: 8px;
+}
+
+.theme-toggle-icon {
+    margin-right: 4px;
 }
 
 .theme-toggle:hover,
