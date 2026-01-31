@@ -182,6 +182,12 @@ export function initStarfield(canvasId, options = {}) {
   window.addEventListener('resize', resizeCanvas);
 
   window.addEventListener('themechange', () => {
+    if (getTheme() === 'space') {
+      rainDrops = [];
+    } else {
+      stars = [];
+      numStars = 0;
+    }
     resizeCanvas();
   });
 
