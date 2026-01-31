@@ -32,6 +32,10 @@ export function renderProjects(containerId, projects) {
 function createProjectCard(project) {
   const div = document.createElement('div');
   div.className = 'project';
+  div.setAttribute('data-project-id', project.id || '');
+  div.setAttribute('data-project-title', project.title || '');
+  const desc = project.description ? project.description.replace(/<[^>]+>/g, '').trim() : '';
+  div.setAttribute('data-project-description', desc);
 
   let html = '';
 

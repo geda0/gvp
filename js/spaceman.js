@@ -32,6 +32,8 @@ class Spaceman {
     this.state = 'idle';
     this.messageIndex = 0;
     this.data = null;
+    this.resume = null;
+    this.context = null;
     this.elements = {};
 
     this._timers = {
@@ -47,6 +49,12 @@ class Spaceman {
 
   async _init(dataUrl) {
     this.data = await this._loadData(dataUrl);
+    try {
+      const res = await fetch('/resume/resume.json');
+      if (res.ok) this.resume = await res.json();
+    } catch (_) {
+      this.resume = null;
+    }
     this._render();
     this._bindEvents();
     this._startIdleAnimations();
@@ -60,6 +68,53 @@ class Spaceman {
     const themed = this.data?.themeMessages?.[theme];
     if (themed) return { states: themed.states, reactions: themed.reactions };
     return { states: this.data?.states, reactions: this.data?.reactions };
+  }
+
+  _getMergedMessages(state) {
+    const { states } = this._getThemeData();
+    const stateData = states?.[state];
+    const base = stateData?.messages ? [...stateData.messages] : [];
+    if (!this.resume) return base;
+
+    const r = this.resume;
+    if (state === 'portfolio' && r.experience?.length) {
+      r.experience.slice(0, 5).forEach(ex => {
+        base.push(`At ${ex.company} Marwan worked on ${ex.role}.`);
+        if (ex.highlights?.[0]) base.push(`${ex.company}: ${ex.highlights[0]}`);
+      });
+    }
+    if (state === 'playground' && r.skills?.length) {
+      const skill = r.skills[Math.floor(Math.random() * r.skills.length)];
+      base.push(`Marwan builds with ${skill}.`);
+      if (r.projects?.length) {
+        const proj = r.projects[Math.floor(Math.random() * Math.min(3, r.projects.length))];
+        base.push(proj.blurb ? `${proj.title} – ${proj.blurb}` : proj.title);
+      }
+    }
+    if ((state === 'home' || state === 'idle') && r.summary) {
+      base.push(r.summary);
+    }
+    return base;
+  }
+
+  _getProjectMessage() {
+    if (!this.context?.projectTitle) return null;
+    const desc = this.context.projectDescription || '';
+    const short = desc.replace(/<[^>]+>/g, '').slice(0, 60);
+    return short ? `That's ${this.context.projectTitle} – ${short}…` : `That's ${this.context.projectTitle}.`;
+  }
+
+  _getNextMessage() {
+    const messages = this._getMergedMessages(this.state);
+    if (!messages.length) return { message: null, fromMergedArray: false };
+    const useProject =
+      (this.state === 'playground' || this.state === 'portfolio') && this.context?.projectTitle;
+    if (useProject && Math.random() < 0.35) {
+      const projectMsg = this._getProjectMessage();
+      if (projectMsg) return { message: projectMsg, fromMergedArray: false };
+    }
+    const msg = messages[this.messageIndex % messages.length];
+    return { message: msg, fromMergedArray: true };
   }
 
   _onThemeChange() {
@@ -157,6 +212,10 @@ class Spaceman {
     document.addEventListener('mousemove', () => this._resetIdleTimer());
   }
 
+  setContext(ctx) {
+    this.context = ctx && (ctx.projectId || ctx.projectTitle) ? ctx : null;
+  }
+
   // Public API
   setState(newState) {
     if (this.state === newState) return;
@@ -180,16 +239,21 @@ class Spaceman {
   _startMessageCycle() {
     const { states } = this._getThemeData();
     const stateData = states?.[this.state];
-    if (!stateData?.messages?.length) return;
+    const messages = this._getMergedMessages(this.state);
+    if (!messages.length) return;
 
-    const message = stateData.messages[this.messageIndex];
-    const speed = stateData.typingSpeed || DEFAULTS.typingSpeed;
-    const delay = stateData.messageDelay || DEFAULTS.messageDelay;
+    const { message, fromMergedArray } = this._getNextMessage();
+    if (!message) return;
+
+    const speed = stateData?.typingSpeed || DEFAULTS.typingSpeed;
+    const delay = stateData?.messageDelay || DEFAULTS.messageDelay;
 
     this._typeMessage(message, speed);
 
     this._timers.message = setTimeout(() => {
-      this.messageIndex = (this.messageIndex + 1) % stateData.messages.length;
+      if (fromMergedArray) {
+        this.messageIndex = (this.messageIndex + 1) % Math.max(1, messages.length);
+      }
       this._startMessageCycle();
     }, delay + (message.length * speed));
   }

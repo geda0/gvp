@@ -10,6 +10,7 @@ import { initSpacemanPosition } from './spaceman-position.js';
 // Global spaceman reference for navigation hooks
 let spaceman = null;
 let spacemanPosition = null;
+let currentSection = 'home';
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize modules in order
@@ -49,10 +50,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize navigation with spaceman hook
   initNavigation({
     onStateChange: (state) => {
+      currentSection = state;
       if (spaceman) {
         spaceman.setState(state);
+        if (state !== 'playground' && state !== 'portfolio') {
+          spaceman.setContext(null);
+        }
       }
-      // Position update is debounced internally - no need for extra timeout
       if (spacemanPosition) {
         spacemanPosition.updatePosition();
       }
@@ -63,6 +67,43 @@ document.addEventListener('DOMContentLoaded', async () => {
   const data = await loadProjects('/data/projects.json');
   renderProjects('playgroundContent', data.playground);
   renderProjects('portfolioContent', data.portfolio);
+
+  // Intersection Observer: set spaceman context to the project card most in view
+  const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project');
+  const ratios = new Map();
+  const THRESHOLD = 0.1;
+
+  function updateVisibleProject() {
+    if (!spaceman) return;
+    let best = { ratio: 0, card: null };
+    ratios.forEach((ratio, card) => {
+      if (ratio > best.ratio) {
+        const section = card.closest('#playgroundContent') ? 'playground' : card.closest('#portfolioContent') ? 'portfolio' : null;
+        if (section === currentSection) best = { ratio, card };
+      }
+    });
+    if (best.ratio < THRESHOLD || !best.card) {
+      spaceman.setContext(null);
+      return;
+    }
+    const c = best.card;
+    spaceman.setContext({
+      projectId: c.getAttribute('data-project-id') || '',
+      projectTitle: c.getAttribute('data-project-title') || '',
+      projectDescription: c.getAttribute('data-project-description') || ''
+    });
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        ratios.set(entry.target, entry.intersectionRatio);
+      });
+      updateVisibleProject();
+    },
+    { root: null, rootMargin: '0px', threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] }
+  );
+  projectCards.forEach((card) => observer.observe(card));
 });
 
 export { spaceman, spacemanPosition };

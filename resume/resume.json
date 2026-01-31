@@ -1,0 +1,29 @@
+{
+  "summary": "Marwan's digital companion. Software architecture and full-stack development.",
+  "skills": ["Software Architecture", "SaaS", "Full-stack", "Raspberry Pi", "Generative AI", "Video Platform", "Data-intensive systems", "Machine Learning"],
+  "experience": [
+    { "role": "TBM / IT Financial Management", "company": "Apptio (IBM)", "period": "Recent", "highlights": ["Data intensive SaaS platform"] },
+    { "role": "Directory & Device Management", "company": "JumpCloud", "period": "Cloud", "highlights": ["Cloud-based directory as a  service"] },
+    { "role": "Subscription & Financial services", "company": "Instant Ink (HP)", "period": "SaaS", "highlights": ["Subscription service, print without worrying about ink"] },
+    { "role": "Full-stack Developer", "company": "AT&T", "period": "Past", "highlights": ["TQL: SQL-like ticketing query language"] },
+    { "role": "Datacenters & Infrastructure", "company": "Sunrise Resorts & Cruises", "period": "Past", "highlights": ["Datacenters, VPN, Asset Management Software"] },
+    { "role": "Games & AR", "company": "5d-agency (SWI)", "period": "Past", "highlights": ["Web & mobile games, AR, Unity 3D"] },
+    { "role": "Early Startups", "company": "DDA / OIG / QREO", "period": "Past", "highlights": ["Web apps, Linux embedded, Scientific research"] }
+  ],
+  "education": [
+    { "degree": "Master's in Computer Science", "school": "MIU", "focus": ["Machine Learning", "Data Science", "SDLC"] }
+  ],
+  "projects": [
+    { "id": "monday-rover", "title": "Monday Rover", "blurb": "Built with Raspberry Pi." },
+    { "id": "gvp", "title": "Generative Video Platform", "blurb": "A platform for generative storytelling." },
+    { "id": "apptio", "title": "Apptio (IBM)", "blurb": "Technology Business Management, IT Financial Management." },
+    { "id": "jumpcloud", "title": "JumpCloud", "blurb": "Cloud-based directory and device management." },
+    { "id": "instant-ink", "title": "Instant Ink (HP)", "blurb": "A printer subscription service." },
+    { "id": "att", "title": "AT&T", "blurb": "TQL: ticketing query language." },
+    { "id": "miu", "title": "Master's in Computer Science", "blurb": "Machine Learning, Data Science, SDLC." },
+    { "id": "sunrise", "title": "Sunrise Resorts & Cruises", "blurb": "Datacenters, VPN, Asset Management." },
+    { "id": "campus-party", "title": "Campus Party Milenio", "blurb": "Shared ideas and collaborated with innovators." },
+    { "id": "5d-agency", "title": "5d-agency (SWI)", "blurb": "Web & mobile games, AR, Unity 3D." },
+    { "id": "early", "title": "Early Startups", "blurb": "DDA, OIG OS, QREO." }
+  ]
+}
