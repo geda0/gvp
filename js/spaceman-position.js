@@ -98,10 +98,12 @@ class SpacemanPosition {
       x = pos.x;
       y = pos.y;
     } else {
-      // Home: centered, slightly above on mobile, clamped to safe bounds
+      // Home: on mobile, bias toward edge to clear the view; slightly above on mobile
       scale = isMobile ? (vw < 480 ? 0.65 : 0.75) : isTablet ? 0.85 : 1;
       const bounds = this._getBounds(vw, vh, scale);
+      const desiredX = isMobile ? 32 : 0;
       const desiredY = isMobile ? -30 : 0;
+      x = Math.max(bounds.minX, Math.min(bounds.maxX, desiredX));
       y = Math.max(bounds.minY, Math.min(bounds.maxY, desiredY));
     }
 
@@ -109,7 +111,8 @@ class SpacemanPosition {
   }
 
   _getBounds(vw, vh, scale) {
-    const { edgePad, navHeight } = this.options;
+    const { navHeight } = this.options;
+    const edgePad = vw < 768 ? 12 : this.options.edgePad;
     const rect = this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;

@@ -555,6 +555,32 @@ h6 {
 
     .navbar a {
         font-size: 0.8em;
+        padding: 6px 8px;
+    }
+
+    /* Option 2 + 3: split 3 links across bar, float button to empty space (right) */
+    .navbar-left,
+    .navbar-right {
+        display: contents;
+    }
+
+    .navbar-center {
+        position: static;
+        left: auto;
+        transform: none;
+        order: 4;
+    }
+
+    .navbar-right a:first-child {
+        order: 1;
+    }
+
+    .navbar-left a {
+        order: 2;
+    }
+
+    .navbar-right a:last-child {
+        order: 3;
     }
 
     .read-more {
