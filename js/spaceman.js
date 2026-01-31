@@ -80,16 +80,18 @@ class Spaceman {
     const r = this.resume;
     if (state === 'portfolio' && r.experience?.length) {
       r.experience.slice(0, 5).forEach(ex => {
-        base.push(`At ${ex.company} Marwan worked on ${ex.role}.`);
+        const verb = ex.workVerb || 'on';
+        base.push(`At ${ex.company}, Marwan worked ${verb} ${ex.role}.`);
         if (ex.highlights?.[0]) base.push(`${ex.company}: ${ex.highlights[0]}`);
       });
     }
     if (state === 'playground' && r.skills?.length) {
       const skill = r.skills[Math.floor(Math.random() * r.skills.length)];
-      base.push(`Marwan builds with ${skill}.`);
+      const skillPhrase = this._getSkillPhrase(skill);
+      base.push(skillPhrase);
       if (r.projects?.length) {
         const proj = r.projects[Math.floor(Math.random() * Math.min(3, r.projects.length))];
-        base.push(proj.blurb ? `${proj.title} – ${proj.blurb}` : proj.title);
+        base.push(proj.blurb ? `${proj.title} — ${proj.blurb}` : proj.title);
       }
     }
     if ((state === 'home' || state === 'idle') && r.summary) {
@@ -98,11 +100,25 @@ class Spaceman {
     return base;
   }
 
+  _getSkillPhrase(skill) {
+    const phrases = {
+      'SaaS': 'Marwan builds SaaS platforms.',
+      'Full-stack': 'Marwan builds full-stack applications.',
+      'Video Platform': 'Marwan builds video platforms.',
+      'Data-intensive systems': 'Marwan builds data-intensive systems.'
+    };
+    return phrases[skill] ?? `Marwan builds with ${skill}.`;
+  }
+
   _getProjectMessage() {
     if (!this.context?.projectTitle) return null;
+    if (this.context.projectId && this.resume?.projects) {
+      const proj = this.resume.projects.find(p => p.id === this.context.projectId);
+      if (proj?.callout) return proj.callout;
+    }
     const desc = this.context.projectDescription || '';
-    const short = desc.replace(/<[^>]+>/g, '').slice(0, 60);
-    return short ? `That's ${this.context.projectTitle} – ${short}…` : `That's ${this.context.projectTitle}.`;
+    const short = desc.replace(/<[^>]+>/g, '').trim().slice(0, 60);
+    return short ? `That's ${this.context.projectTitle} — ${short}…` : `That's ${this.context.projectTitle}.`;
   }
 
   _getNextMessage() {
