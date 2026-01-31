@@ -23,26 +23,49 @@ export function initNavigation(options = {}) {
     portfolioProjects: document.getElementById('portfolioProjects')
   };
 
-  elements.portfolioNav.addEventListener('click', (e) => {
+  function navigateByHash() {
+    const hash = window.location.hash || '#home';
+    if (hash === '#playground') {
+      state.activeTab = true;
+      goPlay(elements, null);
+      callbacks.onStateChange?.('playground');
+    } else if (hash === '#portfolio') {
+      state.activeTab = true;
+      goPortfolio(elements, null);
+      callbacks.onStateChange?.('portfolio');
+    } else {
+      state.activeTab = false;
+      goHome(elements, null);
+      callbacks.onStateChange?.('home');
+    }
+  }
+
+  elements.portfolioNav?.addEventListener('click', (e) => {
     e.preventDefault();
     state.activeTab = true;
+    history.replaceState(null, '', '#portfolio');
     goPortfolio(elements, e);
-    callbacks.onStateChange?.('portfolio'); // Hook for spaceman
+    callbacks.onStateChange?.('portfolio');
   });
 
-  elements.playgroundNav.addEventListener('click', (e) => {
+  elements.playgroundNav?.addEventListener('click', (e) => {
     e.preventDefault();
     state.activeTab = true;
+    history.replaceState(null, '', '#playground');
     goPlay(elements, e);
-    callbacks.onStateChange?.('playground'); // Hook for spaceman
+    callbacks.onStateChange?.('playground');
   });
 
-  elements.homeNav.addEventListener('click', (e) => {
+  elements.homeNav?.addEventListener('click', (e) => {
     e.preventDefault();
     state.activeTab = false;
+    history.replaceState(null, '', '#home');
     goHome(elements, e);
-    callbacks.onStateChange?.('home'); // Hook for spaceman
+    callbacks.onStateChange?.('home');
   });
+
+  window.addEventListener('hashchange', navigateByHash);
+  navigateByHash();
 }
 
 function goHome(el, event) {
@@ -61,7 +84,7 @@ function goHome(el, event) {
   el.projects.classList.add("hidden");
   el.portfolioContent.classList.remove("visible");
   el.portfolioContent.classList.add("hidden");
-  trackClick(event);
+  if (event) trackClick(event);
 }
 
 function goPlay(el, event) {
@@ -83,7 +106,7 @@ function goPlay(el, event) {
     el.projects.classList.add("visible");
   }, 199);
 
-  trackClick(event);
+  if (event) trackClick(event);
 }
 
 function goPortfolio(el, event) {
@@ -105,7 +128,7 @@ function goPortfolio(el, event) {
     el.portfolioProjects.classList.add("visible");
   }, 199);
 
-  trackClick(event);
+  if (event) trackClick(event);
 }
 
 export { state };
