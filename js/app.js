@@ -36,16 +36,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   window.addEventListener('themechange', updateToggleLabel);
 
-  // Initialize spaceman (replaces hero text)
-  spaceman = initSpaceman('spacemanContainer', '/data/spaceman.json');
-
-  // Wait for spaceman to render, then init positioning
-  setTimeout(() => {
-    const spacemanEl = document.getElementById('spaceman');
-    if (spacemanEl) {
-      spacemanPosition = initSpacemanPosition(spacemanEl);
-    }
-  }, 100);
+  // Initialize spaceman (replaces hero text); await so DOM is ready before positioning
+  spaceman = await initSpaceman('spacemanContainer', '/data/spaceman.json');
+  const spacemanEl = document.getElementById('spaceman');
+  if (spacemanEl) {
+    spacemanPosition = initSpacemanPosition(spacemanEl);
+  }
 
   // Initialize navigation with spaceman hook
   initNavigation({

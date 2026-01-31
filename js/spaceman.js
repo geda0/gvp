@@ -44,7 +44,8 @@ class Spaceman {
       wave: null
     };
 
-    this._init(dataUrl);
+    /** Resolves when the spaceman has finished loading data and rendering (safe to query #spaceman in DOM). */
+    this.ready = this._init(dataUrl);
   }
 
   async _init(dataUrl) {
@@ -366,8 +367,13 @@ class Spaceman {
   }
 }
 
+/**
+ * Initializes the spaceman. Returns a Promise that resolves with the Spaceman instance
+ * once data is loaded and the hero is rendered. Await before initializing positioning.
+ */
 export function initSpaceman(containerId, dataUrl) {
-  return new Spaceman(containerId, dataUrl);
+  const instance = new Spaceman(containerId, dataUrl);
+  return instance.ready ? instance.ready.then(() => instance) : Promise.resolve(instance);
 }
 
 export { Spaceman };

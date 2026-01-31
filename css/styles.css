@@ -23,9 +23,13 @@
     --nav-bg: rgba(60, 90, 60, 0.92);
     --nav-inner-bg: rgba(45, 75, 45, 0.95);
     --footer-bg: rgba(45, 70, 45, 0.95);
-    --link-color: #001000;
-    --link-visited: #121f12;
+    --link-color: #274d27;
+    --link-visited: #386538;
     --link-hover: #1e4d1e;
+    /* Footer has dark green bg; use lighter link color so links are visible */
+    --footer-link-color: #b8e0b8;
+    --footer-link-visited: #9bc99b;
+    --footer-link-hover: #d4f0d4;
     --navbar-bg: rgba(55, 85, 55, 0.85);
     --navbar-link: #e8f0e8;
     --navbar-link-hover-bg: rgba(200, 220, 200, 0.9);
@@ -256,6 +260,17 @@ footer {
 
 footer p {
     margin: 0;
+}
+
+/* Garden theme: footer has dark green bg; override link color for visibility */
+[data-theme="garden"] footer a {
+    color: var(--footer-link-color);
+}
+[data-theme="garden"] footer a:visited {
+    color: var(--footer-link-visited);
+}
+[data-theme="garden"] footer a:hover {
+    color: var(--footer-link-hover);
 }
 
 .canvas-container {
