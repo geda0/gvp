@@ -55,7 +55,7 @@ export function initStarfield(canvasId, options = {}) {
 
       s = this.size * (fl / this.z);
 
-      this.glow = (canvas.width - this.z) / canvas.width * 12;
+      this.glow = (canvas.width - this.z) / canvas.width * 15;
 
       // Draw motion streak if previous position exists and distance is reasonable
       if (this.px !== null && this.py !== null) {
@@ -64,7 +64,7 @@ export function initStarfield(canvasId, options = {}) {
           // Create linear gradient along the streak: transparent at tail, star color at head
           const streakGradient = c.createLinearGradient(this.px, this.py, x, y);
           // Convert HSL color to HSLA with opacity (hsl(360, 100%, 50%) -> hsla(360, 100%, 50%, 0.5))
-          const colorWithOpacity = this.color.replace('hsl(', 'hsla(').replace(')', ', 0.5)');
+          const colorWithOpacity = this.color.replace('hsl(', 'hsla(').replace(')', ', 0.58)');
           streakGradient.addColorStop(0, 'transparent');
           streakGradient.addColorStop(1, colorWithOpacity);
 
@@ -97,7 +97,7 @@ export function initStarfield(canvasId, options = {}) {
   }
 
   function randomColor() {
-    return 'hsl(' + Math.random() * 360 + ', 100%, ' + (Math.random() * 20 + 50) + '%)';
+    return 'hsl(' + Math.random() * 360 + ', 100%, ' + (Math.random() * 22 + 56) + '%)';
   }
 
   function calculateNumStars(width, height, cores) {
@@ -143,7 +143,8 @@ export function initStarfield(canvasId, options = {}) {
 
   function drawSpace() {
     // Subtle trail: fade each frame so it disappears completely (keeps look clean, no buildup)
-    c.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    // Dark navy tint for a richer space background (matches --bg-primary #060c1a = rgb(6, 12, 26))
+    c.fillStyle = 'rgba(3, 6, 12, 0.59)';
     c.fillRect(0, 0, canvas.width, canvas.height);
     for (var i = 0; i < numStars; i++) {
       stars[i].show();

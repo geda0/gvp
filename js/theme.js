@@ -49,7 +49,7 @@ export function transitionToTheme(theme) {
   overlay.classList.add('transitioning');
   
   // Set overlay background to target theme
-  overlay.style.background = theme === 'garden' ? GARDEN_GRADIENT : '#000000';
+  overlay.style.background = theme === 'garden' ? GARDEN_GRADIENT : '#03060c';
   
   // Ensure overlay is ready
   overlay.style.transition = 'opacity 0.6s ease';
