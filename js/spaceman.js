@@ -135,7 +135,9 @@ class Spaceman {
   }
 
   _getNextMessage() {
-    if (!this._firstMessageShown) {
+    // Show welcome only once per session, and only when on home/idle (not in the middle of Playground or Portfolio)
+    const showWelcome = !this._firstMessageShown && (this.state === 'idle' || this.state === 'home');
+    if (showWelcome) {
       const welcome = this._getWelcomeMessage();
       return { message: welcome, fromMergedArray: false };
     }
@@ -155,7 +157,7 @@ class Spaceman {
     this._clearTimer('typing');
     this._clearTimer('message');
     this.messageIndex = 0;
-    this._firstMessageShown = false;
+    // Do not reset _firstMessageShown — welcome should only show on true first load, not after theme switch
     this._startMessageCycle();
   }
 

@@ -54,6 +54,31 @@ export function transitionToTheme(theme) {
   // Ensure overlay is ready
   overlay.style.transition = 'opacity 0.6s ease';
   
+  // Timeout fallback: reset flag if transitions don't complete
+  // 2.5s = enough for both transitions (0.6s each) + buffer
+  const TRANSITION_TIMEOUT = 2500;
+  let timeoutId = setTimeout(() => {
+    // Emergency reset: ensure flag is cleared and overlay is reset
+    isTransitioning = false;
+    overlay.classList.remove('transitioning');
+    overlay.style.opacity = '0';
+    // Ensure theme is set even if transitions failed
+    const currentTheme = getTheme();
+    if (currentTheme !== theme) {
+      setTheme(theme);
+    }
+  }, TRANSITION_TIMEOUT);
+  
+  // Cleanup function to clear timeout and reset state
+  const cleanup = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    overlay.classList.remove('transitioning');
+    isTransitioning = false;
+  };
+  
   // Fade in overlay
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -68,6 +93,13 @@ export function transitionToTheme(theme) {
     // Now switch the actual theme
     setTheme(theme);
     
+    // Reset timeout for second transition (shorter timeout since we're halfway done)
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      // If second transition doesn't fire, cleanup after 1s
+      cleanup();
+    }, 1000);
+    
     // Fade out overlay
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -78,8 +110,7 @@ export function transitionToTheme(theme) {
     // Handle second transition end (overlay fade-out complete)
     const onSecondTransitionEnd = () => {
       overlay.removeEventListener('transitionend', onSecondTransitionEnd);
-      overlay.classList.remove('transitioning');
-      isTransitioning = false;
+      cleanup();
     };
     
     overlay.addEventListener('transitionend', onSecondTransitionEnd, { once: true });
