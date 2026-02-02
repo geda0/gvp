@@ -28,6 +28,8 @@ export function initStarfield(canvasId, options = {}) {
     this.z = Math.random() * canvas.width;
     this.color = randomColor();
     this.size = Math.random() / 2;
+    this.px = null;
+    this.py = null;
 
     this.move = function () {
       var speed = config.baseSpeed + (canvas.width - this.z) / canvas.width * 4;
@@ -38,6 +40,8 @@ export function initStarfield(canvasId, options = {}) {
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
         this.color = randomColor();
+        this.px = null;
+        this.py = null;
       }
     };
 
@@ -53,6 +57,30 @@ export function initStarfield(canvasId, options = {}) {
 
       this.glow = (canvas.width - this.z) / canvas.width * 12;
 
+      // Draw motion streak if previous position exists and distance is reasonable
+      if (this.px !== null && this.py !== null) {
+        const dist = Math.hypot(x - this.px, y - this.py);
+        if (dist < 150) {
+          // Create linear gradient along the streak: transparent at tail, star color at head
+          const streakGradient = c.createLinearGradient(this.px, this.py, x, y);
+          // Convert HSL color to HSLA with opacity (hsl(360, 100%, 50%) -> hsla(360, 100%, 50%, 0.5))
+          const colorWithOpacity = this.color.replace('hsl(', 'hsla(').replace(')', ', 0.5)');
+          streakGradient.addColorStop(0, 'transparent');
+          streakGradient.addColorStop(1, colorWithOpacity);
+
+          c.save();
+          c.strokeStyle = streakGradient;
+          c.lineWidth = 1.5;
+          c.lineCap = 'round';
+          c.beginPath();
+          c.moveTo(this.px, this.py);
+          c.lineTo(x, y);
+          c.stroke();
+          c.restore();
+        }
+      }
+
+      // Draw the star
       var gradient = c.createRadialGradient(x, y, 0, x, y, s * (1.5 + this.glow / 10));
       gradient.addColorStop(0, this.color);
       gradient.addColorStop(1, 'transparent');
@@ -61,6 +89,10 @@ export function initStarfield(canvasId, options = {}) {
       c.fillStyle = gradient;
       c.arc(x, y, s * (1.5 + this.glow / 10), 0, Math.PI * 2);
       c.fill();
+
+      // Update previous position for next frame
+      this.px = x;
+      this.py = y;
     };
   }
 
@@ -111,7 +143,7 @@ export function initStarfield(canvasId, options = {}) {
 
   function drawSpace() {
     // Subtle trail: fade each frame so it disappears completely (keeps look clean, no buildup)
-    c.fillStyle = 'rgba(0, 0, 0, 0.49)';
+    c.fillStyle = 'rgba(0, 0, 0, 0.5)';
     c.fillRect(0, 0, canvas.width, canvas.height);
     for (var i = 0; i < numStars; i++) {
       stars[i].show();
