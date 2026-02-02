@@ -2,16 +2,16 @@
   "states": {
     "idle": {
       "messages": [
-        "Hello! Welcome to my space! 👋",
-        "I'm Marwan's digital companion.",
-        "Click around to explore!"
+        "Welcome to my space.",
+        "I'm Marwan's digital assistant.",
+        "Navigate to explore projects and experience."
       ],
       "typingSpeed": 50,
       "messageDelay": 3000
     },
     "playground": {
       "messages": [
-        "These are Marwan's experimental projects! 🚀",
+        "Experimental projects and technical explorations.",
         "The Monday Rover was built with a Raspberry Pi.",
         "GVP uses generative AI for video creation."
       ],
@@ -20,17 +20,16 @@
     },
     "portfolio": {
       "messages": [
-        "Here's Marwan's professional journey! 💼",
-        "From startups to IBM — quite a ride!",
-        "Software architecture is his specialty."
+        "Professional experience and career journey.",
+        "From startups to IBM.",
+        "Specializing in software architecture."
       ],
       "typingSpeed": 40,
       "messageDelay": 4000
     },
     "home": {
       "messages": [
-        "Back to home base! 🏠",
-        "Feel free to explore anytime.",
+        "Feel free to explore.",
         "The stars are always shining here."
       ],
       "typingSpeed": 50,
@@ -38,8 +37,8 @@
     }
   },
   "reactions": {
-    "hover": "Oh, hello there! 👀",
-    "click": "Wheee! *jetpack boost*",
+    "hover": "Hello.",
+    "click": "Activating boost.",
     "longIdle": "Still here... floating in space... 🌌"
   },
   "themeMessages": {
@@ -47,16 +46,16 @@
       "states": {
         "idle": {
           "messages": [
-            "Hello! Welcome to my garden! 👋",
-            "I'm Marwan's digital companion.",
-            "Strolling here in the summer rain."
+            "Welcome to my space.",
+            "I'm Marwan's digital assistant.",
+            "Navigate to explore projects and experience."
           ],
           "typingSpeed": 50,
           "messageDelay": 3000
         },
         "playground": {
           "messages": [
-            "These are Marwan's experimental projects! 🌱",
+            "Experimental projects and technical explorations.",
             "The Monday Rover was built with a Raspberry Pi.",
             "GVP uses generative AI for video creation."
           ],
@@ -65,17 +64,17 @@
         },
         "portfolio": {
           "messages": [
-            "Here's Marwan's professional journey! 💼",
-            "From startups to IBM — quite a ride!",
-            "Software architecture is his specialty."
+            "Professional experience and career journey.",
+            "From startups to IBM.",
+            "Specializing in software architecture."
           ],
           "typingSpeed": 40,
           "messageDelay": 4000
         },
         "home": {
           "messages": [
-            "Back to my world! 🏠",
-            "Feel free to explore anytime.",
+            "Returned to home.",
+            "Feel free to explore.",
             "The sun and rain are lovely here."
           ],
           "typingSpeed": 50,
@@ -83,9 +82,9 @@
         }
       },
       "reactions": {
-        "hover": "Oh, hello there! 👀",
-        "click": "Wheee! *floating up*",
-        "longIdle": "Still here... enjoying the garden... 🌿"
+        "hover": "Hello.",
+        "click": "Activating boost.",
+        "longIdle": "Still here... enjoying the space... 🌿"
       }
     }
   }

@@ -41,6 +41,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const spacemanEl = document.getElementById('spaceman');
   if (spacemanEl) {
     spacemanPosition = initSpacemanPosition(spacemanEl);
+    // Connect spaceman to position controller for quiet mode
+    if (spaceman) {
+      spaceman.setPositionController(spacemanPosition);
+    }
   }
 
   // Initialize navigation with spaceman hook

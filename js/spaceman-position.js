@@ -21,6 +21,7 @@ class SpacemanPosition {
     this._updateT = null;
     this._cleanupTimer = null;
     this._onEnd = null;
+    this.isQuiet = false;
 
     this.init();
   }
@@ -86,28 +87,42 @@ class SpacemanPosition {
     const isMobile = vw < 768;
     const isTablet = vw >= 768 && vw < 1024;
 
-    const content = this._getVisibleContent();
-    document.body.classList.toggle('content-open', !!content);
-
     let x = 0, y = 0, scale = 1;
 
-    if (content) {
-      // Content open: position near content (above content on mobile)
-      scale = isMobile ? 0.6 : isTablet ? 0.75 : 1;
-      const pos = this._calcPosition(vw, vh, content, scale, isMobile);
-      x = pos.x;
-      y = pos.y;
-    } else {
-      // Home: on mobile, bias toward edge to clear the view; slightly above on mobile
-      scale = isMobile ? (vw < 480 ? 0.65 : 0.75) : isTablet ? 0.85 : 1;
+    if (this.isQuiet) {
+      // Quiet mode: position in bottom-right corner
+      scale = isMobile ? 0.5 : isTablet ? 0.6 : 0.7;
       const bounds = this._getBounds(vw, vh, scale);
-      const desiredX = isMobile ? 32 : 0;
-      const desiredY = isMobile ? -30 : 0;
-      x = Math.max(bounds.minX, Math.min(bounds.maxX, desiredX));
-      y = Math.max(bounds.minY, Math.min(bounds.maxY, desiredY));
+      const edgePad = vw < 768 ? 12 : this.options.edgePad;
+      x = bounds.maxX - edgePad;
+      y = bounds.maxY - edgePad;
+    } else {
+      const content = this._getVisibleContent();
+      document.body.classList.toggle('content-open', !!content);
+
+      if (content) {
+        // Content open: position near content (above content on mobile)
+        scale = isMobile ? 0.6 : isTablet ? 0.75 : 1;
+        const pos = this._calcPosition(vw, vh, content, scale, isMobile);
+        x = pos.x;
+        y = pos.y;
+      } else {
+        // Home: on mobile, bias toward edge to clear the view; slightly above on mobile
+        scale = isMobile ? (vw < 480 ? 0.65 : 0.75) : isTablet ? 0.85 : 1;
+        const bounds = this._getBounds(vw, vh, scale);
+        const desiredX = isMobile ? 32 : 0;
+        const desiredY = isMobile ? -30 : 0;
+        x = Math.max(bounds.minX, Math.min(bounds.maxX, desiredX));
+        y = Math.max(bounds.minY, Math.min(bounds.maxY, desiredY));
+      }
     }
 
     this._moveTo(x, y, scale);
+  }
+
+  setQuietPosition(quiet) {
+    this.isQuiet = quiet;
+    this.updatePosition();
   }
 
   _getBounds(vw, vh, scale) {

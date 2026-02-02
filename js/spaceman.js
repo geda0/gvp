@@ -32,10 +32,12 @@ class Spaceman {
     this.state = 'idle';
     this.messageIndex = 0;
     this._firstMessageShown = false;
+    this.isQuiet = false;
     this.data = null;
     this.resume = null;
     this.context = null;
     this.elements = {};
+    this.positionController = null;
 
     this._timers = {
       typing: null,
@@ -44,6 +46,7 @@ class Spaceman {
       blink: null,
       wave: null
     };
+    this._clickTimeout = null;
 
     /** Resolves when the spaceman has finished loading data and rendering (safe to query #spaceman in DOM). */
     this.ready = this._init(dataUrl);
@@ -128,8 +131,7 @@ class Spaceman {
     const idleMessages = states?.idle?.messages ?? states?.home?.messages ?? [];
     const welcomeMsg = idleMessages.find(m => /welcome\s+to\s+my\s+(world|space|garden)/i.test(m));
     if (welcomeMsg) return welcomeMsg;
-    if (theme === 'garden') return 'Welcome to my garden!';
-    return 'Welcome to my space!';
+    return 'Welcome to my space! 👋';
   }
 
   _getNextMessage() {
@@ -170,7 +172,11 @@ class Spaceman {
 
   _render() {
     this.container.innerHTML = `
-      <div class="spaceman" id="spaceman">
+      <div class="spaceman-outer">
+        <div class="spaceman-quiet-menu" id="spacemanQuietMenu" role="menu" aria-label="Spaceman options" hidden>
+          <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
+        </div>
+        <div class="spaceman" id="spaceman">
         <div class="thought-bubble" id="thoughtBubble">
           <span class="thought-text" id="thoughtText"></span>
           <span class="cursor">|</span>
@@ -223,22 +229,88 @@ class Spaceman {
           </div>
         </div>
       </div>
+      </div>
     `;
 
     this.elements = {
       spaceman: document.getElementById('spaceman'),
-      text: document.getElementById('thoughtText')
+      text: document.getElementById('thoughtText'),
+      quietMenu: document.getElementById('spacemanQuietMenu'),
+      quietMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="quiet"]')
+    };
+    this._bindQuietMenu();
+  }
+
+  _bindQuietMenu() {
+    const { quietMenu, quietMenuBtn } = this.elements;
+    if (!quietMenu || !quietMenuBtn) return;
+
+    quietMenuBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.setQuietMode(true);
+      this._hideQuietModeOption();
+    });
+
+    this._quietMenuOutsideClick = (e) => {
+      if (quietMenu.hidden) return;
+      if (quietMenu.contains(e.target) || this.elements.spaceman?.contains(e.target)) return;
+      this._hideQuietModeOption();
     };
   }
+
+  _showQuietModeOption() {
+    const { quietMenu } = this.elements;
+    if (!quietMenu || this.isQuiet) return;
+    quietMenu.hidden = false;
+    quietMenu.setAttribute('aria-hidden', 'false');
+    document.addEventListener('click', this._quietMenuOutsideClick, true);
+    document.addEventListener('keydown', this._quietMenuEscape);
+  }
+
+  _hideQuietModeOption() {
+    const { quietMenu } = this.elements;
+    if (!quietMenu) return;
+    quietMenu.hidden = true;
+    quietMenu.setAttribute('aria-hidden', 'true');
+    document.removeEventListener('click', this._quietMenuOutsideClick, true);
+    document.removeEventListener('keydown', this._quietMenuEscape);
+  }
+
+  _quietMenuEscape = (e) => {
+    if (e.key === 'Escape') this._hideQuietModeOption();
+  };
 
   _bindEvents() {
     const { spaceman } = this.elements;
     if (!spaceman) return;
 
-    spaceman.addEventListener('mouseenter', () => this._react('hover'));
+    spaceman.addEventListener('mouseenter', () => {
+      if (!this.isQuiet) this._react('hover');
+    });
+    
     spaceman.addEventListener('click', () => {
-      this._react('click');
-      this._triggerBoost();
+      if (this.isQuiet) {
+        this.setQuietMode(false);
+        return;
+      }
+      const { quietMenu } = this.elements;
+      const menuOpen = quietMenu && !quietMenu.hidden;
+      if (menuOpen) {
+        this._hideQuietModeOption();
+        return;
+      }
+      if (this._clickTimeout) {
+        clearTimeout(this._clickTimeout);
+        this._clickTimeout = null;
+        this._hideQuietModeOption();
+        this._react('click');
+        this._triggerBoost();
+      } else {
+        this._clickTimeout = setTimeout(() => {
+          this._clickTimeout = null;
+          this._showQuietModeOption();
+        }, 300);
+      }
     });
 
     this._resetIdleTimer();
@@ -249,13 +321,52 @@ class Spaceman {
     this.context = ctx && (ctx.projectId || ctx.projectTitle) ? ctx : null;
   }
 
+  setPositionController(controller) {
+    this.positionController = controller;
+  }
+
+  setQuietMode(quiet) {
+    if (this.isQuiet === quiet) return;
+    
+    this.isQuiet = quiet;
+    
+    if (quiet) {
+      // Stop all messaging and animations
+      this._clearAllTimers();
+      const { text } = this.elements;
+      if (text) text.textContent = '';
+      
+      // Position in bottom-right corner
+      if (this.positionController) {
+        this.positionController.setQuietPosition(true);
+      }
+      
+      // Add quiet class for styling if needed
+      const { spaceman } = this.elements;
+      if (spaceman) spaceman.classList.add('quiet-mode');
+    } else {
+      // Reactivate
+      const { spaceman } = this.elements;
+      if (spaceman) spaceman.classList.remove('quiet-mode');
+      
+      // Resume normal positioning
+      if (this.positionController) {
+        this.positionController.setQuietPosition(false);
+      }
+      
+      // Restart messaging and animations
+      this._startIdleAnimations();
+      this._startMessageCycle();
+    }
+  }
+
   // Public API
   setState(newState) {
     if (this.state === newState) return;
 
     this.state = newState;
     this.messageIndex = 0;
-    this._firstMessageShown = false;
+    // Do not reset _firstMessageShown — welcome should only show on first load, not on section change
 
     this._clearTimer('typing');
     this._clearTimer('message');
@@ -271,6 +382,8 @@ class Spaceman {
 
   // Messaging
   _startMessageCycle() {
+    if (this.isQuiet) return; // Don't start message cycle when quiet
+    
     const { states } = this._getThemeData();
     const stateData = states?.[this.state];
     const messages = this._getMergedMessages(this.state);
@@ -310,9 +423,14 @@ class Spaceman {
   }
 
   _react(type) {
+    if (this.isQuiet) return; // Don't react when quiet
+    
     const { reactions } = this._getThemeData();
     const reaction = reactions?.[type];
     if (!reaction) return;
+
+    // Skip hover reaction when viewing content sections—contextual messages are more useful
+    if (type === 'hover' && (this.state === 'playground' || this.state === 'portfolio')) return;
 
     this._clearTimer('typing');
     this._clearTimer('message');
@@ -331,22 +449,28 @@ class Spaceman {
   }
 
   _scheduleBlink() {
+    if (this.isQuiet) return; // Don't schedule animations when quiet
+    
     const { min, max } = DEFAULTS.blinkInterval;
     const delay = min + Math.random() * (max - min);
 
     this._timers.blink = setTimeout(() => {
-      this._triggerBlink();
-      this._scheduleBlink();
+      if (!this.isQuiet) {
+        this._triggerBlink();
+        this._scheduleBlink();
+      }
     }, delay);
   }
 
   _scheduleWave() {
+    if (this.isQuiet) return; // Don't schedule animations when quiet
+    
     const { min, max } = DEFAULTS.waveInterval;
     const delay = min + Math.random() * (max - min);
 
     this._timers.wave = setTimeout(() => {
-      if (this.state === 'idle') this._triggerWave();
-      this._scheduleWave();
+      if (!this.isQuiet && this.state === 'idle') this._triggerWave();
+      if (!this.isQuiet) this._scheduleWave();
     }, delay);
   }
 
@@ -391,6 +515,10 @@ class Spaceman {
 
   _clearAllTimers() {
     Object.keys(this._timers).forEach(k => this._clearTimer(k));
+    if (this._clickTimeout) {
+      clearTimeout(this._clickTimeout);
+      this._clickTimeout = null;
+    }
   }
 
   destroy() {

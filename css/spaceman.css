@@ -66,6 +66,52 @@
   animation: boost 0.6s ease-out;
 }
 
+/* ===== QUIET MODE OPTION MENU ===== */
+.spaceman-outer {
+  position: relative;
+  display: inline-block;
+}
+
+.spaceman-quiet-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  z-index: 100;
+  pointer-events: auto;
+}
+
+.spaceman-quiet-menu[hidden] {
+  display: none !important;
+}
+
+.spaceman-quiet-menu-btn {
+  display: block;
+  width: 100%;
+  padding: 10px 18px;
+  background: var(--spaceman-bubble-bg);
+  color: var(--spaceman-bubble-text);
+  border: none;
+  border-radius: 14px;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--spaceman-bubble-shadow);
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.spaceman-quiet-menu-btn:hover {
+  transform: scale(1.03);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.spaceman-quiet-menu-btn:active {
+  transform: scale(0.98);
+}
+
 /* ===== THOUGHT BUBBLE ===== */
 .thought-bubble {
   background: var(--spaceman-bubble-bg);

@@ -27,7 +27,7 @@ When `resume/resume.json` loads, extra lines are **appended** per state (see sec
 | State      | Messages |
 |-----------|----------|
 | **idle**  | Hello! Welcome to my space! 👋 • I'm Marwan's digital companion. • Click around to explore! |
-| **home**  | Back to home base! 🏠 • Feel free to explore anytime. • The stars are always shining here. |
+| **home**  | I love my space! 🏠 • Feel free to explore anytime. • The stars are always shining here. |
 | **playground** | These are Marwan's experimental projects! 🚀 • The Monday Rover was built with a Raspberry Pi. • GVP uses generative AI for video creation. |
 | **portfolio** | Here's Marwan's professional journey! 💼 • From startups to IBM — quite a ride! • Software architecture is his specialty. |
 
@@ -36,7 +36,7 @@ When `resume/resume.json` loads, extra lines are **appended** per state (see sec
 | State      | Messages |
 |-----------|----------|
 | **idle**  | Hello! Welcome to my world! 👋 • I'm Marwan's digital companion. • Strolling here in the summer rain. |
-| **home**  | Back to my world! 🏠 • Feel free to explore anytime. • The sun and rain are lovely here. |
+| **home**  | I love my space! 🏠 • Feel free to explore anytime. • The sun and rain are lovely here. |
 | **playground** | These are Marwan's experimental projects! 🌱 • The Monday Rover was built with a Raspberry Pi. • GVP uses generative AI for video creation. |
 | **portfolio** | Here's Marwan's professional journey! 💼 • From startups to IBM — quite a ride! • Software architecture is his specialty. |
 
