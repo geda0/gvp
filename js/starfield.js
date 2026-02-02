@@ -110,7 +110,8 @@ export function initStarfield(canvasId, options = {}) {
   }
 
   function drawSpace() {
-    c.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    // Subtle trail: fade each frame so it disappears completely (keeps look clean, no buildup)
+    c.fillStyle = 'rgba(0, 0, 0, 0.49)';
     c.fillRect(0, 0, canvas.width, canvas.height);
     for (var i = 0; i < numStars; i++) {
       stars[i].show();
