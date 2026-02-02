@@ -104,6 +104,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     { root: null, rootMargin: '0px', threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] }
   );
   projectCards.forEach((card) => observer.observe(card));
+
+  // On mobile, pin garden scene to visual viewport so it doesn't shift when URL bar hides after first scroll
+  const gardenScene = document.getElementById('gardenScene');
+  const vv = window.visualViewport;
+  const isMobile = () => window.matchMedia('(max-width: 767px)').matches;
+  const isGarden = () => getTheme() === 'garden';
+
+  function syncGardenSceneToVisualViewport() {
+    if (!gardenScene || !vv || !isMobile() || !isGarden()) {
+      if (gardenScene && !isMobile()) {
+        gardenScene.style.top = '';
+        gardenScene.style.left = '';
+        gardenScene.style.width = '';
+        gardenScene.style.height = '';
+      }
+      return;
+    }
+    gardenScene.style.top = `${vv.offsetTop}px`;
+    gardenScene.style.left = `${vv.offsetLeft}px`;
+    gardenScene.style.width = `${vv.width}px`;
+    gardenScene.style.height = `${vv.height}px`;
+  }
+
+  if (gardenScene && vv) {
+    syncGardenSceneToVisualViewport();
+    vv.addEventListener('resize', syncGardenSceneToVisualViewport);
+    vv.addEventListener('scroll', syncGardenSceneToVisualViewport);
+    window.addEventListener('resize', syncGardenSceneToVisualViewport);
+    window.addEventListener('themechange', syncGardenSceneToVisualViewport);
+  }
 });
 
 export { spaceman, spacemanPosition };
