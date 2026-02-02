@@ -29,7 +29,9 @@
     },
     "home": {
       "messages": [
-        "Feel free to explore.",
+        "Welcome to my space! 👋",
+        "I'm Marwan's digital assistant.",
+        "Click around to explore!",
         "The stars are always shining here."
       ],
       "typingSpeed": 50,
@@ -73,8 +75,9 @@
         },
         "home": {
           "messages": [
-            "Returned to home.",
-            "Feel free to explore.",
+            "Welcome to my space! 👋",
+            "I'm Marwan's digital assistant.",
+            "Click around to explore!",
             "The sun and rain are lovely here."
           ],
           "typingSpeed": 50,
