@@ -8,7 +8,7 @@
     "space": {
       "idle": [
         "Hello! Welcome to my space! 👋",
-        "I'm Marwan's digital companion.",
+        "I'm Marwan's digital assistant.",
         "Click around to explore!"
       ],
       "home": [
@@ -30,7 +30,7 @@
     "garden": {
       "idle": [
         "Hello! Welcome to my world! 👋",
-        "I'm Marwan's digital companion.",
+        "I'm Marwan's digital assistant.",
         "Strolling here in the summer rain."
       ],
       "home": [
@@ -81,7 +81,7 @@
       ]
     },
     "homeIdle": [
-      "Marwan's digital companion. Software architecture and full-stack development."
+      "Marwan's digital assistant. Software architecture and full-stack development."
     ]
   },
   "projectInView": {
@@ -114,7 +114,7 @@
     "Still here... floating in space... 🌌",
     "Still here... enjoying the space... 🌿",
     "Hello! Welcome to my space! 👋",
-    "I'm Marwan's digital companion.",
+    "I'm Marwan's digital assistant.",
     "Click around to explore!",
     "I love my space! 🏠",
     "Feel free to explore anytime.",
@@ -152,7 +152,7 @@
     "Monday Rover — Built with Raspberry Pi.",
     "Generative Video Platform — A platform for generative storytelling.",
     "Apptio (IBM) — Technology Business Management, IT Financial Management.",
-    "Marwan's digital companion. Software architecture and full-stack development.",
+    "Marwan's digital assistant. Software architecture and full-stack development.",
     "That's Monday Rover (Raspberry Pi).",
     "That's Generative Video Platform.",
     "That's Apptio (an IBM company) — Technology Business Management, IT Financial Management, data-intensive SaaS.",
