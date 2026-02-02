@@ -1,7 +1,7 @@
 // app.js - Main initialization
 import { initAnalytics } from './analytics.js';
 import { initNavigation } from './navigation.js';
-import { initTheme, getTheme, setTheme } from './theme.js';
+import { initTheme, getTheme, transitionToTheme } from './theme.js';
 import { initStarfield } from './starfield.js';
 import { loadProjects, renderProjects } from './projects.js';
 import { initSpaceman } from './spaceman.js';
@@ -24,14 +24,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!themeToggle) return;
     const isSpace = getTheme() === 'space';
     const icon = isSpace ? '🦸' : '🚀';
-    const text = isSpace ? 'Switch to Garden' : 'Switch to Space';
+    const text = isSpace ? 'Go to Land' : 'Go to Space';
     themeToggle.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span> ${text}`;
   };
   if (themeToggle) {
     updateToggleLabel();
     themeToggle.addEventListener('click', () => {
-      setTheme(getTheme() === 'space' ? 'garden' : 'space');
-      updateToggleLabel();
+      transitionToTheme(getTheme() === 'space' ? 'garden' : 'space');
+      // updateToggleLabel will be called on themechange event after transition completes
     });
   }
   window.addEventListener('themechange', updateToggleLabel);
