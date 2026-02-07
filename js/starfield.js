@@ -1,4 +1,4 @@
-// starfield.js - Theme-aware canvas (starfield | rain)
+// starfield.js - Theme-aware canvas (starfield | snow)
 export function initStarfield(canvasId, options = {}) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -19,7 +19,11 @@ export function initStarfield(canvasId, options = {}) {
   // Snow state (garden theme)
   let snowflakes = [];
   const snowCount = 200;
-  const snowBaseSpeed = 1.2;
+  const snowSpeedMin = 0.6;
+  const snowSpeedMax = 1.8;
+  const snowRadiusMin = 1;
+  const snowRadiusMax = 3;
+  const snowDriftAmplitude = 0.3;
 
   function Star() {
     this.x = Math.random() * canvas.width;
@@ -118,11 +122,9 @@ export function initStarfield(canvasId, options = {}) {
       snowflakes.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
-        r: 1.5 + Math.random() * 3,
-        speed: snowBaseSpeed + Math.random() * 1.5,
-        drift: Math.random() * Math.PI * 2,
-        driftSpeed: 0.005 + Math.random() * 0.01,
-        opacity: 0.4 + Math.random() * 0.5
+        r: snowRadiusMin + Math.random() * (snowRadiusMax - snowRadiusMin),
+        phase: Math.random() * Math.PI * 2,
+        speed: snowSpeedMin + Math.random() * (snowSpeedMax - snowSpeedMin)
       });
     }
   }
@@ -158,20 +160,31 @@ export function initStarfield(canvasId, options = {}) {
     c.clearRect(0, 0, canvas.width, canvas.height);
     const w = canvas.width;
     const h = canvas.height;
+    const time = Date.now() * 0.001;
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const drift = prefersReducedMotion ? 0 : snowDriftAmplitude;
+
     for (let i = 0; i < snowflakes.length; i++) {
-      const s = snowflakes[i];
-      s.y += s.speed;
-      s.drift += s.driftSpeed;
-      s.x += Math.sin(s.drift) * 0.5;
-      if (s.y > h + s.r) {
-        s.y = -s.r;
-        s.x = Math.random() * w;
+      const d = snowflakes[i];
+      d.y += d.speed;
+      d.x += Math.sin(time + d.phase) * drift;
+      if (d.y > h + d.r * 2) {
+        d.y = -d.r * 2;
+        d.x = Math.random() * w;
+        d.phase = Math.random() * Math.PI * 2;
+        d.r = snowRadiusMin + Math.random() * (snowRadiusMax - snowRadiusMin);
       }
-      if (s.x > w) s.x = 0;
-      if (s.x < 0) s.x = w;
+      // Wrap horizontal position for continuous drift
+      if (d.x < -d.r) d.x = w + d.r;
+      if (d.x > w + d.r) d.x = -d.r;
+
+      const gradient = c.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+      gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.5)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
       c.beginPath();
-      c.fillStyle = `rgba(255, 255, 255, ${s.opacity})`;
-      c.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      c.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+      c.fillStyle = gradient;
       c.fill();
     }
   }
@@ -215,7 +228,7 @@ export function initStarfield(canvasId, options = {}) {
     numStars = calculateNumStars(canvas.width, canvas.height, cores);
     initStars(numStars);
   } else {
-    initRain();
+    initSnow();
   }
   window.addEventListener('resize', resizeCanvas);
 
