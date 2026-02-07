@@ -16,11 +16,10 @@ export function initStarfield(canvasId, options = {}) {
   let centerX, centerY, fl;
   const cores = window.navigator.hardwareConcurrency || 4;
 
-  // Rain state (garden theme)
-  let rainDrops = [];
-  const rainCount = 180;
-  const rainSpeed = 4;
-  const rainLength = 18;
+  // Snow state (garden theme)
+  let snowflakes = [];
+  const snowCount = 200;
+  const snowBaseSpeed = 1.2;
 
   function Star() {
     this.x = Math.random() * canvas.width;
@@ -113,14 +112,17 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
-  function initRain() {
-    rainDrops = [];
-    for (let i = 0; i < rainCount; i++) {
-      rainDrops.push({
+  function initSnow() {
+    snowflakes = [];
+    for (let i = 0; i < snowCount; i++) {
+      snowflakes.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
-        len: rainLength + Math.random() * 12,
-        speed: rainSpeed + Math.random() * 3
+        r: 1.5 + Math.random() * 3,
+        speed: snowBaseSpeed + Math.random() * 1.5,
+        drift: Math.random() * Math.PI * 2,
+        driftSpeed: 0.005 + Math.random() * 0.01,
+        opacity: 0.4 + Math.random() * 0.5
       });
     }
   }
@@ -137,7 +139,7 @@ export function initStarfield(canvasId, options = {}) {
       numStars = calculateNumStars(w, h, cores);
       initStars(numStars);
     } else {
-      initRain();
+      initSnow();
     }
   }
 
@@ -152,29 +154,31 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
-  function drawRain() {
+  function drawSnow() {
     c.clearRect(0, 0, canvas.width, canvas.height);
-    c.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    c.lineWidth = 1.5;
     const w = canvas.width;
     const h = canvas.height;
-    for (let i = 0; i < rainDrops.length; i++) {
-      const d = rainDrops[i];
-      d.y += d.speed;
-      if (d.y > h + d.len) {
-        d.y = -d.len;
-        d.x = Math.random() * w;
+    for (let i = 0; i < snowflakes.length; i++) {
+      const s = snowflakes[i];
+      s.y += s.speed;
+      s.drift += s.driftSpeed;
+      s.x += Math.sin(s.drift) * 0.5;
+      if (s.y > h + s.r) {
+        s.y = -s.r;
+        s.x = Math.random() * w;
       }
+      if (s.x > w) s.x = 0;
+      if (s.x < 0) s.x = w;
       c.beginPath();
-      c.moveTo(d.x, d.y);
-      c.lineTo(d.x, d.y + d.len);
-      c.stroke();
+      c.fillStyle = `rgba(255, 255, 255, ${s.opacity})`;
+      c.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      c.fill();
     }
   }
 
   function draw() {
     if (getTheme() === 'garden') {
-      drawRain();
+      drawSnow();
     } else {
       drawSpace();
     }
@@ -217,7 +221,7 @@ export function initStarfield(canvasId, options = {}) {
 
   window.addEventListener('themechange', () => {
     if (getTheme() === 'space') {
-      rainDrops = [];
+      snowflakes = [];
     } else {
       stars = [];
       numStars = 0;
