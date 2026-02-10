@@ -370,6 +370,16 @@ canvas {
     transform: translateY(20vh);
 }
 
+/* Hero area: no tap highlight or focus rectangle on mobile touch */
+#spacemanContainer,
+#spacemanContainer * {
+    -webkit-tap-highlight-color: transparent;
+    tap-highlight-color: transparent;
+}
+#spacemanContainer:focus:not(:focus-visible),
+#spacemanContainer *:focus:not(:focus-visible) {
+    outline: none;
+}
 
 #portfolioContent.visible+#load,
 #playgroundContent.visible+#load {
