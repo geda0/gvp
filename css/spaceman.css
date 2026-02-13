@@ -53,13 +53,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  animation: float 4s ease-in-out infinite;
+  animation: float 6s ease-in-out infinite;
   cursor: pointer;
   transition: transform 0.3s ease;
 }
 
 .spaceman:hover {
-  transform: scale(1.05);
+  transform: scale(1.02);
 }
 
 .spaceman.boost {
@@ -126,7 +126,7 @@
   font-size: 13px;
   line-height: 1.45;
   text-align: center;
-  animation: bubblePulse 4s ease-in-out infinite;
+  animation: bubblePulse 6s ease-in-out infinite;
   /* Expand vertically: width fixed so text wraps, height grows with content */
   display: inline-block;
   vertical-align: top;
@@ -424,16 +424,16 @@
 
 .left-arm {
   left: 5px;
-  transform: rotate(-10deg);
+  transform: rotate(-5deg);
   transform-origin: right center;
-  animation: leftArmFloat 4s ease-in-out infinite;
+  animation: leftArmFloat 6s ease-in-out infinite;
 }
 
 .right-arm {
   right: 5px;
-  transform: rotate(10deg);
+  transform: rotate(5deg);
   transform-origin: left center;
-  animation: rightArmFloat 4s ease-in-out infinite;
+  animation: rightArmFloat 6s ease-in-out infinite;
 }
 
 /* ===== JETPACK WITH FLAMES (BEHIND BODY) ===== */
@@ -551,18 +551,9 @@
   animation: capeBoost 0.6s ease-out;
 }
 
-[data-theme="garden"] .spaceman.wave .hero-cape .cape-cloth {
-  animation: capeWave 0.5s ease-in-out 3;
-}
-
 @keyframes capeFlow {
-  0%, 100% { transform: scaleY(1) skewX(2deg); }
-  50% { transform: scaleY(1.02) skewX(-3deg); }
-}
-
-@keyframes capeWave {
-  0%, 100% { transform: scaleY(1) skewX(2deg); }
-  50% { transform: scaleY(1.08) skewX(-5deg); }
+  0%, 100% { transform: scaleY(1) skewX(1deg); }
+  50% { transform: scaleY(1.01) skewX(-1.5deg); }
 }
 
 @keyframes capeBoost {
@@ -604,32 +595,32 @@
 }
 
 .left-leg {
-  transform: rotate(-8deg);
+  transform: rotate(-4deg);
   transform-origin: top center;
-  animation: leftLegFloat 4s ease-in-out infinite;
+  animation: leftLegFloat 6s ease-in-out infinite;
 }
 
 .right-leg {
-  transform: rotate(8deg);
+  transform: rotate(4deg);
   transform-origin: top center;
-  animation: rightLegFloat 4s ease-in-out infinite;
+  animation: rightLegFloat 6s ease-in-out infinite;
 }
 
 /* ===== ANIMATIONS ===== */
 @keyframes float {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-15px); }
+  50% { transform: translateY(-5px); }
 }
 
 @keyframes boost {
   0% { transform: translateY(0) scale(1); }
-  30% { transform: translateY(-40px) scale(1.1); }
+  30% { transform: translateY(-12px) scale(1.02); }
   100% { transform: translateY(0) scale(1); }
 }
 
 @keyframes bubblePulse {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+  50% { transform: scale(1.005); }
 }
 
 @keyframes blink {
@@ -648,23 +639,23 @@
 }
 
 @keyframes leftArmFloat {
-  0%, 100% { transform: rotate(-10deg); }
-  50% { transform: rotate(-20deg); }
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(-10deg); }
 }
 
 @keyframes rightArmFloat {
-  0%, 100% { transform: rotate(10deg); }
-  50% { transform: rotate(20deg); }
+  0%, 100% { transform: rotate(5deg); }
+  50% { transform: rotate(10deg); }
 }
 
 @keyframes leftLegFloat {
-  0%, 100% { transform: rotate(-8deg); }
-  50% { transform: rotate(-3deg); }
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(-2deg); }
 }
 
 @keyframes rightLegFloat {
-  0%, 100% { transform: rotate(8deg); }
-  50% { transform: rotate(3deg); }
+  0%, 100% { transform: rotate(4deg); }
+  50% { transform: rotate(2deg); }
 }
 
 @keyframes flameFlicker {
@@ -685,8 +676,8 @@
 
 @keyframes stateChange {
   0% { transform: scale(1) rotate(0deg); }
-  25% { transform: scale(1.1) rotate(-5deg); }
-  75% { transform: scale(1.1) rotate(5deg); }
+  25% { transform: scale(1.05) rotate(-2deg); }
+  75% { transform: scale(1.05) rotate(2deg); }
   100% { transform: scale(1) rotate(0deg); }
 }
 
@@ -791,13 +782,13 @@ body.content-open #spacemanContainer {
 
   /* Gentler float so movement stays within safe area on small screens */
   .spaceman {
-    animation: floatMobile 4s ease-in-out infinite;
+    animation: floatMobile 6s ease-in-out infinite;
   }
 }
 
 @keyframes floatMobile {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  50% { transform: translateY(-3px); }
 }
 
 /* Small mobile */

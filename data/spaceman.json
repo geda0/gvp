@@ -2,9 +2,10 @@
   "states": {
     "idle": {
       "messages": [
-        "Welcome to my space.",
         "I'm Marwan's digital assistant.",
-        "Navigate to explore projects and experience."
+        "Navigate to explore projects and experience.",
+        "Software Engineering and full-stack development.",
+        "Explore the portfolio for career highlights."
       ],
       "typingSpeed": 50,
       "messageDelay": 3000
@@ -13,7 +14,9 @@
       "messages": [
         "Experimental projects and technical explorations.",
         "The Monday Rover was built with a Raspberry Pi.",
-        "GVP uses generative AI for video creation."
+        "GVP uses generative AI for video creation.",
+        "Each project explores a different technology.",
+        "Built to teach, designed to ship."
       ],
       "typingSpeed": 40,
       "messageDelay": 4000
@@ -22,7 +25,9 @@
       "messages": [
         "Professional experience and career journey.",
         "From startups to IBM.",
-        "Specializing in software architecture."
+        "Specializing in software architecture.",
+        "A track record of building scalable systems.",
+        "Enterprise to startup experience."
       ],
       "typingSpeed": 40,
       "messageDelay": 4000
@@ -31,7 +36,9 @@
       "messages": [
         "Welcome to my space! 👋",
         "I'm Marwan's digital assistant.",
-        "Click around to explore!",
+        "Software Engineering and full-stack development.",
+        "Navigate to explore projects and experience.",
+        "Explore the portfolio for career highlights.",
         "The stars are always shining here."
       ],
       "typingSpeed": 50,
@@ -40,7 +47,7 @@
   },
   "reactions": {
     "hover": "Hello.",
-    "click": "Activating boost.",
+    "click": "Noted.",
     "longIdle": "Still here... floating in space... 🌌"
   },
   "themeMessages": {
@@ -48,9 +55,10 @@
       "states": {
         "idle": {
           "messages": [
-            "Welcome to my space.",
             "I'm Marwan's digital assistant.",
-            "Navigate to explore projects and experience."
+            "Navigate to explore projects and experience.",
+            "Software Engineering and full-stack development.",
+            "Explore the portfolio for career highlights."
           ],
           "typingSpeed": 50,
           "messageDelay": 3000
@@ -59,7 +67,9 @@
           "messages": [
             "Experimental projects and technical explorations.",
             "The Monday Rover was built with a Raspberry Pi.",
-            "GVP uses generative AI for video creation."
+            "GVP uses generative AI for video creation.",
+            "Each project explores a different technology.",
+            "Built to teach, designed to ship."
           ],
           "typingSpeed": 40,
           "messageDelay": 4000
@@ -68,7 +78,9 @@
           "messages": [
             "Professional experience and career journey.",
             "From startups to IBM.",
-            "Specializing in software architecture."
+            "Specializing in software architecture.",
+            "A track record of building scalable systems.",
+            "Enterprise & startup experience."
           ],
           "typingSpeed": 40,
           "messageDelay": 4000
@@ -77,7 +89,9 @@
           "messages": [
             "Welcome to my space! 👋",
             "I'm Marwan's digital assistant.",
-            "Click around to explore!",
+            "Software Engineering and full-stack development.",
+            "Navigate to explore projects and experience.",
+            "Explore the portfolio for career highlights.",
             "The snow is lovely here."
           ],
           "typingSpeed": 50,
@@ -86,7 +100,7 @@
       },
       "reactions": {
         "hover": "Hello.",
-        "click": "Activating boost.",
+        "click": "Noted.",
         "longIdle": "Still here... enjoying the space... 🌿"
       }
     }

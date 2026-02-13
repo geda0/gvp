@@ -16,12 +16,12 @@ const DEFAULTS = {
 
 const DEFAULT_DATA = {
   states: {
-    idle: { messages: ['Hello! Welcome!'], typingSpeed: 50, messageDelay: 3000 },
-    playground: { messages: ['Exploring projects...'], typingSpeed: 50, messageDelay: 3000 },
-    portfolio: { messages: ['Professional work...'], typingSpeed: 50, messageDelay: 3000 },
-    home: { messages: ['Back home!'], typingSpeed: 50, messageDelay: 3000 }
+    idle: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 },
+    playground: { messages: ['Experimental projects and technical explorations.'], typingSpeed: 40, messageDelay: 4000 },
+    portfolio: { messages: ['Professional experience and career journey.'], typingSpeed: 40, messageDelay: 4000 },
+    home: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 }
   },
-  reactions: { hover: 'Hi!', click: 'Wheee!', longIdle: '...' }
+  reactions: { hover: 'Hello.', click: 'Noted.', longIdle: 'Ready when you are.' }
 };
 
 class Spaceman {
@@ -126,12 +126,7 @@ class Spaceman {
   }
 
   _getWelcomeMessage() {
-    const { states } = this._getThemeData();
-    const theme = getTheme();
-    const idleMessages = states?.idle?.messages ?? states?.home?.messages ?? [];
-    const welcomeMsg = idleMessages.find(m => /welcome\s+to\s+my\s+(world|space|garden)/i.test(m));
-    if (welcomeMsg) return welcomeMsg;
-    return 'Welcome to my space! 👋';
+    return 'Welcome.'
   }
 
   _getNextMessage() {
@@ -444,10 +439,9 @@ class Spaceman {
     }, 2000);
   }
 
-  // Idle animations
+  // Idle animations (wave disabled for professional tone)
   _startIdleAnimations() {
     this._scheduleBlink();
-    this._scheduleWave();
   }
 
   _scheduleBlink() {
