@@ -174,7 +174,7 @@ class Spaceman {
           <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
         </div>
         <div class="spaceman" id="spaceman">
-        <div class="thought-bubble" id="thoughtBubble">
+        <div class="thought-bubble" id="thoughtBubble" aria-live="polite" role="status">
           <span class="thought-text" id="thoughtText"></span>
           <span class="cursor">|</span>
         </div>

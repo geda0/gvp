@@ -92,15 +92,16 @@
       "id": "5d-agency",
       "title": "5d-agency (SWI)",
       "description": "Web based & mobile Games! Augmented Reality, CMS, Joomla, Drupal, Unity 3D, Mobile Apps.",
+      "imageAlt": "5D Agency",
       "link": "https://5d-agency.com/",
       "linkText": "5d-agency.com",
       "hidden": true
     },
-     {
+    {
       "id": "early",
       "title": "Early Startups",
-      "description": "<b>DDA Advertising</b>: ddaadvertising.net <br><b>OIG OS</b>: Linux based embedded system.<br><b>QREO</b>: Web apps, Scientific research"
-
+      "description": "DDA Advertising (ddaadvertising.net), OIG OS (Linux embedded system), QREO (Web apps, Scientific research)",
+      "hidden": true
     }
   ]
 }
