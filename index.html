@@ -4,9 +4,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Marwan Elgendy - The Computerist">
+    <meta name="description" content="Marwan Elgendy - Software Architect & Full-Stack Developer. Portfolio showcasing enterprise systems at IBM/Apptio, JumpCloud, HP, and AT&T.">
     <title>ME - Marwan Elgendy - The Computerist</title>
+    <link rel="canonical" href="https://marwanelgendy.com/">
+    <meta name="theme-color" content="#03060c">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Marwan Elgendy - The Computerist">
+    <meta property="og:description" content="Software Architect & Full-Stack Developer. From startups to IBM.">
+    <meta property="og:url" content="https://marwanelgendy.com/">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Marwan Elgendy - The Computerist">
+    <meta name="twitter:description" content="Software Architect & Full-Stack Developer. From startups to IBM.">
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Person",
+      "name": "Marwan Elgendy",
+      "alternateName": "The Computerist",
+      "url": "https://marwanelgendy.com",
+      "jobTitle": "Software Architect",
+      "sameAs": ["https://www.linkedin.com/in/marwan-elgendy/"]
+    }
+    </script>
+
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="dns-prefetch" href="https://www.googletagmanager.com">
     <link rel="stylesheet"
         href="https://fonts.googleapis.com/css?family=Roboto:400,700|Open+Sans:400,700&display=swap" />
     <link rel="stylesheet" href="css/styles.css" />
@@ -16,6 +46,7 @@
 </head>
 
 <body>
+    <a href="#contentWrapper" class="skip-link">Skip to content</a>
     <header>
         <nav class="navbar">
             <div class="navbar-left">
@@ -58,11 +89,16 @@
         <div id="contentWrapper">
             <div id="load">
                 <section id="home" class="scale-in">
-                    <!-- Spaceman container moved outside -->
+                    <h1>Marwan Elgendy</h1>
+                    <p class="tagline">Software Architect &amp; Full-Stack Developer</p>
+                    <p class="home-summary">From early startups to enterprise systems at IBM, JumpCloud, HP, and AT&amp;T.</p>
+                    <div class="home-actions">
+                        <a href="resume/Resume_MARWAN_ELGENDY.pdf" class="resume-link" target="_blank" rel="noopener">View Resume</a>
+                    </div>
                 </section>
                 <div id="playgroundContent" class="hidden">
                     <section id="projects" class="hidden section-invisible scale-in">
-                        <h3>Playground</h3>
+                        <h2>Playground</h2>
                         <!-- Projects rendered dynamically -->
                     </section>
                 </div>
@@ -79,9 +115,16 @@
     <script type="module" src="js/app.js"></script>
 
     <footer>
-        <p>© 2026 ME. All rights reserved.</p>
-        <p><a href="https://www.linkedin.com/in/marwan-elgendy/">LinkedIn</a> | <a
-                href="mailto:marwan.gendy@gmail.com">marwan.gendy@gmail.com</a></p>
+        <div class="footer-content">
+            <p>&copy; 2026 Marwan Elgendy. All rights reserved.</p>
+            <nav aria-label="Footer navigation">
+                <ul class="footer-links">
+                    <li><a href="https://www.linkedin.com/in/marwan-elgendy/" target="_blank" rel="noopener">LinkedIn</a></li>
+                    <li><a href="mailto:marwan.gendy@gmail.com">Email</a></li>
+                    <li><a href="resume/Resume_MARWAN_ELGENDY.pdf" target="_blank" rel="noopener">Resume</a></li>
+                </ul>
+            </nav>
+        </div>
     </footer>
 </body>
 
