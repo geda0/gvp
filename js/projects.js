@@ -40,7 +40,7 @@ function createProjectCard(project) {
   let html = '';
 
   if (project.image) {
-    html += `<img src="${project.image}" alt="${project.imageAlt || project.title}">`;
+    html += `<img src="${project.image}" alt="${project.imageAlt || project.title}" loading="lazy" width="299">`;
   }
 
   html += `<h4>${project.title}</h4>`;

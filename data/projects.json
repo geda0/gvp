@@ -4,7 +4,7 @@
       "id": "monday-rover",
       "title": "Monday Rover (Raspberry Pi)",
       "image": "rpi.jpg",
-      "imageAlt": "raspberry pi",
+      "imageAlt": "Raspberry Pi",
       "link": "https://www.youtube.com/shorts/WZMmlTcG3n8/",
       "linkText": "mdayrover.marwanelgendy.link",
       "hidden": true
@@ -23,7 +23,7 @@
     {
       "id": "apptio",
       "title": "Apptio (an IBM company)",
-      "description": "Technology Business Management (TBM) Software.<br> Data intensive SaaS platform for IT Financial Management.",
+      "description": "Technology Business Management (TBM) software. A data-intensive SaaS platform for IT Financial Management.",
       "image": "ibm.jpeg",
       "imageAlt": "Apptio (IBM)",
       "link": "https://apptio.com/",
@@ -53,7 +53,7 @@
     {
       "id": "att",
       "title": "AT&T",
-      "description": "I built TQL: ticketing query language, a SQL-like syntax based language to query tickets.",
+      "description": "TQL: a SQL-like ticketing query language for structured ticket queries.",
       "image": "att.png",
       "imageAlt": "AT&T",
       "hidden": true
@@ -71,7 +71,7 @@
     {
       "id": "sunrise",
       "title": "Sunrise Resorts & Cruises",
-      "description": "I built Datacenters, Network Infrastructure, VPN, Asset Management Software, Interfaces.",
+      "description": "Datacenters, network infrastructure, VPN, and asset management software.",
       "image": "sr.png",
       "imageAlt": "Sunrise Resorts",
       "link": "https://www.sunrise-resorts.com",
@@ -81,7 +81,7 @@
     {
       "id": "campus-party",
       "title": "Campus Party Milenio (Spain)",
-      "description": "I got to share unique ideas and collaborate with innovators.",
+      "description": "Sharing ideas and collaborating with innovators at a global technology conference.",
       "image": "cp.jpeg",
       "imageAlt": "Campus Party",
       "link": "https://www.facebook.com/campuspartymilenio/",
@@ -91,16 +91,17 @@
     {
       "id": "5d-agency",
       "title": "5d-agency (SWI)",
-      "description": "Web based & mobile Games! Augmented Reality, CMS, Joomla, Drupal, Unity 3D, Mobile Apps.",
+      "description": "Web and mobile games, augmented reality, CMS platforms, and Unity 3D applications.",
+      "imageAlt": "5D Agency",
       "link": "https://5d-agency.com/",
       "linkText": "5d-agency.com",
       "hidden": true
     },
-     {
+    {
       "id": "early",
       "title": "Early Startups",
-      "description": "<b>DDA Advertising</b>: ddaadvertising.net <br><b>OIG OS</b>: Linux based embedded system.<br><b>QREO</b>: Web apps, Scientific research"
-
+      "description": "DDA Advertising, OIG OS (Linux embedded system), and QREO (web applications, scientific research).",
+      "hidden": true
     }
   ]
 }

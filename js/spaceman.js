@@ -7,11 +7,9 @@ const DEFAULTS = {
   messageDelay: 3000,
   idleTimeout: 30000,
   blinkInterval: { min: 3000, max: 6000 },
-  waveInterval: { min: 20000, max: 40000 },
   boostDuration: 600,
   stateChangeDuration: 500,
-  blinkDuration: 150,
-  waveDuration: 1500
+  blinkDuration: 150
 };
 
 const DEFAULT_DATA = {
@@ -43,8 +41,7 @@ class Spaceman {
       typing: null,
       message: null,
       idle: null,
-      blink: null,
-      wave: null
+      blink: null
     };
     this._clickTimeout = null;
 
@@ -174,7 +171,7 @@ class Spaceman {
           <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
         </div>
         <div class="spaceman" id="spaceman">
-        <div class="thought-bubble" id="thoughtBubble">
+        <div class="thought-bubble" id="thoughtBubble" aria-live="polite" role="status">
           <span class="thought-text" id="thoughtText"></span>
           <span class="cursor">|</span>
         </div>
@@ -458,31 +455,12 @@ class Spaceman {
     }, delay);
   }
 
-  _scheduleWave() {
-    if (this.isQuiet) return; // Don't schedule animations when quiet
-    
-    const { min, max } = DEFAULTS.waveInterval;
-    const delay = min + Math.random() * (max - min);
-
-    this._timers.wave = setTimeout(() => {
-      if (!this.isQuiet && this.state === 'idle') this._triggerWave();
-      if (!this.isQuiet) this._scheduleWave();
-    }, delay);
-  }
-
   _triggerBlink() {
     const eyes = this.elements.spaceman?.querySelectorAll('.eye');
     eyes?.forEach(eye => {
       eye.classList.add('blink');
       setTimeout(() => eye.classList.remove('blink'), DEFAULTS.blinkDuration);
     });
-  }
-
-  _triggerWave() {
-    const { spaceman } = this.elements;
-    if (!spaceman) return;
-    spaceman.classList.add('wave');
-    setTimeout(() => spaceman.classList.remove('wave'), DEFAULTS.waveDuration);
   }
 
   _triggerBoost() {

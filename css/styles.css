@@ -15,6 +15,8 @@
     --navbar-link-hover-color: #333;
     --overlay-gradient: radial-gradient(rgba(255, 255, 255, 0.09), rgba(0, 0, 0, 0));
     --heading-shadow: 2px 1px 2px #000;
+    --card-playground-bg: rgba(233, 94, 163, 0.44);
+    --card-portfolio-bg: rgba(9, 115, 233, 0.44);
 }
 
 [data-theme="garden"] {
@@ -36,6 +38,8 @@
     --navbar-link-hover-color: #1a2f1a;
     --overlay-gradient: radial-gradient(rgba(255, 248, 220, 0.35), rgba(255, 255, 255, 0) 60%);
     --heading-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+    --card-playground-bg: rgba(76, 140, 76, 0.45);
+    --card-portfolio-bg: rgba(45, 100, 45, 0.45);
 }
 
 /* Garden scene: trees (only visible in garden theme) */
@@ -247,33 +251,33 @@ h3 {
     text-shadow: var(--heading-shadow);
     line-height: 34px;
     margin: 0 auto;
-    white-space: nowrap;
 }
 
 .project {
     margin: 20px 0;
-    background-color: #e95ea371;
+    background-color: var(--card-playground-bg);
     padding: 15px;
     border-radius: 20px;
     box-shadow: -8px 8px 8px rgba(0, 0, 0, 0.5), 8px 8px 5px rgba(0, 0, 0, 0.4);
     max-width: 323px;
     position: relative;
     z-index: 101;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .project:hover {
-    box-shadow: -8px 8px 8px rgba(0, 0, 0, 0.5), 8px 8px 5px rgba(0, 0, 0, 0.4);
+    box-shadow: -10px 10px 16px rgba(0, 0, 0, 0.6), 10px 10px 12px rgba(0, 0, 0, 0.5);
     transform: scale(1.05);
 }
 
 #portfolioContent .project {
-    background-color: #0973e971;
+    background-color: var(--card-portfolio-bg);
 }
 
 footer {
     background-color: var(--footer-bg);
     color: var(--navbar-link);
-    padding-bottom: 7px;
+    padding: 10px 0;
     text-align: center;
     position: fixed;
     bottom: 0;
@@ -284,7 +288,22 @@ footer {
 }
 
 footer p {
+    margin: 0 0 4px;
+    font-size: 0.85em;
+}
+
+.footer-links {
+    list-style: none;
+    padding: 0;
     margin: 0;
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+}
+
+.footer-links li a {
+    text-decoration: none;
+    font-size: 0.85em;
 }
 
 /* Garden theme: footer has dark green bg; override link color for visibility */
@@ -317,6 +336,19 @@ a:visited {
 
 a {
     color: var(--link-color);
+    transition: color 0.2s ease;
+}
+
+a:focus-visible {
+    outline: 2px solid var(--link-color);
+    outline-offset: 2px;
+}
+
+.navbar a:focus-visible {
+    background-color: var(--navbar-link-hover-bg);
+    color: var(--navbar-link-hover-color);
+    outline: 2px solid var(--navbar-link);
+    outline-offset: 2px;
 }
 
 img {
@@ -345,19 +377,6 @@ canvas {
     padding-top: 70px;
     margin-top: 0;
     transition: margin-top 0.5s;
-}
-
-.hidden {
-    opacity: 0;
-    visibility: hidden;
-    height: 0;
-    transition: opacity 0.5s, visibility 0.5s, height 0.5s;
-}
-
-.visible {
-    opacity: 1;
-    visibility: visible;
-    height: auto;
 }
 
 #contentWrapper {
@@ -505,11 +524,16 @@ section#portfolioProjects {
     margin-right: 4px;
 }
 
-.theme-toggle:hover,
+.theme-toggle:hover {
+    background-color: var(--navbar-link-hover-bg);
+    color: var(--navbar-link-hover-color);
+}
+
 .theme-toggle:focus-visible {
     background-color: var(--navbar-link-hover-bg);
     color: var(--navbar-link-hover-color);
-    outline: none;
+    outline: 2px solid var(--navbar-link);
+    outline-offset: 2px;
 }
 
 body {
@@ -557,6 +581,38 @@ h6 {
 
 .read-more {
     font-size: 0.9em;
+}
+
+/* Home section */
+.tagline {
+    font-size: 1.2em;
+    opacity: 0.85;
+    margin-bottom: 1em;
+}
+
+.home-summary {
+    max-width: 600px;
+    margin: 0 auto 1.5em;
+    line-height: 1.7;
+}
+
+.home-actions {
+    margin-top: 1.5em;
+}
+
+.resume-link {
+    display: inline-block;
+    padding: 10px 24px;
+    border: 1px solid var(--link-color);
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--link-color);
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.resume-link:hover {
+    background-color: var(--link-color);
+    color: var(--bg-primary);
 }
 
 @media screen and (max-width: 767px) {
@@ -631,6 +687,93 @@ h6 {
     }
 
     .read-more {
+        font-size: 0.8em;
+    }
+}
+
+/* Skip to content link (accessibility) */
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: 0;
+    background: var(--nav-bg);
+    color: var(--text-primary);
+    padding: 8px 16px;
+    z-index: 10000;
+    text-decoration: none;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .scale-in {
+        animation: none;
+    }
+
+    .project {
+        transition: none;
+    }
+
+    section {
+        transition: none;
+    }
+
+    #contentWrapper {
+        transition: none;
+    }
+
+    body {
+        transition: none;
+    }
+
+    .garden-scene {
+        transition: none;
+    }
+
+    #sceneTransitionOverlay {
+        transition: none;
+    }
+
+    a {
+        transition: none;
+    }
+}
+
+/* Print styles */
+@media print {
+    canvas,
+    #spacemanContainer,
+    .garden-scene,
+    #light,
+    #sceneTransitionOverlay,
+    header,
+    footer,
+    .skip-link {
+        display: none !important;
+    }
+
+    body {
+        background: white !important;
+        color: black !important;
+    }
+
+    section {
+        min-height: auto;
+        padding: 20px;
+    }
+
+    .project {
+        break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #ccc;
+        background-color: white !important;
+    }
+
+    a::after {
+        content: " (" attr(href) ")";
         font-size: 0.8em;
     }
 }

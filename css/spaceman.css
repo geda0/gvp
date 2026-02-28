@@ -707,16 +707,6 @@
   50% { transform: scaleY(0.1); }
 }
 
-/* Wave */
-.spaceman.wave .right-arm {
-  animation: waveHello 0.5s ease-in-out 3;
-}
-
-@keyframes waveHello {
-  0%, 100% { transform: rotate(10deg); }
-  50% { transform: rotate(-45deg); }
-}
-
 /* ===== SPACEMAN POSITIONING & MOVEMENT ===== */
 
 #spacemanContainer {
