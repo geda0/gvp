@@ -22,12 +22,15 @@ class SpacemanPosition {
     this._cleanupTimer = null;
     this._onEnd = null;
     this.isQuiet = false;
+    this._isDragging = false;
+    this._dragReturnTimer = null;
 
     this.init();
   }
 
   init() {
     this._bindObservers();
+    this._bindDrag();
 
     // Initial + post-paint
     this.updatePosition();
@@ -77,8 +80,79 @@ class SpacemanPosition {
   }
 
   updatePosition() {
+    if (this._isDragging) return;
     clearTimeout(this._updateT);
     this._updateT = setTimeout(() => this._update(), 50);
+  }
+
+  _bindDrag() {
+    const el = this.spaceman;
+    if (!el) return;
+
+    let startX, startY, startSX, startSY;
+    let dragMoved = false;
+    const THRESHOLD = 5;
+
+    const onPointerDown = (e) => {
+      if (e.button !== 0) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      startSX = parseFloat(this.movable.style.getPropertyValue('--sx')) || 0;
+      startSY = parseFloat(this.movable.style.getPropertyValue('--sy')) || 0;
+      dragMoved = false;
+
+      document.addEventListener('pointermove', onPointerMove);
+      document.addEventListener('pointerup', onPointerUp);
+      el.setPointerCapture(e.pointerId);
+    };
+
+    const onPointerMove = (e) => {
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      if (!this._isDragging && (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD)) {
+        this._isDragging = true;
+        dragMoved = true;
+        this.movable.classList.add('dragging');
+        el.classList.add('dragging-active');
+        clearTimeout(this._dragReturnTimer);
+      }
+
+      if (this._isDragging) {
+        this.movable.style.setProperty('--sx', `${startSX + dx}px`);
+        this.movable.style.setProperty('--sy', `${startSY + dy}px`);
+      }
+    };
+
+    const onPointerUp = () => {
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
+
+      if (this._isDragging) {
+        this._isDragging = false;
+        this.movable.classList.remove('dragging');
+        el.classList.remove('dragging-active');
+
+        this._dragReturnTimer = setTimeout(() => {
+          this._update();
+        }, 3000);
+      }
+    };
+
+    el.addEventListener('pointerdown', onPointerDown);
+
+    el.addEventListener('click', (e) => {
+      if (dragMoved) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        dragMoved = false;
+      }
+    }, true);
+
+    this._dragCleanup = () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      clearTimeout(this._dragReturnTimer);
+    };
   }
 
   _update() {
@@ -91,7 +165,7 @@ class SpacemanPosition {
 
     if (this.isQuiet) {
       // Quiet mode: position in bottom-right corner
-      scale = isMobile ? 0.5 : isTablet ? 0.6 : 0.7;
+      scale = isMobile ? 0.35 : isTablet ? 0.45 : 0.5;
       const bounds = this._getBounds(vw, vh, scale);
       const edgePad = vw < 768 ? 12 : this.options.edgePad;
       x = bounds.maxX - edgePad;
@@ -101,14 +175,12 @@ class SpacemanPosition {
       document.body.classList.toggle('content-open', !!content);
 
       if (content) {
-        // Content open: position near content (above content on mobile)
-        scale = isMobile ? 0.6 : isTablet ? 0.75 : 1;
+        scale = isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
         const pos = this._calcPosition(vw, vh, content, scale, isMobile);
         x = pos.x;
         y = pos.y;
       } else {
-        // Home: on mobile, bias toward edge to clear the view; slightly above on mobile
-        scale = isMobile ? (vw < 480 ? 0.65 : 0.75) : isTablet ? 0.85 : 1;
+        scale = isMobile ? (vw < 480 ? 0.5 : 0.55) : isTablet ? 0.65 : 0.75;
         const bounds = this._getBounds(vw, vh, scale);
         const desiredX = isMobile ? 32 : 0;
         const desiredY = isMobile ? -30 : 0;
@@ -215,10 +287,12 @@ class SpacemanPosition {
   destroy() {
     clearTimeout(this._updateT);
     clearTimeout(this._cleanupTimer);
+    clearTimeout(this._dragReturnTimer);
     if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._mutationObs?.disconnect();
     this._resizeObs?.disconnect();
     this._contentEls?.forEach(el => el.removeEventListener('transitionend', this._onTransitionEnd));
+    this._dragCleanup?.();
   }
 }
 
