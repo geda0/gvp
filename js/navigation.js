@@ -69,6 +69,7 @@ export function initNavigation(options = {}) {
 }
 
 function goHome(el, event) {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
   el.playgroundContent.classList.remove("visible");
   el.playgroundContent.classList.add("hidden");
   el.projects.classList.remove("visible");
@@ -88,6 +89,7 @@ function goHome(el, event) {
 }
 
 function goPlay(el, event) {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
   el.portfolioContent.classList.remove("visible");
   el.portfolioContent.classList.add("hidden");
   el.portfolioProjects.classList.remove("visible");
@@ -110,6 +112,7 @@ function goPlay(el, event) {
 }
 
 function goPortfolio(el, event) {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
   el.playgroundContent.classList.remove("visible");
   el.playgroundContent.classList.add("hidden");
   el.projects.classList.remove("visible");

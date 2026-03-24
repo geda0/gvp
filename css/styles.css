@@ -207,12 +207,6 @@ header {
     transition: background-color 0.4s ease;
 }
 
-nav {
-    width: 100%;
-    z-index: 1000;
-    position: fixed;
-}
-
 nav ul {
     display: flex;
     justify-content: space-around;
@@ -236,7 +230,6 @@ section {
     padding: 100px 50px;
     text-align: center;
     min-height: 100vh;
-    overflow-y: auto;
     transition: transform 1s ease;
 }
 
@@ -273,7 +266,7 @@ h3 {
 footer {
     background-color: var(--footer-bg);
     color: var(--navbar-link);
-    padding-bottom: 7px;
+    padding: 6px 0 7px;
     text-align: center;
     position: fixed;
     bottom: 0;
@@ -307,10 +300,15 @@ footer p {
 }
 
 #home {
-    /* position: absolute; */
+    position: absolute;
     top: 0;
     left: 0;
     right: 0;
+}
+
+body.content-open #home .hero {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 a:visited {
@@ -342,26 +340,6 @@ canvas {
     height: 100%;
 }
 
-#portfolioContent.visible+#load,
-#playgroundContent.visible+#load {
-    padding-top: 70px;
-    margin-top: 0;
-    transition: margin-top 0.5s;
-}
-
-.hidden {
-    opacity: 0;
-    visibility: hidden;
-    height: 0;
-    transition: opacity 0.5s, visibility 0.5s, height 0.5s;
-}
-
-.visible {
-    opacity: 1;
-    visibility: visible;
-    height: auto;
-}
-
 #contentWrapper {
     display: flex;
     flex-direction: column;
@@ -383,12 +361,6 @@ canvas {
     outline: none;
 }
 
-#portfolioContent.visible+#load,
-#playgroundContent.visible+#load {
-    margin-top: 0;
-    transition: margin-top 1s ease;
-}
-
 #portfolioContent,
 #playgroundContent {
     z-index: 100;
@@ -397,7 +369,6 @@ canvas {
 .hidden {
     opacity: 0;
     display: none;
-    transition: opacity 0.2s ease-in-out;
 }
 
 .visible {
@@ -409,6 +380,7 @@ canvas {
 section#projects,
 section#portfolioProjects {
     margin-top: 269px;
+    padding-bottom: 60px;
     position: relative;
     z-index: 100;
 }

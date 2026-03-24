@@ -8,25 +8,6 @@ export function initAnalytics() {
   window.gtag = gtag;
 }
 
-/** Stable conversion events: resume_click, linkedin_click, email_click (data-conversion on anchor). */
-export function initConversionClickTracking() {
-  document.addEventListener(
-    'click',
-    (e) => {
-      const link = e.target.closest('a[data-conversion]');
-      if (!link || !window.gtag) return;
-      const eventName = link.getAttribute('data-conversion');
-      if (!eventName) return;
-      window.gtag('event', eventName, {
-        event_category: 'outbound',
-        link_url: link.href,
-        transport_type: 'beacon'
-      });
-    },
-    true
-  );
-}
-
 export function trackClick(event) {
   if (window.gtag && event.target.href) {
     window.gtag('event', 'click', {
