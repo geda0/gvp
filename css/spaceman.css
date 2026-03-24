@@ -758,6 +758,8 @@
 
 #spacemanContainer .spaceman {
   pointer-events: auto;
+  /* Let pointer drag work on touch: default touch-action pans the page instead of firing pointermove */
+  touch-action: none;
 }
 
 /* Disable transition during drag */

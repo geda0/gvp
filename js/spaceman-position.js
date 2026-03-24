@@ -40,8 +40,16 @@ class SpacemanPosition {
       document.body.classList.remove('content-open');
       return;
     }
-    const content = this._getVisibleContent();
-    document.body.classList.toggle('content-open', !!content);
+    const pg = document.getElementById('playgroundContent');
+    const pf = document.getElementById('portfolioContent');
+    const wrapperOpen =
+      !!(pg &&
+        pg.classList.contains('visible') &&
+        !pg.classList.contains('hidden')) ||
+      !!(pf &&
+        pf.classList.contains('visible') &&
+        !pf.classList.contains('hidden'));
+    document.body.classList.toggle('content-open', wrapperOpen);
   }
 
   init() {
@@ -77,6 +85,8 @@ class SpacemanPosition {
     this._resizeObs = new ResizeObserver(() => this.updatePosition());
     contentEls.forEach(el => this._resizeObs.observe(el));
     this._resizeObs.observe(this.container);
+    const heroCopy = document.querySelector('.hero-copy')
+    if (heroCopy) this._resizeObs.observe(heroCopy)
 
     // Transition end -> reposition
     this._onTransitionEnd = (e) => {
@@ -116,7 +126,8 @@ class SpacemanPosition {
     const THRESHOLD = 5;
 
     const onPointerDown = (e) => {
-      if (e.button !== 0) return;
+      /* Touch/pen use primary contact; only filter non-primary mouse buttons */
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       startX = e.clientX;
       startY = e.clientY;
       startSX = parseFloat(this.movable.style.getPropertyValue('--sx')) || 0;
@@ -125,6 +136,7 @@ class SpacemanPosition {
 
       document.addEventListener('pointermove', onPointerMove);
       document.addEventListener('pointerup', onPointerUp);
+      document.addEventListener('pointercancel', onPointerUp);
       el.setPointerCapture(e.pointerId);
     };
 
@@ -149,9 +161,15 @@ class SpacemanPosition {
       }
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (e) => {
       document.removeEventListener('pointermove', onPointerMove);
       document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('pointercancel', onPointerUp);
+      if (e?.pointerId != null) {
+        try {
+          if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+        } catch (_) { /* noop */ }
+      }
 
       if (this._isDragging) {
         this._isDragging = false;
@@ -249,10 +267,40 @@ class SpacemanPosition {
       } else {
         scale = isMobile ? (vw < 480 ? 0.5 : 0.55) : isTablet ? 0.65 : 0.75;
         const bounds = this._getBounds(vw, vh, scale);
-        const desiredX = isMobile ? 32 : 0;
-        const desiredY = isMobile ? -30 : 0;
-        x = Math.max(bounds.minX, Math.min(bounds.maxX, desiredX));
-        y = Math.max(bounds.minY, Math.min(bounds.maxY, desiredY));
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+        const heroCopy = document.querySelector('.hero-copy')
+        const rect = this.container.getBoundingClientRect()
+        const baseW = (rect.width / (this.currentScale || 1)) || 200
+        const baseH = (rect.height / (this.currentScale || 1)) || 320
+        const w = baseW * scale
+        const h = baseH * scale
+        const pad = this.options.padding
+
+        if (heroCopy) {
+          const r = heroCopy.getBoundingClientRect()
+          if (r.width > 0 && r.height > 0) {
+            let cx
+            let cy
+            const fitsLeft = r.left - pad - w >= this.options.edgePad
+            if (isMobile || !fitsLeft) {
+              cx = r.left + r.width / 2
+              cy = r.top - pad - h / 2
+            } else {
+              cx = r.left - pad - w / 2
+              cy = r.top + r.height / 2
+            }
+            x = clamp(cx - vw / 2, bounds.minX, bounds.maxX)
+            y = clamp(cy - vh / 2, bounds.minY, bounds.maxY)
+          } else {
+            x = clamp(0, bounds.minX, bounds.maxX)
+            y = clamp(isMobile ? -30 : 0, bounds.minY, bounds.maxY)
+          }
+        } else {
+          const desiredX = isMobile ? 32 : 0
+          const desiredY = isMobile ? -30 : 0
+          x = clamp(desiredX, bounds.minX, bounds.maxX)
+          y = clamp(desiredY, bounds.minY, bounds.maxY)
+        }
       }
     }
 
