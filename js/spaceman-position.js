@@ -22,10 +22,26 @@ class SpacemanPosition {
     this._cleanupTimer = null;
     this._onEnd = null;
     this.isQuiet = false;
+    this.isStaying = false;
     this._isDragging = false;
     this._dragReturnTimer = null;
+    this._hooks = {};
 
     this.init();
+  }
+
+  setHooks(hooks = {}) {
+    this._hooks = { ...this._hooks, ...hooks };
+  }
+
+  /** Keep `body.content-open` in sync with visible playground/portfolio (hero CSS) even when `isStaying` skips layout `_update`. */
+  _syncBodyContentOpen() {
+    if (this.isQuiet) {
+      document.body.classList.remove('content-open');
+      return;
+    }
+    const content = this._getVisibleContent();
+    document.body.classList.toggle('content-open', !!content);
   }
 
   init() {
@@ -80,7 +96,13 @@ class SpacemanPosition {
   }
 
   updatePosition() {
+    this._syncBodyContentOpen();
     if (this._isDragging) return;
+    if (this.isStaying) {
+      clearTimeout(this._updateT);
+      this._updateT = setTimeout(() => this._clampStayingIfNeeded(), 50);
+      return;
+    }
     clearTimeout(this._updateT);
     this._updateT = setTimeout(() => this._update(), 50);
   }
@@ -111,11 +133,14 @@ class SpacemanPosition {
       const dy = e.clientY - startY;
 
       if (!this._isDragging && (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD)) {
+        const wasStaying = this.isStaying;
+        if (wasStaying) this.isStaying = false;
         this._isDragging = true;
         dragMoved = true;
         this.movable.classList.add('dragging');
         el.classList.add('dragging-active');
         clearTimeout(this._dragReturnTimer);
+        this._hooks.onDragStart?.({ wasStaying });
       }
 
       if (this._isDragging) {
@@ -132,10 +157,14 @@ class SpacemanPosition {
         this._isDragging = false;
         this.movable.classList.remove('dragging');
         el.classList.remove('dragging-active');
+        clearTimeout(this._dragReturnTimer);
+        this._dragReturnTimer = null;
 
-        this._dragReturnTimer = setTimeout(() => {
-          this._update();
-        }, 3000);
+        if (dragMoved && this._hooks.onDragEnd) {
+          this._hooks.onDragEnd(true);
+        } else if (dragMoved) {
+          this._dragReturnTimer = setTimeout(() => this._update(), 3000);
+        }
       }
     };
 
@@ -155,7 +184,46 @@ class SpacemanPosition {
     };
   }
 
+  _clampStayingIfNeeded() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const scale =
+      parseFloat(this.movable.style.getPropertyValue('--ss')) || this.currentScale || 0.75;
+    const sx = parseFloat(this.movable.style.getPropertyValue('--sx')) || 0;
+    const sy = parseFloat(this.movable.style.getPropertyValue('--sy')) || 0;
+    const b = this._getBounds(vw, vh, scale);
+    const nx = Math.max(b.minX, Math.min(b.maxX, sx));
+    const ny = Math.max(b.minY, Math.min(b.maxY, sy));
+    if (nx !== sx || ny !== sy) {
+      this.movable.style.setProperty('--sx', `${nx}px`);
+      this.movable.style.setProperty('--sy', `${ny}px`);
+    }
+  }
+
+  setStaying(stay) {
+    clearTimeout(this._dragReturnTimer);
+    this._dragReturnTimer = null;
+    this.isStaying = !!stay;
+    if (!this.isStaying) {
+      this.updatePosition();
+    } else {
+      this._syncBodyContentOpen();
+      this._clampStayingIfNeeded();
+    }
+  }
+
+  /** After a drag, user dismissed the stay prompt without pinning — return to auto layout. */
+  declineStayAfterDrag() {
+    if (this.isStaying) return;
+    this._update();
+  }
+
   _update() {
+    this._syncBodyContentOpen();
+    if (this.isStaying) {
+      this._clampStayingIfNeeded();
+      return;
+    }
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const isMobile = vw < 768;
@@ -172,7 +240,6 @@ class SpacemanPosition {
       y = bounds.maxY - edgePad;
     } else {
       const content = this._getVisibleContent();
-      document.body.classList.toggle('content-open', !!content);
 
       if (content) {
         scale = isMobile ? 0.45 : isTablet ? 0.55 : 0.7;

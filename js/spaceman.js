@@ -33,6 +33,8 @@ class Spaceman {
     this.messageIndex = 0;
     this._firstMessageShown = false;
     this.isQuiet = false;
+    this.isStayingHero = false;
+    this._stayPromptActive = false;
     this.data = null;
     this.resume = null;
     this.context = null;
@@ -176,7 +178,9 @@ class Spaceman {
   _render() {
     this.container.innerHTML = `
       <div class="spaceman-outer">
-        <div class="spaceman-quiet-menu" id="spacemanQuietMenu" role="menu" aria-label="Spaceman options" hidden>
+        <div class="spaceman-quiet-menu" id="spacemanQuietMenu" role="menu" aria-label="Hero options" hidden>
+          <button type="button" class="spaceman-quiet-menu-btn" data-action="stay" hidden>Stay here</button>
+          <button type="button" class="spaceman-quiet-menu-btn" data-action="free" hidden>Free</button>
           <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
         </div>
         <div class="spaceman" id="spaceman">
@@ -230,6 +234,7 @@ class Spaceman {
             <div class="leg left-leg"></div>
             <div class="leg right-leg"></div>
           </div>
+          <div class="hero-stay-anchor" aria-hidden="true">⚓</div>
         </div>
       </div>
       </div>
@@ -239,38 +244,62 @@ class Spaceman {
       spaceman: document.getElementById('spaceman'),
       text: document.getElementById('thoughtText'),
       quietMenu: document.getElementById('spacemanQuietMenu'),
+      stayMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="stay"]'),
+      freeMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="free"]'),
       quietMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="quiet"]')
     };
-    this._bindQuietMenu();
+    this._bindHeroMenu();
   }
 
-  _bindQuietMenu() {
-    const { quietMenu, quietMenuBtn } = this.elements;
-    if (!quietMenu || !quietMenuBtn) return;
+  _bindHeroMenu() {
+    const { quietMenu, stayMenuBtn, freeMenuBtn, quietMenuBtn } = this.elements;
+    if (!quietMenu) return;
 
-    quietMenuBtn.addEventListener('click', (e) => {
+    const onMenuBtn = (e, fn) => {
       e.stopPropagation();
+      fn.call(this);
+    };
+
+    stayMenuBtn?.addEventListener('click', (e) => onMenuBtn(e, this._confirmStayHere));
+    freeMenuBtn?.addEventListener('click', (e) => onMenuBtn(e, this._confirmFreeHero));
+    quietMenuBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._stayPromptActive = false;
+      this._clearStayVisual();
+      this.positionController?.setStaying(false);
+      this._hideHeroMenuUI();
       this.setQuietMode(true);
-      this._hideQuietModeOption();
     });
 
     this._quietMenuOutsideClick = (e) => {
       if (quietMenu.hidden) return;
       if (quietMenu.contains(e.target) || this.elements.spaceman?.contains(e.target)) return;
-      this._hideQuietModeOption();
+      this._dismissHeroMenu();
     };
   }
 
-  _showQuietModeOption() {
-    const { quietMenu } = this.elements;
+  _openHeroMenu(mode) {
+    const { quietMenu, stayMenuBtn, freeMenuBtn } = this.elements;
     if (!quietMenu || this.isQuiet) return;
+
+    if (mode === 'after-drag') {
+      if (stayMenuBtn) stayMenuBtn.hidden = false;
+      if (freeMenuBtn) freeMenuBtn.hidden = true;
+    } else if (mode === 'staying') {
+      if (stayMenuBtn) stayMenuBtn.hidden = true;
+      if (freeMenuBtn) freeMenuBtn.hidden = false;
+    } else {
+      if (stayMenuBtn) stayMenuBtn.hidden = true;
+      if (freeMenuBtn) freeMenuBtn.hidden = true;
+    }
+
     quietMenu.hidden = false;
     quietMenu.setAttribute('aria-hidden', 'false');
     document.addEventListener('click', this._quietMenuOutsideClick, true);
     document.addEventListener('keydown', this._quietMenuEscape);
   }
 
-  _hideQuietModeOption() {
+  _hideHeroMenuUI() {
     const { quietMenu } = this.elements;
     if (!quietMenu) return;
     quietMenu.hidden = true;
@@ -279,9 +308,46 @@ class Spaceman {
     document.removeEventListener('keydown', this._quietMenuEscape);
   }
 
+  _dismissHeroMenu() {
+    const hadStayPrompt = this._stayPromptActive;
+    this._stayPromptActive = false;
+    this._hideHeroMenuUI();
+    if (hadStayPrompt) this.positionController?.declineStayAfterDrag();
+  }
+
   _quietMenuEscape = (e) => {
-    if (e.key === 'Escape') this._hideQuietModeOption();
+    if (e.key === 'Escape') this._dismissHeroMenu();
   };
+
+  _clearStayVisual() {
+    this.isStayingHero = false;
+    this.elements.spaceman?.classList.remove('hero-staying');
+  }
+
+  _confirmStayHere = () => {
+    this._stayPromptActive = false;
+    this.isStayingHero = true;
+    this.elements.spaceman?.classList.add('hero-staying');
+    this.positionController?.setStaying(true);
+    this._hideHeroMenuUI();
+  };
+
+  _confirmFreeHero = () => {
+    this._stayPromptActive = false;
+    this._clearStayVisual();
+    this.positionController?.setStaying(false);
+    this._hideHeroMenuUI();
+  };
+
+  _onPositionDragStart(detail) {
+    if (detail?.wasStaying) this._clearStayVisual();
+  }
+
+  _onPositionDragEnd(moved) {
+    if (!moved || this.isQuiet) return;
+    this._stayPromptActive = true;
+    this._openHeroMenu('after-drag');
+  }
 
   _bindEvents() {
     const { spaceman } = this.elements;
@@ -299,19 +365,20 @@ class Spaceman {
       const { quietMenu } = this.elements;
       const menuOpen = quietMenu && !quietMenu.hidden;
       if (menuOpen) {
-        this._hideQuietModeOption();
+        this._dismissHeroMenu();
         return;
       }
       if (this._clickTimeout) {
         clearTimeout(this._clickTimeout);
         this._clickTimeout = null;
-        this._hideQuietModeOption();
+        this._hideHeroMenuUI();
         this._react('click');
         this._triggerBoost();
       } else {
         this._clickTimeout = setTimeout(() => {
           this._clickTimeout = null;
-          this._showQuietModeOption();
+          const mode = this.isStayingHero ? 'staying' : 'default';
+          this._openHeroMenu(mode);
         }, 300);
       }
     });
@@ -326,6 +393,10 @@ class Spaceman {
 
   setPositionController(controller) {
     this.positionController = controller;
+    controller?.setHooks({
+      onDragStart: (detail) => this._onPositionDragStart(detail),
+      onDragEnd: (moved) => this._onPositionDragEnd(moved)
+    });
   }
 
   setQuietMode(quiet) {
@@ -338,7 +409,13 @@ class Spaceman {
       this._clearAllTimers();
       const { text } = this.elements;
       if (text) text.textContent = '';
-      
+      this._stayPromptActive = false;
+      this._hideHeroMenuUI();
+      this._clearStayVisual();
+      if (this.positionController) {
+        this.positionController.setStaying(false);
+      }
+
       // Position in bottom-right corner
       if (this.positionController) {
         this.positionController.setQuietPosition(true);
@@ -525,6 +602,7 @@ class Spaceman {
 
   destroy() {
     this._clearAllTimers();
+    this._hideHeroMenuUI();
     window.removeEventListener('themechange', this._themeChangeHandler);
     if (this.container) this.container.innerHTML = '';
   }
