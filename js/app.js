@@ -1,5 +1,5 @@
 // app.js - Main initialization
-import { initAnalytics } from './analytics.js';
+import { initAnalytics, bindOutboundTracking } from './analytics.js';
 import { initNavigation } from './navigation.js';
 import { initTheme, getTheme, transitionToTheme } from './theme.js';
 import { initStarfield } from './starfield.js';
@@ -13,8 +13,8 @@ let spacemanPosition = null;
 let currentSection = 'home';
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize modules in order
   initAnalytics();
+  bindOutboundTracking();
   initTheme();
   initStarfield('canvas', { getTheme });
 
@@ -24,8 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!themeToggle) return;
     const isSpace = getTheme() === 'space';
     const icon = isSpace ? '🦸' : '🚀';
-    const text = isSpace ? 'Go to Land' : 'Go to Space';
-    themeToggle.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span> ${text}`;
+    themeToggle.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span>`;
   };
   if (themeToggle) {
     updateToggleLabel();

@@ -23,7 +23,7 @@
     {
       "id": "apptio",
       "title": "Apptio (an IBM company)",
-      "description": "Technology Business Management (TBM) Software.<br> Data intensive SaaS platform for IT Financial Management.",
+      "description": "Data-intensive SaaS platform for IT financial management, serving enterprise customers at scale.",
       "image": "ibm.jpeg",
       "imageAlt": "Apptio (IBM)",
       "link": "https://apptio.com/",
@@ -33,7 +33,7 @@
     {
       "id": "jumpcloud",
       "title": "Jumpcloud",
-      "description": "A cloud-based directory service that allows users to manage their devices and applications.",
+      "description": "Cloud directory platform for unified identity, device, and access management.",
       "image": "jc.png",
       "imageAlt": "Jumpcloud",
       "link": "https://jumpcloud.com/",
@@ -43,7 +43,7 @@
     {
       "id": "instant-ink",
       "title": "Instant Ink (HP)",
-      "description": "A subscription service that allows users to print documents without having to worry about ink.",
+      "description": "Subscription SaaS platform automating ink supply fulfillment for millions of printers.",
       "image": "ii.png",
       "imageAlt": "Instant Ink",
       "link": "https://instantink.hpconnected.com/",
@@ -53,7 +53,7 @@
     {
       "id": "att",
       "title": "AT&T",
-      "description": "I built TQL: ticketing query language, a SQL-like syntax based language to query tickets.",
+      "description": "Built TQL — a SQL-like query language for enterprise ticket search and analytics.",
       "image": "att.png",
       "imageAlt": "AT&T",
       "hidden": true
@@ -71,7 +71,7 @@
     {
       "id": "sunrise",
       "title": "Sunrise Resorts & Cruises",
-      "description": "I built Datacenters, Network Infrastructure, VPN, Asset Management Software, Interfaces.",
+      "description": "Built datacenter infrastructure, VPN systems, and asset management software.",
       "image": "sr.png",
       "imageAlt": "Sunrise Resorts",
       "link": "https://www.sunrise-resorts.com",
@@ -81,7 +81,7 @@
     {
       "id": "campus-party",
       "title": "Campus Party Milenio (Spain)",
-      "description": "I got to share unique ideas and collaborate with innovators.",
+      "description": "Collaborated with global innovators at Spain's premier technology conference.",
       "image": "cp.jpeg",
       "imageAlt": "Campus Party",
       "link": "https://www.facebook.com/campuspartymilenio/",
@@ -91,7 +91,7 @@
     {
       "id": "5d-agency",
       "title": "5d-agency (SWI)",
-      "description": "Web based & mobile Games! Augmented Reality, CMS, Joomla, Drupal, Unity 3D, Mobile Apps.",
+      "description": "Shipped web and mobile games, augmented reality experiences, and CMS platforms.",
       "link": "https://5d-agency.com/",
       "linkText": "5d-agency.com",
       "hidden": true

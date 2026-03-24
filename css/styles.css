@@ -307,8 +307,10 @@ footer p {
 }
 
 #home {
-    position: absolute;
+    /* position: absolute; */
     top: 0;
+    left: 0;
+    right: 0;
 }
 
 a:visited {
@@ -416,6 +418,128 @@ section#portfolioProjects {
 }
 
 
+/* Hero section */
+.hero {
+    max-width: 640px;
+    margin: 0 auto;
+    padding-top: 40px;
+    text-align: center;
+    position: relative;
+    z-index: 10;
+}
+
+.hero h1 {
+    font-size: 2.4em;
+    margin-bottom: 8px;
+    white-space: normal;
+}
+
+.hero-subtitle {
+    font-size: 1.15em;
+    opacity: 0.85;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.hero-tagline {
+    font-size: 0.95em;
+    opacity: 0.7;
+    margin-bottom: 28px;
+}
+
+.hero-cta {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 40px;
+}
+
+.cta-primary,
+.cta-secondary {
+    display: inline-block;
+    padding: 10px 24px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 0.95em;
+    transition: background-color 0.2s, color 0.2s, transform 0.15s;
+}
+
+.cta-primary {
+    background: #6a0dad;
+    color: #fff;
+}
+
+.cta-primary:visited {
+    color: #fff;
+}
+
+.cta-primary:hover {
+    background: #5a0b9e;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.cta-secondary {
+    border: 1px solid currentColor;
+    color: var(--text-primary);
+}
+
+.cta-secondary:visited {
+    color: var(--text-primary);
+}
+
+.cta-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
+}
+
+.hero-highlights {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.highlight {
+    flex: 1;
+    min-width: 160px;
+    max-width: 200px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    text-align: center;
+}
+
+.highlight h4 {
+    margin-bottom: 6px;
+    font-size: 0.95em;
+    white-space: normal;
+}
+
+.highlight p {
+    font-size: 0.82em;
+    opacity: 0.75;
+    margin: 0;
+    line-height: 1.4;
+}
+
+[data-theme="garden"] .highlight {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="garden"] .cta-primary {
+    background: #1e6b1e;
+}
+
+[data-theme="garden"] .cta-primary:hover {
+    background: #175217;
+}
+
+[data-theme="garden"] .cta-secondary:hover {
+    background: rgba(0, 0, 0, 0.08);
+}
+
 /* Media queries for responsive design */
 @media (max-width: 767px) {
     nav ul {
@@ -426,6 +550,10 @@ section#portfolioProjects {
         padding: 80px 25px;
     }
 
+    section#home {
+        padding: 3.25rem 1rem 1rem;
+    }
+
     h1,
     h2,
     h3 {
@@ -433,12 +561,41 @@ section#portfolioProjects {
     }
 
     .project {
-
         max-width: 231px;
     }
 
     img {
         width: 199px;
+    }
+
+    .hero {
+        padding-top: 20px;
+    }
+
+    .hero h1 {
+        font-size: 1.8em;
+    }
+
+    .hero-subtitle {
+        font-size: 0.95em;
+    }
+
+    .hero-tagline {
+        font-size: 0.85em;
+        margin-bottom: 20px;
+    }
+
+    .hero-cta {
+        margin-bottom: 28px;
+    }
+
+    .hero-highlights {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .highlight {
+        max-width: 260px;
     }
 }
 

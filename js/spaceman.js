@@ -106,10 +106,16 @@ class Spaceman {
 
   _getSkillPhrase(skill) {
     const phrases = {
+      'Software Architecture': 'Marwan designs software architecture for scale.',
       'SaaS': 'Marwan builds SaaS platforms.',
       'Full-stack': 'Marwan builds full-stack applications.',
       'Video Platform': 'Marwan builds video platforms.',
-      'Data-intensive systems': 'Marwan builds data-intensive systems.'
+      'Data-intensive systems': 'Marwan builds data-intensive systems.',
+      'Cloud-native systems': 'Marwan builds cloud-native systems.',
+      'Distributed services': 'Marwan builds distributed services.',
+      'AWS': 'Marwan designs and delivers AWS-based systems.',
+      'Kubernetes': 'Marwan delivers production workloads on Kubernetes.',
+      'Terraform': 'Marwan automates cloud infrastructure with Terraform.'
     };
     return phrases[skill] ?? `Marwan builds with ${skill}.`;
   }
@@ -126,7 +132,7 @@ class Spaceman {
   }
 
   _getWelcomeMessage() {
-    return 'Welcome.'
+    return 'Marwan Elgendy — software architect and full-stack engineer.';
   }
 
   _getNextMessage() {

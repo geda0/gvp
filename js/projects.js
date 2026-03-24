@@ -50,7 +50,7 @@ function createProjectCard(project) {
   }
 
   if (project.link) {
-    html += `<a href="${project.link}" target="_blank">${project.linkText || project.link}</a>`;
+    html += `<a href="${project.link}" target="_blank" rel="noopener noreferrer">${project.linkText || project.link}</a>`;
   }
 
   div.innerHTML = html;
