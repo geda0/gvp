@@ -14,6 +14,7 @@ class SpacemanPosition {
       navHeight: 60,
       edgePad: 20,
       transitionSpeed: 0.5,
+      postDragLayoutCooldownMs: 3500,
       ...options
     };
 
@@ -25,6 +26,7 @@ class SpacemanPosition {
     this.isStaying = false;
     this._isDragging = false;
     this._dragReturnTimer = null;
+    this._layoutCooldownUntil = 0;
     this._hooks = {};
 
     this.init();
@@ -105,9 +107,20 @@ class SpacemanPosition {
     });
   }
 
+  _isLayoutCooldownActive() {
+    return Date.now() < this._layoutCooldownUntil;
+  }
+
+  _clearPostDragCooldown() {
+    this._layoutCooldownUntil = 0;
+    clearTimeout(this._dragReturnTimer);
+    this._dragReturnTimer = null;
+  }
+
   updatePosition() {
     this._syncBodyContentOpen();
     if (this._isDragging) return;
+    if (this._isLayoutCooldownActive()) return;
     if (this.isStaying) {
       clearTimeout(this._updateT);
       this._updateT = setTimeout(() => this._clampStayingIfNeeded(), 50);
@@ -180,8 +193,20 @@ class SpacemanPosition {
 
         if (dragMoved && this._hooks.onDragEnd) {
           this._hooks.onDragEnd(true);
-        } else if (dragMoved) {
-          this._dragReturnTimer = setTimeout(() => this._update(), 3000);
+        }
+
+        if (dragMoved) {
+          const cd = this.options.postDragLayoutCooldownMs;
+          this._layoutCooldownUntil = Date.now() + cd;
+          this._dragReturnTimer = setTimeout(() => {
+            this._layoutCooldownUntil = 0;
+            this._dragReturnTimer = null;
+            if (!this._hooks.onDragEnd) {
+              this._update();
+            } else {
+              this.updatePosition();
+            }
+          }, cd);
         }
       }
     };
@@ -198,7 +223,7 @@ class SpacemanPosition {
 
     this._dragCleanup = () => {
       el.removeEventListener('pointerdown', onPointerDown);
-      clearTimeout(this._dragReturnTimer);
+      this._clearPostDragCooldown();
     };
   }
 
@@ -219,8 +244,7 @@ class SpacemanPosition {
   }
 
   setStaying(stay) {
-    clearTimeout(this._dragReturnTimer);
-    this._dragReturnTimer = null;
+    this._clearPostDragCooldown();
     this.isStaying = !!stay;
     if (!this.isStaying) {
       this.updatePosition();
@@ -233,6 +257,7 @@ class SpacemanPosition {
   /** After a drag, user dismissed the stay prompt without pinning — return to auto layout. */
   declineStayAfterDrag() {
     if (this.isStaying) return;
+    this._clearPostDragCooldown();
     this._update();
   }
 
@@ -309,6 +334,7 @@ class SpacemanPosition {
 
   setQuietPosition(quiet) {
     this.isQuiet = quiet;
+    this._clearPostDragCooldown();
     this.updatePosition();
   }
 
@@ -408,7 +434,7 @@ class SpacemanPosition {
   destroy() {
     clearTimeout(this._updateT);
     clearTimeout(this._cleanupTimer);
-    clearTimeout(this._dragReturnTimer);
+    this._clearPostDragCooldown();
     if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._mutationObs?.disconnect();
     this._resizeObs?.disconnect();
