@@ -800,6 +800,7 @@
 
 body.content-open #spacemanContainer {
   z-index: 10;
+  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ===== RESPONSIVE SCALING ===== */
@@ -864,5 +865,9 @@ body.content-open #spacemanContainer {
 
   #spacemanContainer {
     transition: transform 0.1s ease-out;
+  }
+
+  body.content-open #spacemanContainer {
+    transition: transform 0.12s ease-out;
   }
 }

@@ -16,7 +16,6 @@ export function initNavigation(options = {}) {
     portfolioNav: document.getElementById('portfolioNav'),
     playgroundNav: document.getElementById('playgroundNav'),
     homeNav: document.getElementById('homeNav'),
-    contentWrapper: document.getElementById('contentWrapper'),
     playgroundContent: document.getElementById('playgroundContent'),
     portfolioContent: document.getElementById('portfolioContent'),
     projects: document.getElementById('projects'),
@@ -70,11 +69,12 @@ export function initNavigation(options = {}) {
 
 function goHome(el, event) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  el.projects.classList.remove("content-section-reveal");
+  el.portfolioProjects.classList.remove("content-section-reveal");
   el.playgroundContent.classList.remove("visible");
   el.playgroundContent.classList.add("hidden");
   el.projects.classList.remove("visible");
   el.projects.classList.add("hidden");
-  el.contentWrapper.style.transform = "translateY(20vh)";
   el.playgroundNav.classList.remove("section-invisible");
   el.portfolioNav.classList.remove("section-invisible");
   el.homeNav.classList.add("section-invisible");
@@ -90,6 +90,8 @@ function goHome(el, event) {
 
 function goPlay(el, event) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  el.portfolioProjects.classList.remove("content-section-reveal");
+  el.projects.classList.remove("content-section-reveal");
   el.portfolioContent.classList.remove("visible");
   el.portfolioContent.classList.add("hidden");
   el.portfolioProjects.classList.remove("visible");
@@ -100,19 +102,18 @@ function goPlay(el, event) {
   el.playgroundNav.classList.add("section-invisible");
   el.portfolioNav.classList.remove("section-invisible");
   el.homeNav.classList.remove("section-invisible");
-  el.contentWrapper.style.transform = "translateY(0)";
 
-  setTimeout(() => {
-    el.projects.classList.remove("section-invisible");
-    el.projects.classList.remove("hidden");
-    el.projects.classList.add("visible");
-  }, 199);
+  el.projects.classList.remove("section-invisible");
+  el.projects.classList.remove("hidden");
+  el.projects.classList.add("visible", "content-section-reveal");
 
   if (event) trackClick(event);
 }
 
 function goPortfolio(el, event) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  el.projects.classList.remove("content-section-reveal");
+  el.portfolioProjects.classList.remove("content-section-reveal");
   el.playgroundContent.classList.remove("visible");
   el.playgroundContent.classList.add("hidden");
   el.projects.classList.remove("visible");
@@ -123,13 +124,10 @@ function goPortfolio(el, event) {
   el.portfolioNav.classList.add("section-invisible");
   el.homeNav.classList.remove("section-invisible");
   el.playgroundNav.classList.remove("section-invisible");
-  el.contentWrapper.style.transform = "translateY(0)";
 
-  setTimeout(() => {
-    el.portfolioProjects.classList.remove("section-invisible");
-    el.portfolioProjects.classList.remove("hidden");
-    el.portfolioProjects.classList.add("visible");
-  }, 199);
+  el.portfolioProjects.classList.remove("section-invisible");
+  el.portfolioProjects.classList.remove("hidden");
+  el.portfolioProjects.classList.add("visible", "content-section-reveal");
 
   if (event) trackClick(event);
 }

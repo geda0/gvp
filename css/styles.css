@@ -203,7 +203,8 @@ header {
     background-color: var(--nav-bg);
     position: fixed;
     width: 100%;
-    z-index: 100;
+    /* Above main content (including transformed project sections); matches nav layering in CLAUDE.md */
+    z-index: 1000;
     transition: background-color 0.4s ease;
 }
 
@@ -347,8 +348,11 @@ canvas {
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    transition: all 1s ease;
-    transform: translateY(20vh);
+}
+
+/* Home vertical rhythm (replaces old whole-wrapper translateY slide) */
+body:not(.content-open) section#home {
+    padding-top: clamp(4rem, 16vh, 10rem);
 }
 
 /* Hero area: no tap highlight or focus rectangle on mobile touch */
@@ -364,7 +368,7 @@ canvas {
 
 #portfolioContent,
 #playgroundContent {
-    z-index: 100;
+    z-index: 50;
 }
 
 .hidden {
@@ -380,10 +384,40 @@ canvas {
 
 section#projects,
 section#portfolioProjects {
-    margin-top: 269px;
+    margin-top: 5rem;
     padding-bottom: 60px;
     position: relative;
-    z-index: 100;
+    z-index: 1;
+    transform-origin: center center;
+    transition: none;
+}
+
+@keyframes contentSectionBloom {
+    from {
+        opacity: 0;
+        transform: scale(0.86);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* `both` fill-mode: first keyframe applies on first paint so `.visible { opacity: 1 }` does not flash before the bloom */
+section#projects.visible.content-section-reveal,
+section#portfolioProjects.visible.content-section-reveal {
+    animation: contentSectionBloom 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    section#projects.content-section-reveal,
+    section#portfolioProjects.content-section-reveal {
+        animation: none;
+        opacity: 1;
+        transform: none;
+    }
 }
 
 .section-invisible {

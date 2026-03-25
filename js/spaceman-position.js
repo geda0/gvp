@@ -261,7 +261,7 @@ class SpacemanPosition {
 
       if (content) {
         scale = isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
-        const pos = this._calcPosition(vw, vh, content, scale, isMobile);
+        const pos = this._calcPosition(vw, vh, content, scale);
         x = pos.x;
         y = pos.y;
       } else {
@@ -279,18 +279,18 @@ class SpacemanPosition {
         if (heroCopy) {
           const r = heroCopy.getBoundingClientRect()
           if (r.width > 0 && r.height > 0) {
-            let cx
-            let cy
-            const fitsLeft = r.left - pad - w >= this.options.edgePad
-            if (isMobile || !fitsLeft) {
-              cx = r.left + r.width / 2
-              cy = r.top - pad - h / 2
+            const edgePad = vw < 768 ? 12 : this.options.edgePad
+            const fitsLeft = r.left - pad - w >= edgePad
+            if (fitsLeft) {
+              const cx = r.left - pad - w / 2
+              const cy = r.top + r.height / 2
+              x = clamp(cx - vw / 2, bounds.minX, bounds.maxX)
+              y = clamp(cy - vh / 2, bounds.minY, bounds.maxY)
             } else {
-              cx = r.left - pad - w / 2
-              cy = r.top + r.height / 2
+              /* No room beside copy: hug top-left of safe area (nav + edge pad) */
+              x = bounds.minX
+              y = bounds.minY
             }
-            x = clamp(cx - vw / 2, bounds.minX, bounds.maxX)
-            y = clamp(cy - vh / 2, bounds.minY, bounds.maxY)
           } else {
             x = clamp(0, bounds.minX, bounds.maxX)
             y = clamp(isMobile ? -30 : 0, bounds.minY, bounds.maxY)
@@ -345,7 +345,7 @@ class SpacemanPosition {
     return check('playgroundContent', 'projects') || check('portfolioContent', 'portfolioProjects');
   }
 
-  _calcPosition(vw, vh, content, scale, isMobile = false) {
+  _calcPosition(vw, vh, content, scale) {
     const { padding } = this.options;
     const bounds = this._getBounds(vw, vh, scale);
     const { minX, maxX, minY, maxY } = bounds;
@@ -357,15 +357,21 @@ class SpacemanPosition {
     const w = baseW * scale;
     const h = baseH * scale;
 
-    // Same as desktop: beside content (right or left), vertically aligned with content top
+    const edgePad = vw < 768 ? 12 : this.options.edgePad;
     const safeTop = Math.max(content.top, 0);
-    let x = (content.right + padding + w / 2) - vw / 2;
-    let y = (safeTop + padding + h / 2) - vh / 2;
+    const fitsLeft = content.left - padding - w >= edgePad;
 
-    // If more space on left, place spaceman to the left of content
-    if (content.left > vw - content.right && content.left > w + padding) {
+    let x;
+    let y;
+
+    if (fitsLeft) {
+      // Same as home: left of the content column when there is room (including mobile)
       x = (content.left - padding - w / 2) - vw / 2;
       y = (safeTop + padding + h / 2) - vh / 2;
+    } else {
+      // No room beside column: hug top-left of safe viewport
+      x = minX;
+      y = minY;
     }
 
     return { x: clamp(x, minX, maxX), y: clamp(y, minY, maxY) };
