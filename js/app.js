@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project');
   const ratios = new Map();
   const THRESHOLD = 0.1;
+  let visibleProjectRaf = 0;
 
   function updateVisibleProject() {
     if (!spaceman) return;
@@ -98,7 +99,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       entries.forEach((entry) => {
         ratios.set(entry.target, entry.intersectionRatio);
       });
-      updateVisibleProject();
+      if (!visibleProjectRaf) {
+        visibleProjectRaf = requestAnimationFrame(() => {
+          visibleProjectRaf = 0;
+          updateVisibleProject();
+        });
+      }
     },
     { root: null, rootMargin: '0px', threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] }
   );
@@ -107,12 +113,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // On mobile, pin garden scene to visual viewport so it doesn't shift when URL bar hides after first scroll
   const gardenScene = document.getElementById('gardenScene');
   const vv = window.visualViewport;
-  const isMobile = () => window.matchMedia('(max-width: 767px)').matches;
+  const mobileViewportMql = window.matchMedia('(max-width: 767px)');
   const isGarden = () => getTheme() === 'garden';
 
   function syncGardenSceneToVisualViewport() {
-    if (!gardenScene || !vv || !isMobile() || !isGarden()) {
-      if (gardenScene && !isMobile()) {
+    if (!gardenScene || !vv || !mobileViewportMql.matches || !isGarden()) {
+      if (gardenScene && !mobileViewportMql.matches) {
         gardenScene.style.top = '';
         gardenScene.style.left = '';
         gardenScene.style.width = '';

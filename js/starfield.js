@@ -25,6 +25,12 @@ export function initStarfield(canvasId, options = {}) {
   const snowRadiusMax = 3;
   const snowDriftAmplitude = 0.3;
 
+  const reducedMotionMql = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let prefersReducedMotion = reducedMotionMql.matches;
+  reducedMotionMql.addEventListener('change', () => {
+    prefersReducedMotion = reducedMotionMql.matches;
+  });
+
   function Star() {
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
@@ -161,7 +167,6 @@ export function initStarfield(canvasId, options = {}) {
     const w = canvas.width;
     const h = canvas.height;
     const time = Date.now() * 0.001;
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const drift = prefersReducedMotion ? 0 : snowDriftAmplitude;
 
     for (let i = 0; i < snowflakes.length; i++) {
@@ -197,39 +202,12 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
-  function update() {
+  function frame() {
     draw();
-    window.requestAnimationFrame(update);
-  }
-
-  function throttle(func, limit) {
-    let lastFunc;
-    let lastRan;
-    return function () {
-      const context = this;
-      const args = arguments;
-      if (!lastRan) {
-        func.apply(context, args);
-        lastRan = Date.now();
-      } else {
-        clearTimeout(lastFunc);
-        lastFunc = setTimeout(function () {
-          if ((Date.now() - lastRan) >= limit) {
-            func.apply(context, args);
-            lastRan = Date.now();
-          }
-        }, limit - (Date.now() - lastRan));
-      }
-    };
+    window.requestAnimationFrame(frame);
   }
 
   resizeCanvas();
-  if (getTheme() === 'space') {
-    numStars = calculateNumStars(canvas.width, canvas.height, cores);
-    initStars(numStars);
-  } else {
-    initSnow();
-  }
   window.addEventListener('resize', resizeCanvas);
 
   window.addEventListener('themechange', () => {
@@ -242,6 +220,5 @@ export function initStarfield(canvasId, options = {}) {
     resizeCanvas();
   });
 
-  const throttledUpdate = throttle(update, 1000 / 120);
-  throttledUpdate();
+  window.requestAnimationFrame(frame);
 }
