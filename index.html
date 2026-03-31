@@ -102,6 +102,25 @@
         </div>
     </main>
 
+    <div id="projectDialog" class="project-dialog" hidden aria-hidden="true">
+        <div class="project-dialog__backdrop" aria-hidden="true"></div>
+        <div class="project-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="projectDialogTitle">
+            <button type="button" class="project-dialog__close" aria-label="Close project details">&times;</button>
+            <div id="projectDialogMediaWrap" class="project-dialog__media-wrap" hidden>
+                <img id="projectDialogImage" class="project-dialog__image" alt="" decoding="async" />
+            </div>
+            <h3 id="projectDialogTitle" class="project-dialog__title"></h3>
+            <div id="projectDialogDescription" class="project-dialog__description"></div>
+            <div id="projectDialogTechWrap" class="project-dialog__tech-wrap">
+                <span class="project-dialog__tech-heading">Tech &amp; tools</span>
+                <ul id="projectDialogTech" class="project-dialog__tech-list" aria-label="Technologies"></ul>
+            </div>
+            <div id="projectDialogActions" class="project-dialog__actions">
+                <a id="projectDialogLink" class="cta-primary project-dialog__link" href="#" target="_blank" rel="noopener noreferrer" data-track="project_dialog_link">Open project</a>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="js/app.js"></script>
 
     <footer>

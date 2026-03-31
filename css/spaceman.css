@@ -803,6 +803,12 @@ body.content-open #spacemanContainer {
   transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Project details modal: hero moves beside the panel and sits above the dimmed backdrop */
+body.project-dialog-open #spacemanContainer {
+  z-index: 1150;
+  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* ===== RESPONSIVE SCALING ===== */
 
 @media (max-width: 767px) {
@@ -868,6 +874,10 @@ body.content-open #spacemanContainer {
   }
 
   body.content-open #spacemanContainer {
+    transition: transform 0.12s ease-out;
+  }
+
+  body.project-dialog-open #spacemanContainer {
     transition: transform 0.12s ease-out;
   }
 }

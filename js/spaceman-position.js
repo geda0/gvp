@@ -69,7 +69,20 @@ class SpacemanPosition {
     document.fonts?.ready?.then(() => this.updatePosition());
   }
 
+  _getProjectDialogPanelRect() {
+    if (!document.body.classList.contains('project-dialog-open')) return null;
+    const dialog = document.getElementById('projectDialog');
+    if (!dialog || dialog.hidden) return null;
+    const panel = dialog.querySelector('.project-dialog__panel');
+    if (!panel) return null;
+    const rect = panel.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) return null;
+    return rect;
+  }
+
   _bindObservers() {
+    const projectDialog = document.getElementById('projectDialog');
+    const dialogPanel = projectDialog?.querySelector('.project-dialog__panel');
     const contentEls = [
       document.getElementById('playgroundContent'),
       document.getElementById('portfolioContent'),
@@ -82,10 +95,14 @@ class SpacemanPosition {
     contentEls.slice(0, 2).forEach(el => {
       this._mutationObs.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
+    if (projectDialog) {
+      this._mutationObs.observe(projectDialog, { attributes: true, attributeFilter: ['hidden'] });
+    }
 
     // Size changes -> reposition
     this._resizeObs = new ResizeObserver(() => this.updatePosition());
     contentEls.forEach(el => this._resizeObs.observe(el));
+    if (dialogPanel) this._resizeObs.observe(dialogPanel);
     this._resizeObs.observe(this.container);
     const heroCopy = document.querySelector('.hero-copy')
     if (heroCopy) this._resizeObs.observe(heroCopy)
@@ -282,10 +299,14 @@ class SpacemanPosition {
       x = bounds.maxX - edgePad;
       y = bounds.maxY - edgePad;
     } else {
-      const content = this._getVisibleContent();
+      const dialogContent = this._getProjectDialogPanelRect();
+      const content = dialogContent || this._getVisibleContent();
 
       if (content) {
-        scale = isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
+        const dialogOpen = !!dialogContent;
+        scale = dialogOpen
+          ? (isMobile ? 0.4 : isTablet ? 0.5 : 0.62)
+          : isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
         const pos = this._calcPosition(vw, vh, content, scale);
         x = pos.x;
         y = pos.y;
@@ -408,7 +429,11 @@ class SpacemanPosition {
     this.movable.classList.add('moving', 'thrust');
 
     // No wobble when content open
-    const wobble = document.body.classList.contains('content-open') ? 0 : (Math.random() - 0.5) * 5;
+    const wobble =
+      document.body.classList.contains('content-open') ||
+      document.body.classList.contains('project-dialog-open')
+        ? 0
+        : (Math.random() - 0.5) * 5;
 
     this.movable.style.setProperty('--sx', `${x + wobble}px`);
     this.movable.style.setProperty('--sy', `${y + wobble}px`);

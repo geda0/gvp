@@ -391,6 +391,24 @@ class Spaceman {
     this.context = ctx && (ctx.projectId || ctx.projectTitle) ? ctx : null;
   }
 
+  /** Call after setContext when the project detail modal opens — surfaces the active project in the bubble. */
+  announceProjectContext() {
+    if (this.isQuiet) return;
+    if (this.state !== 'playground' && this.state !== 'portfolio') return;
+    const msg = this._getProjectMessage();
+    if (!msg) return;
+    this._clearTimer('typing');
+    this._clearTimer('message');
+    const { states } = this._getThemeData();
+    const stateData = states?.[this.state];
+    const speed = stateData?.typingSpeed || DEFAULTS.typingSpeed;
+    this._typeMessage(msg, speed);
+    const delay = stateData?.messageDelay || DEFAULTS.messageDelay;
+    this._timers.message = setTimeout(() => {
+      this._startMessageCycle();
+    }, delay + msg.length * speed);
+  }
+
   setPositionController(controller) {
     this.positionController = controller;
     controller?.setHooks({

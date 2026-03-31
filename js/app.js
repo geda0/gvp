@@ -3,7 +3,7 @@ import { initAnalytics, bindOutboundTracking } from './analytics.js';
 import { initNavigation } from './navigation.js';
 import { initTheme, getTheme, transitionToTheme } from './theme.js';
 import { initStarfield } from './starfield.js';
-import { loadProjects, renderProjects } from './projects.js';
+import { loadProjects, renderProjects, initProjectDetailDialog } from './projects.js';
 import { initSpaceman } from './spaceman.js';
 import { initSpacemanPosition } from './spaceman-position.js';
 
@@ -66,6 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const data = await loadProjects('/data/projects.json');
   renderProjects('playgroundContent', data.playground);
   renderProjects('portfolioContent', data.portfolio);
+  initProjectDetailDialog();
 
   // Intersection Observer: set spaceman context to the project card most in view
   const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project');
@@ -109,6 +110,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     { root: null, rootMargin: '0px', threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] }
   );
   projectCards.forEach((card) => observer.observe(card));
+
+  window.addEventListener('projectdialogopen', (e) => {
+    const d = e.detail;
+    if (spaceman && d) {
+      spaceman.setContext({
+        projectId: d.projectId || '',
+        projectTitle: d.title || '',
+        projectDescription: d.projectDescription || ''
+      });
+      spaceman.announceProjectContext();
+    }
+    spacemanPosition?.updatePosition();
+  });
+  window.addEventListener('projectdialogclose', () => {
+    spacemanPosition?.updatePosition();
+    updateVisibleProject();
+  });
 
   // On mobile, pin garden scene to visual viewport so it doesn't shift when URL bar hides after first scroll
   const gardenScene = document.getElementById('gardenScene');

@@ -3,10 +3,12 @@
     {
       "id": "monday-rover",
       "title": "Monday Rover (Raspberry Pi)",
+      "description": "Raspberry Pi robotics exploration, powered by image recognition.",
       "image": "rpi.jpg",
       "imageAlt": "raspberry pi",
       "link": "https://www.youtube.com/shorts/16ZIXOpuNQs",
-      "linkText": "mdayrover.marwanelgendy.link",
+      "linkText": "Watch on YouTube",
+      "tech": ["Raspberry Pi", "Python", "Linux", "GPIO / robotics", "OpenCV"],
       "hidden": true
     },
     {
@@ -15,7 +17,8 @@
       "image": "gvp.png",
       "imageAlt": "GVP",
       "link": "https://gvp-tv.marwanelgendy.link/",
-      "linkText": "gvp.marwanelgendy.link",
+      "linkText": "Open live demo",
+      "tech": ["Video / streaming", "Web front-end", "Backend services", "Generative media pipeline"],
       "hidden": true
     }
   ],
@@ -28,6 +31,7 @@
       "imageAlt": "Apptio (IBM)",
       "link": "https://apptio.com/",
       "linkText": "Apptio.com",
+      "tech": ["Enterprise SaaS", "Java / JVM", "Scala", "EMR", "FinOps", "Cloud operations", "Data platforms"],
       "hidden": true
     },
     {
@@ -38,6 +42,7 @@
       "imageAlt": "Jumpcloud",
       "link": "https://jumpcloud.com/",
       "linkText": "jumpcloud.com",
+      "tech": ["Cloud directory", "Identity & access", "Device management", "APIs & integrations", "Security at scale"],
       "hidden": true
     },
     {
@@ -48,6 +53,7 @@
       "imageAlt": "Instant Ink",
       "link": "https://instantink.hpconnected.com/",
       "linkText": "instantink.com",
+      "tech": ["Subscription commerce", "Fulfillment systems", "Consumer IoT / print", "High-volume services"],
       "hidden": true
     },
     {
@@ -56,6 +62,7 @@
       "description": "Built TQL — a SQL-like query language for enterprise ticket search and analytics.",
       "image": "att.png",
       "imageAlt": "AT&T",
+      "tech": ["Domain-specific language", "Query engines", "Java / enterprise stack", "Ticketing & analytics"],
       "hidden": true
     },
     {
@@ -66,6 +73,7 @@
       "imageAlt": "MIU",
       "link": "https://www.miu.edu/",
       "linkText": "miu.edu",
+      "tech": ["Machine learning", "Data science", "Algorithms", "Software engineering lifecycle"],
       "hidden": true
     },
     {
@@ -76,6 +84,7 @@
       "imageAlt": "Sunrise Resorts",
       "link": "https://www.sunrise-resorts.com",
       "linkText": "sunrise-resorts.com",
+      "tech": ["Datacenters", "VPN / networking", "Asset management", "IT operations"],
       "hidden": true
     },
     {
@@ -86,6 +95,7 @@
       "imageAlt": "Campus Party",
       "link": "https://www.facebook.com/campuspartymilenio/",
       "linkText": "facebook.com/campuspartymilenio",
+      "tech": ["Events & community", "Emerging tech", "International collaboration"],
       "hidden": true
     },
     {
@@ -94,13 +104,14 @@
       "description": "Shipped web and mobile games, augmented reality experiences, and CMS platforms.",
       "link": "https://5d-agency.com/",
       "linkText": "5d-agency.com",
+      "tech": ["Unity / game dev", "Web & mobile", "AR", "CMS"],
       "hidden": true
     },
-     {
+    {
       "id": "early",
       "title": "Early Startups",
-      "description": "<b>DDA Advertising</b>: ddaadvertising.net <br><b>OIG OS</b>: Linux based embedded system.<br><b>QREO</b>: Web apps, Scientific research"
-
+      "description": "<b>DDA Advertising</b>: ddaadvertising.net <br><b>OIG OS</b>: Linux based embedded system.<br><b>QREO</b>: Web apps, Scientific research",
+      "tech": ["Embedded Linux", "Web applications", "Advertising tech", "Research tooling"]
     }
   ]
 }
