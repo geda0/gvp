@@ -821,8 +821,14 @@ body.project-dialog-open #spacemanContainer {
 /* ===== RESPONSIVE SCALING ===== */
 
 @media (max-width: 767px) {
+  /* Partial counter-scale: full 1/--ss would balloon the bubble past the viewport on phones */
+  .thought-stack {
+    transform: scale(calc(1 / max(var(--ss, 1), 0.6)));
+    transform-origin: bottom center;
+  }
+
   .thought-bubble {
-    max-width: 200px;
+    max-width: min(200px, calc(100vw - 32px));
     padding: 10px 14px;
     font-size: 12px;
   }
@@ -839,8 +845,13 @@ body.project-dialog-open #spacemanContainer {
 
 /* Small mobile */
 @media (max-width: 480px) {
+  .thought-stack {
+    transform: scale(calc(1 / max(var(--ss, 1), 0.66)));
+    transform-origin: bottom center;
+  }
+
   .thought-bubble {
-    max-width: 160px;
+    max-width: min(160px, calc(100vw - 24px));
     padding: 8px 12px;
     font-size: 11px;
   }
