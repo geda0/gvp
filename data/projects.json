@@ -3,7 +3,7 @@
     {
       "id": "monday-rover",
       "title": "Monday Rover (Raspberry Pi)",
-      "description": "Raspberry Pi robotics exploration, powered by image recognition.",
+      "description": "Robotics exploration, powered by image recognition.",
       "image": "rpi.jpg",
       "imageAlt": "raspberry pi",
       "link": "https://www.youtube.com/shorts/16ZIXOpuNQs",

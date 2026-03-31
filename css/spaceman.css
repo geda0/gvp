@@ -122,6 +122,15 @@
 }
 
 /* ===== THOUGHT BUBBLE ===== */
+/* Counter #spacemanContainer scale(--ss) so speech stays readable */
+.thought-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: scale(calc(1 / var(--ss, 1)));
+  transform-origin: bottom center;
+}
+
 .thought-bubble {
   background: var(--spaceman-bubble-bg);
   color: var(--spaceman-bubble-text);

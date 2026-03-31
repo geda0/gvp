@@ -184,6 +184,7 @@ class Spaceman {
           <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
         </div>
         <div class="spaceman" id="spaceman">
+        <div class="thought-stack">
         <div class="thought-bubble" id="thoughtBubble">
           <span class="thought-text" id="thoughtText"></span>
           <span class="cursor">|</span>
@@ -192,6 +193,7 @@ class Spaceman {
           <span class="bubble-dot dot-1"></span>
           <span class="bubble-dot dot-2"></span>
           <span class="bubble-dot dot-3"></span>
+        </div>
         </div>
         <div class="spaceman-body">
           <div class="jetpack">
