@@ -324,7 +324,7 @@ body.project-dialog-open {
 }
 
 [data-theme="garden"] .project-dialog__panel {
-    background: rgb(46, 72, 50);
+    background: rgb(145 180 150);
     box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
 }
 
