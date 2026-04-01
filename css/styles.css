@@ -299,12 +299,12 @@ body.project-dialog-open {
 .project-dialog__backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(6, 8, 18, 0.82);
+    background: rgba(6, 8, 18, 0.09);
     z-index: 0;
 }
 
 [data-theme="garden"] .project-dialog__backdrop {
-    background: rgba(28, 48, 34, 0.84);
+    background: rgba(28, 48, 34, 0.09);
 }
 
 .project-dialog__panel {
