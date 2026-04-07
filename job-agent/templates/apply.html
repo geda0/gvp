@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}Apply · {{ app_row.job_posting.title if app_row.job_posting else "Application" }}{% endblock %}
+{% block content %}
+{% set jp = app_row.job_posting %}
+{% set co = jp.company if jp else none %}
+<div
+  class="apply-page"
+  id="apply-page"
+  data-autorun="{{ '1' if autorun else '0' }}"
+  data-needs-setup="{{ '1' if needs_setup else '0' }}"
+>
+  <p class="eyebrow"><a href="/applications/{{ app_row.id }}">← Full record</a> · <a href="/profile">Profile</a> · Apply workspace</p>
+  {% if request.query_params.get('marked') %}
+  <p class="banner success" role="status">Marked as submitted. Materials were saved for future applications.</p>
+  {% endif %}
+  {% if request.query_params.get('setup_error') %}
+  <p class="banner warn" role="status">Please enter full name and email.</p>
+  {% endif %}
+
+  <header class="apply-hero">
+    <h1>{{ jp.title if jp else "Application" }}</h1>
+    <p class="apply-meta">
+      {% if co %}<span class="apply-co">{{ co.name }}</span> · {% endif %}
+      {% if jp and jp.location %}<span>{{ jp.location }}</span> · {% endif %}
+      <span class="pill">{{ app_row.status }}</span>
+    </p>
+    {% if resume_loaded %}
+    <p class="muted small">Resume-driven matching is active.</p>
+    {% else %}
+    <p class="muted small">Add <code>resume/resume.json</code> or <code>PROFILE_JSON_PATH</code> to tune job ranking.</p>
+    {% endif %}
+  </header>
+
+  {% if needs_setup %}
+  <section class="card apply-setup">
+    <h2>One-time setup</h2>
+    <p class="muted">Save your details once — they power templates, answers, and future 1-click apply.</p>
+    <form method="post" action="/applications/{{ app_row.id }}/apply/bootstrap" class="form">
+      <label>Full name <input name="full_name" value="{{ profile.full_name or '' }}" required /></label>
+      <label>Email <input name="email" type="email" value="{{ profile.email or '' }}" required /></label>
+      <label>Phone <input name="phone" value="{{ profile.phone or '' }}" /></label>
+      <label>LinkedIn <input name="linkedin_url" value="{{ profile.linkedin_url or '' }}" /></label>
+      <label>Work authorization <input name="work_authorization" value="{{ profile.work_authorization or '' }}" /></label>
+      <label>Cover letter template (optional — {% raw %}{{company}}, {{role}}, …{% endraw %})
+        <textarea name="cover_letter_template" rows="8" placeholder="Leave blank for default">{{ profile.cover_letter_template or '' }}</textarea>
+      </label>
+      <button type="submit" class="btn-oneclick">Save &amp; copy + open job</button>
+    </form>
+    <p class="muted small">This single action saves your profile, fills this application from templates + anything learned from past submits, then opens the posting and copies materials.</p>
+  </section>
+  {% endif %}
+
+  <section class="card apply-primary" {% if needs_setup %}style="opacity:0.65"{% endif %}>
+    <h2 class="sr-only">One-click apply</h2>
+    <p class="muted apply-lede">
+      Opens the employer’s posting in a new tab and copies your cover letter and answers. Edit text in the <a href="/applications/{{ app_row.id }}">full record</a> anytime.
+    </p>
+    <button type="button" class="btn-oneclick" id="btn-oneclick" {% if needs_setup %}disabled title="Complete setup above first"{% endif %}>
+      Open job &amp; copy materials
+    </button>
+    <p class="apply-status muted" id="apply-status" role="status" aria-live="polite"></p>
+
+    <div class="apply-row">
+      <button type="button" class="secondary" id="btn-copy-letter">Copy cover letter only</button>
+      <button type="button" class="secondary" id="btn-copy-answers">Copy answers only</button>
+      <button type="button" class="secondary" id="btn-open-only">Open job URL only</button>
+    </div>
+    {% if jp and jp.absolute_url %}
+    <p class="muted apply-url"><small>{{ jp.absolute_url }}</small></p>
+    {% endif %}
+  </section>
+
+  <section class="card apply-preview">
+    <h2>Preview</h2>
+    <details open>
+      <summary>Cover letter</summary>
+      <pre class="box preview-block" id="preview-letter">{{ app_row.cover_letter_text or "(empty)" }}</pre>
+    </details>
+    <details>
+      <summary>Answers / structured fields</summary>
+      {% if app_row.answers_json %}
+      <pre class="box preview-block">{{ app_row.answers_json | tojson(2) }}</pre>
+      {% else %}
+      <p class="muted">Filled from profile defaults + learned answers when you save setup.</p>
+      {% endif %}
+    </details>
+  </section>
+
+  <section class="card apply-done">
+    <h2>After you submit</h2>
+    <form method="post" action="/applications/{{ app_row.id }}/mark-submitted" class="inline-form">
+      <button type="submit" class="btn-success">Mark as submitted</button>
+    </form>
+    <p class="muted">Saves your cover letter and answers into <strong>learned</strong> defaults for the next role. Edit templates on the <a href="/profile">profile</a> page.</p>
+  </section>
+</div>
+
+<script type="application/json" id="apply-payload">{{ apply_payload | safe }}</script>
+<script>
+(function () {
+  var root = document.getElementById('apply-page');
+  var el = document.getElementById('apply-payload');
+  var data = {};
+  try {
+    data = JSON.parse(el.textContent || '{}');
+  } catch (e) {
+    console.error(e);
+  }
+  var statusEl = document.getElementById('apply-status');
+  var needsSetup = root.getAttribute('data-needs-setup') === '1';
+  var autorun = root.getAttribute('data-autorun') === '1';
+
+  function formatAnswers(answers) {
+    if (answers == null || answers === '') return '';
+    if (typeof answers === 'string') return answers;
+    return JSON.stringify(answers, null, 2);
+  }
+
+  function combinedClipboard() {
+    var parts = [];
+    if (data.coverLetter) {
+      parts.push(data.coverLetter.trim());
+    }
+    var ans = formatAnswers(data.answers);
+    if (ans) {
+      if (parts.length) parts.push('\n\n— — —\n\n');
+      parts.push('Answers / snippets:\n', ans);
+    }
+    return parts.join('');
+  }
+
+  function setStatus(msg, isErr) {
+    statusEl.textContent = msg;
+    statusEl.className = 'apply-status ' + (isErr ? 'error' : 'ok');
+  }
+
+  function copyText(text) {
+    if (!text) {
+      return Promise.reject(new Error('Nothing to copy'));
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        resolve();
+      } catch (err) {
+        reject(err);
+      } finally {
+        document.body.removeChild(ta);
+      }
+    });
+  }
+
+  function openJob() {
+    if (data.jobUrl) {
+      window.open(data.jobUrl, '_blank', 'noopener,noreferrer');
+    }
+  }
+
+  function runOneClick() {
+    if (needsSetup) return;
+    var text = combinedClipboard();
+    var p = text ? copyText(text) : Promise.resolve();
+    p.then(function () {
+      openJob();
+      if (text) {
+        setStatus('Opened job in a new tab. Cover letter and answers copied — paste where needed (Ctrl/Cmd+V).', false);
+      } else {
+        openJob();
+        setStatus('Opened job in a new tab. Add cover letter in full record or complete profile.', false);
+      }
+    }).catch(function () {
+      openJob();
+      setStatus('Could not access clipboard. Copy from the preview below.', true);
+    });
+  }
+
+  document.getElementById('btn-oneclick').addEventListener('click', runOneClick);
+
+  document.getElementById('btn-copy-letter').addEventListener('click', function () {
+    if (!data.coverLetter) {
+      setStatus('No cover letter text yet.', true);
+      return;
+    }
+    copyText(data.coverLetter).then(function () {
+      setStatus('Cover letter copied.', false);
+    }).catch(function () {
+      setStatus('Copy failed — select from preview.', true);
+    });
+  });
+
+  document.getElementById('btn-copy-answers').addEventListener('click', function () {
+    var t = formatAnswers(data.answers);
+    if (!t) {
+      setStatus('No answers yet.', true);
+      return;
+    }
+    copyText(t).then(function () {
+      setStatus('Answers copied.', false);
+    }).catch(function () {
+      setStatus('Copy failed.', true);
+    });
+  });
+
+  document.getElementById('btn-open-only').addEventListener('click', function () {
+    if (!data.jobUrl) {
+      setStatus('No job URL.', true);
+      return;
+    }
+    openJob();
+    setStatus('Opened job in a new tab.', false);
+  });
+
+  if (autorun && !needsSetup) {
+    setTimeout(runOneClick, 200);
+  }
+})();
+</script>
+{% endblock %}

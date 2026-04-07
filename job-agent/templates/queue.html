@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Review queue{% endblock %}
+{% block content %}
+<h1>Review queue</h1>
+<p class="muted">Showing postings with score ≥ {{ threshold }}, not dismissed, no application yet.</p>
+{% if not resume_loaded %}
+<p class="banner warn">No resume JSON detected — add one for resume-aware filtering. See home page or <a href="/profile">profile</a>.</p>
+{% endif %}
+{% if not jobs %}
+<p>No items in queue. Run sync or lower <code>MATCH_SCORE_THRESHOLD</code>.</p>
+{% else %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Score</th>
+      <th>Title</th>
+      <th>Company</th>
+      <th>Location</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+    <tr>
+      <td>{{ job.match_score }}</td>
+      <td><a href="{{ job.absolute_url }}" target="_blank" rel="noopener">{{ job.title }}</a></td>
+      <td>{{ job.company.name if job.company else "—" }}</td>
+      <td>{{ job.location or "—" }}</td>
+      <td class="actions">
+        <form method="post" action="/queue/{{ job.id }}/shortlist" style="display:inline"><button type="submit">Shortlist</button></form>
+        <form method="post" action="/queue/{{ job.id }}/dismiss" style="display:inline"><button type="submit" class="secondary">Dismiss</button></form>
+      </td>
+    </tr>
+    <tr class="sub">
+      <td colspan="5">
+        {% if job.match_reasons %}
+        <small>{{ job.match_reasons | join(", ") }}</small>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Apply profile{% endblock %}
+{% block content %}
+<h1>Apply profile</h1>
+{% if request.query_params.get('saved') %}
+<p class="banner success">Saved.</p>
+{% endif %}
+<p class="muted">
+  {% if resume_loaded %}
+  Resume JSON found — job scoring uses your skills and summary. Path: set <code>PROFILE_JSON_PATH</code> or place <code>resume/resume.json</code> next to <code>job-agent/</code>.
+  {% else %}
+  No resume JSON found — add <code>PROFILE_JSON_PATH</code> or copy your resume next to the app for tighter job matching.
+  {% endif %}
+</p>
+
+<form method="post" action="/profile" class="form card">
+  <label>Full name <input name="full_name" value="{{ profile.full_name or '' }}" required /></label>
+  <label>Email <input name="email" type="email" value="{{ profile.email or '' }}" required /></label>
+  <label>Phone <input name="phone" value="{{ profile.phone or '' }}" /></label>
+  <label>LinkedIn URL <input name="linkedin_url" value="{{ profile.linkedin_url or '' }}" /></label>
+  <label>Work authorization <input name="work_authorization" placeholder="e.g. US citizen, H1B" value="{{ profile.work_authorization or '' }}" /></label>
+  <label>Cover letter template
+    <span class="muted small">{% raw %}Use {{company}}, {{role}}, {{location}}, {{location_phrase}}, {{summary_line}}, {{full_name}}, {{email_line}}{% endraw %}</span>
+    <textarea name="cover_letter_template" rows="14" placeholder="Leave empty for built-in default">{{ profile.cover_letter_template or '' }}</textarea>
+  </label>
+  <label>Default answers (JSON object — merged with learned answers from past submits)
+    <textarea name="answers_defaults_json" rows="10" class="code">{{ answers_defaults_json }}</textarea>
+  </label>
+  <button type="submit">Save profile</button>
+</form>
+
+{% if profile.learned_json and profile.learned_json.get('last_cover_letter') %}
+<section class="card">
+  <h2>Last submitted cover letter (reference)</h2>
+  <p class="muted">Copied into your profile template if you use <code>{{ "{{" }}...{{ "}}" }}</code> placeholders in a saved letter, or for your own reference.</p>
+  <pre class="box">{{ profile.learned_json.get('last_cover_letter') }}</pre>
+</section>
+{% endif %}
+{% endblock %}

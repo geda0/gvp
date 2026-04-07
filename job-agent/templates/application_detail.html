@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Application #{{ app_row.id }}{% endblock %}
+{% block content %}
+{% set jp = app_row.job_posting %}
+{% set co = jp.company if jp else none %}
+<p class="eyebrow"><a href="/applications/{{ app_row.id }}/apply" class="apply-workspace-link">Apply workspace</a> — streamlined copy + open</p>
+<h1>{{ jp.title if jp else "Application" }}</h1>
+<p class="meta">
+  {% if co %}{{ co.name }} · {% endif %}
+  {% if jp %}<a href="{{ jp.absolute_url }}" target="_blank" rel="noopener">Open posting</a>{% endif %}
+</p>
+
+<section class="card">
+  <h2>Update</h2>
+  <form method="post" action="/applications/{{ app_row.id }}/update" class="form">
+    <label>Status
+      <select name="status">
+        {% for s in ["interested", "preparing", "submitted", "interviewing", "offer", "rejected", "withdrawn"] %}
+        <option value="{{ s }}" {% if app_row.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Submitted at (ISO, optional)
+      <input name="submitted_at" type="text" placeholder="2026-04-07T12:00:00+00:00" value="{% if app_row.submitted_at %}{{ app_row.submitted_at.isoformat() }}{% endif %}" />
+    </label>
+    <label>Notes
+      <textarea name="notes" rows="4">{{ app_row.notes or "" }}</textarea>
+    </label>
+    <label>Cover letter
+      <textarea name="cover_letter_text" rows="8">{{ app_row.cover_letter_text or "" }}</textarea>
+    </label>
+    <button type="submit">Save</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Application package</h2>
+  <p class="muted">Use this text when applying in the browser. Resume version id: <code>{{ app_row.resume_version_id or "—" }}</code></p>
+  {% if app_row.answers_json %}
+  <pre class="box">{{ app_row.answers_json | tojson(2) }}</pre>
+  {% endif %}
+  {% if app_row.attachments_meta %}
+  <p>Attachments (metadata): {{ app_row.attachments_meta | tojson(2) }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Timeline</h2>
+  <ul class="timeline">
+    {% for e in app_row.events | sort(attribute='created_at') %}
+    <li>
+      <strong>{{ e.event_type }}</strong>
+      <time>{{ e.created_at }}</time>
+      {% if e.payload %}<pre class="inline">{{ e.payload | tojson(2) }}</pre>{% endif %}
+    </li>
+    {% else %}
+    <li class="muted">No events yet.</li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/applications/{{ app_row.id }}/event" class="form row">
+    <input name="event_type" placeholder="e.g. email_sent, interview_scheduled" required />
+    <input name="note" placeholder="optional note" />
+    <button type="submit">Add event</button>
+  </form>
+</section>
+{% endblock %}

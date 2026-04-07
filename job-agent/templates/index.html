@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Job pipeline — Home{% endblock %}
+{% block content %}
+<h1>Semi-automated job pipeline</h1>
+<p>
+  Sync pulls jobs from configured Greenhouse and Lever boards. When a <strong>resume JSON</strong> is available, scoring favors roles that match your skills and summary. Rule-based keywords still apply — see <a href="/profile">profile</a> and <code>data/matcher_rules.json</code>.
+</p>
+<p>
+  Open the <a href="/queue">review queue</a>, shortlist to the apply workspace: after a one-time <a href="/profile">profile</a> setup, <strong>one click</strong> opens the job and copies cover letter + answers; missing details are collected first, then saved for next time. Mark submitted to <strong>learn</strong> answers into future defaults.
+</p>
+<p class="muted">
+  Resume path: <code>PROFILE_JSON_PATH</code> env, or <code>../resume/resume.json</code> relative to <code>job-agent/</code>.
+  {% if resume_loaded %}<strong>Loaded.</strong>{% else %}<strong>Not found</strong> (matching uses rules only).{% endif %}
+</p>
+<form method="post" action="/sync" class="row">
+  <button type="submit">Run sync now</button>
+</form>
+<p class="muted">Configure <code>GREENHOUSE_BOARD_TOKENS</code> and <code>LEVER_ACCOUNT_SLUGS</code> as JSON arrays in <code>.env</code>. Optional <code>API_KEY</code> protects the UI and API via <code>X-API-Key</code> or <code>?api_key=</code>.</p>
+<h2>Quick API</h2>
+<ul>
+  <li><code>POST /api/sync/run</code> — ingest + score</li>
+  <li><code>GET /api/queue</code> — review queue</li>
+  <li><code>GET /api/export/applications.csv</code> — applications spreadsheet</li>
+</ul>
+{% endblock %}
