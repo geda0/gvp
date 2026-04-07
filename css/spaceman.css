@@ -6,10 +6,10 @@
 /* Space theme (default) */
 :root,
 [data-theme="space"] {
-  --spaceman-bubble-bg: rgba(255, 255, 255, 0.97);
-  --spaceman-bubble-text: #1a1a1a;
-  --spaceman-bubble-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 1);
-  --spaceman-cursor-color: #6a0dad;
+  --spaceman-bubble-bg: rgba(252, 252, 253, 0.98);
+  --spaceman-bubble-text: #1a1f28;
+  --spaceman-bubble-shadow: 0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --spaceman-cursor-color: var(--accent);
   --spaceman-tail-dot-bg: rgba(255, 255, 255, 0.95);
   --spaceman-helmet-bg: linear-gradient(145deg, #e8e8e8, #c4c4c4);
   --spaceman-helmet-shadow: inset -5px -5px 15px rgba(0, 0, 0, 0.2), inset 5px 5px 15px rgba(255, 255, 255, 0.5), 0 5px 20px rgba(0, 0, 0, 0.3);
@@ -26,10 +26,10 @@
 }
 
 [data-theme="garden"] {
-  --spaceman-bubble-bg: rgba(255, 252, 240, 0.96);
-  --spaceman-bubble-text: #1a2f1a;
-  --spaceman-bubble-shadow: 0 4px 16px rgba(30, 50, 30, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --spaceman-cursor-color: #b22222;
+  --spaceman-bubble-bg: rgba(252, 253, 250, 0.97);
+  --spaceman-bubble-text: #142818;
+  --spaceman-bubble-shadow: 0 4px 18px rgba(20, 40, 28, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --spaceman-cursor-color: var(--accent);
   --spaceman-tail-dot-bg: rgba(255, 252, 240, 0.95);
   /* Superman-style: head/hair, blue suit, red cape, yellow shield */
   --spaceman-helmet-bg: linear-gradient(145deg, #2c2416, #1a1510);

@@ -2,8 +2,8 @@
 const STORAGE_KEY = 'gvp-theme';
 const THEMES = ['space', 'garden'];
 
-// Garden theme gradient (matches styles.css)
-const GARDEN_GRADIENT = 'linear-gradient(180deg, #87ceeb 0%, #b8e0b8 50%, #6b8e6b 100%)';
+// Garden theme gradient (matches styles.css --bg-primary)
+const GARDEN_GRADIENT = 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%)';
 
 let isTransitioning = false;
 
@@ -49,7 +49,7 @@ export function transitionToTheme(theme) {
   overlay.classList.add('transitioning');
   
   // Set overlay background to target theme
-  overlay.style.background = theme === 'garden' ? GARDEN_GRADIENT : '#03060c';
+  overlay.style.background = theme === 'garden' ? GARDEN_GRADIENT : '#0a0e14';
   
   // Ensure overlay is ready
   overlay.style.transition = 'opacity 0.6s ease';
