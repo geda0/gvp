@@ -2,32 +2,29 @@
   "states": {
     "idle": {
       "messages": [
-        "I'm Marwan's digital assistant.",
-        "Navigate to explore projects and experience.",
-        "Software architecture and full-stack development.",
-        "Explore the portfolio for career highlights."
+        "I'm Marwan's assistant.",
+        "Explore systems work across enterprise SaaS and cloud platforms.",
+        "I care about durable architectures: operability, correctness, and clarity.",
+        "Open a card for deeper context and technical details."
       ],
       "typingSpeed": 50,
       "messageDelay": 3000
     },
     "playground": {
       "messages": [
-        "Experimental projects and technical explorations.",
-        "The Monday Rover was built with a Raspberry Pi.",
-        "GVP uses generative AI for video creation.",
-        "Each project explores a different technology.",
-        "Built to learn, designed to ship."
+        "Playground: prototypes with a product mindset.",
+        "Small surface area, fast iteration, and production habits where it matters.",
+        "Open a project for design notes, trade-offs, and implementation details."
       ],
       "typingSpeed": 40,
       "messageDelay": 4000
     },
     "portfolio": {
       "messages": [
-        "Professional experience and career journey.",
-        "From startups to enterprise — IBM, JumpCloud, HP, AT&T.",
-        "Specializing in software architecture.",
-        "A track record of building scalable systems.",
-        "Enterprise and startup experience."
+        "Portfolio: enterprise experience and end-to-end ownership.",
+        "Work across IBM (Apptio), HP, JumpCloud, and AT&T.",
+        "Architecture with outcomes: systems that teams can operate and evolve.",
+        "Open a card for scope, constraints, and technical depth."
       ],
       "typingSpeed": 40,
       "messageDelay": 4000
@@ -35,10 +32,9 @@
     "home": {
       "messages": [
         "Welcome.",
-        "I'm Marwan's digital assistant.",
-        "Software architecture and full-stack development.",
-        "Navigate to explore projects and experience.",
-        "Explore the portfolio for career highlights."
+        "I'm Marwan's assistant.",
+        "Architecture, platforms, and full-stack delivery—built for production.",
+        "Browse the portfolio for systems work; open a card for details."
       ],
       "typingSpeed": 50,
       "messageDelay": 3000
@@ -46,40 +42,37 @@
   },
   "reactions": {
     "hover": "Hello.",
-    "click": "Noted.",
-    "longIdle": "Still here... floating in space..."
+    "click": "Got it.",
+    "longIdle": "Still here—standing by."
   },
   "themeMessages": {
     "garden": {
       "states": {
         "idle": {
           "messages": [
-            "I'm Marwan's digital assistant.",
-            "Navigate to explore projects and experience.",
-            "Software architecture and full-stack development.",
-            "Explore the portfolio for career highlights."
+            "I'm Marwan's assistant.",
+            "Explore systems work across enterprise SaaS and cloud platforms.",
+            "I care about durable architectures: operability, correctness, and clarity.",
+            "Open a card for deeper context and technical details."
           ],
           "typingSpeed": 50,
           "messageDelay": 3000
         },
         "playground": {
           "messages": [
-            "Experimental projects and technical explorations.",
-            "The Monday Rover was built with a Raspberry Pi.",
-            "GVP uses generative AI for video creation.",
-            "Each project explores a different technology.",
-            "Built to learn, designed to ship."
+            "Playground: prototypes with a product mindset.",
+            "Small surface area, fast iteration, and production habits where it matters.",
+            "Open a project for design notes, trade-offs, and implementation details."
           ],
           "typingSpeed": 40,
           "messageDelay": 4000
         },
         "portfolio": {
           "messages": [
-            "Professional experience and career journey.",
-            "From startups to enterprise — IBM, JumpCloud, HP, AT&T.",
-            "Specializing in software architecture.",
-            "A track record of building scalable systems.",
-            "Enterprise and startup experience."
+            "Portfolio: enterprise experience and end-to-end ownership.",
+            "Work across IBM (Apptio), HP, JumpCloud, and AT&T.",
+            "Architecture with outcomes: systems that teams can operate and evolve.",
+            "Open a card for scope, constraints, and technical depth."
           ],
           "typingSpeed": 40,
           "messageDelay": 4000
@@ -87,10 +80,9 @@
         "home": {
           "messages": [
             "Welcome.",
-            "I'm Marwan's digital assistant.",
-            "Software architecture and full-stack development.",
-            "Navigate to explore projects and experience.",
-            "Explore the portfolio for career highlights."
+            "I'm Marwan's assistant.",
+            "Architecture, platforms, and full-stack delivery—built for production.",
+            "Browse the portfolio for systems work; open a card for details."
           ],
           "typingSpeed": 50,
           "messageDelay": 3000
@@ -98,8 +90,8 @@
       },
       "reactions": {
         "hover": "Hello.",
-        "click": "Noted.",
-        "longIdle": "Still here... enjoying the view..."
+        "click": "Got it.",
+        "longIdle": "Still here—standing by."
       }
     }
   }

@@ -152,6 +152,10 @@ export function initProjectDetailDialog() {
 
 function createProjectCard(project) {
   const id = project.id || '';
+  const cardDescription =
+    project.cardDescription ||
+    (project.description ? project.description.replace(/<[^>]+>/g, '').trim() : '');
+
   if (id) {
     const descriptionPlain = project.description
       ? project.description.replace(/<[^>]+>/g, '').trim()
@@ -172,8 +176,7 @@ function createProjectCard(project) {
   div.className = 'project';
   div.setAttribute('data-project-id', id);
   div.setAttribute('data-project-title', project.title || '');
-  const desc = project.description ? project.description.replace(/<[^>]+>/g, '').trim() : '';
-  div.setAttribute('data-project-description', desc);
+  div.setAttribute('data-project-description', cardDescription);
   div.setAttribute('role', 'button');
   div.setAttribute('tabindex', '0');
   div.setAttribute(
@@ -181,20 +184,27 @@ function createProjectCard(project) {
     `${project.title || 'Project'} — open details${project.link ? ' and link' : ''}`
   );
 
-  let html = '';
-
   if (project.image) {
-    html += `<img src="${project.image}" alt="${project.imageAlt || project.title}">`;
+    const img = document.createElement('img');
+    img.src = project.image;
+    img.alt = project.imageAlt || project.title || '';
+    div.appendChild(img);
   }
 
-  html += `<h4>${project.title}</h4>`;
+  const title = document.createElement('h4');
+  title.textContent = project.title || '';
+  div.appendChild(title);
 
-  if (project.description) {
-    html += `<p>${project.description}</p>`;
+  if (cardDescription) {
+    const p = document.createElement('p');
+    p.textContent = cardDescription;
+    div.appendChild(p);
   }
 
-  html += `<p class="project__hint">View details${project.link ? ' · link inside' : ''}</p>`;
+  const hint = document.createElement('p');
+  hint.className = 'project__hint';
+  hint.textContent = `View details${project.link ? ' · link inside' : ''}`;
+  div.appendChild(hint);
 
-  div.innerHTML = html;
   return div;
 }

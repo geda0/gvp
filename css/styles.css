@@ -361,7 +361,7 @@ body.project-dialog-open {
     position: absolute;
     inset: 0;
     background: rgba(4, 8, 14, 0.62);
-    backdrop-filter: blur(4px);
+    backdrop-filter: none;
     z-index: 0;
 }
 
