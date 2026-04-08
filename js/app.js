@@ -20,19 +20,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   initStarfield('canvas', { getTheme });
   initContactForm();
 
-  // Theme toggle
+  // Theme toggle — original emoji; data-target + CSS set button background to the theme you switch *to*
   const themeToggle = document.getElementById('themeToggle');
   const updateToggleLabel = () => {
     if (!themeToggle) return;
-    const isSpace = getTheme() === 'space';
-    const icon = isSpace ? '🦸' : '🚀';
-    themeToggle.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span>`;
+    const target = getTheme() === 'space' ? 'garden' : 'space'
+    themeToggle.dataset.target = target
+    const isSpace = getTheme() === 'space'
+    const icon = isSpace ? '🦸' : '🚀'
+    themeToggle.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span>`
   };
   if (themeToggle) {
     updateToggleLabel();
     themeToggle.addEventListener('click', () => {
       transitionToTheme(getTheme() === 'space' ? 'garden' : 'space');
-      // updateToggleLabel will be called on themechange event after transition completes
     });
   }
   window.addEventListener('themechange', updateToggleLabel);
