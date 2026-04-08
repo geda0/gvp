@@ -3,7 +3,12 @@ import { initAnalytics, bindOutboundTracking } from './analytics.js';
 import { initNavigation } from './navigation.js';
 import { initTheme, getTheme, transitionToTheme } from './theme.js';
 import { initStarfield } from './starfield.js';
-import { loadProjects, renderProjects, initProjectDetailDialog } from './projects.js';
+import {
+  loadProjects,
+  renderProjects,
+  renderProjectsSectionError,
+  initProjectDetailDialog
+} from './projects.js';
 import { initSpaceman } from './spaceman.js';
 import { initSpacemanPosition } from './spaceman-position.js';
 import { initContactForm } from './contact.js';
@@ -20,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initStarfield('canvas', { getTheme });
   initContactForm();
 
-  // Theme toggle — original emoji; data-target + CSS set button background to the theme you switch *to*
+  // Theme toggle — emoji; data-target + CSS set button background to the theme you switch *to*
   const themeToggle = document.getElementById('themeToggle');
   const updateToggleLabel = () => {
     if (!themeToggle) return;
@@ -28,7 +33,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     themeToggle.dataset.target = target
     const isSpace = getTheme() === 'space'
     const icon = isSpace ? '🦸' : '🚀'
-    themeToggle.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span>`
+    let iconEl = themeToggle.querySelector('.theme-toggle-icon')
+    if (!iconEl) {
+      iconEl = document.createElement('span')
+      iconEl.className = 'theme-toggle-icon'
+      iconEl.setAttribute('aria-hidden', 'true')
+      themeToggle.appendChild(iconEl)
+    }
+    iconEl.textContent = icon
+    themeToggle.setAttribute(
+      'aria-label',
+      target === 'garden' ? 'Switch to Garden theme' : 'Switch to Space theme'
+    )
   };
   if (themeToggle) {
     updateToggleLabel();
@@ -67,8 +83,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Load and render project data
   const data = await loadProjects('/data/projects.json');
-  renderProjects('playgroundContent', data.playground);
-  renderProjects('portfolioContent', data.portfolio);
+  if (data.loadFailed) {
+    renderProjectsSectionError('playgroundContent');
+    renderProjectsSectionError('portfolioContent');
+  } else {
+    renderProjects('playgroundContent', data.playground);
+    renderProjects('portfolioContent', data.portfolio);
+  }
   initProjectDetailDialog();
 
   // Intersection Observer: set spaceman context to the project card most in view

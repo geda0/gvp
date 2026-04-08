@@ -5,6 +5,9 @@ const THEMES = ['space', 'garden'];
 // Garden theme gradient (matches styles.css --bg-primary)
 const GARDEN_GRADIENT = 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%)';
 
+// Must match #sceneTransitionOverlay in styles.css (duration + easing)
+const SCENE_OVERLAY_TRANSITION = 'opacity 0.52s cubic-bezier(0.4, 0, 0.2, 1)';
+
 let isTransitioning = false;
 
 export function getTheme() {
@@ -51,11 +54,11 @@ export function transitionToTheme(theme) {
   // Set overlay background to target theme
   overlay.style.background = theme === 'garden' ? GARDEN_GRADIENT : '#0a0e14';
   
-  // Ensure overlay is ready
-  overlay.style.transition = 'opacity 0.6s ease';
-  
+  // Ensure overlay is ready (inline wins over stylesheet; keep in sync with CSS)
+  overlay.style.transition = SCENE_OVERLAY_TRANSITION;
+
   // Timeout fallback: reset flag if transitions don't complete
-  // 2.5s = enough for both transitions (0.6s each) + buffer
+  // 2.5s = enough for both fades (~0.52s each) + buffer
   const TRANSITION_TIMEOUT = 2500;
   let timeoutId = setTimeout(() => {
     // Emergency reset: ensure flag is cleared and overlay is reset

@@ -1,4 +1,16 @@
 // starfield.js - Theme-aware canvas (starfield | snow)
+import {
+  STARFIELD_DEFAULT_EXPERIENCE,
+  calculateFullStarCount,
+  starCountForPreference,
+  snowflakeCountForPreference,
+  spaceTrailAlphaForPreference,
+  defaultExperienceStarCount,
+  defaultExperienceSnowflakeCount,
+  starSpeedMultiplierForPreference,
+  snowSpeedMultiplierForPreference
+} from './starfield-prefs.js'
+
 export function initStarfield(canvasId, options = {}) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -8,8 +20,8 @@ export function initStarfield(canvasId, options = {}) {
 
   const config = {
     baseSpeed: 0.1,
-    baseStars: 717
-  };
+    baseStars: STARFIELD_DEFAULT_EXPERIENCE.baseStars
+  }
 
   let stars = [];
   let numStars = 0;
@@ -18,7 +30,6 @@ export function initStarfield(canvasId, options = {}) {
 
   // Snow state (garden theme)
   let snowflakes = [];
-  const snowCount = 200;
   const snowSpeedMin = 0.6;
   const snowSpeedMax = 1.8;
   const snowRadiusMin = 1;
@@ -29,7 +40,11 @@ export function initStarfield(canvasId, options = {}) {
   let prefersReducedMotion = reducedMotionMql.matches;
   reducedMotionMql.addEventListener('change', () => {
     prefersReducedMotion = reducedMotionMql.matches;
+    resizeCanvas();
   });
+
+  /** Set in drawSpace each frame; Star.move multiplies depth speed by this. */
+  let starSpeedScale = 1;
 
   function Star() {
     this.x = Math.random() * canvas.width;
@@ -41,7 +56,9 @@ export function initStarfield(canvasId, options = {}) {
     this.py = null;
 
     this.move = function () {
-      var speed = config.baseSpeed + (canvas.width - this.z) / canvas.width * 4;
+      var speed =
+        (config.baseSpeed + (canvas.width - this.z) / canvas.width * 4) *
+        starSpeedScale;
       this.z = this.z - speed;
 
       if (this.z <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
@@ -66,8 +83,12 @@ export function initStarfield(canvasId, options = {}) {
 
       this.glow = (canvas.width - this.z) / canvas.width * 15;
 
-      // Draw motion streak if previous position exists and distance is reasonable
-      if (this.px !== null && this.py !== null) {
+      // Motion streaks: default only (reduced-motion users get stars without streaks)
+      if (
+        !prefersReducedMotion &&
+        this.px !== null &&
+        this.py !== null
+      ) {
         const dist = Math.hypot(x - this.px, y - this.py);
         if (dist < 150) {
           // Create linear gradient along the streak: transparent at tail, star color at head
@@ -109,10 +130,19 @@ export function initStarfield(canvasId, options = {}) {
     return 'hsl(' + Math.random() * 360 + ', 100%, ' + (Math.random() * 22 + 56) + '%)';
   }
 
-  function calculateNumStars(width, height, cores) {
-    const area = width * height;
-    const scaleFactor = cores / 4;
-    return Math.floor((area / (1920 * 1080)) * config.baseStars * scaleFactor);
+  function calculateNumStars(width, height, coresCount) {
+    return calculateFullStarCount(width, height, coresCount, config.baseStars);
+  }
+
+  function starCountForCurrentPreference(width, height, coresCount) {
+    const full = calculateNumStars(width, height, coresCount);
+    if (prefersReducedMotion) return starCountForPreference(full, true);
+    return defaultExperienceStarCount(full);
+  }
+
+  function snowflakeCountForCurrentPreference() {
+    if (prefersReducedMotion) return snowflakeCountForPreference(true);
+    return defaultExperienceSnowflakeCount();
   }
 
   function initStars(count) {
@@ -124,7 +154,8 @@ export function initStarfield(canvasId, options = {}) {
 
   function initSnow() {
     snowflakes = [];
-    for (let i = 0; i < snowCount; i++) {
+    const count = snowflakeCountForCurrentPreference();
+    for (let i = 0; i < count; i++) {
       snowflakes.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
@@ -144,18 +175,33 @@ export function initStarfield(canvasId, options = {}) {
     centerY = h / 2;
     fl = w;
     if (getTheme() === 'space') {
-      numStars = calculateNumStars(w, h, cores);
+      numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
     } else {
       initSnow();
     }
   }
 
+  let resizeDebounceTimer = null;
+  const RESIZE_DEBOUNCE_MS = 120;
+
+  function scheduleResize() {
+    if (resizeDebounceTimer !== null) {
+      clearTimeout(resizeDebounceTimer);
+    }
+    resizeDebounceTimer = setTimeout(() => {
+      resizeDebounceTimer = null;
+      resizeCanvas();
+    }, RESIZE_DEBOUNCE_MS);
+  }
+
   function drawSpace() {
     // Subtle trail: fade each frame so it disappears completely (keeps look clean, no buildup)
     // Dark navy tint for a richer space background (matches --bg-primary #060c1a = rgb(6, 12, 26))
-    c.fillStyle = 'rgba(3, 6, 12, 0.59)';
+    const trail = spaceTrailAlphaForPreference(prefersReducedMotion);
+    c.fillStyle = `rgba(3, 6, 12, ${trail})`;
     c.fillRect(0, 0, canvas.width, canvas.height);
+    starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
     for (var i = 0; i < numStars; i++) {
       stars[i].show();
       stars[i].move();
@@ -168,10 +214,11 @@ export function initStarfield(canvasId, options = {}) {
     const h = canvas.height;
     const time = Date.now() * 0.001;
     const drift = prefersReducedMotion ? 0 : snowDriftAmplitude;
+    const snowSpeedScale = snowSpeedMultiplierForPreference(prefersReducedMotion);
 
     for (let i = 0; i < snowflakes.length; i++) {
       const d = snowflakes[i];
-      d.y += d.speed;
+      d.y += d.speed * snowSpeedScale;
       d.x += Math.sin(time + d.phase) * drift;
       if (d.y > h + d.r * 2) {
         d.y = -d.r * 2;
@@ -202,13 +249,29 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
+  let rafId = null;
+
   function frame() {
     draw();
-    window.requestAnimationFrame(frame);
+    if (document.visibilityState === 'visible') {
+      rafId = window.requestAnimationFrame(frame);
+    } else {
+      rafId = null;
+    }
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible' && rafId === null) {
+      rafId = window.requestAnimationFrame(frame);
+    } else if (document.visibilityState === 'hidden' && rafId !== null) {
+      window.cancelAnimationFrame(rafId);
+      rafId = null;
+    }
   }
 
   resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', scheduleResize);
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   window.addEventListener('themechange', () => {
     if (getTheme() === 'space') {
@@ -220,5 +283,5 @@ export function initStarfield(canvasId, options = {}) {
     resizeCanvas();
   });
 
-  window.requestAnimationFrame(frame);
+  rafId = window.requestAnimationFrame(frame);
 }

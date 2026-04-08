@@ -5,11 +5,42 @@ let dialogBootstrapped = false;
 export async function loadProjects(url) {
   try {
     const response = await fetch(url);
-    return await response.json();
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    const data = await response.json()
+    return {
+      playground: Array.isArray(data.playground) ? data.playground : [],
+      portfolio: Array.isArray(data.portfolio) ? data.portfolio : [],
+      loadFailed: false
+    }
   } catch (error) {
     console.error('Failed to load projects:', error);
-    return { playground: [], portfolio: [] };
+    return { playground: [], portfolio: [], loadFailed: true };
   }
+}
+
+/**
+ * Show a visible error when project JSON failed to load (network or parse).
+ */
+export function renderProjectsSectionError(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const section = container.querySelector('section');
+  if (!section) return;
+
+  const header = section.querySelector('h2, h3');
+  const headerHTML = header ? header.outerHTML : '';
+
+  section.innerHTML = headerHTML;
+
+  const p = document.createElement('p');
+  p.className = 'projects-load-error';
+  p.setAttribute('role', 'alert');
+  p.textContent =
+    'Projects could not be loaded. Check your connection and refresh the page.';
+  section.appendChild(p);
 }
 
 export function renderProjects(containerId, projects) {
