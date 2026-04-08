@@ -6,6 +6,7 @@ import { initStarfield } from './starfield.js';
 import { loadProjects, renderProjects, initProjectDetailDialog } from './projects.js';
 import { initSpaceman } from './spaceman.js';
 import { initSpacemanPosition } from './spaceman-position.js';
+import { initContactForm } from './contact.js';
 
 // Global spaceman reference for navigation hooks
 let spaceman = null;
@@ -17,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindOutboundTracking();
   initTheme();
   initStarfield('canvas', { getTheme });
+  initContactForm();
 
   // Theme toggle
   const themeToggle = document.getElementById('themeToggle');

@@ -1,0 +1,13 @@
+{
+  "name": "gvp-portfolio",
+  "private": true,
+  "description": "Static portfolio site with Netlify Functions for contact form delivery.",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^10.0.7",
+    "@netlify/functions": "^3.1.1"
+  },
+  "devDependencies": {
+    "netlify-cli": "^24.10.0"
+  }
+}

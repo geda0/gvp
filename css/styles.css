@@ -835,6 +835,194 @@ section#portfolioProjects.visible.content-section-reveal {
     flex-wrap: wrap;
 }
 
+/* Contact */
+body.contact-dialog-open {
+    overflow: hidden;
+}
+
+.contact-open-btn {
+    border: 1px solid var(--border-strong);
+    cursor: pointer;
+}
+
+.contact-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 1090;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    box-sizing: border-box;
+}
+
+.contact-dialog[hidden] {
+    display: none !important;
+}
+
+.contact-dialog__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(4, 8, 14, 0.62);
+    z-index: 0;
+}
+
+[data-theme="garden"] .contact-dialog__backdrop {
+    background: rgba(12, 28, 18, 0.52);
+}
+
+.contact-dialog__panel {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: min(44rem, calc(100vw - 2rem));
+    max-height: min(90vh, 44rem);
+    overflow: auto;
+    padding: 1.3rem 1.25rem 1.1rem;
+    border-radius: var(--radius-lg);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-md);
+    text-align: left;
+    box-sizing: border-box;
+}
+
+.contact-dialog__panel .section-label {
+    margin-bottom: 0.75rem;
+}
+
+.contact-dialog__close {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.5rem;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.85;
+}
+
+.contact-dialog__close:hover,
+.contact-dialog__close:focus-visible {
+    opacity: 1;
+    background: var(--surface);
+}
+
+.contact-dialog__close:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.contact-form {
+    margin: 0;
+    text-align: left;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.contact-form__row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.contact-form__field {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 12px;
+    min-width: 0;
+}
+
+.contact-form__label {
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.contact-form input,
+.contact-form textarea {
+    width: 100%;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: rgba(0, 0, 0, 0.14);
+    color: var(--text-primary);
+    padding: 0.7rem 0.8rem;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    line-height: 1.35;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+[data-theme=\"garden\"] .contact-form input,
+[data-theme=\"garden\"] .contact-form textarea {
+    background: rgba(255, 255, 255, 0.45);
+}
+
+.contact-form textarea {
+    resize: vertical;
+    min-height: 140px;
+}
+
+.contact-form input:focus-visible,
+.contact-form textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-color: var(--border-strong);
+}
+
+.contact-form__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.contact-form__submit {
+    border: none;
+    cursor: pointer;
+}
+
+.contact-form__status {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.contact-form__status[data-tone="success"] {
+    color: var(--text-primary);
+}
+
+.contact-form__status[data-tone="error"] {
+    color: var(--accent-hover);
+}
+
+.contact-form__hp {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
 .highlight {
     flex: 1;
     min-width: 160px;
@@ -928,6 +1116,10 @@ section#portfolioProjects.visible.content-section-reveal {
 
     .highlight {
         max-width: 260px;
+    }
+
+    .contact-form__row {
+        grid-template-columns: 1fr;
     }
 }
 

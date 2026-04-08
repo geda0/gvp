@@ -68,7 +68,7 @@
                         <p class="hero-tagline">I build systems that hold up in production: clear boundaries, operable services, and end-to-end delivery across data-intensive SaaS and cloud platforms.</p>
                         <div class="hero-cta">
                             <a href="resume/Marwan_Elgendy_Resume.pdf" target="_blank" class="cta-primary" data-track="resume_click">Resume (PDF)</a>
-                            <a href="mailto:marwan.gendy@gmail.com" class="cta-secondary" data-track="email_click">Email</a>
+                            <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
                         </div>
                         </div>
                         <div class="hero-highlights">
@@ -99,6 +99,7 @@
                         <!-- Projects rendered dynamically -->
                     </section>
                 </div>
+
             </div>
         </div>
     </main>
@@ -119,6 +120,45 @@
             <div id="projectDialogActions" class="project-dialog__actions">
                 <a id="projectDialogLink" class="cta-primary project-dialog__link" href="#" target="_blank" rel="noopener noreferrer" data-track="project_dialog_link">Open link</a>
             </div>
+        </div>
+    </div>
+
+    <div id="contactDialog" class="contact-dialog" hidden aria-hidden="true">
+        <div class="contact-dialog__backdrop" aria-hidden="true"></div>
+        <div class="contact-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="contactDialogTitle">
+            <button type="button" class="contact-dialog__close" aria-label="Close contact form">&times;</button>
+            <h2 id="contactDialogTitle" class="section-label">Contact</h2>
+            <form id="contactForm" class="contact-form" novalidate>
+                <div class="contact-form__row">
+                    <label class="contact-form__field">
+                        <span class="contact-form__label">Name</span>
+                        <input type="text" name="name" autocomplete="name" inputmode="text" />
+                    </label>
+                    <label class="contact-form__field">
+                        <span class="contact-form__label">Email</span>
+                        <input type="email" name="email" autocomplete="email" inputmode="email" required />
+                    </label>
+                </div>
+                <label class="contact-form__field">
+                    <span class="contact-form__label">Subject</span>
+                    <input type="text" name="subject" autocomplete="off" inputmode="text" />
+                </label>
+                <label class="contact-form__field">
+                    <span class="contact-form__label">Message</span>
+                    <textarea name="message" rows="6" required></textarea>
+                </label>
+
+                <!-- Honeypot (spam bots) -->
+                <label class="contact-form__hp" aria-hidden="true">
+                    <span>Company</span>
+                    <input type="text" name="company" tabindex="-1" autocomplete="off" />
+                </label>
+
+                <div class="contact-form__actions">
+                    <button type="submit" class="cta-primary contact-form__submit">Send</button>
+                    <p id="contactStatus" class="contact-form__status" role="status" aria-live="polite"></p>
+                </div>
+            </form>
         </div>
     </div>
 
