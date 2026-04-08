@@ -38,12 +38,14 @@ class SpacemanPosition {
 
   /** Keep `body.content-open` in sync with visible playground/portfolio (hero CSS) even when `isStaying` skips layout `_update`. */
   _syncBodyContentOpen() {
-    if (this.isQuiet) {
-      document.body.classList.remove('content-open');
-      return;
-    }
     const pg = document.getElementById('playgroundContent');
     const pf = document.getElementById('portfolioContent');
+    const snapshot = {
+      isQuiet: this.isQuiet,
+      contentOpen: document.body.classList.contains('content-open'),
+      pgVisible: Boolean(pg && pg.classList.contains('visible') && !pg.classList.contains('hidden')),
+      pfVisible: Boolean(pf && pf.classList.contains('visible') && !pf.classList.contains('hidden'))
+    };
     const wrapperOpen =
       !!(pg &&
         pg.classList.contains('visible') &&

@@ -40,6 +40,8 @@ class Spaceman {
     this.resume = null;
     this.context = null;
     this._lastSpokenMessage = null;
+    this._lastSpokenFromMergedArray = false;
+    this._lastSpokenMergedIndex = -1;
     this.elements = {};
     this.positionController = null;
 
@@ -413,12 +415,18 @@ class Spaceman {
     this._clearTimer('typing');
     this._clearTimer('message');
     if (!next) {
-      // Avoid repeating the same line immediately after a dialog closes.
+      // After a dialog closes, resume from the next merged message (when applicable).
+      // This avoids repeating the same line every close, even if the last spoken line
+      // during the dialog wasn't part of the merged array.
       const messages = this._getMergedMessages(this.state);
       if (messages.length) {
-        const current = messages[this.messageIndex % messages.length];
-        if (current && current === this._lastSpokenMessage) {
+        if (this._lastSpokenFromMergedArray && this._lastSpokenMergedIndex >= 0) {
+          this.messageIndex = (this._lastSpokenMergedIndex + 1) % messages.length;
+        } else {
+          const current = messages[this.messageIndex % messages.length];
+          if (current && current === this._lastSpokenMessage) {
           this.messageIndex = (this.messageIndex + 1) % messages.length;
+          }
         }
       }
       this._startMessageCycle();
@@ -528,6 +536,14 @@ class Spaceman {
     this._firstMessageShown = true;
     const speed = stateData?.typingSpeed || DEFAULTS.typingSpeed;
     const delay = stateData?.messageDelay || DEFAULTS.messageDelay;
+
+    if (fromMergedArray && messages.length) {
+      this._lastSpokenFromMergedArray = true;
+      this._lastSpokenMergedIndex = this.messageIndex % messages.length;
+    } else {
+      this._lastSpokenFromMergedArray = false;
+      this._lastSpokenMergedIndex = -1;
+    }
 
     this._typeMessage(message, speed);
 
