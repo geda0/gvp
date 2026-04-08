@@ -505,12 +505,19 @@ class Spaceman {
   setState(newState) {
     if (this.state === newState) return;
 
+    // Leaving a determined context (project dialog) must never block the next section's messages.
+    this.isDetermined = false;
+
     this.state = newState;
     this.messageIndex = 0;
     // Do not reset _firstMessageShown — welcome should only show on first load, not on section change
 
     this._clearTimer('typing');
     this._clearTimer('message');
+
+    // Immediately clear any stale text from the previous section.
+    const { text } = this.elements;
+    if (text) text.textContent = '';
 
     const { spaceman } = this.elements;
     if (spaceman) {
