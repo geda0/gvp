@@ -998,6 +998,33 @@ body.contact-dialog-open {
     cursor: pointer;
 }
 
+.contact-success {
+    margin-top: 0.5rem;
+}
+
+.contact-success__text {
+    margin: 0 0 0.85rem;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.contact-success__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.contact-form__secondary-action {
+    padding: 0.45rem 0.85rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.contact-form__secondary-action[hidden] {
+    display: none !important;
+}
+
 .contact-form__status {
     margin: 0;
     font-family: var(--font-body);
@@ -1120,6 +1147,11 @@ body.contact-dialog-open {
 
     .contact-form__row {
         grid-template-columns: 1fr;
+    }
+
+    .contact-form__success-actions {
+        width: 100%;
+        margin-top: 6px;
     }
 }
 

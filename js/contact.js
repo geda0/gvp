@@ -5,15 +5,33 @@ export function initContactForm() {
   const backdrop = dialog?.querySelector('.contact-dialog__backdrop')
   const form = document.getElementById('contactForm')
   const status = document.getElementById('contactStatus')
-  if (!dialog || !form || !status) return
+  const successView = document.getElementById('contactSuccessView')
+  const successText = document.getElementById('contactSuccessText')
+  const sendAnotherBtn = document.getElementById('contactSendAnotherBtn')
+  const closeAfterSendBtn = document.getElementById('contactCloseBtn')
+  if (!dialog || !form || !status || !successView || !successText || !sendAnotherBtn || !closeAfterSendBtn) return
 
   let lastFocus = null
+
+  const showFormView = (visible) => {
+    form.hidden = !visible
+    successView.hidden = visible
+  }
+
+  const setSuccessView = (text) => {
+    successText.textContent = text
+    showFormView(false)
+  }
+
+  // Defensive reset in case browser/cache restored prior DOM state.
+  showFormView(true)
 
   const openDialog = () => {
     lastFocus = document.activeElement
     dialog.hidden = false
     dialog.setAttribute('aria-hidden', 'false')
     document.body.classList.add('contact-dialog-open')
+    showFormView(true)
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
   }
 
@@ -30,6 +48,13 @@ export function initContactForm() {
   openBtn?.addEventListener('click', openDialog)
   closeBtn?.addEventListener('click', closeDialog)
   backdrop?.addEventListener('click', closeDialog)
+  sendAnotherBtn.addEventListener('click', () => {
+    form.reset()
+    setStatus('', 'muted')
+    showFormView(true)
+    ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
+  })
+  closeAfterSendBtn.addEventListener('click', closeDialog)
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || dialog.hidden) return
     e.preventDefault()
@@ -83,13 +108,14 @@ export function initContactForm() {
 
       // Success only means persisted server-side. Delivery may be immediate or queued.
       if (body?.delivery === 'delivered') {
-        setStatus('Sent.', 'success')
+        setStatus('Message sent successfully.', 'success')
+        setSuccessView('Message sent successfully.')
       } else {
-        setStatus('Saved. Delivery in progress.', 'success')
+        setStatus('Message sent successfully.', 'success')
+        setSuccessView('Message sent successfully.')
       }
 
       form.reset()
-      closeDialog()
     } catch (_) {
       setStatus('Network error. Try again.', 'error')
     } finally {
