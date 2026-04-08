@@ -23,7 +23,7 @@ export function initNavigation(options = {}) {
   };
 
   function navigateByHash() {
-    const hash = window.location.hash || '#home';
+    const hash = window.location.hash;
     if (hash === '#playground') {
       state.activeTab = true;
       goPlay(elements, null);
@@ -58,7 +58,8 @@ export function initNavigation(options = {}) {
   elements.homeNav?.addEventListener('click', (e) => {
     e.preventDefault();
     state.activeTab = false;
-    history.replaceState(null, '', '#home');
+    // Home is the base URL (no hash)
+    history.replaceState(null, '', window.location.pathname + window.location.search);
     goHome(elements, e);
     callbacks.onStateChange?.('home');
   });
