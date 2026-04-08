@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Job pipeline — Home{% endblock %}
+{% block content %}
+<h1>Semi-automated job pipeline</h1>
+<p>
+  Sync pulls jobs from Greenhouse/Lever. With <strong>resume JSON</strong>, scoring favors roles that match your skills.
+</p>
+<p>
+  Use the <a href="/apply"><strong>LinkedIn apply</strong></a> dashboard for jobs you send from the bookmarklet, then shortlist into the 1-click apply workspace.
+</p>
+<p class="muted">
+  Resume: <code>PROFILE_JSON_PATH</code> or <code>../resume/resume.json</code>.
+  {% if resume_loaded %}<strong>Loaded.</strong>{% else %}<strong>Not found.</strong>{% endif %}
+</p>
+<form method="post" action="/sync" class="row">
+  <button type="submit">Run sync now</button>
+</form>
+<p class="muted">Configure <code>GREENHOUSE_BOARD_TOKENS</code> and <code>LEVER_ACCOUNT_SLUGS</code> in <code>.env</code>. Set <code>API_KEY</code> for the bookmarklet.</p>
+<h2>Quick API</h2>
+<ul>
+  <li><code>POST /api/linkedin/capture</code> — bookmarklet ingest</li>
+  <li><code>POST /api/sync/run</code> — ingest + score</li>
+  <li><code>GET /api/queue</code> — review queue</li>
+</ul>
+{% endblock %}

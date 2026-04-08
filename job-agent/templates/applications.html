@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Applications{% endblock %}
+{% block content %}
+<h1>Applications</h1>
+{% if not applications %}
+<p>No applications yet. Shortlist from <a href="/apply">LinkedIn apply</a> or <a href="/queue">review queue</a>.</p>
+{% else %}
+<table class="table">
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Role</th>
+      <th>Company</th>
+      <th>Updated</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in applications %}
+    <tr>
+      <td><span class="pill">{{ a.status }}</span></td>
+      <td><a href="/applications/{{ a.id }}">{{ a.job_posting.title if a.job_posting else "—" }}</a></td>
+      <td>{{ a.job_posting.company.name if a.job_posting and a.job_posting.company else "—" }}</td>
+      <td>{{ a.updated_at }}</td>
+      <td><a href="/applications/{{ a.id }}/apply" class="apply-link">Apply</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,14 @@
+{
+  "must_have_any": ["engineer", "developer", "software", "swe", "backend", "frontend", "full stack", "fullstack", "devops", "ml", "data"],
+  "boost_keywords": {
+    "python": 12,
+    "typescript": 10,
+    "react": 8,
+    "kubernetes": 8,
+    "distributed": 6,
+    "api": 4
+  },
+  "block_title_substrings": ["sales intern", "marketing intern"],
+  "remote_boost": 8,
+  "location_boost_substrings": ["remote", "san francisco", "new york", "nyc"]
+}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}LinkedIn apply{% endblock %}
+{% block content %}
+<h1>LinkedIn — matching jobs</h1>
+<p class="muted">
+  Captured with the bookmarklet, scored vs resume + rules. Strong matches (≥ {{ threshold }}) are listed first; lower scores may still be worth a look.
+  {% if not resume_loaded %}<span class="warn-inline">No resume JSON — matching is weaker.</span>{% endif %}
+</p>
+<p>
+  <a href="/apply">Pending only</a>
+  ·
+  <a href="/apply?show_all=1">Show all captured (incl. shortlist)</a>
+</p>
+{% if not jobs %}
+<p>No LinkedIn jobs in this view. Use the bookmarklet on a job posting, then refresh.</p>
+{% else %}
+
+<h2 class="section-title">Meets threshold (≥ {{ threshold }})</h2>
+{% if jobs_above %}
+<table class="table">
+  <thead><tr><th>Score</th><th>Title</th><th>Employer</th><th></th></tr></thead>
+  <tbody>
+    {% for job in jobs_above %}
+    <tr>
+      <td>{{ job.match_score }}</td>
+      <td><a href="{{ job.absolute_url }}" target="_blank" rel="noopener">{{ job.title }}</a></td>
+      <td>{{ job.company.name if job.company else "—" }}</td>
+      <td class="actions">
+        {% if not show_all %}
+        <form method="post" action="/apply/{{ job.id }}/shortlist" style="display:inline"><button type="submit">Shortlist</button></form>
+        <form method="post" action="/apply/{{ job.id }}/dismiss" style="display:inline"><button type="submit" class="secondary">Dismiss</button></form>
+        {% else %}<a href="{{ job.absolute_url }}" target="_blank">Open</a>{% endif %}
+      </td>
+    </tr>
+    <tr class="sub"><td colspan="4"><small>{% if job.match_reasons %}{{ job.match_reasons | join(", ") }}{% endif %}</small></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">None right now.</p>{% endif %}
+
+<h2 class="section-title">Below threshold</h2>
+{% if jobs_below %}
+<table class="table">
+  <thead><tr><th>Score</th><th>Title</th><th>Employer</th><th></th></tr></thead>
+  <tbody>
+    {% for job in jobs_below %}
+    <tr class="row-below">
+      <td>{{ job.match_score }}</td>
+      <td><a href="{{ job.absolute_url }}" target="_blank" rel="noopener">{{ job.title }}</a></td>
+      <td>{{ job.company.name if job.company else "—" }}</td>
+      <td class="actions">
+        {% if not show_all %}
+        <form method="post" action="/apply/{{ job.id }}/shortlist" style="display:inline"><button type="submit">Shortlist</button></form>
+        <form method="post" action="/apply/{{ job.id }}/dismiss" style="display:inline"><button type="submit" class="secondary">Dismiss</button></form>
+        {% else %}<a href="{{ job.absolute_url }}" target="_blank">Open</a>{% endif %}
+      </td>
+    </tr>
+    <tr class="sub"><td colspan="4"><small>{% if job.match_reasons %}{{ job.match_reasons | join(", ") }}{% endif %}</small></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">None.</p>{% endif %}
+{% endif %}
+
+<section class="card bookmarklet-help">
+  <h2>Bookmarklet</h2>
+  <p class="muted">Create a bookmark with this URL (replace <code>YOUR_KEY</code> and origin if needed):</p>
+  <pre class="box" id="bookmarklet-code">javascript:(function(){var k='YOUR_KEY',b='{{ public_base_url or "http://127.0.0.1:8080" }}';var u=location.href;var t=document.querySelector('h1')?.innerText||document.title;var c=document.querySelector('[data-test-job-details-company-name]')?.innerText||document.querySelector('.jobs-unified-top-card__company-name a')?.innerText||'';fetch(b+'/api/linkedin/capture',{method:'POST',mode:'cors',headers:{'Content-Type':'application/json','X-API-Key':k},body:JSON.stringify({url:u,title:t,company:c,snippet:''})}).then(function(r){return r.json()}).then(function(d){alert('Saved job #'+d.job_posting_id+' score '+(d.match_score||'?'))}).catch(function(e){alert('Failed: '+e)})})();</pre>
+  <p class="muted">Requires <code>API_KEY</code> in <code>.env</code>. LinkedIn’s DOM changes — if company is wrong, edit the posting later or fix selectors in <code>static/bookmarklet.js</code>.</p>
+</section>
+{% endblock %}
