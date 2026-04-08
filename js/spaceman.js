@@ -39,6 +39,7 @@ class Spaceman {
     this.data = null;
     this.resume = null;
     this.context = null;
+    this._lastSpokenMessage = null;
     this.elements = {};
     this.positionController = null;
 
@@ -127,9 +128,11 @@ class Spaceman {
     if (!this.context?.projectTitle) return null;
     if (this.context.projectId && this.resume?.projects) {
       const proj = this.resume.projects.find(p => p.id === this.context.projectId);
-      // Keep hero messages short; avoid title duplication in Playground.
-      if (this.state !== 'playground' && proj?.callout) return proj.callout;
-      if (this.state === 'playground' && proj?.blurb) return proj.blurb;
+      // When a card is open (determined), prefer a short value-add hint over repeating the card copy.
+      if (this.isDetermined && proj?.heroHint) return proj.heroHint;
+
+      // Otherwise (ambient browsing), keep messages short and avoid title duplication in Playground.
+      if (!this.isDetermined && proj?.blurb) return proj.blurb;
     }
     const desc = this.context.projectDescription || '';
     const short = desc.replace(/<[^>]+>/g, '').trim().slice(0, 32);
@@ -410,6 +413,14 @@ class Spaceman {
     this._clearTimer('typing');
     this._clearTimer('message');
     if (!next) {
+      // Avoid repeating the same line immediately after a dialog closes.
+      const messages = this._getMergedMessages(this.state);
+      if (messages.length) {
+        const current = messages[this.messageIndex % messages.length];
+        if (current && current === this._lastSpokenMessage) {
+          this.messageIndex = (this.messageIndex + 1) % messages.length;
+        }
+      }
       this._startMessageCycle();
     }
   }
@@ -532,6 +543,7 @@ class Spaceman {
     const { text } = this.elements;
     if (!text) return;
 
+    this._lastSpokenMessage = message;
     this._clearTimer('typing');
     text.textContent = '';
 

@@ -14,16 +14,16 @@
     { "degree": "Master's in Computer Science", "school": "MIU", "focus": ["Machine Learning", "Data Science", "SDLC"] }
   ],
   "projects": [
-    { "id": "monday-rover", "title": "Monday Rover", "blurb": "Raspberry Pi robotics exploration." },
-    { "id": "gvp", "title": "Generative Video Platform", "blurb": "Generative AI applied to video workflows." },
-    { "id": "apptio", "title": "Apptio (IBM)", "blurb": "TBM SaaS — IT financial management at enterprise scale.", "callout": "That's Apptio (IBM) — Technology Business Management and IT financial planning SaaS." },
-    { "id": "jumpcloud", "title": "JumpCloud", "blurb": "Cloud directory and device management.", "callout": "That's JumpCloud — cloud directory and device management for distributed organizations." },
-    { "id": "instant-ink", "title": "Instant Ink (HP)", "blurb": "Subscription printing and service delivery.", "callout": "That's Instant Ink (HP) — subscription commerce and operations for high-volume printing." },
-    { "id": "att", "title": "AT&T", "blurb": "TQL ticketing query language.", "callout": "That's AT&T — TQL, a SQL-like language for querying operational tickets." },
-    { "id": "miu", "title": "Master's in Computer Science", "blurb": "ML, data science, SDLC.", "callout": "That's the M.S. in Computer Science — machine learning, data science, and software lifecycle." },
-    { "id": "sunrise", "title": "Sunrise Resorts & Cruises", "blurb": "Datacenters, VPN, internal tooling.", "callout": "That's Sunrise — datacenters, network infrastructure, VPNs, and asset management software." },
-    { "id": "campus-party", "title": "Campus Party Milenio", "blurb": "Conference collaboration and community engagement.", "callout": "That's Campus Party Milenio — technical collaboration with the European innovation community." },
-    { "id": "5d-agency", "title": "5d-agency (SWI)", "blurb": "Games, AR, Unity, client delivery.", "callout": "That's 5d-agency — web and mobile games, AR, CMS, and Unity-based products." },
-    { "id": "early", "title": "Early Startups", "blurb": "DDA, OIG OS, QREO.", "callout": "That's early-stage work — advertising tech, Linux embedded systems, and research-oriented web apps." }
+    { "id": "monday-rover", "title": "Monday Rover", "blurb": "Raspberry Pi robotics exploration.", "heroHint": "Tight feedback loops. On-device debugging." },
+    { "id": "gvp", "title": "Generative Video Platform", "blurb": "Generative AI applied to video workflows.", "heroHint": "Product UX first. Clear pipeline boundaries." },
+    { "id": "apptio", "title": "Apptio (IBM)", "blurb": "TBM SaaS — IT financial management at enterprise scale.", "heroHint": "Correctness and operability in a data-heavy platform.", "callout": "That's Apptio (IBM) — Technology Business Management and IT financial planning SaaS." },
+    { "id": "jumpcloud", "title": "JumpCloud", "blurb": "Cloud directory and device management.", "heroHint": "Safe delivery. Predictable failure modes." },
+    { "id": "instant-ink", "title": "Instant Ink (HP)", "blurb": "Subscription printing and service delivery.", "heroHint": "Idempotency and resilience in high-volume workflows." },
+    { "id": "att", "title": "AT&T", "blurb": "TQL ticketing query language.", "heroHint": "Expressive queries. Predictable semantics." },
+    { "id": "miu", "title": "Master's in Computer Science", "blurb": "ML, data science, SDLC.", "heroHint": "Applied ML foundations with engineering discipline." },
+    { "id": "sunrise", "title": "Sunrise Resorts & Cruises", "blurb": "Datacenters, VPN, internal tooling.", "heroHint": "Reliability-first infrastructure under real constraints." },
+    { "id": "campus-party", "title": "Campus Party Milenio", "blurb": "Conference collaboration and community engagement.", "heroHint": "Builder community. Rapid iteration." },
+    { "id": "5d-agency", "title": "5d-agency (SWI)", "blurb": "Games, AR, Unity, client delivery.", "heroHint": "Shipping under constraints and tight timelines." },
+    { "id": "early", "title": "Early Startups", "blurb": "DDA, OIG OS, QREO.", "heroHint": "Ambiguity tolerance. Broad execution." }
   ]
 }

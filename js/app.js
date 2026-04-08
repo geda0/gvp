@@ -125,9 +125,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     spacemanPosition?.updatePosition();
   });
   window.addEventListener('projectdialogclose', () => {
-    spaceman?.setDetermined(false);
     spacemanPosition?.updatePosition();
     updateVisibleProject();
+    // Resume hero messaging only after context is refreshed (so messages match section/home).
+    spaceman?.setDetermined(false);
   });
 
   // On mobile, pin garden scene to visual viewport so it doesn't shift when URL bar hides after first scroll
