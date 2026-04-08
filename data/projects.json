@@ -3,8 +3,8 @@
     {
       "id": "monday-rover",
       "title": "Monday Rover (Raspberry Pi)",
-      "cardDescription": "Raspberry Pi robotics exploration with computer vision in the loop.",
-      "description": "<p><strong>Monday Rover</strong> is a small robotics exploration project built to iterate quickly on perception + control loops.</p><ul><li>Computer vision-assisted behaviors (prototype stage)</li><li>Hardware bring-up, sensor/actuator integration, and debugging on-device</li><li>Emphasis on tight feedback cycles and observability while experimenting</li></ul>",
+      "cardDescription": "Raspberry Pi robotics exploration with computer vision.",
+      "description": "<p><strong>Monday Rover</strong> is a robotics exploration project built to iterate quickly on perception + control loops.</p><ul><li>Computer vision-assisted behaviors (prototype stage)</li><li>Hardware bring-up, sensor/actuator integration, and debugging on-device</li><li>Emphasis on tight feedback cycles and observability while experimenting</li></ul>",
       "image": "rpi.jpg",
       "imageAlt": "raspberry pi",
       "link": "https://www.youtube.com/shorts/16ZIXOpuNQs",

@@ -35,6 +35,7 @@ class Spaceman {
     this.isQuiet = false;
     this.isStayingHero = false;
     this._stayPromptActive = false;
+    this.isDetermined = false;
     this.data = null;
     this.resume = null;
     this.context = null;
@@ -126,11 +127,14 @@ class Spaceman {
     if (!this.context?.projectTitle) return null;
     if (this.context.projectId && this.resume?.projects) {
       const proj = this.resume.projects.find(p => p.id === this.context.projectId);
-      if (proj?.callout) return proj.callout;
+      // Keep hero messages short; avoid title duplication in Playground.
+      if (this.state !== 'playground' && proj?.callout) return proj.callout;
+      if (this.state === 'playground' && proj?.blurb) return proj.blurb;
     }
     const desc = this.context.projectDescription || '';
-    const short = desc.replace(/<[^>]+>/g, '').trim().slice(0, 60);
-    return short ? `That's ${this.context.projectTitle} — ${short}…` : `That's ${this.context.projectTitle}.`;
+    const short = desc.replace(/<[^>]+>/g, '').trim().slice(0, 32);
+    if (this.state === 'playground') return short ? `${short}…` : 'Click a card for details.'
+    return short ? `${this.context.projectTitle} — ${short}…` : `${this.context.projectTitle}.`;
   }
 
   _getWelcomeMessage() {
@@ -393,6 +397,23 @@ class Spaceman {
     this.context = ctx && (ctx.projectId || ctx.projectTitle) ? ctx : null;
   }
 
+  /**
+   * When determined, freeze the message cycle to avoid distraction.
+   * Used when a project dialog is open and the context is explicit.
+   */
+  setDetermined(determined) {
+    const next = Boolean(determined);
+    if (this.isDetermined === next) return;
+    this.isDetermined = next;
+    // Always cancel in-flight typing/timers on transitions.
+    // This prevents stale "project is open" messages from finishing after the dialog closes.
+    this._clearTimer('typing');
+    this._clearTimer('message');
+    if (!next) {
+      this._startMessageCycle();
+    }
+  }
+
   /** Call after setContext when the project detail modal opens — surfaces the active project in the bubble. */
   announceProjectContext() {
     if (this.isQuiet) return;
@@ -405,6 +426,7 @@ class Spaceman {
     const stateData = states?.[this.state];
     const speed = stateData?.typingSpeed || DEFAULTS.typingSpeed;
     this._typeMessage(msg, speed);
+    if (this.isDetermined) return;
     const delay = stateData?.messageDelay || DEFAULTS.messageDelay;
     this._timers.message = setTimeout(() => {
       this._startMessageCycle();
@@ -483,6 +505,7 @@ class Spaceman {
   // Messaging
   _startMessageCycle() {
     if (this.isQuiet) return; // Don't start message cycle when quiet
+    if (this.isDetermined) return; // Freeze message cycle when determined
     
     const { states } = this._getThemeData();
     const stateData = states?.[this.state];

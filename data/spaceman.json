@@ -2,42 +2,39 @@
   "states": {
     "idle": {
       "messages": [
-        "I'm Marwan's assistant.",
-        "Explore systems work across enterprise SaaS and cloud platforms.",
-        "I care about durable architectures: operability, correctness, and clarity.",
-        "Open a card for deeper context and technical details."
+        "Building production systems.",
+        "Architecture and platforms. Operability-first.",
+        "Click a card for details."
       ],
       "typingSpeed": 50,
-      "messageDelay": 3000
+      "messageDelay": 9000
     },
     "playground": {
       "messages": [
-        "Playground: prototypes with a product mindset.",
-        "Small surface area, fast iteration, and production habits where it matters.",
-        "Open a project for design notes, trade-offs, and implementation details."
+        "Prototypes with production habits.",
+        "Fast loops. Clear constraints.",
+        "Click a card for details."
       ],
       "typingSpeed": 40,
-      "messageDelay": 4000
+      "messageDelay": 10000
     },
     "portfolio": {
       "messages": [
-        "Portfolio: enterprise experience and end-to-end ownership.",
-        "Work across IBM (Apptio), HP, JumpCloud, and AT&T.",
-        "Architecture with outcomes: systems that teams can operate and evolve.",
-        "Open a card for scope, constraints, and technical depth."
+        "Systems owned end-to-end.",
+        "IBM (Apptio), HP, JumpCloud, AT&T.",
+        "Click a card for details."
       ],
       "typingSpeed": 40,
-      "messageDelay": 4000
+      "messageDelay": 10000
     },
     "home": {
       "messages": [
-        "Welcome.",
-        "I'm Marwan's assistant.",
-        "Architecture, platforms, and full-stack delivery—built for production.",
-        "Browse the portfolio for systems work; open a card for details."
+        "Building production systems.",
+        "Boundaries. Operability. Delivery.",
+        "Click a card for details."
       ],
       "typingSpeed": 50,
-      "messageDelay": 3000
+      "messageDelay": 9000
     }
   },
   "reactions": {
@@ -50,42 +47,39 @@
       "states": {
         "idle": {
           "messages": [
-            "I'm Marwan's assistant.",
-            "Explore systems work across enterprise SaaS and cloud platforms.",
-            "I care about durable architectures: operability, correctness, and clarity.",
-            "Open a card for deeper context and technical details."
+            "Building production systems.",
+            "Architecture and platforms. Operability-first.",
+            "Click a card for details."
           ],
           "typingSpeed": 50,
-          "messageDelay": 3000
+          "messageDelay": 9000
         },
         "playground": {
           "messages": [
-            "Playground: prototypes with a product mindset.",
-            "Small surface area, fast iteration, and production habits where it matters.",
-            "Open a project for design notes, trade-offs, and implementation details."
+            "Prototypes with production habits.",
+            "Fast loops. Clear constraints.",
+            "Click a card for details."
           ],
           "typingSpeed": 40,
-          "messageDelay": 4000
+          "messageDelay": 10000
         },
         "portfolio": {
           "messages": [
-            "Portfolio: enterprise experience and end-to-end ownership.",
-            "Work across IBM (Apptio), HP, JumpCloud, and AT&T.",
-            "Architecture with outcomes: systems that teams can operate and evolve.",
-            "Open a card for scope, constraints, and technical depth."
+            "Systems owned end-to-end.",
+            "IBM (Apptio), HP, JumpCloud, AT&T.",
+            "Click a card for details."
           ],
           "typingSpeed": 40,
-          "messageDelay": 4000
+          "messageDelay": 10000
         },
         "home": {
           "messages": [
-            "Welcome.",
-            "I'm Marwan's assistant.",
-            "Architecture, platforms, and full-stack delivery—built for production.",
-            "Browse the portfolio for systems work; open a card for details."
+            "Building production systems.",
+            "Boundaries. Operability. Delivery.",
+            "Click a card for details."
           ],
           "typingSpeed": 50,
-          "messageDelay": 3000
+          "messageDelay": 9000
         }
       },
       "reactions": {

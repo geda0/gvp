@@ -97,7 +97,7 @@ export function initProjectDetailDialog() {
     if (data.link) {
       actionsEl.hidden = false;
       linkEl.href = data.link;
-      linkEl.textContent = data.linkText || 'Open project';
+      linkEl.textContent = data.linkText || 'Open link';
     } else {
       actionsEl.hidden = true;
       linkEl.removeAttribute('href');

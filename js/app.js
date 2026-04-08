@@ -114,6 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('projectdialogopen', (e) => {
     const d = e.detail;
     if (spaceman && d) {
+      spaceman.setDetermined(true);
       spaceman.setContext({
         projectId: d.projectId || '',
         projectTitle: d.title || '',
@@ -124,6 +125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     spacemanPosition?.updatePosition();
   });
   window.addEventListener('projectdialogclose', () => {
+    spaceman?.setDetermined(false);
     spacemanPosition?.updatePosition();
     updateVisibleProject();
   });
