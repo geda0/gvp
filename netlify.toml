@@ -2,6 +2,9 @@
   publish = "."
   functions = "netlify/functions"
 
+[functions."retry-contact"]
+  schedule = "*/5 * * * *"
+
 [[redirects]]
   from = "/api/contact"
   to = "/.netlify/functions/contact"

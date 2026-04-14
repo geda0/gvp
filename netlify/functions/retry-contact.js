@@ -1,4 +1,3 @@
-import { schedule } from '@netlify/functions'
 import { getContactStore, listMessages, loadMeta, saveMeta, msgKey, nowIso } from './_contact-store.js'
 import { sendViaResend } from './_resend.js'
 
@@ -108,5 +107,5 @@ async function retryHandler() {
   return { statusCode: 200, body: 'OK' }
 }
 
-export const handler = schedule('*/5 * * * *', retryHandler)
-
+/** Cron is set in root `netlify.toml` — avoids bundling `@netlify/functions` (fixes ImportModuleError on Lambda). */
+export const handler = retryHandler
