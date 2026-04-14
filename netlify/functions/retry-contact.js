@@ -1,6 +1,13 @@
 import { getContactStore, listMessages, loadMeta, saveMeta, msgKey, nowIso } from './_contact-store.js'
 import { sendViaResend } from './_resend.js'
 
+function plain(body, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+  })
+}
+
 function formatText(record) {
   const lines = [
     `New contact message (${record.id})`,
@@ -26,18 +33,23 @@ function formatReport(pending) {
   return lines.join('\n')
 }
 
-async function retryHandler() {
+/**
+ * Scheduled contact retries (cron in root `netlify.toml`).
+ * Uses default `export default` + `Response` so Netlify injects Blobs context (v2 runtime).
+ * Legacy `{ statusCode, body }` handlers can throw MissingBlobsEnvironmentError for `getStore()`.
+ */
+export default async function retryContact() {
   const apiKey = process.env.RESEND_API_KEY
   const to = process.env.CONTACT_TO_EMAIL
   const from = process.env.CONTACT_FROM_EMAIL
 
   if (!apiKey || !to || !from) {
-    return { statusCode: 200, body: 'Not configured' }
+    return plain('Not configured', 200)
   }
 
   const store = getContactStore()
   const blobs = await listMessages(store)
-  if (!blobs.length) return { statusCode: 200, body: 'No messages' }
+  if (!blobs.length) return plain('No messages', 200)
 
   const pending = []
   for (const b of blobs) {
@@ -47,7 +59,6 @@ async function retryHandler() {
     pending.push(rec)
   }
 
-  // Retry a small batch each run.
   const batch = pending
     .sort((a, b) => (a.attempts || 0) - (b.attempts || 0))
     .slice(0, 15)
@@ -77,7 +88,6 @@ async function retryHandler() {
     }
   }
 
-  // Report to inbox if we see persistent failures, throttled to at most once per day.
   const stillPending = []
   for (const rec of pending) {
     const key = msgKey(rec.id)
@@ -104,8 +114,5 @@ async function retryHandler() {
     }
   }
 
-  return { statusCode: 200, body: 'OK' }
+  return plain('OK', 200)
 }
-
-/** Cron is set in root `netlify.toml` — avoids bundling `@netlify/functions` (fixes ImportModuleError on Lambda). */
-export const handler = retryHandler
