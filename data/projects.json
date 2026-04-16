@@ -30,7 +30,7 @@
       "id": "apptio",
       "title": "Apptio (an IBM company)",
       "cardDescription": "Enterprise TBM / IT financial management SaaS — data-intensive, customer-critical.",
-      "description": "<p><strong>Apptio (IBM)</strong> — a platform modernization project for financial data pipelines where correctness and traceability were mandatory.</p><ul><li>Kubernetes/Java workloads were re-architected onto EMR Spark with Scala to improve throughput and cost efficiency</li><li>A reconciliation layer compared legacy and modernized outputs in parallel before each cutover step</li><li>Infrastructure and runtime paths were standardized to improve operability, observability, and cost control across data jobs</li><li>An incremental rollout model preserved planning and cost-reporting accuracy throughout the migration</li></ul>",
+      "description": "<p><strong>Apptio (IBM)</strong> — a platform for financial data pipelines where correctness and traceability were mandatory.</p><ul><li>Kubernetes/Java workloads were re-architected onto EMR Spark with Scala to improve throughput and cost efficiency</li><li>A reconciliation layer compared legacy and modernized outputs in parallel before each cutover step</li><li>Infrastructure and runtime paths were standardized to improve operability, observability, and cost control across data jobs</li><li>An incremental rollout model preserved planning and cost-reporting accuracy throughout the migration</li></ul>",
       "image": "ibm.png",
       "imageAlt": "Apptio (IBM)",
       "link": "https://apptio.com/",
