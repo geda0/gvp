@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Durable contact pipeline for Amplify-hosted portfolio.
+
+Parameters:
+  ResendApiKey:
+    Type: String
+    NoEcho: true
+  ContactToEmail:
+    Type: String
+  ContactFromEmail:
+    Type: String
+  ContactReportEmail:
+    Type: String
+    Default: ''
+  AlarmEmail:
+    Type: String
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 15
+    MemorySize: 256
+    Handler: index.handler
+    Environment:
+      Variables:
+        CONTACT_MESSAGES_TABLE: !Ref ContactMessagesTable
+        CONTACT_DELIVERY_QUEUE_URL: !Ref ContactDeliveryQueue
+        RESEND_API_KEY: !Ref ResendApiKey
+        CONTACT_TO_EMAIL: !Ref ContactToEmail
+        CONTACT_FROM_EMAIL: !Ref ContactFromEmail
+        CONTACT_REPORT_EMAIL: !Ref ContactReportEmail
+
+Resources:
+  ContactApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods: [OPTIONS, POST]
+        AllowHeaders: [Content-Type]
+        AllowOrigins: ['*']
+
+  ContactMessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  ContactDeliveryQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ContactDeliveryDlq.Arn
+        maxReceiveCount: 5
+
+  ContactDeliveryDlq:
+    Type: AWS::SQS::Queue
+
+  ContactAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
+
+  ContactDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Contact delivery DLQ has pending messages.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ContactDeliveryDlq.QueueName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref ContactAlarmTopic
+
+  ContactIngressFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: contact-ingress.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ContactMessagesTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ContactDeliveryQueue.QueueName
+      Events:
+        ContactApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact
+            Method: POST
+        ContactApiOptions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact
+            Method: OPTIONS
+
+  ContactSenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: contact-sender.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ContactMessagesTable
+      Events:
+        ContactQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ContactDeliveryQueue.Arn
+            BatchSize: 10
+
+  ContactFailureReportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: contact-report.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ContactMessagesTable
+      Events:
+        DailyReport:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 12 * * ? *)
+
+Outputs:
+  ContactApiUrl:
+    Value: !Sub https://${ContactApi}.execute-api.${AWS::Region}.amazonaws.com/api/contact
+  ContactMessagesTableName:
+    Value: !Ref ContactMessagesTable
+  ContactDeliveryQueueUrl:
+    Value: !Ref ContactDeliveryQueue

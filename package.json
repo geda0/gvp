@@ -1,15 +1,16 @@
 {
   "name": "gvp-portfolio",
   "private": true,
-  "description": "Static portfolio site with Netlify Functions for contact form delivery.",
+  "description": "Static portfolio site with an AWS durable contact pipeline.",
   "type": "module",
   "scripts": {
-    "test:reduced-motion": "node --test test/starfield-reduced-motion.test.mjs"
+    "test:reduced-motion": "node --test test/starfield-reduced-motion.test.mjs",
+    "sam:build": "sam build --template aws/template.yaml",
+    "sam:deploy": "sam deploy --guided --template-file aws/template.yaml"
   },
   "dependencies": {
-    "@netlify/blobs": "^10.0.7"
-  },
-  "devDependencies": {
-    "netlify-cli": "^24.10.0"
+    "@aws-sdk/client-dynamodb": "^3.888.0",
+    "@aws-sdk/client-sqs": "^3.888.0",
+    "@aws-sdk/lib-dynamodb": "^3.888.0"
   }
 }

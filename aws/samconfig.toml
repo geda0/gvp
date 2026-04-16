@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "page"
+resolve_s3 = true
+s3_prefix = "page"
+region = "us-east-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "ContactToEmail=\"marwan.gendy@gmail.com\" ContactFromEmail=\"Recruit <recruit@marwanelgendy.link>\" ContactReportEmail=\"marwan.gendy@gmail.com\" AlarmEmail=\"marwan.gendy@gmail.com\""
+image_repositories = []
+
+[default.global.parameters]
+region = "us-east-2"

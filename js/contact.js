@@ -12,6 +12,7 @@ export function initContactForm() {
   if (!dialog || !form || !status || !successView || !successText || !sendAnotherBtn || !closeAfterSendBtn) return
 
   let lastFocus = null
+  const contactEndpoint = window.__CONTACT_API_URL__ || '/api/contact'
 
   const showFormView = (visible) => {
     form.hidden = !visible
@@ -93,7 +94,7 @@ export function initContactForm() {
     setStatus('Sending…', 'muted')
 
     try {
-      const res = await fetch('/api/contact', {
+      const res = await fetch(contactEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -107,13 +108,8 @@ export function initContactForm() {
       }
 
       // Success only means persisted server-side. Delivery may be immediate or queued.
-      if (body?.delivery === 'delivered') {
-        setStatus('Message sent successfully.', 'success')
-        setSuccessView('Message sent successfully.')
-      } else {
-        setStatus('Message sent successfully.', 'success')
-        setSuccessView('Message sent successfully.')
-      }
+      setStatus('Message received successfully.', 'success')
+      setSuccessView('Message received successfully.')
 
       form.reset()
     } catch (_) {
