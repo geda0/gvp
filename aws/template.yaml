@@ -15,6 +15,9 @@ Parameters:
     Default: ''
   AlarmEmail:
     Type: String
+  AdminApiKey:
+    Type: String
+    NoEcho: true
 
 Globals:
   Function:
@@ -30,14 +33,17 @@ Globals:
         CONTACT_TO_EMAIL: !Ref ContactToEmail
         CONTACT_FROM_EMAIL: !Ref ContactFromEmail
         CONTACT_REPORT_EMAIL: !Ref ContactReportEmail
+        ADMIN_API_KEY: !Ref AdminApiKey
+        CONTACT_DELIVERY_DLQ_URL: !Ref ContactDeliveryDlq
+        CONTACT_DLQ_ALARM_NAME: !Ref ContactDlqAlarm
 
 Resources:
   ContactApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       CorsConfiguration:
-        AllowMethods: [OPTIONS, POST]
-        AllowHeaders: [Content-Type]
+        AllowMethods: [OPTIONS, GET, POST]
+        AllowHeaders: [Content-Type, x-admin-key]
         AllowOrigins: ['*']
 
   ContactMessagesTable:
@@ -138,6 +144,66 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: cron(0 12 * * ? *)
+
+  ContactAdminFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: contact-admin.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ContactMessagesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ContactMessagesTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sqs:GetQueueAttributes
+                - sqs:SendMessage
+              Resource:
+                - !GetAtt ContactDeliveryQueue.Arn
+                - !GetAtt ContactDeliveryDlq.Arn
+            - Effect: Allow
+              Action:
+                - cloudwatch:DescribeAlarms
+              Resource: '*'
+      Events:
+        ContactAdminSummary:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/summary
+            Method: GET
+        ContactAdminMessages:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/messages
+            Method: GET
+        ContactAdminMessageDetail:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/messages/{id}
+            Method: GET
+        ContactAdminHealth:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/health
+            Method: GET
+        ContactAdminRetry:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/retry/{id}
+            Method: POST
+        ContactAdminOptions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/{proxy+}
+            Method: OPTIONS
 
 Outputs:
   ContactApiUrl:

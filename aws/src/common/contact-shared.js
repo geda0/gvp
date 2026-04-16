@@ -119,8 +119,8 @@ export function json(statusCode, obj) {
     headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Methods': 'OPTIONS,POST'
+      'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
+      'Access-Control-Allow-Methods': 'OPTIONS,GET,POST'
     },
     body: JSON.stringify(obj)
   }
@@ -131,8 +131,12 @@ export function optionsResponse() {
     statusCode: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Methods': 'OPTIONS,POST'
+      'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
+      'Access-Control-Allow-Methods': 'OPTIONS,GET,POST'
     }
   }
+}
+
+export function unauthorized() {
+  return json(401, { error: 'Unauthorized' })
 }

@@ -9,6 +9,7 @@
     "sam:deploy": "sam deploy --guided --template-file aws/template.yaml"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1030.0",
     "@aws-sdk/client-dynamodb": "^3.888.0",
     "@aws-sdk/client-sqs": "^3.888.0",
     "@aws-sdk/lib-dynamodb": "^3.888.0"
