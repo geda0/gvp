@@ -219,6 +219,8 @@ function createProjectCard(project) {
     const img = document.createElement('img');
     img.src = project.image;
     img.alt = project.imageAlt || project.title || '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
     div.appendChild(img);
   }
 
