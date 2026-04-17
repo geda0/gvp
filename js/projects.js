@@ -83,6 +83,12 @@ export function initProjectDetailDialog() {
   let lastFocus = null;
 
   function closeDialog() {
+    if (imageEl) {
+      imageEl.removeAttribute('src');
+      imageEl.alt = '';
+      imageEl.classList.remove('project-dialog__image--loading');
+    }
+    if (mediaWrap) mediaWrap.hidden = true;
     dialog.hidden = true;
     dialog.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('project-dialog-open');
@@ -99,12 +105,22 @@ export function initProjectDetailDialog() {
 
     lastFocus = document.activeElement;
     if (data.image && imageEl && mediaWrap) {
-      imageEl.src = data.image;
       imageEl.alt = data.imageAlt || data.title || '';
       mediaWrap.hidden = false;
+      imageEl.classList.add('project-dialog__image--loading');
+      const reveal = () => {
+        imageEl.classList.remove('project-dialog__image--loading');
+      };
+      imageEl.addEventListener('load', reveal, { once: true });
+      imageEl.addEventListener('error', reveal, { once: true });
+      imageEl.src = data.image;
+      if (imageEl.complete && imageEl.naturalWidth > 0) {
+        reveal();
+      }
     } else if (mediaWrap && imageEl) {
       imageEl.removeAttribute('src');
       imageEl.alt = '';
+      imageEl.classList.remove('project-dialog__image--loading');
       mediaWrap.hidden = true;
     }
     titleEl.textContent = data.title || '';
@@ -219,7 +235,7 @@ function createProjectCard(project) {
     const img = document.createElement('img');
     img.src = project.image;
     img.alt = project.imageAlt || project.title || '';
-    img.loading = 'lazy';
+    img.loading = 'eager';
     img.decoding = 'async';
     div.appendChild(img);
   }

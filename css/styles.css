@@ -448,6 +448,12 @@ body.project-dialog-open {
     object-position: center;
 }
 
+/* Reused <img>: hide until the new URL has painted (avoids flashing the previous project’s image). */
+.project-dialog__image.project-dialog__image--loading {
+    opacity: 0;
+    visibility: hidden;
+}
+
 .project-dialog__title {
     margin: 0 0 0.75rem;
     font-size: 1.35rem;
