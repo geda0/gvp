@@ -29,6 +29,15 @@ let adminKey = sessionStorage.getItem('admin-api-key') || ''
 let selectedMessageId = null
 let currentMessages = []
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
 function setStatus(el, text, tone = 'muted') {
   el.textContent = text
   el.dataset.tone = tone
@@ -65,8 +74,8 @@ function renderSummary(summary) {
   summaryEls.deadLettered.textContent = summary.deadLettered ?? 0
 
   outcomeEl.innerHTML = `
-    <div><dt>Most recent success</dt><dd>${summary.mostRecentSuccess ? `${formatDate(summary.mostRecentSuccess.deliveredAt)} · ${summary.mostRecentSuccess.email}` : '—'}</dd></div>
-    <div><dt>Most recent failure</dt><dd>${summary.mostRecentFailure ? `${formatDate(summary.mostRecentFailure.createdAt)} · ${summary.mostRecentFailure.lastError || '—'}` : '—'}</dd></div>
+    <div><dt>Most recent success</dt><dd>${summary.mostRecentSuccess ? `${escapeHtml(formatDate(summary.mostRecentSuccess.deliveredAt))} · ${escapeHtml(summary.mostRecentSuccess.email)}` : '—'}</dd></div>
+    <div><dt>Most recent failure</dt><dd>${summary.mostRecentFailure ? `${escapeHtml(formatDate(summary.mostRecentFailure.createdAt))} · ${escapeHtml(summary.mostRecentFailure.lastError || '—')}` : '—'}</dd></div>
   `
 }
 
@@ -88,13 +97,13 @@ function renderMessages(items) {
   }
 
   messagesTable.innerHTML = items.map((item) => `
-    <tr data-id="${item.id}" class="${item.id === selectedMessageId ? 'is-selected' : ''}">
-      <td>${formatDate(item.createdAt)}</td>
-      <td>${item.name || '—'}<br><small>${item.email || '—'}</small></td>
-      <td>${item.subject || '—'}</td>
-      <td>${item.status || '—'}</td>
-      <td>${item.attempts || 0}</td>
-      <td>${item.lastError || '—'}</td>
+    <tr data-id="${escapeHtml(item.id)}" class="${item.id === selectedMessageId ? 'is-selected' : ''}">
+      <td>${escapeHtml(formatDate(item.createdAt))}</td>
+      <td>${escapeHtml(item.name || '—')}<br><small>${escapeHtml(item.email || '—')}</small></td>
+      <td>${escapeHtml(item.subject || '—')}</td>
+      <td>${escapeHtml(item.status || '—')}</td>
+      <td>${escapeHtml(item.attempts || 0)}</td>
+      <td>${escapeHtml(item.lastError || '—')}</td>
     </tr>
   `).join('')
 }
@@ -108,16 +117,16 @@ function renderDetail(item) {
 
   retryBtn.disabled = item.status === 'sent'
   detailEl.innerHTML = `
-    <div><dt>ID</dt><dd>${item.id}</dd></div>
-    <div><dt>Status</dt><dd>${item.status || '—'}</dd></div>
-    <div><dt>Created</dt><dd>${formatDate(item.createdAt)}</dd></div>
-    <div><dt>Delivered</dt><dd>${formatDate(item.deliveredAt)}</dd></div>
-    <div><dt>Attempts</dt><dd>${item.attempts || 0}</dd></div>
-    <div><dt>Resend ID</dt><dd>${item.resendId || '—'}</dd></div>
-    <div><dt>Sender</dt><dd>${item.name || '—'} &lt;${item.email || '—'}&gt;</dd></div>
-    <div><dt>Subject</dt><dd>${item.subject || '—'}</dd></div>
-    <div><dt>Last error</dt><dd>${item.lastError || '—'}</dd></div>
-    <div><dt>Message</dt><dd>${item.message || '—'}</dd></div>
+    <div><dt>ID</dt><dd>${escapeHtml(item.id)}</dd></div>
+    <div><dt>Status</dt><dd>${escapeHtml(item.status || '—')}</dd></div>
+    <div><dt>Created</dt><dd>${escapeHtml(formatDate(item.createdAt))}</dd></div>
+    <div><dt>Delivered</dt><dd>${escapeHtml(formatDate(item.deliveredAt))}</dd></div>
+    <div><dt>Attempts</dt><dd>${escapeHtml(item.attempts || 0)}</dd></div>
+    <div><dt>Resend ID</dt><dd>${escapeHtml(item.resendId || '—')}</dd></div>
+    <div><dt>Sender</dt><dd>${escapeHtml(item.name || '—')} &lt;${escapeHtml(item.email || '—')}&gt;</dd></div>
+    <div><dt>Subject</dt><dd>${escapeHtml(item.subject || '—')}</dd></div>
+    <div><dt>Last error</dt><dd>${escapeHtml(item.lastError || '—')}</dd></div>
+    <div><dt>Message</dt><dd>${escapeHtml(item.message || '—')}</dd></div>
   `
 }
 

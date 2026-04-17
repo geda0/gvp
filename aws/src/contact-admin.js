@@ -135,6 +135,12 @@ async function retryMessage(id) {
   const message = await getMessage(id)
   if (!message) return { notFound: true }
   if (message.status === 'sent') return { alreadySent: true }
+  if (message.status === 'queued' || message.status === 'sending') {
+    return { alreadyInFlight: true }
+  }
+  if (message.status !== 'failed' && message.status !== 'dead_lettered') {
+    return { invalidStatus: true, status: message.status || 'unknown' }
+  }
 
   await ddb.send(
     new UpdateCommand({
@@ -190,6 +196,10 @@ export const handler = async (event) => {
     const result = await retryMessage(id)
     if (result.notFound) return json(404, { error: 'Message not found' })
     if (result.alreadySent) return json(400, { error: 'Message already sent' })
+    if (result.alreadyInFlight) return json(409, { error: 'Message already queued or sending' })
+    if (result.invalidStatus) {
+      return json(400, { error: `Message cannot be retried from status: ${result.status}` })
+    }
     return json(200, { ok: true, requeued: true })
   }
 

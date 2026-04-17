@@ -33,9 +33,6 @@ Globals:
         CONTACT_TO_EMAIL: !Ref ContactToEmail
         CONTACT_FROM_EMAIL: !Ref ContactFromEmail
         CONTACT_REPORT_EMAIL: !Ref ContactReportEmail
-        ADMIN_API_KEY: !Ref AdminApiKey
-        CONTACT_DELIVERY_DLQ_URL: !Ref ContactDeliveryDlq
-        CONTACT_DLQ_ALARM_NAME: !Ref ContactDlqAlarm
 
 Resources:
   ContactApi:
@@ -150,6 +147,11 @@ Resources:
     Properties:
       CodeUri: src/
       Handler: contact-admin.handler
+      Environment:
+        Variables:
+          ADMIN_API_KEY: !Ref AdminApiKey
+          CONTACT_DELIVERY_DLQ_URL: !Ref ContactDeliveryDlq
+          CONTACT_DLQ_ALARM_NAME: !Ref ContactDlqAlarm
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref ContactMessagesTable
