@@ -11,6 +11,9 @@ const globalStatus = document.getElementById('adminGlobalStatus')
 const refreshBtn = document.getElementById('adminRefreshBtn')
 const signOutBtn = document.getElementById('adminSignOutBtn')
 const retryBtn = document.getElementById('adminRetryBtn')
+const showMessageBtn = document.getElementById('adminShowMessageBtn')
+const clearReportBtn = document.getElementById('adminClearReportBtn')
+const messageBodyEl = document.getElementById('adminMessageBody')
 const messagesTable = document.getElementById('adminMessagesTable')
 const summaryEls = {
   total: document.getElementById('summaryTotal'),
@@ -28,6 +31,22 @@ const limitEl = document.getElementById('adminLimit')
 let adminKey = sessionStorage.getItem('admin-api-key') || ''
 let selectedMessageId = null
 let currentMessages = []
+let selectedDetailItem = null
+let messageBodyVisible = false
+
+function resetMessageBodyView() {
+  messageBodyVisible = false
+  if (messageBodyEl) {
+    messageBodyEl.hidden = true
+    messageBodyEl.textContent = ''
+  }
+  if (showMessageBtn) showMessageBtn.textContent = 'Show message'
+}
+
+function eligibleForDailyReport(item) {
+  if (!item || item.status === 'sent') return false
+  return (item.attempts || 0) > 0
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -109,24 +128,45 @@ function renderMessages(items) {
 }
 
 function renderDetail(item) {
+  selectedDetailItem = item || null
+  resetMessageBodyView()
+
   if (!item) {
     detailEl.innerHTML = '<div><dt>Status</dt><dd>Select a message</dd></div>'
-    retryBtn.disabled = true
+    if (retryBtn) retryBtn.disabled = true
+    if (showMessageBtn) showMessageBtn.disabled = true
+    if (clearReportBtn) clearReportBtn.disabled = true
     return
   }
 
-  retryBtn.disabled = item.status === 'sent'
+  const suppressed = Boolean(item.reportSuppressed)
+  const eligible = eligibleForDailyReport(item)
+  const reportLabel = suppressed
+    ? 'Stopped'
+    : eligible
+      ? 'Included'
+      : '—'
+
+  if (retryBtn) retryBtn.disabled = item.status === 'sent'
+  if (showMessageBtn) {
+    showMessageBtn.disabled = !item.message
+  }
+  if (clearReportBtn) {
+    clearReportBtn.disabled = !eligible || suppressed
+  }
+
   detailEl.innerHTML = `
     <div><dt>ID</dt><dd>${escapeHtml(item.id)}</dd></div>
     <div><dt>Status</dt><dd>${escapeHtml(item.status || '—')}</dd></div>
     <div><dt>Created</dt><dd>${escapeHtml(formatDate(item.createdAt))}</dd></div>
     <div><dt>Delivered</dt><dd>${escapeHtml(formatDate(item.deliveredAt))}</dd></div>
     <div><dt>Attempts</dt><dd>${escapeHtml(item.attempts || 0)}</dd></div>
+    <div><dt>Daily failure report</dt><dd>${escapeHtml(reportLabel)}</dd></div>
     <div><dt>Resend ID</dt><dd>${escapeHtml(item.resendId || '—')}</dd></div>
     <div><dt>Sender</dt><dd>${escapeHtml(item.name || '—')} &lt;${escapeHtml(item.email || '—')}&gt;</dd></div>
     <div><dt>Subject</dt><dd>${escapeHtml(item.subject || '—')}</dd></div>
     <div><dt>Last error</dt><dd>${escapeHtml(item.lastError || '—')}</dd></div>
-    <div><dt>Message</dt><dd>${escapeHtml(item.message || '—')}</dd></div>
+    <div><dt>Message body</dt><dd>${item.message ? 'Hidden — use Show message to view.' : '—'}</dd></div>
   `
 }
 
@@ -202,6 +242,38 @@ retryBtn?.addEventListener('click', async () => {
   }
 })
 
+showMessageBtn?.addEventListener('click', () => {
+  if (!selectedDetailItem?.message || !messageBodyEl) return
+  messageBodyVisible = !messageBodyVisible
+  if (messageBodyVisible) {
+    messageBodyEl.textContent = selectedDetailItem.message
+    messageBodyEl.hidden = false
+    showMessageBtn.textContent = 'Hide message'
+  } else {
+    messageBodyEl.textContent = ''
+    messageBodyEl.hidden = true
+    showMessageBtn.textContent = 'Show message'
+  }
+})
+
+clearReportBtn?.addEventListener('click', async () => {
+  if (!selectedMessageId || !selectedDetailItem) return
+  if (
+    !window.confirm(
+      'Stop including this message in the daily failure report email? You can still see it in this dashboard.'
+    )
+  ) {
+    return
+  }
+  try {
+    await request(`/messages/${selectedMessageId}/suppress-report`, { method: 'POST' })
+    setStatus(globalStatus, 'Daily report suppressed for this message.', 'success')
+    await loadDashboard()
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not update report setting.', 'error')
+  }
+})
+
 refreshBtn?.addEventListener('click', loadDashboard)
 limitEl?.addEventListener('change', loadDashboard)
 
@@ -213,6 +285,7 @@ signOutBtn?.addEventListener('click', () => {
   app.hidden = true
   authCard.hidden = false
   authInput.value = ''
+  resetMessageBodyView()
   renderDetail(null)
   setStatus(globalStatus, '')
 })

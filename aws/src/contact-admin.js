@@ -165,12 +165,44 @@ async function retryMessage(id) {
   return { ok: true }
 }
 
+async function suppressReport(id) {
+  const message = await getMessage(id)
+  if (!message) return { notFound: true }
+  if (message.status === 'sent') return { invalid: true, reason: 'already_sent' }
+
+  await ddb.send(
+    new UpdateCommand({
+      TableName: process.env.CONTACT_MESSAGES_TABLE,
+      Key: { id },
+      UpdateExpression: 'SET #rs = :true',
+      ExpressionAttributeNames: { '#rs': 'reportSuppressed' },
+      ExpressionAttributeValues: {
+        ':true': true
+      }
+    })
+  )
+
+  return { ok: true }
+}
+
 export const handler = async (event) => {
   const method = getMethod(event)
   if (method === 'OPTIONS') return optionsResponse()
   if (!requireAdminKey(event)) return unauthorized()
 
   const path = getPath(event)
+
+  if (method === 'POST' && /\/messages\/[^/]+\/suppress-report/.test(path)) {
+    const m = path.match(/\/messages\/([^/]+)\/suppress-report/)
+    const id = m?.[1]
+    if (!id) return json(400, { error: 'Invalid path' })
+    const result = await suppressReport(id)
+    if (result.notFound) return json(404, { error: 'Message not found' })
+    if (result.invalid) {
+      return json(400, { error: 'Cannot suppress report for a sent message' })
+    }
+    return json(200, { ok: true, reportSuppressed: true })
+  }
 
   if (method === 'GET' && path.endsWith('/summary')) {
     return json(200, await getSummary())
@@ -180,15 +212,18 @@ export const handler = async (event) => {
     return json(200, { items: await listMessages(parseLimit(event)) })
   }
 
-  if (method === 'GET' && path.includes('/messages/')) {
-    const id = path.split('/messages/')[1]
-    const item = await getMessage(id)
-    if (!item) return json(404, { error: 'Message not found' })
-    return json(200, item)
-  }
-
   if (method === 'GET' && path.endsWith('/health')) {
     return json(200, await getHealth())
+  }
+
+  if (method === 'GET') {
+    const detailMatch = path.match(/\/messages\/([^/]+)$/)
+    if (detailMatch) {
+      const id = detailMatch[1]
+      const item = await getMessage(id)
+      if (!item) return json(404, { error: 'Message not found' })
+      return json(200, item)
+    }
   }
 
   if (method === 'POST' && path.includes('/retry/')) {

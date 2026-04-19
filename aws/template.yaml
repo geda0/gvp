@@ -200,6 +200,12 @@ Resources:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/retry/{id}
             Method: POST
+        ContactAdminSuppressReport:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/messages/{id}/suppress-report
+            Method: POST
         ContactAdminOptions:
           Type: HttpApi
           Properties:

@@ -146,6 +146,33 @@ h2 {
   margin-bottom: 0.75rem;
 }
 
+.admin-card__header--row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.admin-detail__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.admin-message-body {
+  margin: 0 0 0.75rem;
+  padding: 0.85rem;
+  max-height: min(40vh, 18rem);
+  overflow: auto;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
 .admin-inline {
   display: inline-flex;
   gap: 0.5rem;

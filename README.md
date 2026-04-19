@@ -55,6 +55,9 @@ Resend requires that the `from` address is verified (domain or sender). Use a se
   - `GET /api/contact/admin/messages/{id}`
   - `GET /api/contact/admin/health`
   - `POST /api/contact/admin/retry/{id}`
+  - `POST /api/contact/admin/messages/{id}/suppress-report` (sets `reportSuppressed` on the DynamoDB item so the scheduled failure report email skips it)
 - Auth: send `x-admin-key` matching `ADMIN_API_KEY`
 
 The admin page is intentionally separate from the public site shell. It is not linked publicly and should be accessed directly only by operators.
+
+Scheduled failure reports (`aws/src/contact-report.js`) only include non-sent messages with `attempts > 0` and **exclude** items where `reportSuppressed` is true.

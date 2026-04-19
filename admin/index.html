@@ -84,13 +84,18 @@
         </article>
 
         <aside class="admin-card">
-          <div class="admin-card__header">
+          <div class="admin-card__header admin-card__header--row">
             <h2>Message Detail</h2>
-            <button id="adminRetryBtn" type="button" disabled>Retry message</button>
+            <div class="admin-detail__toolbar">
+              <button id="adminShowMessageBtn" type="button" disabled>Show message</button>
+              <button id="adminClearReportBtn" type="button" class="admin-button-secondary" disabled>Stop daily report</button>
+              <button id="adminRetryBtn" type="button" disabled>Retry message</button>
+            </div>
           </div>
           <dl class="admin-detail" id="adminMessageDetail">
             <div><dt>Status</dt><dd>Select a message</dd></div>
           </dl>
+          <pre id="adminMessageBody" class="admin-message-body" hidden></pre>
         </aside>
       </section>
 
