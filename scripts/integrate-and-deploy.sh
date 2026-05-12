@@ -4,7 +4,7 @@
 # Prefer local entrypoint: scripts/orchestrate-deploy.sh (loads .secrets/ + pushes manifest to SM, then runs this script).
 #
 # Required env: RESEND_API_KEY, CONTACT_TO_EMAIL, CONTACT_FROM_EMAIL, ALARM_EMAIL, ADMIN_API_KEY
-# Optional traffic: TRAFFIC_GCP_PROJECT_ID, TRAFFIC_BIGQUERY_DATASET,
+# Optional traffic: TRAFFIC_GCP_PROJECT_ID, TRAFFIC_BIGQUERY_DATASET, TRAFFIC_GA4_PROPERTY_ID,
 #   either TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN or (GCP_SERVICE_ACCOUNT_JSON + TRAFFIC_SECRET_NAME)
 # Optional: SAM_STACK_NAME (default page), AWS_REGION, SYNC_API_URLS=1
 
@@ -51,6 +51,7 @@ fi
 
 TRAFFIC_GCP="${TRAFFIC_GCP_PROJECT_ID:-}"
 TRAFFIC_DS="${TRAFFIC_BIGQUERY_DATASET:-}"
+TRAFFIC_GA4_PROPERTY="${TRAFFIC_GA4_PROPERTY_ID:-}"
 
 PO=(
   "ResendApiKey=${RESEND_API_KEY}"
@@ -69,6 +70,9 @@ if [[ -n "${TRAFFIC_DS}" ]]; then
 fi
 if [[ -n "${TRAFFIC_ARN}" ]]; then
   PO+=("TrafficServiceAccountSecretArn=${TRAFFIC_ARN}")
+fi
+if [[ -n "${TRAFFIC_GA4_PROPERTY}" ]]; then
+  PO+=("TrafficGa4PropertyId=${TRAFFIC_GA4_PROPERTY}")
 fi
 
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then

@@ -10,6 +10,11 @@
       "name": "TRAFFIC_BIGQUERY_DATASET",
       "value": "analytics_123456789",
       "required": false
+    },
+    {
+      "name": "TRAFFIC_GA4_PROPERTY_ID",
+      "value": "123456789",
+      "required": false
     }
   ]
 }

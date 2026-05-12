@@ -3,7 +3,11 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import { json, optionsResponse, unauthorized } from './common/contact-shared.js'
 
 const secrets = new SecretsManagerClient({})
-const OAUTH_SCOPE = 'https://www.googleapis.com/auth/bigquery.readonly'
+const OAUTH_SCOPE = [
+  'https://www.googleapis.com/auth/bigquery.readonly',
+  'https://www.googleapis.com/auth/analytics.readonly'
+].join(' ')
+const MAX_BIGQUERY_STALENESS_DAYS = 1
 const tokenCache = {
   accessToken: '',
   expiresAt: 0
@@ -42,10 +46,11 @@ function getTrafficConfig() {
   const projectId = String(process.env.TRAFFIC_GCP_PROJECT_ID || '').trim()
   const dataset = String(process.env.TRAFFIC_BIGQUERY_DATASET || '').trim()
   const serviceAccountSecretArn = String(process.env.TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN || '').trim()
+  const ga4PropertyId = String(process.env.TRAFFIC_GA4_PROPERTY_ID || '').trim()
   if (!projectId || !dataset || !serviceAccountSecretArn) {
     throw new Error('Traffic analytics is not configured. Missing BigQuery environment variables.')
   }
-  return { projectId, dataset, serviceAccountSecretArn }
+  return { projectId, dataset, serviceAccountSecretArn, ga4PropertyId }
 }
 
 async function getServiceAccount(config) {
@@ -356,6 +361,132 @@ async function getSummary(config, sql, days) {
   }
 }
 
+async function getBigQueryFreshness(config) {
+  const sql = `
+SELECT
+  MAX(PARSE_DATE('%Y%m%d', REGEXP_EXTRACT(table_name, r'^events_(\\d{8})$'))) AS latest_event_date
+FROM \`${config.projectId}.${config.dataset}.INFORMATION_SCHEMA.TABLES\`
+WHERE table_name LIKE 'events_%'
+`
+  const rows = await runQuery(config, sql, {})
+  const latest = rows[0]?.latest_event_date
+  if (!latest) {
+    return { isFresh: false, latestEventDate: null, lagDays: null }
+  }
+  const latestDate = new Date(`${latest}T00:00:00Z`)
+  const now = new Date()
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const latestUtc = Date.UTC(
+    latestDate.getUTCFullYear(),
+    latestDate.getUTCMonth(),
+    latestDate.getUTCDate()
+  )
+  const lagDays = Math.max(0, Math.floor((todayUtc - latestUtc) / 86400000))
+  return {
+    isFresh: lagDays <= MAX_BIGQUERY_STALENESS_DAYS,
+    latestEventDate: latest,
+    lagDays
+  }
+}
+
+function mapGa4SummaryRow(row = {}) {
+  const sessions = Number(row.sessions || 0)
+  const engagedSessions = Number(row.engagedSessions || 0)
+  const bounceRate = Number(row.bounceRate || 0)
+  const bounceSessions = Math.max(0, Math.round(sessions * bounceRate))
+  return {
+    sessions,
+    users: Number(row.totalUsers || 0),
+    avg_pageviews_per_session: Number(row.screenPageViewsPerSession || 0),
+    avg_engagement_msec: Math.round(Number(row.userEngagementDuration || 0) * 1000),
+    engaged_sessions: engagedSessions,
+    bounce_sessions: bounceSessions,
+    estimated_bot_sessions: null,
+    estimated_human_sessions: null
+  }
+}
+
+async function runGa4Report(config, payload) {
+  if (!config.ga4PropertyId) {
+    throw new Error('Missing TRAFFIC_GA4_PROPERTY_ID for GA4 live fallback.')
+  }
+  const accessToken = await getAccessToken(config)
+  const response = await fetch(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${config.ga4PropertyId}:runReport`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    }
+  )
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data.error) {
+    const message = data?.error?.message || 'GA4 Data API request failed.'
+    throw new Error(message)
+  }
+  return data
+}
+
+async function getLiveSummary(config, days) {
+  const endDate = 'today'
+  const startDate = `${Math.max(1, Number(days || 30) - 1)}daysAgo`
+  const data = await runGa4Report(config, {
+    dateRanges: [{ startDate, endDate }],
+    metrics: [
+      { name: 'sessions' },
+      { name: 'totalUsers' },
+      { name: 'screenPageViewsPerSession' },
+      { name: 'userEngagementDuration' },
+      { name: 'engagedSessions' },
+      { name: 'bounceRate' }
+    ],
+    keepEmptyRows: true
+  })
+  const values = data.rows?.[0]?.metricValues || []
+  const row = {
+    sessions: values[0]?.value,
+    totalUsers: values[1]?.value,
+    screenPageViewsPerSession: values[2]?.value,
+    userEngagementDuration: values[3]?.value,
+    engagedSessions: values[4]?.value,
+    bounceRate: values[5]?.value
+  }
+  return mapGa4SummaryRow(row)
+}
+
+async function getSummaryWithFallback(config, sql, days) {
+  try {
+    const freshness = await getBigQueryFreshness(config)
+    if (freshness.isFresh) {
+      const summary = await getSummary(config, sql, days)
+      return {
+        ...summary,
+        data_source: 'bigquery',
+        bigquery_latest_event_date: freshness.latestEventDate,
+        bigquery_lag_days: freshness.lagDays
+      }
+    }
+
+    const live = await getLiveSummary(config, days)
+    return {
+      ...live,
+      data_source: 'ga4-data-api',
+      bigquery_latest_event_date: freshness.latestEventDate,
+      bigquery_lag_days: freshness.lagDays
+    }
+  } catch (error) {
+    const live = await getLiveSummary(config, days)
+    return {
+      ...live,
+      data_source: 'ga4-data-api',
+      fallback_reason: String(error?.message || 'bigquery-failed')
+    }
+  }
+}
+
 async function getGeo(config, sql, days, limit) {
   return runQuery(config, sql.geo, { days, limit })
 }
@@ -388,7 +519,7 @@ export const handler = async (event) => {
     const days = parseNumber(getQueryValue(event, 'days', 30), 30, 1, 90)
 
     if (method === 'GET' && path.endsWith('/traffic/summary')) {
-      return json(200, await getSummary(config, sql, days))
+      return json(200, await getSummaryWithFallback(config, sql, days))
     }
 
     if (method === 'GET' && path.endsWith('/traffic/geo')) {

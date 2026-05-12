@@ -33,6 +33,7 @@ Use **Actions → Integrate and deploy → Run workflow** (single job: optional 
 
 3. **Traffic / BigQuery (optional)**  
    - `TRAFFIC_GCP_PROJECT_ID`, `TRAFFIC_BIGQUERY_DATASET`  
+   - `TRAFFIC_GA4_PROPERTY_ID` (optional but recommended; enables live GA4 Data API fallback when BigQuery export is stale/unavailable)
    - Either `TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN` **or** `GCP_SERVICE_ACCOUNT_JSON` (full service-account JSON; the script upserts Secrets Manager and passes the ARN automatically).
 
 4. **Optional Looker embed (admin iframe)**  
@@ -46,7 +47,7 @@ Local equivalent (after `aws login` / `AWS_PROFILE`):
 ```bash
 export RESEND_API_KEY=... CONTACT_TO_EMAIL=... CONTACT_FROM_EMAIL=... ALARM_EMAIL=... ADMIN_API_KEY=...
 # optional traffic + auto secret:
-export TRAFFIC_GCP_PROJECT_ID=... TRAFFIC_BIGQUERY_DATASET=... GCP_SERVICE_ACCOUNT_JSON="$(cat sa.json)"
+export TRAFFIC_GCP_PROJECT_ID=... TRAFFIC_BIGQUERY_DATASET=... TRAFFIC_GA4_PROPERTY_ID=... GCP_SERVICE_ACCOUNT_JSON="$(cat sa.json)"
 # optional: patch HTML after deploy
 export SYNC_API_URLS=1
 # optional: export TRAFFIC_REPORT_EMBED_URL='https://lookerstudio.google.com/embed/...'
@@ -140,6 +141,7 @@ Set these additional SAM parameters when deploying `aws/template.yaml`:
 - `TrafficGcpProjectId`: GCP project ID that owns BigQuery dataset
 - `TrafficBigQueryDataset`: Dataset name containing GA4 `events_*` tables
 - `TrafficServiceAccountSecretArn`: Secrets Manager ARN with service account JSON
+- `TrafficGa4PropertyId` (optional but recommended): GA4 numeric property ID for live Data API fallback
 
 Required secret payload keys:
 
@@ -147,6 +149,12 @@ Required secret payload keys:
 - `private_key`
 
 The same `ADMIN_API_KEY` protects contact and traffic admin APIs.
+
+Runtime behavior:
+
+- `/api/contact/admin/traffic/*` uses **BigQuery** when export is fresh (latest `events_YYYYMMDD` within 1 day).
+- `summary` automatically falls back to **GA4 Data API** when BigQuery is stale/unavailable.
+- Fallback source is returned as `data_source` (`bigquery` or `ga4-data-api`) in the summary payload.
 
 #### 3) Configure admin frontend endpoints
 

@@ -27,6 +27,9 @@ Parameters:
   TrafficServiceAccountSecretArn:
     Type: String
     Default: ''
+  TrafficGa4PropertyId:
+    Type: String
+    Default: ''
 
 Globals:
   Function:
@@ -233,6 +236,7 @@ Resources:
           TRAFFIC_GCP_PROJECT_ID: !Ref TrafficGcpProjectId
           TRAFFIC_BIGQUERY_DATASET: !Ref TrafficBigQueryDataset
           TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN: !Ref TrafficServiceAccountSecretArn
+          TRAFFIC_GA4_PROPERTY_ID: !Ref TrafficGa4PropertyId
       Policies:
         - Statement:
             - Effect: Allow
