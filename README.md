@@ -150,6 +150,8 @@ Required secret payload keys:
 
 In the **same GCP project** that owns that service account, enable **Google Analytics Data API** (APIs & Services → Library). If this API is disabled, GA4 live traffic calls return errors like “Analytics Data API has not been used in project … before or it is disabled.”
 
+Grant that service account access to the **GA4 property** (API enablement alone is not enough): GA4 → **Admin** → **Property access management** → add the service account email with at least **Viewer**. Use the numeric **Property ID** from **Admin → Property settings** as `TRAFFIC_GA4_PROPERTY_ID` / `TrafficGa4PropertyId` (not the Measurement ID `G-…`).
+
 The same `ADMIN_API_KEY` protects contact and traffic admin APIs.
 
 Runtime behavior:

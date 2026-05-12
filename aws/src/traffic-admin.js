@@ -427,6 +427,15 @@ function mapGa4Rows(data, dimensions = [], metrics = []) {
 function formatGa4ApiAccessHint(rawMessage = '') {
   const m = String(rawMessage)
   if (
+    /does not have sufficient permissions|PERMISSION_DENIED|Permission denied on resource/i.test(m)
+  ) {
+    return (
+      'GA4 denied access for this service account. In GA4: Admin → Property access management → add the service account ' +
+      'email from your Secrets Manager JSON (role Viewer or Analyst is enough). Confirm TRAFFIC_GA4_PROPERTY_ID is the ' +
+      'numeric Property ID from Admin → Property settings, not a Measurement ID (G-…).'
+    )
+  }
+  if (
     /Google Analytics Data API has not been used/i.test(m) ||
     /analyticsdata\.googleapis\.com.*disabled/i.test(m) ||
     /SERVICE_DISABLED/i.test(m)
