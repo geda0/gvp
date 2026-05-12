@@ -479,12 +479,20 @@ async function loadTraffic() {
   }
 
   if (summaryResult.status !== 'fulfilled' && geoResult.status !== 'fulfilled' && exitsResult.status !== 'fulfilled') {
+    const summaryMsg =
+      summaryResult.status === 'rejected' ? String(summaryResult.reason?.message || summaryResult.reason) : ''
+    const geoMsg = geoResult.status === 'rejected' ? String(geoResult.reason?.message || geoResult.reason) : ''
+    const exitsMsg = exitsResult.status === 'rejected' ? String(exitsResult.reason?.message || exitsResult.reason) : ''
     __gvpDebugLog('pre-fix', 'H5', 'admin.js:loadTraffic', 'all ga4-backed requests failed', {
-      summary: summaryResult.status === 'rejected' ? String(summaryResult.reason?.message || summaryResult.reason) : 'ok',
-      geo: geoResult.status === 'rejected' ? String(geoResult.reason?.message || geoResult.reason) : 'ok',
-      exits: exitsResult.status === 'rejected' ? String(exitsResult.reason?.message || exitsResult.reason) : 'ok'
+      summary: summaryResult.status === 'rejected' ? summaryMsg : 'ok',
+      geo: geoResult.status === 'rejected' ? geoMsg : 'ok',
+      exits: exitsResult.status === 'rejected' ? exitsMsg : 'ok'
     })
-    throw new Error('Could not load GA4 traffic data. Check TRAFFIC_GA4_PROPERTY_ID and service account access.')
+    const detail = summaryMsg || geoMsg || exitsMsg
+    throw new Error(
+      detail ||
+        'Could not load GA4 traffic data. Check TRAFFIC_GA4_PROPERTY_ID, service account access, and that the Analytics Data API is enabled in GCP.'
+    )
   }
 }
 

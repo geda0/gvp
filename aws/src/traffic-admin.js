@@ -424,6 +424,24 @@ function mapGa4Rows(data, dimensions = [], metrics = []) {
   })
 }
 
+function formatGa4ApiAccessHint(rawMessage = '') {
+  const m = String(rawMessage)
+  if (
+    /Google Analytics Data API has not been used/i.test(m) ||
+    /analyticsdata\.googleapis\.com.*disabled/i.test(m) ||
+    /SERVICE_DISABLED/i.test(m)
+  ) {
+    const projectMatch = m.match(/project (\d+)/i)
+    const projectNum = projectMatch ? projectMatch[1] : ''
+    return (
+      'Enable the Google Analytics Data API in the GCP project that owns your service account JSON' +
+      (projectNum ? ` (Google Cloud project number ${projectNum}).` : '.') +
+      ' Cloud Console → APIs & Services → Library → search "Google Analytics Data API" → Enable.'
+    )
+  }
+  return m
+}
+
 async function runGa4Report(config, payload) {
   if (!config.ga4PropertyId) {
     throw new Error('Missing TRAFFIC_GA4_PROPERTY_ID for GA4 live fallback.')
@@ -442,8 +460,8 @@ async function runGa4Report(config, payload) {
   )
   const data = await response.json().catch(() => ({}))
   if (!response.ok || data.error) {
-    const message = data?.error?.message || 'GA4 Data API request failed.'
-    throw new Error(message)
+    const raw = data?.error?.message || 'GA4 Data API request failed.'
+    throw new Error(formatGa4ApiAccessHint(raw))
   }
   return data
 }

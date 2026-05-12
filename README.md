@@ -148,6 +148,8 @@ Required secret payload keys:
 - `client_email`
 - `private_key`
 
+In the **same GCP project** that owns that service account, enable **Google Analytics Data API** (APIs & Services → Library). If this API is disabled, GA4 live traffic calls return errors like “Analytics Data API has not been used in project … before or it is disabled.”
+
 The same `ADMIN_API_KEY` protects contact and traffic admin APIs.
 
 Runtime behavior:
