@@ -5,6 +5,9 @@ const trafficApiBaseUrl =
   window.__TRAFFIC_API_BASE_URL__ ||
   `${String(adminBaseUrl).replace(/\/$/, '')}/traffic`
 const trafficReportEmbedUrl = String(window.__TRAFFIC_REPORT_EMBED_URL__ || '').trim()
+const isLocalAdminHost =
+  typeof location !== 'undefined' &&
+  (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
 
 function __gvpDebugLog(hypothesisId, locationTag, message, data) {
   const payload = {
@@ -52,6 +55,14 @@ __gvpDebugLog('H1', 'admin.js:bootstrap', 'resolved admin api bases', {
   resolvedSummary: __gvpResolveFetchUrl(adminBaseUrl, '/summary'),
   resolvedTrafficSummary: __gvpResolveFetchUrl(trafficApiBaseUrl, '/summary')
 })
+
+if (!adminBaseUrl) {
+  __gvpDebugLog('H1', 'admin.js:bootstrap:config', 'missing contact api url meta in non-local host', {
+    isLocalAdminHost,
+    hostname: typeof location !== 'undefined' ? location.hostname : '',
+    href: typeof location !== 'undefined' ? location.href : ''
+  })
+}
 
 const authCard = document.getElementById('adminAuthCard')
 const authForm = document.getElementById('adminAuthForm')
@@ -494,6 +505,14 @@ async function loadTraffic() {
 
 authForm?.addEventListener('submit', async (event) => {
   event.preventDefault()
+  if (!adminBaseUrl && !isLocalAdminHost) {
+    setStatus(
+      authStatus,
+      'Admin API URL is not configured. Deploy with SYNC_API_URLS enabled so meta "gvp:contact-api-url" is populated.',
+      'error'
+    )
+    return
+  }
   adminKey = authInput.value.trim()
   sessionStorage.setItem('admin-api-key', adminKey)
   setStatus(authStatus, 'Checking access…')

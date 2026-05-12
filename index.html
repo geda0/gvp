@@ -28,7 +28,10 @@
         (function () {
             var m = document.querySelector('meta[name="gvp:contact-api-url"]')
             var raw = (m && m.getAttribute('content') || '').trim()
-            var base = raw.replace(/\/+$/, '') || '/api/contact'
+            var cleaned = raw.replace(/\/+$/, '')
+            var host = (window.location && window.location.hostname) || ''
+            var isLocal = host === 'localhost' || host === '127.0.0.1'
+            var base = cleaned || (isLocal ? '/api/contact' : '')
             window.__CONTACT_API_URL__ = base
         })()
     </script>

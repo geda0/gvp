@@ -103,7 +103,7 @@ CONTACT_URL="$(aws cloudformation describe-stacks \
 
 echo "ContactApiUrl=${CONTACT_URL}"
 
-if [[ "${SYNC_API_URLS:-0}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
+if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
   node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${TRAFFIC_REPORT_EMBED_URL:-}"
   echo "Patched index.html and admin/index.html (gvp:contact-api-url meta; optional Looker embed on admin)."
 fi
