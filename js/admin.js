@@ -1,9 +1,10 @@
+const contactApiBase = String(window.__CONTACT_API_URL__ || '').replace(/\/+$/, '')
 const adminBaseUrl =
   window.__ADMIN_API_BASE_URL__ ||
-  `${String(window.__CONTACT_API_URL__ || '').replace(/\/$/, '')}/admin`
+  (contactApiBase ? `${contactApiBase}/admin` : '')
 const trafficApiBaseUrl =
   window.__TRAFFIC_API_BASE_URL__ ||
-  `${String(adminBaseUrl).replace(/\/$/, '')}/traffic`
+  (adminBaseUrl ? `${String(adminBaseUrl).replace(/\/+$/, '')}/traffic` : '')
 const trafficReportEmbedUrl = String(window.__TRAFFIC_REPORT_EMBED_URL__ || '').trim()
 const isLocalAdminHost =
   typeof location !== 'undefined' &&
@@ -621,9 +622,18 @@ signOutBtn?.addEventListener('click', () => {
 })
 
 if (adminKey) {
+  if (!adminBaseUrl && !isLocalAdminHost) {
+    setStatus(
+      authStatus,
+      'Admin API URL is not configured. Deploy with SYNC_API_URLS enabled so meta "gvp:contact-api-url" is populated.',
+      'error'
+    )
+    sessionStorage.removeItem('admin-api-key')
+  } else {
   authInput.value = adminKey
   authCard.hidden = true
   app.hidden = false
   initTrafficEmbed()
   loadDashboard()
+  }
 }
