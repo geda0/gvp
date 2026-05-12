@@ -6,6 +6,53 @@ const trafficApiBaseUrl =
   `${String(adminBaseUrl).replace(/\/$/, '')}/traffic`
 const trafficReportEmbedUrl = String(window.__TRAFFIC_REPORT_EMBED_URL__ || '').trim()
 
+function __gvpDebugLog(hypothesisId, locationTag, message, data) {
+  const payload = {
+    sessionId: 'c0683c',
+    runId: 'pre-fix',
+    hypothesisId,
+    location: locationTag,
+    message,
+    data,
+    timestamp: Date.now()
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c0683c' },
+    body: JSON.stringify(payload)
+  }).catch(() => {})
+  // #endregion
+  try {
+    localStorage.setItem('gvp_debug_admin_last', JSON.stringify(payload))
+  } catch (_) {}
+}
+
+function __gvpResolveFetchUrl(base, path) {
+  const b = String(base || '').replace(/\/+$/, '')
+  const p = String(path || '')
+  const joined = p.startsWith('/') ? `${b}${p}` : `${b}/${p}`
+  if (/^https?:\/\//i.test(joined)) return joined
+  try {
+    return new URL(joined, window.location.href).href
+  } catch (_) {
+    return joined
+  }
+}
+
+__gvpDebugLog('H1', 'admin.js:bootstrap', 'resolved admin api bases', {
+  href: typeof location !== 'undefined' ? location.href : '',
+  origin: typeof location !== 'undefined' ? location.origin : '',
+  contactMeta: typeof document !== 'undefined' ? document.querySelector('meta[name="gvp:contact-api-url"]')?.getAttribute('content') ?? '' : '',
+  winContact: typeof window !== 'undefined' ? window.__CONTACT_API_URL__ : '',
+  winAdmin: typeof window !== 'undefined' ? window.__ADMIN_API_BASE_URL__ : '',
+  winTraffic: typeof window !== 'undefined' ? window.__TRAFFIC_API_BASE_URL__ : '',
+  adminBaseUrl,
+  trafficApiBaseUrl,
+  resolvedSummary: __gvpResolveFetchUrl(adminBaseUrl, '/summary'),
+  resolvedTrafficSummary: __gvpResolveFetchUrl(trafficApiBaseUrl, '/summary')
+})
+
 const authCard = document.getElementById('adminAuthCard')
 const authForm = document.getElementById('adminAuthForm')
 const authInput = document.getElementById('adminKey')
@@ -110,7 +157,15 @@ function initTrafficEmbed() {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${adminBaseUrl}${path}`, {
+  const url = `${adminBaseUrl}${path}`
+  const resolved = __gvpResolveFetchUrl(adminBaseUrl, path)
+  __gvpDebugLog('H3', 'admin.js:request', 'admin fetch', {
+    path,
+    adminBaseUrl,
+    url,
+    resolved
+  })
+  const response = await fetch(url, {
     ...options,
     headers: {
       ...(options.headers || {}),
@@ -118,6 +173,12 @@ async function request(path, options = {}) {
     }
   })
 
+  __gvpDebugLog('H5', 'admin.js:request:response', 'admin fetch status', {
+    path,
+    status: response.status,
+    ok: response.ok,
+    finalUrl: response.url
+  })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     throw new Error(body?.error || `Request failed (${response.status})`)
@@ -126,12 +187,25 @@ async function request(path, options = {}) {
 }
 
 async function requestTraffic(path, options = {}) {
-  const response = await fetch(`${trafficApiBaseUrl}${path}`, {
+  const url = `${trafficApiBaseUrl}${path}`
+  __gvpDebugLog('H3', 'admin.js:requestTraffic', 'traffic fetch', {
+    path,
+    trafficApiBaseUrl,
+    url,
+    resolved: __gvpResolveFetchUrl(trafficApiBaseUrl, path)
+  })
+  const response = await fetch(url, {
     ...options,
     headers: {
       ...(options.headers || {}),
       'x-admin-key': adminKey
     }
+  })
+  __gvpDebugLog('H5', 'admin.js:requestTraffic:response', 'traffic fetch status', {
+    path,
+    status: response.status,
+    ok: response.ok,
+    finalUrl: response.url
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
