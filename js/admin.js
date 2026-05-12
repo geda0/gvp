@@ -403,24 +403,49 @@ async function loadDashboard() {
 
 async function loadTraffic() {
   const days = Number(trafficDaysEl?.value || 30)
-  const [summary, geo, exits, sessions] = await Promise.all([
+  const [summaryResult, geoResult, exitsResult, sessionsResult] = await Promise.allSettled([
     requestTraffic(`/summary?days=${days}`),
     requestTraffic(`/geo?days=${days}&limit=12`),
     requestTraffic(`/exit-pages?days=${days}&limit=12`),
     requestTraffic(`/sessions?days=${days}&limit=30&offset=0`)
   ])
-  renderTrafficSummary(summary)
-  renderTrafficGeo(geo.items || [])
-  renderTrafficExitPages(exits.items || [])
-  renderTrafficSessions(sessions.items || [])
 
-  if (selectedTrafficSessionKey) {
-    const detail = await requestTraffic(
-      `/sessions/${encodeURIComponent(selectedTrafficSessionKey)}?days=${days}`
-    )
-    renderTrafficSessionEvents(detail.events || [])
+  if (summaryResult.status === 'fulfilled') {
+    renderTrafficSummary(summaryResult.value)
+  }
+
+  if (geoResult.status === 'fulfilled') {
+    renderTrafficGeo(geoResult.value.items || [])
   } else {
+    renderTrafficGeo([])
+  }
+
+  if (exitsResult.status === 'fulfilled') {
+    renderTrafficExitPages(exitsResult.value.items || [])
+  } else {
+    renderTrafficExitPages([])
+  }
+
+  if (sessionsResult.status === 'fulfilled') {
+    renderTrafficSessions(sessionsResult.value.items || [])
+    if (selectedTrafficSessionKey) {
+      const detail = await requestTraffic(
+        `/sessions/${encodeURIComponent(selectedTrafficSessionKey)}?days=${days}`
+      )
+      renderTrafficSessionEvents(detail.events || [])
+    } else {
+      renderTrafficSessionEvents([])
+    }
+  } else {
+    selectedTrafficSessionKey = null
+    currentTrafficSessions = []
+    renderTrafficSessions([])
+    renderTrafficSessionMeta(null)
     renderTrafficSessionEvents([])
+  }
+
+  if (summaryResult.status !== 'fulfilled' && geoResult.status !== 'fulfilled' && exitsResult.status !== 'fulfilled') {
+    throw new Error('Could not load GA4 traffic data. Check TRAFFIC_GA4_PROPERTY_ID and service account access.')
   }
 }
 
