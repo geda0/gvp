@@ -406,6 +406,20 @@ function mapGa4SummaryRow(row = {}) {
   }
 }
 
+function mapGa4Rows(data, dimensions = [], metrics = []) {
+  const rows = data.rows || []
+  return rows.map((row) => {
+    const item = {}
+    dimensions.forEach((name, i) => {
+      item[name] = row.dimensionValues?.[i]?.value ?? ''
+    })
+    metrics.forEach((name, i) => {
+      item[name] = Number(row.metricValues?.[i]?.value || 0)
+    })
+    return item
+  })
+}
+
 async function runGa4Report(config, payload) {
   if (!config.ga4PropertyId) {
     throw new Error('Missing TRAFFIC_GA4_PROPERTY_ID for GA4 live fallback.')
@@ -457,32 +471,135 @@ async function getLiveSummary(config, days) {
   return mapGa4SummaryRow(row)
 }
 
+async function getLiveGeo(config, days, limit) {
+  const endDate = 'today'
+  const startDate = `${Math.max(1, Number(days || 30) - 1)}daysAgo`
+  const data = await runGa4Report(config, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: 'country' }, { name: 'region' }, { name: 'city' }],
+    metrics: [{ name: 'sessions' }],
+    limit: String(limit),
+    orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+    keepEmptyRows: false
+  })
+  return mapGa4Rows(data, ['country', 'region', 'city'], ['sessions']).map((item) => ({
+    country: item.country || 'Unknown',
+    region: item.region || 'Unknown',
+    city: item.city || 'Unknown',
+    sessions: item.sessions
+  }))
+}
+
+async function getLiveExitPages(config, days, limit) {
+  const endDate = 'today'
+  const startDate = `${Math.max(1, Number(days || 30) - 1)}daysAgo`
+  const data = await runGa4Report(config, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: 'pagePath' }],
+    metrics: [{ name: 'exits' }],
+    dimensionFilter: {
+      filter: {
+        fieldName: 'pagePath',
+        stringFilter: { matchType: 'FULL_REGEXP', value: '.+' }
+      }
+    },
+    limit: String(limit),
+    orderBys: [{ metric: { metricName: 'exits' }, desc: true }],
+    keepEmptyRows: false
+  })
+  return mapGa4Rows(data, ['pagePath'], ['exits']).map((item) => ({
+    exit_page: item.pagePath || '(no page)',
+    sessions: item.exits
+  }))
+}
+
 async function getSummaryWithFallback(config, sql, days) {
+  let live = null
+  let liveError = null
+  try {
+    live = await getLiveSummary(config, days)
+  } catch (error) {
+    liveError = error
+  }
+
   try {
     const freshness = await getBigQueryFreshness(config)
     if (freshness.isFresh) {
       const summary = await getSummary(config, sql, days)
+      if (!live) {
+        return {
+          ...summary,
+          data_source: 'bigquery',
+          complementary_source: null,
+          fallback_reason: String(liveError?.message || 'ga4-failed'),
+          bigquery_latest_event_date: freshness.latestEventDate,
+          bigquery_lag_days: freshness.lagDays
+        }
+      }
       return {
-        ...summary,
-        data_source: 'bigquery',
+        ...live,
+        estimated_bot_sessions: summary.estimated_bot_sessions,
+        estimated_human_sessions: summary.estimated_human_sessions,
+        complementary_source: 'bigquery',
+        data_source: 'ga4-data-api',
         bigquery_latest_event_date: freshness.latestEventDate,
         bigquery_lag_days: freshness.lagDays
       }
     }
 
-    const live = await getLiveSummary(config, days)
+    if (!live) {
+      throw new Error(
+        `GA4 unavailable and BigQuery stale (${freshness.lagDays ?? 'unknown'} day lag).`
+      )
+    }
     return {
       ...live,
       data_source: 'ga4-data-api',
+      complementary_source: null,
       bigquery_latest_event_date: freshness.latestEventDate,
       bigquery_lag_days: freshness.lagDays
     }
   } catch (error) {
-    const live = await getLiveSummary(config, days)
+    if (!live) {
+      throw error
+    }
     return {
       ...live,
       data_source: 'ga4-data-api',
+      complementary_source: null,
       fallback_reason: String(error?.message || 'bigquery-failed')
+    }
+  }
+}
+
+async function getGeoGa4First(config, sql, days, limit) {
+  try {
+    return {
+      items: await getLiveGeo(config, days, limit),
+      data_source: 'ga4-data-api'
+    }
+  } catch (gaError) {
+    const items = await getGeo(config, sql, days, limit)
+    return {
+      items,
+      data_source: 'bigquery',
+      fallback_reason: String(gaError?.message || 'ga4-failed')
+    }
+  }
+}
+
+async function getExitPagesGa4First(config, sql, days, limit) {
+  try {
+    return {
+      items: await getLiveExitPages(config, days, limit),
+      data_source: 'ga4-data-api'
+    }
+  } catch (gaError) {
+    const items = await getExitPages(config, sql, days, limit)
+    return {
+      items,
+      data_source: 'bigquery',
+      fallback_reason: String(gaError?.message || 'ga4-failed')
     }
   }
 }
@@ -524,12 +641,12 @@ export const handler = async (event) => {
 
     if (method === 'GET' && path.endsWith('/traffic/geo')) {
       const limit = parseNumber(getQueryValue(event, 'limit', 20), 20, 1, 100)
-      return json(200, { items: await getGeo(config, sql, days, limit) })
+      return json(200, await getGeoGa4First(config, sql, days, limit))
     }
 
     if (method === 'GET' && path.endsWith('/traffic/exit-pages')) {
       const limit = parseNumber(getQueryValue(event, 'limit', 20), 20, 1, 100)
-      return json(200, { items: await getExitPages(config, sql, days, limit) })
+      return json(200, await getExitPagesGa4First(config, sql, days, limit))
     }
 
     if (method === 'GET' && path.endsWith('/traffic/sessions')) {

@@ -152,9 +152,10 @@ The same `ADMIN_API_KEY` protects contact and traffic admin APIs.
 
 Runtime behavior:
 
-- `/api/contact/admin/traffic/*` uses **BigQuery** when export is fresh (latest `events_YYYYMMDD` within 1 day).
-- `summary` automatically falls back to **GA4 Data API** when BigQuery is stale/unavailable.
-- Fallback source is returned as `data_source` (`bigquery` or `ga4-data-api`) in the summary payload.
+- `summary`, `geo`, and `exit-pages` are **GA4 Data API first** for fresher data.
+- `summary` adds complementary BigQuery bot/human estimates when BigQuery export is fresh (latest `events_YYYYMMDD` within 1 day).
+- Session-level endpoints (`sessions`, `sessions/{sessionKey}`) remain BigQuery-backed because GA4 Data API does not provide equivalent event timeline detail.
+- Response payloads include `data_source` and may include `complementary_source` / freshness metadata.
 
 #### 3) Configure admin frontend endpoints
 
