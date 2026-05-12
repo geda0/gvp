@@ -1,32 +1,37 @@
 // app.js - Main initialization
-import { initAnalytics, bindOutboundTracking } from './analytics.js';
-import { initNavigation } from './navigation.js';
-import { initTheme, getTheme, transitionToTheme } from './theme.js';
-import { initStarfield } from './starfield.js';
+import {
+  initAnalytics,
+  bindOutboundTracking,
+  trackProjectInteraction,
+  trackThemeChange
+} from './analytics.js'
+import { initNavigation } from './navigation.js'
+import { initTheme, getTheme, transitionToTheme } from './theme.js'
+import { initStarfield } from './starfield.js'
 import {
   loadProjects,
   renderProjects,
   renderProjectsSectionError,
   initProjectDetailDialog
-} from './projects.js';
-import { initSpaceman } from './spaceman.js';
-import { initSpacemanPosition } from './spaceman-position.js';
-import { initContactForm } from './contact.js';
+} from './projects.js'
+import { initSpaceman } from './spaceman.js'
+import { initSpacemanPosition } from './spaceman-position.js'
+import { initContactForm } from './contact.js'
 
 // Global spaceman reference for navigation hooks
-let spaceman = null;
-let spacemanPosition = null;
-let currentSection = 'home';
+let spaceman = null
+let spacemanPosition = null
+let currentSection = 'home'
 
 document.addEventListener('DOMContentLoaded', async () => {
-  initAnalytics();
-  bindOutboundTracking();
-  initTheme();
-  initStarfield('canvas', { getTheme });
-  initContactForm();
+  initAnalytics()
+  bindOutboundTracking()
+  initTheme()
+  initStarfield('canvas', { getTheme })
+  initContactForm()
 
   // Theme toggle — emoji; data-target + CSS set button background to the theme you switch *to*
-  const themeToggle = document.getElementById('themeToggle');
+  const themeToggle = document.getElementById('themeToggle')
   const updateToggleLabel = () => {
     if (!themeToggle) return;
     const target = getTheme() === 'space' ? 'garden' : 'space'
@@ -47,56 +52,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     )
   };
   if (themeToggle) {
-    updateToggleLabel();
+    updateToggleLabel()
     themeToggle.addEventListener('click', () => {
-      transitionToTheme(getTheme() === 'space' ? 'garden' : 'space');
-    });
+      transitionToTheme(getTheme() === 'space' ? 'garden' : 'space')
+    })
   }
-  window.addEventListener('themechange', updateToggleLabel);
+  window.addEventListener('themechange', (event) => {
+    updateToggleLabel()
+    trackThemeChange(event?.detail?.theme || getTheme())
+  })
 
   // Initialize spaceman (replaces hero text); await so DOM is ready before positioning
-  spaceman = await initSpaceman('spacemanContainer', '/data/spaceman.json');
-  const spacemanEl = document.getElementById('spaceman');
+  spaceman = await initSpaceman('spacemanContainer', '/data/spaceman.json')
+  const spacemanEl = document.getElementById('spaceman')
   if (spacemanEl) {
-    spacemanPosition = initSpacemanPosition(spacemanEl);
+    spacemanPosition = initSpacemanPosition(spacemanEl)
     // Connect spaceman to position controller for quiet mode
     if (spaceman) {
-      spaceman.setPositionController(spacemanPosition);
+      spaceman.setPositionController(spacemanPosition)
     }
   }
 
   // Initialize navigation with spaceman hook
   initNavigation({
     onStateChange: (state) => {
-      currentSection = state;
+      currentSection = state
       if (spaceman) {
-        spaceman.setState(state);
+        spaceman.setState(state)
         if (state !== 'playground' && state !== 'portfolio') {
-          spaceman.setContext(null);
+          spaceman.setContext(null)
         }
       }
       if (spacemanPosition) {
-        spacemanPosition.updatePosition();
+        spacemanPosition.updatePosition()
       }
     }
-  });
+  })
 
   // Load and render project data
-  const data = await loadProjects('/data/projects.json');
+  const data = await loadProjects('/data/projects.json')
   if (data.loadFailed) {
-    renderProjectsSectionError('playgroundContent');
-    renderProjectsSectionError('portfolioContent');
+    renderProjectsSectionError('playgroundContent')
+    renderProjectsSectionError('portfolioContent')
   } else {
-    renderProjects('playgroundContent', data.playground);
-    renderProjects('portfolioContent', data.portfolio);
+    renderProjects('playgroundContent', data.playground)
+    renderProjects('portfolioContent', data.portfolio)
   }
-  initProjectDetailDialog();
+  initProjectDetailDialog()
 
   // Intersection Observer: set spaceman context to the project card most in view
-  const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project');
-  const ratios = new Map();
-  const THRESHOLD = 0.1;
-  let visibleProjectRaf = 0;
+  const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project')
+  const ratios = new Map()
+  const THRESHOLD = 0.1
+  let visibleProjectRaf = 0
 
   function updateVisibleProject() {
     if (!spaceman) return;
@@ -136,30 +144,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   projectCards.forEach((card) => observer.observe(card));
 
   window.addEventListener('projectdialogopen', (e) => {
-    const d = e.detail;
+    const d = e.detail
+    trackProjectInteraction('open_dialog', d?.projectId || '', currentSection)
     if (spaceman && d) {
-      spaceman.setDetermined(true);
+      spaceman.setDetermined(true)
       spaceman.setContext({
         projectId: d.projectId || '',
         projectTitle: d.title || '',
         projectDescription: d.projectDescription || ''
-      });
-      spaceman.announceProjectContext();
+      })
+      spaceman.announceProjectContext()
     }
-    spacemanPosition?.updatePosition();
-  });
+    spacemanPosition?.updatePosition()
+  })
   window.addEventListener('projectdialogclose', () => {
-    spacemanPosition?.updatePosition();
-    updateVisibleProject();
+    trackProjectInteraction('close_dialog', '', currentSection)
+    spacemanPosition?.updatePosition()
+    updateVisibleProject()
     // Resume hero messaging only after context is refreshed (so messages match section/home).
-    spaceman?.setDetermined(false);
-  });
+    spaceman?.setDetermined(false)
+  })
 
   // On mobile, pin garden scene to visual viewport so it doesn't shift when URL bar hides after first scroll
-  const gardenScene = document.getElementById('gardenScene');
-  const vv = window.visualViewport;
-  const mobileViewportMql = window.matchMedia('(max-width: 767px)');
-  const isGarden = () => getTheme() === 'garden';
+  const gardenScene = document.getElementById('gardenScene')
+  const vv = window.visualViewport
+  const mobileViewportMql = window.matchMedia('(max-width: 767px)')
+  const isGarden = () => getTheme() === 'garden'
 
   function syncGardenSceneToVisualViewport() {
     if (!gardenScene || !vv || !mobileViewportMql.matches || !isGarden()) {
@@ -184,6 +194,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('resize', syncGardenSceneToVisualViewport);
     window.addEventListener('themechange', syncGardenSceneToVisualViewport);
   }
-});
+})
 
-export { spaceman, spacemanPosition };
+export { spaceman, spacemanPosition }

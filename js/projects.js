@@ -1,4 +1,5 @@
 // projects.js - Project data loading and rendering
+import { trackProjectInteraction } from './analytics.js'
 const projectDetailsById = new Map();
 let dialogBootstrapped = false;
 
@@ -91,6 +92,7 @@ export function initProjectDetailDialog() {
     if (mediaWrap) mediaWrap.hidden = true;
     dialog.hidden = true;
     dialog.setAttribute('aria-hidden', 'true');
+    dialog.removeAttribute('data-project-id')
     document.body.classList.remove('project-dialog-open');
     window.dispatchEvent(new CustomEvent('projectdialogclose'));
     if (lastFocus && typeof lastFocus.focus === 'function') {
@@ -102,6 +104,13 @@ export function initProjectDetailDialog() {
   function openDialog(id) {
     const data = projectDetailsById.get(id);
     if (!data) return;
+    dialog.setAttribute('data-project-id', id)
+    const section = window.location.hash === '#portfolio'
+      ? 'portfolio'
+      : window.location.hash === '#playground'
+        ? 'playground'
+        : 'home'
+    trackProjectInteraction('open_details', id, section)
 
     lastFocus = document.activeElement;
     if (data.image && imageEl && mediaWrap) {
@@ -189,6 +198,15 @@ export function initProjectDetailDialog() {
 
   closeBtn?.addEventListener('click', closeDialog);
   backdrop?.addEventListener('click', closeDialog);
+  linkEl?.addEventListener('click', () => {
+    const id = dialog.getAttribute('data-project-id') || ''
+    const section = window.location.hash === '#portfolio'
+      ? 'portfolio'
+      : window.location.hash === '#playground'
+        ? 'playground'
+        : 'home'
+    trackProjectInteraction('open_link', id, section)
+  })
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || dialog.hidden) return;

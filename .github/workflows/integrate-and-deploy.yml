@@ -1,0 +1,85 @@
+name: Integrate and deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws_auth:
+        description: 'How to authenticate to AWS'
+        required: true
+        default: oidc
+        type: choice
+        options:
+          - oidc
+          - keys
+      sync_api_urls:
+        description: 'After deploy, patch index.html + admin/index.html; download artifact to commit or upload to hosting'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: integrate-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  integrate-deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      SAM_STACK_NAME: ${{ vars.SAM_STACK_NAME || 'page' }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
+      CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}
+      CONTACT_REPORT_EMAIL: ${{ secrets.CONTACT_REPORT_EMAIL }}
+      ALARM_EMAIL: ${{ secrets.ALARM_EMAIL }}
+      ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+      TRAFFIC_GCP_PROJECT_ID: ${{ secrets.TRAFFIC_GCP_PROJECT_ID }}
+      TRAFFIC_BIGQUERY_DATASET: ${{ secrets.TRAFFIC_BIGQUERY_DATASET }}
+      TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN: ${{ secrets.TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+      TRAFFIC_SECRET_NAME: ${{ vars.TRAFFIC_SECRET_NAME }}
+      SYNC_API_URLS: ${{ inputs.sync_api_urls == true && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SAM CLI
+        run: pip install "aws-sam-cli>=1.120.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configure AWS credentials (OIDC)
+        if: inputs.aws_auth == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: inputs.aws_auth == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Integrate and deploy
+        run: bash scripts/integrate-and-deploy.sh
+
+      - name: Upload patched HTML (when sync enabled)
+        if: inputs.sync_api_urls == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-html-api-urls
+          path: |
+            index.html
+            admin/index.html

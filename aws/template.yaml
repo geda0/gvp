@@ -18,6 +18,15 @@ Parameters:
   AdminApiKey:
     Type: String
     NoEcho: true
+  TrafficGcpProjectId:
+    Type: String
+    Default: ''
+  TrafficBigQueryDataset:
+    Type: String
+    Default: ''
+  TrafficServiceAccountSecretArn:
+    Type: String
+    Default: ''
 
 Globals:
   Function:
@@ -211,6 +220,61 @@ Resources:
           Properties:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/{proxy+}
+            Method: OPTIONS
+
+  TrafficAdminFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: traffic-admin.handler
+      Environment:
+        Variables:
+          ADMIN_API_KEY: !Ref AdminApiKey
+          TRAFFIC_GCP_PROJECT_ID: !Ref TrafficGcpProjectId
+          TRAFFIC_BIGQUERY_DATASET: !Ref TrafficBigQueryDataset
+          TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN: !Ref TrafficServiceAccountSecretArn
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: '*'
+      Events:
+        TrafficAdminSummary:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/traffic/summary
+            Method: GET
+        TrafficAdminGeo:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/traffic/geo
+            Method: GET
+        TrafficAdminExitPages:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/traffic/exit-pages
+            Method: GET
+        TrafficAdminSessions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/traffic/sessions
+            Method: GET
+        TrafficAdminSessionDetail:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/traffic/sessions/{sessionKey}
+            Method: GET
+        TrafficAdminOptions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/traffic/{proxy+}
             Method: OPTIONS
 
 Outputs:

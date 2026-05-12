@@ -1,6 +1,10 @@
 const adminBaseUrl =
   window.__ADMIN_API_BASE_URL__ ||
   `${String(window.__CONTACT_API_URL__ || '').replace(/\/$/, '')}/admin`
+const trafficApiBaseUrl =
+  window.__TRAFFIC_API_BASE_URL__ ||
+  `${String(adminBaseUrl).replace(/\/$/, '')}/traffic`
+const trafficReportEmbedUrl = String(window.__TRAFFIC_REPORT_EMBED_URL__ || '').trim()
 
 const authCard = document.getElementById('adminAuthCard')
 const authForm = document.getElementById('adminAuthForm')
@@ -27,12 +31,33 @@ const detailEl = document.getElementById('adminMessageDetail')
 const healthEl = document.getElementById('adminHealthDetail')
 const outcomeEl = document.getElementById('adminOutcomeDetail')
 const limitEl = document.getElementById('adminLimit')
+const trafficPlaceholderEl = document.getElementById('adminTrafficPlaceholder')
+const trafficFrameWrapEl = document.getElementById('adminTrafficFrameWrap')
+const trafficFrameEl = document.getElementById('adminTrafficFrame')
+const trafficDaysEl = document.getElementById('adminTrafficDays')
+const trafficGeoTableEl = document.getElementById('adminTrafficGeoTable')
+const trafficExitTableEl = document.getElementById('adminTrafficExitTable')
+const trafficSessionsTableEl = document.getElementById('adminTrafficSessionsTable')
+const trafficSessionMetaEl = document.getElementById('adminTrafficSessionMeta')
+const trafficSessionEventsEl = document.getElementById('adminTrafficSessionEvents')
+const trafficMetricEls = {
+  sessions: document.getElementById('trafficSessions'),
+  users: document.getElementById('trafficUsers'),
+  avgPageviews: document.getElementById('trafficAvgPageviews'),
+  avgEngagement: document.getElementById('trafficAvgEngagement'),
+  estimatedHumans: document.getElementById('trafficEstimatedHumans'),
+  estimatedBots: document.getElementById('trafficEstimatedBots'),
+  bounceSessions: document.getElementById('trafficBounceSessions'),
+  engagedSessions: document.getElementById('trafficEngagedSessions')
+}
 
 let adminKey = sessionStorage.getItem('admin-api-key') || ''
 let selectedMessageId = null
 let currentMessages = []
 let selectedDetailItem = null
 let messageBodyVisible = false
+let selectedTrafficSessionKey = null
+let currentTrafficSessions = []
 
 function resetMessageBodyView() {
   messageBodyVisible = false
@@ -68,6 +93,22 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
+function initTrafficEmbed() {
+  if (!trafficPlaceholderEl || !trafficFrameWrapEl || !trafficFrameEl) return
+  if (!trafficReportEmbedUrl) {
+    trafficFrameWrapEl.hidden = true
+    trafficFrameEl.removeAttribute('src')
+    trafficPlaceholderEl.hidden = false
+    return
+  }
+
+  trafficFrameWrapEl.hidden = false
+  trafficPlaceholderEl.hidden = true
+  if (trafficFrameEl.src !== trafficReportEmbedUrl) {
+    trafficFrameEl.src = trafficReportEmbedUrl
+  }
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`${adminBaseUrl}${path}`, {
     ...options,
@@ -82,6 +123,40 @@ async function request(path, options = {}) {
     throw new Error(body?.error || `Request failed (${response.status})`)
   }
   return body
+}
+
+async function requestTraffic(path, options = {}) {
+  const response = await fetch(`${trafficApiBaseUrl}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'x-admin-key': adminKey
+    }
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(body?.error || `Traffic request failed (${response.status})`)
+  }
+  return body
+}
+
+function formatNumber(value, digits = 0) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n)) return '0'
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  })
+}
+
+function formatDurationMs(value) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n) || n <= 0) return '0s'
+  const totalSeconds = Math.round(n / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (!minutes) return `${seconds}s`
+  return `${minutes}m ${seconds}s`
 }
 
 function renderSummary(summary) {
@@ -106,6 +181,124 @@ function renderHealth(health) {
     <div><dt>DLQ visible</dt><dd>${health.dlqVisible}</dd></div>
     <div><dt>Alarm state</dt><dd>${health.alarmState}</dd></div>
   `
+}
+
+function renderTrafficSummary(summary) {
+  if (!trafficMetricEls.sessions) return
+  trafficMetricEls.sessions.textContent = formatNumber(summary.sessions)
+  trafficMetricEls.users.textContent = formatNumber(summary.users)
+  trafficMetricEls.avgPageviews.textContent = formatNumber(summary.avg_pageviews_per_session, 2)
+  trafficMetricEls.avgEngagement.textContent = formatDurationMs(summary.avg_engagement_msec)
+  trafficMetricEls.estimatedHumans.textContent = formatNumber(summary.estimated_human_sessions)
+  trafficMetricEls.estimatedBots.textContent = formatNumber(summary.estimated_bot_sessions)
+  trafficMetricEls.bounceSessions.textContent = formatNumber(summary.bounce_sessions)
+  trafficMetricEls.engagedSessions.textContent = formatNumber(summary.engaged_sessions)
+}
+
+function renderTrafficGeo(items) {
+  if (!trafficGeoTableEl) return
+  if (!items.length) {
+    trafficGeoTableEl.innerHTML = '<tr><td colspan="4">No geography data.</td></tr>'
+    return
+  }
+  trafficGeoTableEl.innerHTML = items
+    .map(
+      (item) => `
+      <tr>
+        <td>${escapeHtml(item.country || 'Unknown')}</td>
+        <td>${escapeHtml(item.region || 'Unknown')}</td>
+        <td>${escapeHtml(item.city || 'Unknown')}</td>
+        <td>${escapeHtml(formatNumber(item.sessions))}</td>
+      </tr>
+    `
+    )
+    .join('')
+}
+
+function renderTrafficExitPages(items) {
+  if (!trafficExitTableEl) return
+  if (!items.length) {
+    trafficExitTableEl.innerHTML = '<tr><td colspan="2">No exit-page data.</td></tr>'
+    return
+  }
+  trafficExitTableEl.innerHTML = items
+    .map(
+      (item) => `
+      <tr>
+        <td>${escapeHtml(item.exit_page || '(no page)')}</td>
+        <td>${escapeHtml(formatNumber(item.sessions))}</td>
+      </tr>
+    `
+    )
+    .join('')
+}
+
+function renderTrafficSessionMeta(item) {
+  if (!trafficSessionMetaEl) return
+  if (!item) {
+    trafficSessionMetaEl.innerHTML = '<div><dt>Session key</dt><dd>Select a session</dd></div>'
+    return
+  }
+  trafficSessionMetaEl.innerHTML = `
+    <div><dt>Session key</dt><dd>${escapeHtml(item.session_key)}</dd></div>
+    <div><dt>User pseudo ID</dt><dd>${escapeHtml(item.user_pseudo_id)}</dd></div>
+    <div><dt>Started</dt><dd>${escapeHtml(formatDate(item.session_start))}</dd></div>
+    <div><dt>Ended</dt><dd>${escapeHtml(formatDate(item.session_end))}</dd></div>
+    <div><dt>Country/City</dt><dd>${escapeHtml(item.country || 'Unknown')} / ${escapeHtml(item.city || 'Unknown')}</dd></div>
+    <div><dt>Exit page</dt><dd>${escapeHtml(item.exit_page || '(no page)')}</dd></div>
+    <div><dt>Events</dt><dd>${escapeHtml(formatNumber(item.events_count))}</dd></div>
+    <div><dt>Bot likelihood</dt><dd>${escapeHtml(item.bot_likelihood || 'unknown')}</dd></div>
+  `
+}
+
+function renderTrafficSessions(items) {
+  currentTrafficSessions = items
+  if (!trafficSessionsTableEl) return
+  if (!items.length) {
+    trafficSessionsTableEl.innerHTML = '<tr><td colspan="5">No sessions for this window.</td></tr>'
+    renderTrafficSessionMeta(null)
+    if (trafficSessionEventsEl) {
+      trafficSessionEventsEl.textContent = 'No sessions for this window.'
+    }
+    return
+  }
+  trafficSessionsTableEl.innerHTML = items
+    .map(
+      (item) => `
+      <tr data-session-key="${escapeHtml(item.session_key)}" class="${
+        item.session_key === selectedTrafficSessionKey ? 'is-selected' : ''
+      }">
+        <td>${escapeHtml(formatDate(item.session_start))}</td>
+        <td>${escapeHtml(item.country || 'Unknown')} / ${escapeHtml(item.city || 'Unknown')}</td>
+        <td>${escapeHtml(item.exit_page || '(no page)')}</td>
+        <td>${escapeHtml(formatNumber(item.events_count))}</td>
+        <td>${escapeHtml(item.bot_likelihood || 'unknown')}</td>
+      </tr>
+    `
+    )
+    .join('')
+  const selectedItem = items.find((item) => item.session_key === selectedTrafficSessionKey) || null
+  renderTrafficSessionMeta(selectedItem)
+}
+
+function renderTrafficSessionEvents(events) {
+  if (!trafficSessionEventsEl) return
+  if (!events.length) {
+    trafficSessionEventsEl.textContent = 'No events found for this session and date window.'
+    return
+  }
+  trafficSessionEventsEl.textContent = events
+    .map(
+      (event) =>
+        [
+          `${event.event_time || ''}  ${event.event_name || ''}`,
+          `  section=${event.section || '-'} interaction=${event.interaction_type || '-'} theme=${event.theme || '-'}`,
+          `  page=${event.page_location || '-'} title=${event.page_title || '-'}`,
+          `  link=${event.link_url || '-'} project=${event.project_id || '-'}`,
+          ''
+        ].join('\n')
+    )
+    .join('\n')
 }
 
 function renderMessages(items) {
@@ -190,6 +383,7 @@ async function loadDashboard() {
     } else {
       renderDetail(null)
     }
+    await loadTraffic()
     setStatus(globalStatus, 'Dashboard updated.', 'success')
   } catch (error) {
     setStatus(globalStatus, error.message || 'Could not load dashboard.', 'error')
@@ -198,6 +392,29 @@ async function loadDashboard() {
       authCard.hidden = false
       setStatus(authStatus, 'Admin key rejected.', 'error')
     }
+  }
+}
+
+async function loadTraffic() {
+  const days = Number(trafficDaysEl?.value || 30)
+  const [summary, geo, exits, sessions] = await Promise.all([
+    requestTraffic(`/summary?days=${days}`),
+    requestTraffic(`/geo?days=${days}&limit=12`),
+    requestTraffic(`/exit-pages?days=${days}&limit=12`),
+    requestTraffic(`/sessions?days=${days}&limit=30&offset=0`)
+  ])
+  renderTrafficSummary(summary)
+  renderTrafficGeo(geo.items || [])
+  renderTrafficExitPages(exits.items || [])
+  renderTrafficSessions(sessions.items || [])
+
+  if (selectedTrafficSessionKey) {
+    const detail = await requestTraffic(
+      `/sessions/${encodeURIComponent(selectedTrafficSessionKey)}?days=${days}`
+    )
+    renderTrafficSessionEvents(detail.events || [])
+  } else {
+    renderTrafficSessionEvents([])
   }
 }
 
@@ -210,6 +427,7 @@ authForm?.addEventListener('submit', async (event) => {
     await request('/summary')
     authCard.hidden = true
     app.hidden = false
+    initTrafficEmbed()
     setStatus(authStatus, '')
     await loadDashboard()
   } catch (error) {
@@ -227,6 +445,22 @@ messagesTable?.addEventListener('click', async (event) => {
     renderDetail(await request(`/messages/${selectedMessageId}`))
   } catch (error) {
     setStatus(globalStatus, error.message || 'Could not load message.', 'error')
+  }
+})
+
+trafficSessionsTableEl?.addEventListener('click', async (event) => {
+  const row = event.target.closest('tr[data-session-key]')
+  if (!row) return
+  selectedTrafficSessionKey = row.dataset.sessionKey || null
+  renderTrafficSessions(currentTrafficSessions)
+  try {
+    const days = Number(trafficDaysEl?.value || 30)
+    const detail = await requestTraffic(
+      `/sessions/${encodeURIComponent(selectedTrafficSessionKey)}?days=${days}`
+    )
+    renderTrafficSessionEvents(detail.events || [])
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not load session timeline.', 'error')
   }
 })
 
@@ -276,11 +510,14 @@ clearReportBtn?.addEventListener('click', async () => {
 
 refreshBtn?.addEventListener('click', loadDashboard)
 limitEl?.addEventListener('change', loadDashboard)
+trafficDaysEl?.addEventListener('change', loadDashboard)
 
 signOutBtn?.addEventListener('click', () => {
   adminKey = ''
   selectedMessageId = null
+  selectedTrafficSessionKey = null
   currentMessages = []
+  currentTrafficSessions = []
   sessionStorage.removeItem('admin-api-key')
   app.hidden = true
   authCard.hidden = false
@@ -294,5 +531,6 @@ if (adminKey) {
   authInput.value = adminKey
   authCard.hidden = true
   app.hidden = false
+  initTrafficEmbed()
   loadDashboard()
 }
