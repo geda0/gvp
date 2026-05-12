@@ -47,10 +47,14 @@ function getTrafficConfig() {
   const dataset = String(process.env.TRAFFIC_BIGQUERY_DATASET || '').trim()
   const serviceAccountSecretArn = String(process.env.TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN || '').trim()
   const ga4PropertyId = String(process.env.TRAFFIC_GA4_PROPERTY_ID || '').trim()
-  if (!projectId || !dataset || !serviceAccountSecretArn) {
-    throw new Error('Traffic analytics is not configured. Missing BigQuery environment variables.')
+  const hasBigQuery = Boolean(projectId && dataset && serviceAccountSecretArn)
+  const hasGa4 = Boolean(ga4PropertyId && serviceAccountSecretArn)
+  if (!hasBigQuery && !hasGa4) {
+    throw new Error(
+      'Traffic analytics is not configured. Set TRAFFIC_GA4_PROPERTY_ID (GA4) or BigQuery env variables.'
+    )
   }
-  return { projectId, dataset, serviceAccountSecretArn, ga4PropertyId }
+  return { projectId, dataset, serviceAccountSecretArn, ga4PropertyId, hasBigQuery, hasGa4 }
 }
 
 async function getServiceAccount(config) {
@@ -523,6 +527,18 @@ async function getSummaryWithFallback(config, sql, days) {
   }
 
   try {
+    if (!config.hasBigQuery || !sql) {
+      if (!live) {
+        throw new Error(String(liveError?.message || 'GA4 unavailable and BigQuery not configured.'))
+      }
+      return {
+        ...live,
+        data_source: 'ga4-data-api',
+        complementary_source: null,
+        fallback_reason: 'bigquery-not-configured'
+      }
+    }
+
     const freshness = await getBigQueryFreshness(config)
     if (freshness.isFresh) {
       const summary = await getSummary(config, sql, days)
@@ -579,6 +595,9 @@ async function getGeoGa4First(config, sql, days, limit) {
       data_source: 'ga4-data-api'
     }
   } catch (gaError) {
+    if (!config.hasBigQuery || !sql) {
+      throw gaError
+    }
     const items = await getGeo(config, sql, days, limit)
     return {
       items,
@@ -595,6 +614,9 @@ async function getExitPagesGa4First(config, sql, days, limit) {
       data_source: 'ga4-data-api'
     }
   } catch (gaError) {
+    if (!config.hasBigQuery || !sql) {
+      throw gaError
+    }
     const items = await getExitPages(config, sql, days, limit)
     return {
       items,
@@ -631,7 +653,7 @@ export const handler = async (event) => {
 
   try {
     const config = getTrafficConfig()
-    const sql = buildTrafficSql(`${config.projectId}.${config.dataset}`)
+    const sql = config.hasBigQuery ? buildTrafficSql(`${config.projectId}.${config.dataset}`) : null
     const path = getPath(event)
     const days = parseNumber(getQueryValue(event, 'days', 30), 30, 1, 90)
 
@@ -650,6 +672,12 @@ export const handler = async (event) => {
     }
 
     if (method === 'GET' && path.endsWith('/traffic/sessions')) {
+      if (!config.hasBigQuery || !sql) {
+        return json(501, {
+          error: 'Session timeline requires BigQuery configuration.',
+          data_source: 'unavailable'
+        })
+      }
       const limit = parseNumber(getQueryValue(event, 'limit', 25), 25, 1, 100)
       const offset = parseNumber(getQueryValue(event, 'offset', 0), 0, 0, 500)
       return json(200, {
@@ -660,6 +688,12 @@ export const handler = async (event) => {
     }
 
     if (method === 'GET' && /\/traffic\/sessions\/[^/]+$/.test(path)) {
+      if (!config.hasBigQuery || !sql) {
+        return json(501, {
+          error: 'Session timeline requires BigQuery configuration.',
+          data_source: 'unavailable'
+        })
+      }
       const match = path.match(/\/traffic\/sessions\/([^/]+)$/)
       const sessionKey = decodeURIComponent(match?.[1] || '')
       return json(200, { events: await getSessionDetail(config, sql, days, sessionKey) })
