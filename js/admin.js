@@ -10,6 +10,25 @@ const isLocalAdminHost =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
 
+function __gvpDebugLog(runId, hypothesisId, locationTag, message, data) {
+  const payload = {
+    sessionId: 'c0683c',
+    runId,
+    hypothesisId,
+    location: locationTag,
+    message,
+    data,
+    timestamp: Date.now()
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c0683c' },
+    body: JSON.stringify(payload)
+  }).catch(() => {})
+  // #endregion
+}
+
 const authCard = document.getElementById('adminAuthCard')
 const authForm = document.getElementById('adminAuthForm')
 const authInput = document.getElementById('adminKey')
@@ -132,6 +151,10 @@ async function request(path, options = {}) {
 
 async function requestTraffic(path, options = {}) {
   const url = `${trafficApiBaseUrl}${path}`
+  __gvpDebugLog('pre-fix', 'H1', 'admin.js:requestTraffic', 'traffic request start', {
+    path,
+    url
+  })
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -139,8 +162,18 @@ async function requestTraffic(path, options = {}) {
       'x-admin-key': adminKey
     }
   })
+  __gvpDebugLog('pre-fix', 'H2', 'admin.js:requestTraffic', 'traffic request response', {
+    path,
+    status: response.status,
+    ok: response.ok,
+    finalUrl: response.url
+  })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
+    __gvpDebugLog('pre-fix', 'H3', 'admin.js:requestTraffic', 'traffic request failed body', {
+      path,
+      error: body?.error || `Traffic request failed (${response.status})`
+    })
     throw new Error(body?.error || `Traffic request failed (${response.status})`)
   }
   return body
@@ -403,6 +436,7 @@ async function loadDashboard() {
 
 async function loadTraffic() {
   const days = Number(trafficDaysEl?.value || 30)
+  __gvpDebugLog('pre-fix', 'H4', 'admin.js:loadTraffic', 'load traffic start', { days })
   const [summaryResult, geoResult, exitsResult, sessionsResult] = await Promise.allSettled([
     requestTraffic(`/summary?days=${days}`),
     requestTraffic(`/geo?days=${days}&limit=12`),
@@ -445,6 +479,11 @@ async function loadTraffic() {
   }
 
   if (summaryResult.status !== 'fulfilled' && geoResult.status !== 'fulfilled' && exitsResult.status !== 'fulfilled') {
+    __gvpDebugLog('pre-fix', 'H5', 'admin.js:loadTraffic', 'all ga4-backed requests failed', {
+      summary: summaryResult.status === 'rejected' ? String(summaryResult.reason?.message || summaryResult.reason) : 'ok',
+      geo: geoResult.status === 'rejected' ? String(geoResult.reason?.message || geoResult.reason) : 'ok',
+      exits: exitsResult.status === 'rejected' ? String(exitsResult.reason?.message || exitsResult.reason) : 'ok'
+    })
     throw new Error('Could not load GA4 traffic data. Check TRAFFIC_GA4_PROPERTY_ID and service account access.')
   }
 }
