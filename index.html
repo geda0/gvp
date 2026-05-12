@@ -27,7 +27,8 @@
     <script>
         (function () {
             var m = document.querySelector('meta[name="gvp:contact-api-url"]')
-            var base = (m && m.getAttribute('content') || '').trim().replace(/\/+$/, '')
+            var raw = (m && m.getAttribute('content') || '').trim()
+            var base = raw.replace(/\/+$/, '') || '/api/contact'
             window.__CONTACT_API_URL__ = base
         })()
     </script>
