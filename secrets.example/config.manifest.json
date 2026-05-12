@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "configs": [
+    {
+      "name": "TRAFFIC_GCP_PROJECT_ID",
+      "value": "homepage-496107",
+      "required": true
+    },
+    {
+      "name": "TRAFFIC_BIGQUERY_DATASET",
+      "value": "analytics_123456789",
+      "required": false
+    }
+  ]
+}

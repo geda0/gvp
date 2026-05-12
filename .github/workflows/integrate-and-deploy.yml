@@ -42,6 +42,7 @@ jobs:
       TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN: ${{ secrets.TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
       TRAFFIC_SECRET_NAME: ${{ vars.TRAFFIC_SECRET_NAME }}
+      TRAFFIC_REPORT_EMBED_URL: ${{ secrets.TRAFFIC_REPORT_EMBED_URL }}
       SYNC_API_URLS: ${{ inputs.sync_api_urls == true && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-shot: optional AWS Secrets Manager upsert for BigQuery reader SA, then SAM build + deploy.
 # Optional: write Contact/Admin/Traffic API URLs from stack outputs into index.html + admin/index.html.
+# Prefer local entrypoint: scripts/orchestrate-deploy.sh (loads .secrets/ + pushes manifest to SM, then runs this script).
 #
 # Required env: RESEND_API_KEY, CONTACT_TO_EMAIL, CONTACT_FROM_EMAIL, ALARM_EMAIL, ADMIN_API_KEY
 # Optional traffic: TRAFFIC_GCP_PROJECT_ID, TRAFFIC_BIGQUERY_DATASET,
@@ -57,10 +58,18 @@ PO=(
   "ContactFromEmail=${CONTACT_FROM_EMAIL}"
   "AlarmEmail=${ALARM_EMAIL}"
   "AdminApiKey=${ADMIN_API_KEY}"
-  "TrafficGcpProjectId=${TRAFFIC_GCP}"
-  "TrafficBigQueryDataset=${TRAFFIC_DS}"
-  "TrafficServiceAccountSecretArn=${TRAFFIC_ARN}"
 )
+
+# Optional traffic params: only pass non-empty values to SAM.
+if [[ -n "${TRAFFIC_GCP}" ]]; then
+  PO+=("TrafficGcpProjectId=${TRAFFIC_GCP}")
+fi
+if [[ -n "${TRAFFIC_DS}" ]]; then
+  PO+=("TrafficBigQueryDataset=${TRAFFIC_DS}")
+fi
+if [[ -n "${TRAFFIC_ARN}" ]]; then
+  PO+=("TrafficServiceAccountSecretArn=${TRAFFIC_ARN}")
+fi
 
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
   PO+=("ContactReportEmail=${CONTACT_REPORT_EMAIL}")
@@ -95,10 +104,8 @@ CONTACT_URL="$(aws cloudformation describe-stacks \
 echo "ContactApiUrl=${CONTACT_URL}"
 
 if [[ "${SYNC_API_URLS:-0}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
-  ADMIN_URL="${CONTACT_URL}/admin"
-  TRAFFIC_URL="${CONTACT_URL}/admin/traffic"
-  node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${ADMIN_URL}" "${TRAFFIC_URL}"
-  echo "Patched index.html and admin/index.html with deployed API URLs."
+  node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${TRAFFIC_REPORT_EMBED_URL:-}"
+  echo "Patched index.html and admin/index.html (gvp:contact-api-url meta; optional Looker embed on admin)."
 fi
 
 echo "Done."

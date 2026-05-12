@@ -4,6 +4,12 @@
 
 This repo is a static site hosted on Amplify, with an AWS-native durable contact pipeline used to receive and deliver contact messages.
 
+### Secrets and public site config
+
+- **Never commit** Resend keys, `ADMIN_API_KEY`, GCP service-account JSON, or production API URLs. Use **GitHub Actions secrets** (and optional **variables**) for deploy; use **`.env`** locally (gitignored; start from [`.env.example`](.env.example)). For a **single local command** that pushes file-based secrets to **AWS Secrets Manager** then deploys, use **`.secrets/`** + [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) (see below).
+- **Contact API URL** and optional **Looker embed** live in HTML **`<meta>`** tags (`gvp:contact-api-url`, `gvp:traffic-report-embed-url`), not inline secrets. After deploy, run [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) (or the integrate workflow with **sync_api_urls**) to write those metas from `ContactApiUrl` and optional `TRAFFIC_REPORT_EMBED_URL`.
+- **`.gitignore`** excludes `.env*`, **`.secrets/`**, credential JSON patterns, and `aws/.env`. Keep `samconfig.toml` free of real emails; pass parameters via the deploy script or `sam deploy --parameter-overrides`.
+
 ### What “success” means
 
 - The UI shows success only after the backend has **persisted** the message and queued it for delivery.
@@ -29,8 +35,11 @@ Use **Actions → Integrate and deploy → Run workflow** (single job: optional 
    - `TRAFFIC_GCP_PROJECT_ID`, `TRAFFIC_BIGQUERY_DATASET`  
    - Either `TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN` **or** `GCP_SERVICE_ACCOUNT_JSON` (full service-account JSON; the script upserts Secrets Manager and passes the ARN automatically).
 
-4. **Workflow inputs**
-   - **sync_api_urls**: if enabled, patches `index.html` and `admin/index.html` in the runner and uploads them as artifact **`site-html-api-urls`** (commit or copy into Amplify manually).
+4. **Optional Looker embed (admin iframe)**  
+   - Repository secret `TRAFFIC_REPORT_EMBED_URL`: passed to the sync step when **sync_api_urls** is enabled (written to `gvp:traffic-report-embed-url` meta on `admin/index.html` only).
+
+5. **Workflow inputs**
+   - **sync_api_urls**: if enabled, patches `index.html` and `admin/index.html` metas in the runner and uploads artifact **`site-html-api-urls`** (commit or copy into Amplify manually).
 
 Local equivalent (after `aws login` / `AWS_PROFILE`):
 
@@ -40,8 +49,26 @@ export RESEND_API_KEY=... CONTACT_TO_EMAIL=... CONTACT_FROM_EMAIL=... ALARM_EMAI
 export TRAFFIC_GCP_PROJECT_ID=... TRAFFIC_BIGQUERY_DATASET=... GCP_SERVICE_ACCOUNT_JSON="$(cat sa.json)"
 # optional: patch HTML after deploy
 export SYNC_API_URLS=1
+# optional: export TRAFFIC_REPORT_EMBED_URL='https://lookerstudio.google.com/embed/...'
 bash scripts/integrate-and-deploy.sh
 ```
+
+### Local orchestrated deploy (`.secrets` → Secrets Manager → SAM)
+
+One local entrypoint seeds config + pushes **gitignored** files into **AWS Secrets Manager** (per [`secrets.example/config.manifest.json`](secrets.example/config.manifest.json) and [`secrets.example/manifest.json`](secrets.example/manifest.json)), writes generated env files, loads them with `.secrets/deploy.env`, then runs the same SAM pipeline as CI:
+
+```bash
+cp -R secrets.example .secrets
+cp secrets.example/deploy.env.example .secrets/deploy.env
+# Add .secrets/files/gcp-sa.json (BigQuery reader), edit .secrets/deploy.env, .secrets/config.manifest.json, and .secrets/manifest.json, then:
+chmod 600 .secrets/deploy.env .secrets/files/* 2>/dev/null || true
+bash scripts/orchestrate-deploy.sh
+```
+
+- `TRAFFIC_GCP_PROJECT_ID` default is now seeded as `homepage-496107` from `config.manifest.json`.
+- **Scripts**: [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) → [`scripts/seed_local_configs.py`](scripts/seed_local_configs.py) + [`scripts/push_local_secrets_to_sm.py`](scripts/push_local_secrets_to_sm.py) → [`scripts/integrate-and-deploy.sh`](scripts/integrate-and-deploy.sh).
+- **Override directory**: `SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh`
+- **IAM** (caller identity): `secretsmanager:CreateSecret`, `DescribeSecret`, `PutSecretValue` on manifest secret IDs, plus permissions required for `sam deploy` / CloudFormation.
 
 ### AWS setup
 
@@ -50,7 +77,7 @@ bash scripts/integrate-and-deploy.sh
 - **Sender Lambda**: `aws/src/contact-sender.js`
 - **Failure report Lambda**: `aws/src/contact-report.js`
 - **Admin Lambda**: `aws/src/contact-admin.js`
-- **Frontend route**: `/api/contact` (or override with `window.__CONTACT_API_URL__`)
+- **Frontend route**: `/api/contact` (default when `gvp:contact-api-url` meta is empty), or set that meta / `window.__CONTACT_API_URL__` from [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) after deploy
 
 ### Required environment variables
 
@@ -91,9 +118,9 @@ Resend requires that the `from` address is verified (domain or sender). Use a se
   - `POST /api/contact/admin/messages/{id}/suppress-report` (sets `reportSuppressed` on the DynamoDB item so the scheduled failure report email skips it)
 - Auth: send `x-admin-key` matching `ADMIN_API_KEY`
 - Website traffic embed:
-  - Configure `window.__TRAFFIC_REPORT_EMBED_URL__` in `admin/index.html` with a full report embed URL.
-  - Recommended flow: GA4 property -> Looker Studio data source -> dashboard with widgets -> **Share > Embed report** -> paste URL into `__TRAFFIC_REPORT_EMBED_URL__`.
-  - If left empty, the admin page shows a placeholder message instead of rendering an iframe.
+  - Set `<meta name="gvp:traffic-report-embed-url" content="...">` in `admin/index.html` to a Looker Studio **Share → Embed report** URL (or pass `TRAFFIC_REPORT_EMBED_URL` when running the sync script / GitHub Action with **sync_api_urls**).
+  - Recommended flow: GA4 property → Looker Studio (BigQuery data source) → **Share → Embed report** → store URL only in secrets / meta, not in git history.
+  - If left empty, the admin page shows a placeholder instead of rendering the iframe.
 
 ### GA4 + BigQuery traffic analytics
 
@@ -123,10 +150,10 @@ The same `ADMIN_API_KEY` protects contact and traffic admin APIs.
 
 #### 3) Configure admin frontend endpoints
 
-In `admin/index.html`:
+In `admin/index.html`, inline scripts read from metas:
 
-- `window.__TRAFFIC_API_BASE_URL__` should point to `/api/contact/admin/traffic`
-- `window.__TRAFFIC_REPORT_EMBED_URL__` can be set to your Looker Studio embed URL for full visual reports
+- `gvp:contact-api-url` → sets contact, admin, and traffic API bases (`…/api/contact`, `…/admin`, `…/admin/traffic`)
+- `gvp:traffic-report-embed-url` → Looker iframe URL (optional)
 
 #### 4) Event taxonomy captured client-side
 

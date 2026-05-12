@@ -1,8 +1,22 @@
 node_modules
 .env
+.env.*
+!.env.example
 aws/.env
+
+# GCP / AWS credentials (never commit)
+**/google-sa*.json
+**/*service-account*.json
+**/*-credentials.json
+*.pem
 
 # Local Netlify folder
 .netlify
 DNS_A
 .aws-sam
+
+# Optional local overrides
+config.local.js
+
+# Local CI/CD + secrets (never commit): copy from secrets.example/
+.secrets/

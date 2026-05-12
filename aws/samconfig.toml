@@ -1,12 +1,13 @@
 version = 0.1
 
+# Local deploy defaults only — no secrets or personal data in repo.
+# Use `bash scripts/integrate-and-deploy.sh` or pass --parameter-overrides for real values.
 [default.deploy.parameters]
 stack_name = "page"
 resolve_s3 = true
 s3_prefix = "page"
-confirm_changeset = true
+confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "ContactToEmail=\"marwan.gendy@gmail.com\" ContactFromEmail=\"Recruit <recruit@marwanelgendy.link>\" ContactReportEmail=\"marwan.gendy@gmail.com\" AlarmEmail=\"marwan.gendy@gmail.com\""
 image_repositories = []
 
 [default.global.parameters]

@@ -5,38 +5,44 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
 
-const [, , contactUrl, adminUrl, trafficUrl] = process.argv
-if (!contactUrl || !adminUrl || !trafficUrl) {
-  console.error('usage: sync-site-api-urls.mjs <contactApiUrl> <adminApiBaseUrl> <trafficApiBaseUrl>')
+const [, , contactUrl, lookerEmbedUrl = ''] = process.argv
+if (!contactUrl) {
+  console.error(
+    'usage: sync-site-api-urls.mjs <contactApiUrl> [lookerEmbedUrl]\n' +
+      '  contactApiUrl: full URL ending in /api/contact\n' +
+      '  lookerEmbedUrl: optional Looker Studio embed URL (admin iframe only)'
+  )
   process.exit(1)
 }
 
-function patchIndex(html) {
-  return html.replace(
-    /window\.__CONTACT_API_URL__\s*=\s*'[^']*'/,
-    `window.__CONTACT_API_URL__ = '${contactUrl}'`
-  )
+function escapeAttr(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
 }
 
-function patchAdmin(html) {
-  let s = html
-  s = s.replace(
-    /window\.__CONTACT_API_URL__\s*=\s*'[^']*'/,
-    `window.__CONTACT_API_URL__ = '${contactUrl}'`
+function setMetaContent(html, metaName, value) {
+  const esc = escapeAttr(value)
+  const re = new RegExp(
+    `(<meta\\s+name="${metaName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+content=")[^"]*("\\s*/?>)`,
+    'i'
   )
-  s = s.replace(
-    /window\.__ADMIN_API_BASE_URL__\s*=\s*'[^']*'/,
-    `window.__ADMIN_API_BASE_URL__ = '${adminUrl}'`
-  )
-  s = s.replace(
-    /window\.__TRAFFIC_API_BASE_URL__\s*=\s*'[^']*'/,
-    `window.__TRAFFIC_API_BASE_URL__ = '${trafficUrl}'`
-  )
-  return s
+  if (!re.test(html)) {
+    throw new Error(`sync-site-api-urls: missing <meta name="${metaName}" ...> in file`)
+  }
+  return html.replace(re, `$1${esc}$2`)
 }
 
 const indexPath = path.join(root, 'index.html')
 const adminPath = path.join(root, 'admin', 'index.html')
-fs.writeFileSync(indexPath, patchIndex(fs.readFileSync(indexPath, 'utf8')))
-fs.writeFileSync(adminPath, patchAdmin(fs.readFileSync(adminPath, 'utf8')))
+
+let indexHtml = fs.readFileSync(indexPath, 'utf8')
+let adminHtml = fs.readFileSync(adminPath, 'utf8')
+
+indexHtml = setMetaContent(indexHtml, 'gvp:contact-api-url', contactUrl)
+adminHtml = setMetaContent(adminHtml, 'gvp:contact-api-url', contactUrl)
+adminHtml = setMetaContent(adminHtml, 'gvp:traffic-report-embed-url', lookerEmbedUrl)
+
+fs.writeFileSync(indexPath, indexHtml)
+fs.writeFileSync(adminPath, adminHtml)
 console.log('Updated', indexPath, adminPath)

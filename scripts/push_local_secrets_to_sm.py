@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""
+Push local files listed in .secrets/manifest.json into AWS Secrets Manager (create or put).
+Optionally write .secrets/deploy.generated.env with export lines for describe-secret ARNs (exportAs).
+Requires: aws CLI configured, AWS_DEFAULT_REGION or --region.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def run_aws(args: list[str], *, region: str) -> None:
+    env = {"AWS_DEFAULT_REGION": region}
+    r = subprocess.run(
+        ["aws", *args],
+        capture_output=True,
+        text=True,
+        env={**__import__("os").environ, **env},
+    )
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr or r.stdout or "aws command failed\n")
+        raise SystemExit(r.returncode)
+
+
+def secret_exists(secret_id: str, region: str) -> bool:
+    r = subprocess.run(
+        ["aws", "secretsmanager", "describe-secret", "--secret-id", secret_id],
+        capture_output=True,
+        text=True,
+        env={**__import__("os").environ, "AWS_DEFAULT_REGION": region},
+    )
+    return r.returncode == 0
+
+
+def upsert_file_secret(secret_id: str, file_path: Path, region: str) -> None:
+    if not file_path.is_file():
+        print(f"error: missing secret file {file_path}", file=sys.stderr)
+        raise SystemExit(2)
+    fp = file_path.resolve()
+    if secret_exists(secret_id, region):
+        print(f"Put secret value: {secret_id}")
+        run_aws(
+            [
+                "secretsmanager",
+                "put-secret-value",
+                "--secret-id",
+                secret_id,
+                "--secret-string",
+                f"file://{fp}",
+            ],
+            region=region,
+        )
+    else:
+        print(f"Create secret: {secret_id}")
+        run_aws(
+            [
+                "secretsmanager",
+                "create-secret",
+                "--name",
+                secret_id,
+                "--secret-string",
+                f"file://{fp}",
+            ],
+            region=region,
+        )
+
+
+def describe_arn(secret_id: str, region: str) -> str:
+    r = subprocess.run(
+        [
+            "aws",
+            "secretsmanager",
+            "describe-secret",
+            "--secret-id",
+            secret_id,
+            "--query",
+            "ARN",
+            "--output",
+            "text",
+        ],
+        capture_output=True,
+        text=True,
+        env={**__import__("os").environ, "AWS_DEFAULT_REGION": region},
+    )
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr or "describe-secret failed\n")
+        raise SystemExit(r.returncode)
+    arn = (r.stdout or "").strip()
+    if not arn:
+        print("error: empty ARN from describe-secret", file=sys.stderr)
+        raise SystemExit(3)
+    return arn
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Push .secrets/* files to AWS Secrets Manager")
+    ap.add_argument(
+        "--secrets-dir",
+        type=Path,
+        default=Path(".secrets"),
+        help="Directory containing manifest.json and secret files (default: .secrets)",
+    )
+    ap.add_argument(
+        "--region",
+        default=None,
+        help="AWS region (default: AWS_REGION or AWS_DEFAULT_REGION env)",
+    )
+    args = ap.parse_args()
+    base: Path = args.secrets_dir.expanduser().resolve()
+    manifest_path = base / "manifest.json"
+    if not manifest_path.is_file():
+        print(f"error: missing {manifest_path}", file=sys.stderr)
+        raise SystemExit(2)
+
+    region = args.region or __import__("os").environ.get("AWS_REGION") or __import__("os").environ.get(
+        "AWS_DEFAULT_REGION"
+    )
+    if not region:
+        print("error: set --region or AWS_REGION / AWS_DEFAULT_REGION", file=sys.stderr)
+        raise SystemExit(2)
+
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if int(data.get("version", 1)) != 1:
+        print("error: unsupported manifest version", file=sys.stderr)
+        raise SystemExit(2)
+
+    exports: list[tuple[str, str]] = []
+    for entry in data.get("secrets", []):
+        secret_id = entry.get("secretId")
+        rel = entry.get("file")
+        export_as = entry.get("exportAs")
+        skip_if_empty = bool(entry.get("skipIfEmpty"))
+        if not secret_id or not rel:
+            print("error: each secret needs secretId and file", file=sys.stderr)
+            raise SystemExit(2)
+        path = (base / rel).resolve()
+        try:
+            path.relative_to(base)
+        except ValueError:
+            print(f"error: file path escapes secrets dir: {rel}", file=sys.stderr)
+            raise SystemExit(2)
+        if skip_if_empty and (not path.is_file() or path.stat().st_size == 0):
+            print(f"Skip (empty): {secret_id}")
+            continue
+        upsert_file_secret(secret_id, path, region)
+        if export_as:
+            arn = describe_arn(secret_id, region)
+            exports.append((export_as, arn))
+
+    out_path = base / "deploy.generated.env"
+    lines = ["# Generated by scripts/push_local_secrets_to_sm.py — do not commit"]
+    for name, value in exports:
+        safe = value.replace("'", "'\\''")
+        lines.append(f"export {name}='{safe}'")
+    if not exports:
+        lines.append("# (no exportAs entries in manifest)")
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Wrote {out_path}")
+
+
+if __name__ == "__main__":
+    main()

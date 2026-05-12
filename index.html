@@ -22,8 +22,14 @@
     <link rel="stylesheet" href="css/spaceman.css" />
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYTRKC93DL"></script>
+    <!-- Contact API: set meta content to your deployed URL (.../api/contact). CI: scripts/sync-site-api-urls.mjs -->
+    <meta name="gvp:contact-api-url" content="" />
     <script>
-        window.__CONTACT_API_URL__ = 'https://lwi0vmdpb5.execute-api.us-east-2.amazonaws.com/api/contact'
+        (function () {
+            var m = document.querySelector('meta[name="gvp:contact-api-url"]')
+            var base = (m && m.getAttribute('content') || '').trim().replace(/\/+$/, '')
+            window.__CONTACT_API_URL__ = base
+        })()
     </script>
 </head>
 
