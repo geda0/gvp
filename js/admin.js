@@ -141,7 +141,40 @@ async function requestTraffic(path, options = {}) {
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(body?.error || `Traffic request failed (${response.status})`)
+    const errText = body?.error || `Traffic request failed (${response.status})`
+    // #region agent log
+    const payload = {
+      sessionId: 'c0683c',
+      runId: 'pre-fix',
+      hypothesisId: 'H1',
+      location: 'admin.js:requestTraffic',
+      message: 'traffic error',
+      data: {
+        path,
+        status: response.status,
+        errLen: String(errText).length,
+        errPrefix: String(errText).slice(0, 120),
+        bodyKeys: body && typeof body === 'object' ? Object.keys(body) : [],
+        trafficHost: (() => {
+          try {
+            return new URL(trafficApiBaseUrl, window.location.href).hostname
+          } catch (_) {
+            return ''
+          }
+        })()
+      },
+      timestamp: Date.now()
+    }
+    fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c0683c' },
+      body: JSON.stringify(payload)
+    }).catch(() => {})
+    try {
+      localStorage.setItem('gvp_debug_traffic_last', JSON.stringify(payload))
+    } catch (_) {}
+    // #endregion
+    throw new Error(errText)
   }
   return body
 }

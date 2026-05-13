@@ -427,7 +427,9 @@ function mapGa4Rows(data, dimensions = [], metrics = []) {
 function formatGa4ApiAccessHint(rawMessage = '') {
   const m = String(rawMessage)
   if (
-    /does not have sufficient permissions|PERMISSION_DENIED|Permission denied on resource/i.test(m)
+    /User does not have sufficient permissions|does not have sufficient permissions|PERMISSION_DENIED|Permission denied on resource|PROPERTY_PERMISSION_DENIED|insufficient permission/i.test(
+      m
+    )
   ) {
     return (
       'GA4 denied access for this service account. In GA4: Admin → Property access management → add the service account ' +
@@ -451,6 +453,20 @@ function formatGa4ApiAccessHint(rawMessage = '') {
   return m
 }
 
+function extractGa4ApiErrorMessage(data) {
+  if (!data || typeof data !== 'object') return ''
+  const err = data.error
+  if (typeof err === 'string') return err
+  if (err && typeof err.message === 'string') return err.message
+  const details = err?.details
+  if (Array.isArray(details)) {
+    for (const d of details) {
+      if (d && typeof d.message === 'string' && d.message) return d.message
+    }
+  }
+  return ''
+}
+
 async function runGa4Report(config, payload) {
   if (!config.ga4PropertyId) {
     throw new Error('Missing TRAFFIC_GA4_PROPERTY_ID for GA4 live fallback.')
@@ -469,7 +485,10 @@ async function runGa4Report(config, payload) {
   )
   const data = await response.json().catch(() => ({}))
   if (!response.ok || data.error) {
-    const raw = data?.error?.message || 'GA4 Data API request failed.'
+    const raw =
+      extractGa4ApiErrorMessage(data) ||
+      (typeof data === 'string' ? data : '') ||
+      'GA4 Data API request failed.'
     throw new Error(formatGa4ApiAccessHint(raw))
   }
   return data
