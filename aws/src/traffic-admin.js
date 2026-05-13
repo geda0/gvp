@@ -745,7 +745,8 @@ export const handler = async (event) => {
       return json(200, { events: await getSessionDetail(config, sql, days, sessionKey) })
     }
   } catch (error) {
-    return json(500, { error: String(error?.message || error || 'Traffic query failed.') })
+    const msg = String(error?.message || error || 'Traffic query failed.')
+    return json(500, { error: formatGa4ApiAccessHint(msg) })
   }
 
   return json(404, { error: 'Not found' })

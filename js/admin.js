@@ -130,6 +130,26 @@ async function request(path, options = {}) {
   return body
 }
 
+function formatTrafficApiErrorHint(raw) {
+  const s = String(raw || '')
+  if (
+    /User does not have sufficient permissions|does not have sufficient permissions|PERMISSION_DENIED|Permission denied on resource|PROPERTY_PERMISSION_DENIED/i.test(
+      s
+    )
+  ) {
+    return (
+      'GA4 denied access for this service account. In GA4: Admin → Property access management → add the service account ' +
+      'email from your Secrets Manager JSON (Viewer or Analyst). Use the numeric Property ID from Admin → Property settings (not G-…).'
+    )
+  }
+  if (/Google Analytics Data API has not been used|SERVICE_DISABLED/i.test(s)) {
+    return (
+      'Enable the Google Analytics Data API in the GCP project for your service account (APIs & Services → Library → "Google Analytics Data API").'
+    )
+  }
+  return s
+}
+
 async function requestTraffic(path, options = {}) {
   const url = `${trafficApiBaseUrl}${path}`
   const response = await fetch(url, {
@@ -142,10 +162,12 @@ async function requestTraffic(path, options = {}) {
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     const errText = body?.error || `Traffic request failed (${response.status})`
-    // #region agent log
-    const payload = {
+    const displayErr = formatTrafficApiErrorHint(errText)
+    if (response.status !== 501) {
+      // #region agent log
+      const payload = {
       sessionId: 'c0683c',
-      runId: 'pre-fix',
+      runId: 'post-fix',
       hypothesisId: 'H1',
       location: 'admin.js:requestTraffic',
       message: 'traffic error',
@@ -154,6 +176,7 @@ async function requestTraffic(path, options = {}) {
         status: response.status,
         errLen: String(errText).length,
         errPrefix: String(errText).slice(0, 120),
+        displayPrefix: String(displayErr).slice(0, 120),
         bodyKeys: body && typeof body === 'object' ? Object.keys(body) : [],
         trafficHost: (() => {
           try {
@@ -174,7 +197,8 @@ async function requestTraffic(path, options = {}) {
       localStorage.setItem('gvp_debug_traffic_last', JSON.stringify(payload))
     } catch (_) {}
     // #endregion
-    throw new Error(errText)
+    }
+    throw new Error(displayErr)
   }
   return body
 }
