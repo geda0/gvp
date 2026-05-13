@@ -65,6 +65,7 @@ export function buildMessageRecord(payload, headers = {}) {
   const normalizedMessage = {
     id,
     createdAt,
+    listPk: 'CONTACT',
     name,
     email,
     subject,

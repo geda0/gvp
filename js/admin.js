@@ -31,12 +31,14 @@ const detailEl = document.getElementById('adminMessageDetail')
 const healthEl = document.getElementById('adminHealthDetail')
 const outcomeEl = document.getElementById('adminOutcomeDetail')
 const limitEl = document.getElementById('adminLimit')
+const loadMoreBtn = document.getElementById('adminLoadMoreBtn')
 
 let adminKey = sessionStorage.getItem('admin-api-key') || ''
 let selectedMessageId = null
 let currentMessages = []
 let selectedDetailItem = null
 let messageBodyVisible = false
+let messagesNextCursor = ''
 
 function resetMessageBodyView() {
   messageBodyVisible = false
@@ -179,6 +181,8 @@ async function loadDashboard() {
   setStatus(globalStatus, 'Loading dashboard…')
   try {
     const limit = Number(limitEl.value || 25)
+    messagesNextCursor = ''
+    if (loadMoreBtn) loadMoreBtn.hidden = true
     const [summary, messages, health] = await Promise.all([
       request('/summary'),
       request(`/messages?limit=${limit}`),
@@ -186,6 +190,8 @@ async function loadDashboard() {
     ])
 
     renderSummary(summary)
+    messagesNextCursor = messages.nextCursor || ''
+    if (loadMoreBtn) loadMoreBtn.hidden = !messagesNextCursor
     renderMessages(messages.items || [])
     renderHealth(health)
 
@@ -203,6 +209,24 @@ async function loadDashboard() {
       authCard.hidden = false
       setStatus(authStatus, 'Admin key rejected.', 'error')
     }
+  }
+}
+
+async function loadMoreMessages() {
+  if (!messagesNextCursor || !loadMoreBtn) return
+  setStatus(globalStatus, 'Loading…')
+  try {
+    const limit = Number(limitEl.value || 25)
+    const q = `/messages?limit=${limit}&cursor=${encodeURIComponent(messagesNextCursor)}`
+    const body = await request(q)
+    const batch = body.items || []
+    currentMessages = currentMessages.concat(batch)
+    messagesNextCursor = body.nextCursor || ''
+    if (loadMoreBtn) loadMoreBtn.hidden = !messagesNextCursor
+    renderMessages(currentMessages)
+    setStatus(globalStatus, 'Older messages loaded.', 'success')
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not load more messages.', 'error')
   }
 }
 
@@ -289,11 +313,14 @@ clearReportBtn?.addEventListener('click', async () => {
 
 refreshBtn?.addEventListener('click', loadDashboard)
 limitEl?.addEventListener('change', loadDashboard)
+loadMoreBtn?.addEventListener('click', loadMoreMessages)
 
 signOutBtn?.addEventListener('click', () => {
   adminKey = ''
   selectedMessageId = null
   currentMessages = []
+  messagesNextCursor = ''
+  if (loadMoreBtn) loadMoreBtn.hidden = true
   sessionStorage.removeItem('admin-api-key')
   app.hidden = true
   authCard.hidden = false

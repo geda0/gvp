@@ -25,21 +25,27 @@ function buildReport(messages) {
 }
 
 export const handler = async () => {
-  const response = await ddb.send(
-    new ScanCommand({
-      TableName: process.env.CONTACT_MESSAGES_TABLE,
-      FilterExpression:
-        '#status <> :sent AND attempts > :zero AND (attribute_not_exists(#rs) OR #rs = :false)',
-      ExpressionAttributeNames: { '#status': 'status', '#rs': 'reportSuppressed' },
-      ExpressionAttributeValues: {
-        ':sent': 'sent',
-        ':zero': 0,
-        ':false': false
-      }
-    })
-  )
+  const messages = []
+  let startKey
+  do {
+    const response = await ddb.send(
+      new ScanCommand({
+        TableName: process.env.CONTACT_MESSAGES_TABLE,
+        FilterExpression:
+          '#status <> :sent AND attempts > :zero AND (attribute_not_exists(#rs) OR #rs = :false)',
+        ExpressionAttributeNames: { '#status': 'status', '#rs': 'reportSuppressed' },
+        ExpressionAttributeValues: {
+          ':sent': 'sent',
+          ':zero': 0,
+          ':false': false
+        },
+        ExclusiveStartKey: startKey
+      })
+    )
+    messages.push(...(response.Items || []))
+    startKey = response.LastEvaluatedKey
+  } while (startKey)
 
-  const messages = response.Items || []
   if (!messages.length) {
     return { statusCode: 200, body: 'No failed messages' }
   }

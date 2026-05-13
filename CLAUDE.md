@@ -18,36 +18,37 @@ Personal portfolio website for Marwan Elgendy ("The Computerist"). A static site
 
 ```
 /
+├── package.json            # Root npm scripts (tests, sam:build); no Lambda deps
 ├── index.html              # Main entry point
+├── admin/                  # Private contact admin (static HTML + ../js/admin.js)
 ├── css/
-│   ├── styles.css          # Layout, theme variables, responsive styles
-│   └── spaceman.css        # Spaceman character animations & styling
 ├── js/
-│   ├── app.js              # Entry point — initializes all modules
-│   ├── analytics.js        # Google Analytics gtag wrapper
-│   ├── navigation.js       # Hash-based navigation state management
-│   ├── theme.js            # Theme system (space/garden) with transitions
-│   ├── projects.js         # Fetches and renders project cards from JSON
-│   ├── spaceman.js         # Spaceman character controller (messages, reactions, animations)
-│   ├── spaceman-position.js # Viewport-aware positioning for the spaceman
-│   └── starfield.js        # Canvas background — starfield (space) or rain (garden)
+├── aws/
+│   ├── template.yaml       # SAM: HttpApi, DynamoDB, SQS, Lambdas
+│   ├── samconfig.toml      # Stack name / region defaults (no secrets)
+│   └── src/
+│       ├── package.json    # @aws-sdk deps — bundled by `sam build` into each function
+│       ├── contact-ingress.js, contact-sender.js, contact-report.js, contact-admin.js
+│       ├── backfill-listpk.js  # One-off: add listPk for GSI (see README)
+│       └── common/
+├── scripts/
+│   ├── integrate-and-deploy.sh   # sam build/deploy + optional HTML meta sync
+│   ├── orchestrate-deploy.sh       # .secrets → Secrets Manager → integrate script
+│   ├── sync-site-api-urls.mjs
+│   ├── seed_local_configs.py, push_local_secrets_to_sm.py
+├── secrets.example/        # Templates for .secrets/ (deploy.env, manifests)
+├── test/                   # node:test (e.g. starfield-reduced-motion)
 ├── data/
-│   ├── projects.json       # Project definitions (playground + portfolio)
-│   ├── spaceman.json       # Character messages, reactions, theme variants
-│   └── agent-messages-*.   # Reference data for spaceman messages
 ├── resume/
-│   ├── resume.json         # Structured resume data consumed by spaceman.js
-│   └── *.pdf               # PDF resume files
 ├── fib/
-│   └── index.html          # Standalone Fibonacci visualization demo
-└── *.png, *.jpg, *.jpeg    # Project images (root level)
+└── *.png, *.jpg, *.jpeg
 ```
 
 ## Development
 
 ### Running Locally
 
-No build step required. Serve with any static HTTP server:
+No bundler for the static site. Serve with any static HTTP server:
 
 ```bash
 # Python
@@ -64,17 +65,26 @@ Then open `http://localhost:8000` in a browser.
 
 **Note**: ES6 modules require HTTP serving — opening `index.html` directly via `file://` will not work due to CORS restrictions on module imports.
 
-### No Build System
+### npm (root)
 
-There is no package.json, no npm dependencies, no bundler, no transpiler. All code runs directly in the browser as-is.
+- **`package.json`** at repo root: `npm run test:reduced-motion` (node:test), `npm run sam:build` (runs `sam build` in `aws/`).
+- **Lambda dependencies** live only in **`aws/src/package.json`** (`@aws-sdk/*`). `sam build` runs `npm install` there and ships `node_modules` with each function.
 
-### No Tests
+### SAM / deploy
 
-There is no test framework or test suite. Changes should be verified manually in the browser.
+- **Canonical env names**: [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) → copy to `.secrets/deploy.env`.
+- **Local full pipeline**: `bash scripts/orchestrate-deploy.sh` (optional Secrets Manager file push + `integrate-and-deploy.sh`).
+- **Deploy only**: `bash scripts/integrate-and-deploy.sh` (loads `.secrets/deploy.env` when `RESEND_API_KEY` is unset).
+- **CI**: GitHub Actions workflow **Integrate and deploy** — same secret names as `deploy.env.example`.
 
-### No CI/CD
+### Tests
 
-There is no CI/CD pipeline. Deployment is static file hosting.
+- **`npm run test:reduced-motion`** — `node:test` against `js/starfield-prefs.js`.
+- No browser E2E suite; verify UI manually after static or Lambda changes.
+
+### CI/CD
+
+- Optional **GitHub Actions** workflow for SAM deploy (see `README.md`). Static hosting (e.g. Amplify) is separate from the AWS contact stack.
 
 ## Architecture
 
@@ -129,6 +139,13 @@ The `Spaceman` class manages:
 - `data/projects.json` — project cards with `id`, `title`, `description`, `image`, `link`, `hidden` flag
 - `data/spaceman.json` — messages per state, reactions, theme-specific variants under `themeMessages`
 - `resume/resume.json` — structured resume data; spaceman.js merges this into messages dynamically
+
+### Contact backend (`aws/`)
+
+- **Ingress** validates JSON, writes DynamoDB (items include `listPk: CONTACT` for the admin list GSI), enqueues SQS.
+- **Sender** drains SQS, sends email via Resend (`fetch` in `common/resend.js`, no Resend npm package).
+- **Admin** `GET /messages` queries GSI `byCreatedAt` with `?limit` and optional `?cursor` (opaque); response includes `nextCursor`. **Summary** aggregates status counts via a paginated `Scan` with projected attributes.
+- **Failure report** uses a paginated `Scan` with a filter for failed, non-suppressed rows.
 
 ## Code Conventions
 

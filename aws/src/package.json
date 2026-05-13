@@ -2,5 +2,11 @@
   "name": "gvp-contact-functions",
   "version": "1.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.888.0",
+    "@aws-sdk/client-dynamodb": "^3.888.0",
+    "@aws-sdk/client-sqs": "^3.888.0",
+    "@aws-sdk/lib-dynamodb": "^3.888.0"
+  }
 }

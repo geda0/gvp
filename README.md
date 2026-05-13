@@ -45,11 +45,12 @@ Override directory: `SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-depl
 
 ### AWS setup
 
-- **Infrastructure**: `aws/template.yaml`
+- **Infrastructure**: `aws/template.yaml` (SAM). **Lambda npm deps** are declared in `aws/src/package.json`; `sam build` installs them into each function artifact (`npm run sam:build` from repo root).
 - **Ingress Lambda**: `aws/src/contact-ingress.js`
 - **Sender Lambda**: `aws/src/contact-sender.js`
 - **Failure report Lambda**: `aws/src/contact-report.js`
 - **Admin Lambda**: `aws/src/contact-admin.js`
+- **DynamoDB**: messages table has GSI **`byCreatedAt`** (`listPk` + `createdAt`). New writes set `listPk` to `CONTACT`. **Existing rows** without `listPk` will not appear in the admin message list until you run the one-off **`aws/src/backfill-listpk.js`** (see script header for env vars) after `cd aws/src && npm install`.
 - **Frontend route**: `/api/contact` (default when `gvp:contact-api-url` meta is empty), or set meta / `window.__CONTACT_API_URL__` via [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs)
 
 ### Resend sender verification
@@ -70,7 +71,7 @@ Resend requires that the `from` address is verified (domain or sender). Example:
 - Static page: `admin/index.html`
 - Client: `js/admin.js`
 - Styles: `css/admin.css`
-- API routes: `GET /api/contact/admin/summary`, `messages`, `messages/{id}`, `health`; `POST /api/contact/admin/retry/{id}`, `messages/{id}/suppress-report`
+- API routes: `GET /api/contact/admin/summary`, `messages` (supports `?limit`, `?cursor` + JSON `nextCursor` for **Load older messages**), `messages/{id}`, `health`; `POST /api/contact/admin/retry/{id}`, `messages/{id}/suppress-report`
 - Auth: header `x-admin-key` matching `ADMIN_API_KEY` from deploy env
 
 Scheduled failure reports (`aws/src/contact-report.js`) only include non-sent messages with `attempts > 0` and **exclude** items where `reportSuppressed` is true.

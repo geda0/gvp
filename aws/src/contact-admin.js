@@ -3,6 +3,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
   DynamoDBDocumentClient,
   GetCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand
 } from '@aws-sdk/lib-dynamodb'
@@ -12,6 +13,9 @@ import { json, optionsResponse, unauthorized } from './common/contact-shared.js'
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const sqs = new SQSClient({})
 const cloudwatch = new CloudWatchClient({})
+
+const LIST_PK = 'CONTACT'
+const BY_CREATED_AT = 'byCreatedAt'
 
 function requireAdminKey(event) {
   const expected = process.env.ADMIN_API_KEY
@@ -37,53 +41,95 @@ function parseLimit(event) {
   return Number.isFinite(n) ? Math.min(Math.max(n, 1), 100) : 25
 }
 
-async function listMessages(limit) {
-  const response = await ddb.send(
-    new ScanCommand({
-      TableName: process.env.CONTACT_MESSAGES_TABLE
-    })
-  )
-  const items = (response.Items || []).sort((a, b) =>
-    String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
-  )
-  return items.slice(0, limit)
+function decodeCursor(raw) {
+  if (!raw) return undefined
+  try {
+    const s = String(raw).trim()
+    return JSON.parse(Buffer.from(s, 'base64url').toString('utf8'))
+  } catch {
+    return undefined
+  }
 }
 
-async function getSummary() {
+function encodeCursor(key) {
+  if (!key || !Object.keys(key).length) return ''
+  return Buffer.from(JSON.stringify(key), 'utf8').toString('base64url')
+}
+
+async function listMessages(limit, cursorRaw) {
+  const exclusiveStartKey = decodeCursor(cursorRaw)
   const response = await ddb.send(
-    new ScanCommand({
-      TableName: process.env.CONTACT_MESSAGES_TABLE
+    new QueryCommand({
+      TableName: process.env.CONTACT_MESSAGES_TABLE,
+      IndexName: BY_CREATED_AT,
+      KeyConditionExpression: 'listPk = :pk',
+      ExpressionAttributeValues: {
+        ':pk': LIST_PK
+      },
+      ScanIndexForward: false,
+      Limit: limit,
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
     })
   )
   const items = response.Items || []
+  return {
+    items,
+    nextCursor: encodeCursor(response.LastEvaluatedKey)
+  }
+}
+
+async function getSummary() {
   const summary = {
     queued: 0,
     sending: 0,
     sent: 0,
     failed: 0,
     deadLettered: 0,
-    total: items.length,
+    total: 0,
     mostRecentSuccess: null,
     mostRecentFailure: null
   }
 
-  for (const item of items) {
-    if (item.status === 'queued') summary.queued += 1
-    if (item.status === 'sending') summary.sending += 1
-    if (item.status === 'sent') summary.sent += 1
-    if (item.status === 'failed') summary.failed += 1
-    if (item.status === 'dead_lettered') summary.deadLettered += 1
-  }
+  let bestSuccess = null
+  let bestFailure = null
+  let startKey
 
-  const successes = items
-    .filter((item) => item.status === 'sent' && item.deliveredAt)
-    .sort((a, b) => String(b.deliveredAt).localeCompare(String(a.deliveredAt)))
-  const failures = items
-    .filter((item) => item.status !== 'sent' && item.lastError)
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+  do {
+    const response = await ddb.send(
+      new ScanCommand({
+        TableName: process.env.CONTACT_MESSAGES_TABLE,
+        ProjectionExpression: '#st, createdAt, deliveredAt, lastError, email, id',
+        ExpressionAttributeNames: { '#st': 'status' },
+        ExclusiveStartKey: startKey
+      })
+    )
+    const items = response.Items || []
+    summary.total += items.length
 
-  summary.mostRecentSuccess = successes[0] || null
-  summary.mostRecentFailure = failures[0] || null
+    for (const item of items) {
+      if (item.status === 'queued') summary.queued += 1
+      if (item.status === 'sending') summary.sending += 1
+      if (item.status === 'sent') summary.sent += 1
+      if (item.status === 'failed') summary.failed += 1
+      if (item.status === 'dead_lettered') summary.deadLettered += 1
+
+      if (item.status === 'sent' && item.deliveredAt) {
+        if (!bestSuccess || String(item.deliveredAt) > String(bestSuccess.deliveredAt)) {
+          bestSuccess = item
+        }
+      }
+      if (item.status !== 'sent' && item.lastError) {
+        if (!bestFailure || String(item.createdAt || '') > String(bestFailure.createdAt || '')) {
+          bestFailure = item
+        }
+      }
+    }
+
+    startKey = response.LastEvaluatedKey
+  } while (startKey)
+
+  summary.mostRecentSuccess = bestSuccess
+  summary.mostRecentFailure = bestFailure
   return summary
 }
 
@@ -209,7 +255,10 @@ export const handler = async (event) => {
   }
 
   if (method === 'GET' && path.endsWith('/messages')) {
-    return json(200, { items: await listMessages(parseLimit(event)) })
+    const limit = parseLimit(event)
+    const cursor = event?.queryStringParameters?.cursor || ''
+    const { items, nextCursor } = await listMessages(limit, cursor)
+    return json(200, { items, nextCursor })
   }
 
   if (method === 'GET' && path.endsWith('/health')) {
