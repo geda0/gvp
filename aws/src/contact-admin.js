@@ -56,25 +56,103 @@ function encodeCursor(key) {
   return Buffer.from(JSON.stringify(key), 'utf8').toString('base64url')
 }
 
-async function listMessages(limit, cursorRaw) {
+/** Full table scan sorted by createdAt desc — fallback when GSI has no rows (legacy items without listPk). */
+async function legacyScanRecentMessages(limit) {
+  const rows = []
+  let startKey
+  do {
+    const response = await ddb.send(
+      new ScanCommand({
+        TableName: process.env.CONTACT_MESSAGES_TABLE,
+        ExclusiveStartKey: startKey
+      })
+    )
+    rows.push(...(response.Items || []))
+    startKey = response.LastEvaluatedKey
+  } while (startKey)
+  rows.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+  return rows.slice(0, limit)
+}
+
+async function listMessages(limit, cursorRaw, wantDiag) {
+  const diag = wantDiag ? { hypothesis: 'H1-gsi-vs-legacy' } : null
   const exclusiveStartKey = decodeCursor(cursorRaw)
-  const response = await ddb.send(
-    new QueryCommand({
-      TableName: process.env.CONTACT_MESSAGES_TABLE,
-      IndexName: BY_CREATED_AT,
-      KeyConditionExpression: 'listPk = :pk',
-      ExpressionAttributeValues: {
-        ':pk': LIST_PK
-      },
-      ScanIndexForward: false,
-      Limit: limit,
-      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
-    })
-  )
-  const items = response.Items || []
+
+  if (exclusiveStartKey) {
+    const response = await ddb.send(
+      new QueryCommand({
+        TableName: process.env.CONTACT_MESSAGES_TABLE,
+        IndexName: BY_CREATED_AT,
+        KeyConditionExpression: 'listPk = :pk',
+        ExpressionAttributeValues: {
+          ':pk': LIST_PK
+        },
+        ScanIndexForward: false,
+        Limit: limit,
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    )
+    const items = response.Items || []
+    if (diag) {
+      diag.branch = 'gsi_paged'
+      diag.itemCount = items.length
+      diag.hasMore = Boolean(response.LastEvaluatedKey)
+    }
+    return {
+      items,
+      nextCursor: encodeCursor(response.LastEvaluatedKey),
+      ...(diag ? { _diag: diag } : {})
+    }
+  }
+
+  let qResponse
+  try {
+    qResponse = await ddb.send(
+      new QueryCommand({
+        TableName: process.env.CONTACT_MESSAGES_TABLE,
+        IndexName: BY_CREATED_AT,
+        KeyConditionExpression: 'listPk = :pk',
+        ExpressionAttributeValues: {
+          ':pk': LIST_PK
+        },
+        ScanIndexForward: false,
+        Limit: limit
+      })
+    )
+  } catch (err) {
+    const items = await legacyScanRecentMessages(limit)
+    if (diag) {
+      diag.branch = 'query_error_legacy'
+      diag.errorName = err?.name || 'unknown'
+      diag.itemCount = items.length
+    }
+    return {
+      items,
+      nextCursor: '',
+      ...(diag ? { _diag: diag } : {})
+    }
+  }
+
+  let items = qResponse.Items || []
+  let nextCursor = encodeCursor(qResponse.LastEvaluatedKey)
+
+  if (items.length === 0 && !qResponse.LastEvaluatedKey) {
+    items = await legacyScanRecentMessages(limit)
+    nextCursor = ''
+    if (diag) {
+      diag.branch = 'gsi_empty_first_page_legacy_fallback'
+      diag.itemCount = items.length
+    }
+  } else if (diag) {
+    diag.branch = 'gsi_first_page'
+    diag.itemCount = items.length
+    diag.hasMore = Boolean(qResponse.LastEvaluatedKey)
+  }
+
   return {
     items,
-    nextCursor: encodeCursor(response.LastEvaluatedKey)
+    nextCursor,
+    ...(diag ? { _diag: diag } : {})
   }
 }
 
@@ -257,8 +335,9 @@ export const handler = async (event) => {
   if (method === 'GET' && path.endsWith('/messages')) {
     const limit = parseLimit(event)
     const cursor = event?.queryStringParameters?.cursor || ''
-    const { items, nextCursor } = await listMessages(limit, cursor)
-    return json(200, { items, nextCursor })
+    const wantDiag = event?.queryStringParameters?.diag === '1'
+    const payload = await listMessages(limit, cursor, wantDiag)
+    return json(200, payload)
   }
 
   if (method === 'GET' && path.endsWith('/health')) {

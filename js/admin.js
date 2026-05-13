@@ -33,6 +33,9 @@ const outcomeEl = document.getElementById('adminOutcomeDetail')
 const limitEl = document.getElementById('adminLimit')
 const loadMoreBtn = document.getElementById('adminLoadMoreBtn')
 
+/** Set false after verifying admin list (debug session c0683c). */
+const ADMIN_AGENT_DIAG = true
+
 let adminKey = sessionStorage.getItem('admin-api-key') || ''
 let selectedMessageId = null
 let currentMessages = []
@@ -185,9 +188,31 @@ async function loadDashboard() {
     if (loadMoreBtn) loadMoreBtn.hidden = true
     const [summary, messages, health] = await Promise.all([
       request('/summary'),
-      request(`/messages?limit=${limit}`),
+      request(`/messages?limit=${limit}${ADMIN_AGENT_DIAG ? '&diag=1' : ''}`),
       request('/health')
     ])
+
+    // #region agent log
+    if (ADMIN_AGENT_DIAG) {
+      fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c0683c' },
+        body: JSON.stringify({
+          sessionId: 'c0683c',
+          location: 'js/admin.js:loadDashboard',
+          message: 'admin messages vs summary',
+          data: {
+            summaryTotal: summary.total ?? null,
+            messageItemCount: (messages.items || []).length,
+            hasNextCursor: Boolean(messages.nextCursor),
+            serverDiag: messages._diag || null
+          },
+          timestamp: Date.now(),
+          hypothesisId: 'H1'
+        })
+      }).catch(() => {})
+    }
+    // #endregion
 
     renderSummary(summary)
     messagesNextCursor = messages.nextCursor || ''
