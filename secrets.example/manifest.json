@@ -1,10 +1,4 @@
 {
   "version": 1,
-  "secrets": [
-    {
-      "secretId": "gvp/ga4-bq-reader",
-      "file": "files/gcp-sa.json",
-      "exportAs": "TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN"
-    }
-  ]
+  "secrets": []
 }

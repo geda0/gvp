@@ -12,7 +12,7 @@ Personal portfolio website for Marwan Elgendy ("The Computerist"). A static site
 - **CSS3** — CSS custom properties for theming, keyframe animations, responsive design
 - **Vanilla JavaScript (ES6 modules)** — `<script type="module">` loading from `js/app.js`
 - **Canvas API** — starfield (space theme) and rain (garden theme) animations
-- **External CDN only**: Google Fonts (Roboto, Open Sans), Google Analytics/Tag Manager
+- **External CDN only**: Google Fonts (Source Serif 4, Source Sans 3), Google Analytics (gtag.js)
 
 ## Directory Structure
 
@@ -82,14 +82,16 @@ There is no CI/CD pipeline. Deployment is static file hosting.
 
 `app.js` is the orchestrator. It imports all modules and initializes them in order on `DOMContentLoaded`:
 
-1. `initAnalytics()` — sets up Google Analytics
-2. `initTheme()` — reads saved theme from localStorage, applies it
-3. `initStarfield()` — starts canvas background animation
-4. `initSpaceman()` — loads character data, renders DOM, starts message cycle
-5. `initSpacemanPosition()` — viewport-aware positioning with observers
-6. `initNavigation()` — hash-based routing with state callbacks
-7. `loadProjects()` / `renderProjects()` — fetches JSON, builds project cards
-8. `IntersectionObserver` — tracks which project card is in view for spaceman context
+1. `initAnalytics()` — sets up Google Analytics (gtag; `send_page_view: false` so navigation emits virtual `page_view`)
+2. `bindOutboundTracking()` — wires `[data-track]` elements for outbound events
+3. `initTheme()` — reads saved theme from localStorage, applies it
+4. `initStarfield()` — starts canvas background animation
+5. `initContactForm()` — contact form wiring
+6. `initSpaceman()` — loads character data, renders DOM, starts message cycle
+7. `initSpacemanPosition()` — viewport-aware positioning with observers
+8. `initNavigation()` — hash-based routing with state callbacks
+9. `loadProjects()` / `renderProjects()` — fetches JSON, builds project cards
+10. `IntersectionObserver` — tracks which project card is in view for spaceman context
 
 ### Theme System (`theme.js`)
 

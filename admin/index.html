@@ -10,9 +10,8 @@
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,600;1,8..60,600&family=Source+Sans+3:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="../css/admin.css">
-  <!-- Contact API base (.../api/contact). Optional Looker embed for iframe. CI: scripts/sync-site-api-urls.mjs -->
+  <!-- Contact API base (.../api/contact). CI: scripts/sync-site-api-urls.mjs -->
   <meta name="gvp:contact-api-url" content="https://lwi0vmdpb5.execute-api.us-east-2.amazonaws.com/api/contact" />
-  <meta name="gvp:traffic-report-embed-url" content="" />
   <script>
     (function () {
       var m = document.querySelector('meta[name="gvp:contact-api-url"]')
@@ -23,9 +22,6 @@
       var base = cleaned || (isLocal ? '/api/contact' : '')
       window.__CONTACT_API_URL__ = base
       window.__ADMIN_API_BASE_URL__ = base ? base + '/admin' : ''
-      window.__TRAFFIC_API_BASE_URL__ = base ? base + '/admin/traffic' : ''
-      var e = document.querySelector('meta[name="gvp:traffic-report-embed-url"]')
-      window.__TRAFFIC_REPORT_EMBED_URL__ = (e && e.getAttribute('content') || '').trim()
     })()
   </script>
 </head>
@@ -63,114 +59,6 @@
         <article class="admin-card"><h2>Sent</h2><p id="summarySent">-</p></article>
         <article class="admin-card"><h2>Failed</h2><p id="summaryFailed">-</p></article>
         <article class="admin-card"><h2>Dead lettered</h2><p id="summaryDeadLettered">-</p></article>
-      </section>
-
-      <section class="admin-grid admin-grid--traffic">
-        <article class="admin-card">
-          <div class="admin-card__header">
-            <h2>Website Traffic</h2>
-            <label class="admin-inline">
-              <span>Window</span>
-              <select id="adminTrafficDays">
-                <option value="7">7 days</option>
-                <option value="30" selected>30 days</option>
-                <option value="90">90 days</option>
-              </select>
-            </label>
-          </div>
-          <p class="admin-subtitle admin-traffic__subtitle">
-            Traffic KPIs and session detail from GA4 BigQuery export, plus embedded Looker widgets.
-          </p>
-          <section class="admin-traffic-kpi-grid" id="adminTrafficKpiGrid">
-            <article class="admin-traffic-kpi"><h3>Sessions</h3><p id="trafficSessions">-</p></article>
-            <article class="admin-traffic-kpi"><h3>Users</h3><p id="trafficUsers">-</p></article>
-            <article class="admin-traffic-kpi"><h3>Avg. pageviews/session</h3><p id="trafficAvgPageviews">-</p></article>
-            <article class="admin-traffic-kpi"><h3>Avg. engagement</h3><p id="trafficAvgEngagement">-</p></article>
-            <article class="admin-traffic-kpi"><h3>Estimated human sessions</h3><p id="trafficEstimatedHumans">-</p></article>
-            <article class="admin-traffic-kpi"><h3>Estimated bot sessions</h3><p id="trafficEstimatedBots">-</p></article>
-            <article class="admin-traffic-kpi"><h3>Bounce sessions</h3><p id="trafficBounceSessions">-</p></article>
-            <article class="admin-traffic-kpi"><h3>Engaged sessions</h3><p id="trafficEngagedSessions">-</p></article>
-          </section>
-          <section class="admin-grid admin-grid--traffic-detail">
-            <article class="admin-card admin-card--inner">
-              <h3>Top Geography</h3>
-              <div class="admin-table-wrap">
-                <table class="admin-table admin-table--compact">
-                  <thead>
-                    <tr>
-                      <th>Country</th>
-                      <th>Region</th>
-                      <th>City</th>
-                      <th>Sessions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="adminTrafficGeoTable">
-                    <tr><td colspan="4">No traffic data loaded yet.</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </article>
-            <article class="admin-card admin-card--inner">
-              <h3>Top Exit Pages</h3>
-              <div class="admin-table-wrap">
-                <table class="admin-table admin-table--compact">
-                  <thead>
-                    <tr>
-                      <th>Exit page</th>
-                      <th>Sessions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="adminTrafficExitTable">
-                    <tr><td colspan="2">No traffic data loaded yet.</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          </section>
-          <section class="admin-grid admin-grid--traffic-detail">
-            <article class="admin-card admin-card--inner">
-              <div class="admin-card__header">
-                <h3>Recent Sessions</h3>
-                <p class="admin-subtitle">Select a session to inspect exact interaction sequence.</p>
-              </div>
-              <div class="admin-table-wrap">
-                <table class="admin-table admin-table--compact">
-                  <thead>
-                    <tr>
-                      <th>Started</th>
-                      <th>Country/City</th>
-                      <th>Exit page</th>
-                      <th>Events</th>
-                      <th>Bot likelihood</th>
-                    </tr>
-                  </thead>
-                  <tbody id="adminTrafficSessionsTable">
-                    <tr><td colspan="5">No traffic data loaded yet.</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </article>
-            <article class="admin-card admin-card--inner">
-              <h3>Session Timeline</h3>
-              <dl class="admin-detail" id="adminTrafficSessionMeta">
-                <div><dt>Session key</dt><dd>Select a session</dd></div>
-              </dl>
-              <pre id="adminTrafficSessionEvents" class="admin-message-body">Select a session to inspect events.</pre>
-            </article>
-          </section>
-          <div id="adminTrafficPlaceholder" class="admin-traffic__placeholder" hidden>
-            Set <code>gvp:traffic-report-embed-url</code> meta (or sync from <code>TRAFFIC_REPORT_EMBED_URL</code>) for the full Looker iframe.
-          </div>
-          <div id="adminTrafficFrameWrap" class="admin-traffic__frame-wrap" hidden>
-            <iframe
-              id="adminTrafficFrame"
-              class="admin-traffic__frame"
-              title="Website traffic analytics report"
-              loading="lazy"
-              referrerpolicy="strict-origin-when-cross-origin"
-            ></iframe>
-          </div>
-        </article>
       </section>
 
       <section class="admin-grid admin-grid--main">

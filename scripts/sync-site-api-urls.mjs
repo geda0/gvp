@@ -5,12 +5,11 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(__dirname, '..')
 
-const [, , contactUrl, lookerEmbedUrl = ''] = process.argv
+const [, , contactUrl] = process.argv
 if (!contactUrl) {
   console.error(
-    'usage: sync-site-api-urls.mjs <contactApiUrl> [lookerEmbedUrl]\n' +
-      '  contactApiUrl: full URL ending in /api/contact\n' +
-      '  lookerEmbedUrl: optional Looker Studio embed URL (admin iframe only)'
+    'usage: sync-site-api-urls.mjs <contactApiUrl>\n' +
+      '  contactApiUrl: full URL ending in /api/contact'
   )
   process.exit(1)
 }
@@ -41,7 +40,6 @@ let adminHtml = fs.readFileSync(adminPath, 'utf8')
 
 indexHtml = setMetaContent(indexHtml, 'gvp:contact-api-url', contactUrl)
 adminHtml = setMetaContent(adminHtml, 'gvp:contact-api-url', contactUrl)
-adminHtml = setMetaContent(adminHtml, 'gvp:traffic-report-embed-url', lookerEmbedUrl)
 
 fs.writeFileSync(indexPath, indexHtml)
 fs.writeFileSync(adminPath, adminHtml)

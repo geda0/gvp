@@ -1,17 +1,33 @@
 #!/usr/bin/env bash
-# One-shot: optional AWS Secrets Manager upsert for BigQuery reader SA, then SAM build + deploy.
-# Optional: write Contact/Admin/Traffic API URLs from stack outputs into index.html + admin/index.html.
-# Prefer local entrypoint: scripts/orchestrate-deploy.sh (loads .secrets/ + pushes manifest to SM, then runs this script).
+# One-shot: SAM build + deploy for the contact stack; optional patch of contact API meta in HTML.
+# Prefer: scripts/orchestrate-deploy.sh (seeds config, pushes file secrets to SM, then runs this script).
 #
-# Required env: RESEND_API_KEY, CONTACT_TO_EMAIL, CONTACT_FROM_EMAIL, ALARM_EMAIL, ADMIN_API_KEY
-# Optional traffic: TRAFFIC_GCP_PROJECT_ID, TRAFFIC_BIGQUERY_DATASET, TRAFFIC_GA4_PROPERTY_ID,
-#   either TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN or (GCP_SERVICE_ACCOUNT_JSON + TRAFFIC_SECRET_NAME)
-# Optional: SAM_STACK_NAME (default page), AWS_REGION, SYNC_API_URLS=1
+# Env var names and optional flags are documented in secrets.example/deploy.env.example
+# (copy to .secrets/deploy.env). CI sets the same names as GitHub Actions secrets.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AWS_DIR="${ROOT}/aws"
+SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
+
+# When not already exported (e.g. GitHub Actions exports secrets), load local .secrets/deploy.env
+if [[ -z "${RESEND_API_KEY:-}" && -f "$SECRETS_DIR/deploy.env" ]]; then
+  echo "Loading $SECRETS_DIR/deploy.env (and generated env if present)…"
+  set -a
+  # shellcheck source=/dev/null
+  source "$SECRETS_DIR/deploy.env"
+  if [[ -f "$SECRETS_DIR/config.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/config.generated.env"
+  fi
+  if [[ -f "$SECRETS_DIR/deploy.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/deploy.generated.env"
+  fi
+  set +a
+fi
+
 STACK_NAME="${SAM_STACK_NAME:-page}"
 REGION="${AWS_REGION:-us-east-2}"
 
@@ -19,6 +35,7 @@ require() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
     echo "error: missing required env ${name}" >&2
+    echo "  Set it in the shell, or add it to ${SECRETS_DIR}/deploy.env (see secrets.example/deploy.env.example), or configure GitHub Actions secrets with the same name." >&2
     exit 1
   fi
 }
@@ -31,28 +48,6 @@ require ADMIN_API_KEY
 
 export AWS_DEFAULT_REGION="${REGION}"
 
-TRAFFIC_ARN="${TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN:-}"
-
-if [[ -n "${GCP_SERVICE_ACCOUNT_JSON:-}" && -z "${TRAFFIC_ARN}" ]]; then
-  SECRET_NAME="${TRAFFIC_SECRET_NAME:-gvp/ga4-bq-reader}"
-  echo "Upserting Secrets Manager secret: ${SECRET_NAME}"
-  if aws secretsmanager describe-secret --secret-id "${SECRET_NAME}" >/dev/null 2>&1; then
-    aws secretsmanager put-secret-value \
-      --secret-id "${SECRET_NAME}" \
-      --secret-string "${GCP_SERVICE_ACCOUNT_JSON}"
-  else
-    aws secretsmanager create-secret \
-      --name "${SECRET_NAME}" \
-      --secret-string "${GCP_SERVICE_ACCOUNT_JSON}"
-  fi
-  TRAFFIC_ARN="$(aws secretsmanager describe-secret --secret-id "${SECRET_NAME}" --query ARN --output text)"
-  echo "Using TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN=${TRAFFIC_ARN}"
-fi
-
-TRAFFIC_GCP="${TRAFFIC_GCP_PROJECT_ID:-}"
-TRAFFIC_DS="${TRAFFIC_BIGQUERY_DATASET:-}"
-TRAFFIC_GA4_PROPERTY="${TRAFFIC_GA4_PROPERTY_ID:-}"
-
 PO=(
   "ResendApiKey=${RESEND_API_KEY}"
   "ContactToEmail=${CONTACT_TO_EMAIL}"
@@ -60,20 +55,6 @@ PO=(
   "AlarmEmail=${ALARM_EMAIL}"
   "AdminApiKey=${ADMIN_API_KEY}"
 )
-
-# Optional traffic params: only pass non-empty values to SAM.
-if [[ -n "${TRAFFIC_GCP}" ]]; then
-  PO+=("TrafficGcpProjectId=${TRAFFIC_GCP}")
-fi
-if [[ -n "${TRAFFIC_DS}" ]]; then
-  PO+=("TrafficBigQueryDataset=${TRAFFIC_DS}")
-fi
-if [[ -n "${TRAFFIC_ARN}" ]]; then
-  PO+=("TrafficServiceAccountSecretArn=${TRAFFIC_ARN}")
-fi
-if [[ -n "${TRAFFIC_GA4_PROPERTY}" ]]; then
-  PO+=("TrafficGa4PropertyId=${TRAFFIC_GA4_PROPERTY}")
-fi
 
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
   PO+=("ContactReportEmail=${CONTACT_REPORT_EMAIL}")
@@ -108,8 +89,8 @@ CONTACT_URL="$(aws cloudformation describe-stacks \
 echo "ContactApiUrl=${CONTACT_URL}"
 
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
-  node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${TRAFFIC_REPORT_EMBED_URL:-}"
-  echo "Patched index.html and admin/index.html (gvp:contact-api-url meta; optional Looker embed on admin)."
+  node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
+  echo "Patched index.html and admin/index.html (gvp:contact-api-url meta)."
 fi
 
 echo "Done."

@@ -4,11 +4,15 @@
 
 This repo is a static site hosted on Amplify, with an AWS-native durable contact pipeline used to receive and deliver contact messages.
 
-### Secrets and public site config
+### Secrets and deploy configuration (single source of truth)
 
-- **Never commit** Resend keys, `ADMIN_API_KEY`, GCP service-account JSON, or production API URLs. Use **GitHub Actions secrets** (and optional **variables**) for deploy; use **`.env`** locally (gitignored; start from [`.env.example`](.env.example)). For a **single local command** that pushes file-based secrets to **AWS Secrets Manager** then deploys, use **`.secrets/`** + [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) (see below).
-- **Contact API URL** and optional **Looker embed** live in HTML **`<meta>`** tags (`gvp:contact-api-url`, `gvp:traffic-report-embed-url`), not inline secrets. After deploy, run [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) (or the integrate workflow with **sync_api_urls**) to write those metas from `ContactApiUrl` and optional `TRAFFIC_REPORT_EMBED_URL`.
-- **`.gitignore`** excludes `.env*`, **`.secrets/`**, credential JSON patterns, and `aws/.env`. Keep `samconfig.toml` free of real emails; pass parameters via the deploy script or `sam deploy --parameter-overrides`.
+- **Canonical template**: [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) lists every **name** used for SAM deploy (`export …` in the file body). Copy to **`.secrets/deploy.env`** (gitignored), fill real values, `chmod 600`. See [`secrets.example/README.md`](secrets.example/README.md).
+- **Local full pipeline**: [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) — seeds `config.manifest.json`, pushes optional file secrets from `manifest.json` to AWS Secrets Manager, sources `.secrets/deploy.env` + generated files, then runs [`scripts/integrate-and-deploy.sh`](scripts/integrate-and-deploy.sh).
+- **Deploy script only**: `bash scripts/integrate-and-deploy.sh` — if `RESEND_API_KEY` is not already in the environment, it automatically loads **`.secrets/deploy.env`** (and `config.generated.env` / `deploy.generated.env` when present). Same script runs in CI with variables injected from GitHub.
+- **GitHub Actions**: create repository **secrets** with the **same names** as in `deploy.env.example` (no `export` prefix). Optional **variables**: `AWS_REGION`, `SAM_STACK_NAME` (defaults match the example file).
+- **Never commit** real keys, `ADMIN_API_KEY`, or production-only values. **`.gitignore`** excludes **`.secrets/`**, `.env*`, credential JSON patterns, and `aws/.env`. Keep [`aws/samconfig.toml`](aws/samconfig.toml) free of secrets; pass parameters via env / `--parameter-overrides` as the scripts do.
+- **Public site analytics**: events go to **Google Analytics** from the browser (`js/analytics.js` + gtag in `index.html`). The private **admin** page is contact-only.
+- **Contact API URL** is in HTML **`<meta name="gvp:contact-api-url">`**. After deploy, run [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) (or the workflow with **sync_api_urls**) to patch that meta from stack output `ContactApiUrl`.
 
 ### What “success” means
 
@@ -18,58 +22,26 @@ This repo is a static site hosted on Amplify, with an AWS-native durable contact
 
 ### One-step integrate and deploy (GitHub Actions)
 
-Use **Actions → Integrate and deploy → Run workflow** (single job: optional BigQuery secret upsert, `sam build` / `sam deploy`, optional HTML sync). Linking GA4 to BigQuery and creating the GCP service account remain **one-time** steps in Google Cloud / GA4 admin; this workflow automates AWS deploy and optional secret/HTML wiring.
+Use **Actions → Integrate and deploy → Run workflow** (`sam build` / `sam deploy`, optional HTML sync).
 
-1. **Repository variables** (Settings → Secrets and variables → Actions → Variables), optional:
-   - `AWS_REGION` (default `us-east-2`)
-   - `SAM_STACK_NAME` (default `page`, must match your CloudFormation stack)
-   - `TRAFFIC_SECRET_NAME` (default `gvp/ga4-bq-reader` when creating the GCP reader secret from JSON)
+1. **Repository variables** (optional): `AWS_REGION` (default `us-east-2`), `SAM_STACK_NAME` (default `page`).
+2. **Repository secrets** (required for deploy): same names as [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) — `RESEND_API_KEY`, `CONTACT_TO_EMAIL`, `CONTACT_FROM_EMAIL`, `ALARM_EMAIL`, `ADMIN_API_KEY`; optional `CONTACT_REPORT_EMAIL`.
+3. **AWS auth** (workflow input): **OIDC** — `AWS_DEPLOY_ROLE_ARN`; or **keys** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
+4. **Workflow input** **sync_api_urls**: patches `index.html` and `admin/index.html` and uploads artifact **`site-html-api-urls`**.
 
-2. **Repository secrets** (Actions → Secrets), required for every deploy:
-   - `RESEND_API_KEY`, `CONTACT_TO_EMAIL`, `CONTACT_FROM_EMAIL`, `ALARM_EMAIL`, `ADMIN_API_KEY`
-   - **AWS auth (pick one path in the workflow UI)**:
-     - **OIDC**: `AWS_DEPLOY_ROLE_ARN` (IAM role trust: `token.actions.githubusercontent.com` → this repo). Workflow input **aws_auth** = `oidc`.
-     - **Access keys**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. Workflow input **aws_auth** = `keys`.
-
-3. **Traffic / BigQuery (optional)**  
-   - `TRAFFIC_GCP_PROJECT_ID`, `TRAFFIC_BIGQUERY_DATASET`  
-   - `TRAFFIC_GA4_PROPERTY_ID` (optional but recommended; enables live GA4 Data API fallback when BigQuery export is stale/unavailable)
-   - Either `TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN` **or** `GCP_SERVICE_ACCOUNT_JSON` (full service-account JSON; the script upserts Secrets Manager and passes the ARN automatically).
-
-4. **Optional Looker embed (admin iframe)**  
-   - Repository secret `TRAFFIC_REPORT_EMBED_URL`: passed to the sync step when **sync_api_urls** is enabled (written to `gvp:traffic-report-embed-url` meta on `admin/index.html` only).
-
-5. **Workflow inputs**
-   - **sync_api_urls**: if enabled, patches `index.html` and `admin/index.html` metas in the runner and uploads artifact **`site-html-api-urls`** (commit or copy into Amplify manually).
-
-Local equivalent (after `aws login` / `AWS_PROFILE`):
-
-```bash
-export RESEND_API_KEY=... CONTACT_TO_EMAIL=... CONTACT_FROM_EMAIL=... ALARM_EMAIL=... ADMIN_API_KEY=...
-# optional traffic + auto secret:
-export TRAFFIC_GCP_PROJECT_ID=... TRAFFIC_BIGQUERY_DATASET=... TRAFFIC_GA4_PROPERTY_ID=... GCP_SERVICE_ACCOUNT_JSON="$(cat sa.json)"
-# optional: patch HTML after deploy
-export SYNC_API_URLS=1
-# optional: export TRAFFIC_REPORT_EMBED_URL='https://lookerstudio.google.com/embed/...'
-bash scripts/integrate-and-deploy.sh
-```
-
-### Local orchestrated deploy (`.secrets` → Secrets Manager → SAM)
-
-One local entrypoint seeds config + pushes **gitignored** files into **AWS Secrets Manager** (per [`secrets.example/config.manifest.json`](secrets.example/config.manifest.json) and [`secrets.example/manifest.json`](secrets.example/manifest.json)), writes generated env files, loads them with `.secrets/deploy.env`, then runs the same SAM pipeline as CI:
+### Local orchestrated deploy
 
 ```bash
 cp -R secrets.example .secrets
 cp secrets.example/deploy.env.example .secrets/deploy.env
-# Add .secrets/files/gcp-sa.json (BigQuery reader), edit .secrets/deploy.env, .secrets/config.manifest.json, and .secrets/manifest.json, then:
+# Edit .secrets/deploy.env; optional: manifest.json + .secrets/files/
 chmod 600 .secrets/deploy.env .secrets/files/* 2>/dev/null || true
 bash scripts/orchestrate-deploy.sh
 ```
 
-- `TRAFFIC_GCP_PROJECT_ID` default is now seeded as `homepage-496107` from `config.manifest.json`.
-- **Scripts**: [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) → [`scripts/seed_local_configs.py`](scripts/seed_local_configs.py) + [`scripts/push_local_secrets_to_sm.py`](scripts/push_local_secrets_to_sm.py) → [`scripts/integrate-and-deploy.sh`](scripts/integrate-and-deploy.sh).
-- **Override directory**: `SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh`
-- **IAM** (caller identity): `secretsmanager:CreateSecret`, `DescribeSecret`, `PutSecretValue` on manifest secret IDs, plus permissions required for `sam deploy` / CloudFormation.
+Override directory: `SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh`.
+
+**IAM** (caller): `secretsmanager:CreateSecret`, `DescribeSecret`, `PutSecretValue` for manifest secret IDs, plus `sam deploy` / CloudFormation permissions.
 
 ### AWS setup
 
@@ -78,23 +50,11 @@ bash scripts/orchestrate-deploy.sh
 - **Sender Lambda**: `aws/src/contact-sender.js`
 - **Failure report Lambda**: `aws/src/contact-report.js`
 - **Admin Lambda**: `aws/src/contact-admin.js`
-- **Frontend route**: `/api/contact` (default when `gvp:contact-api-url` meta is empty), or set that meta / `window.__CONTACT_API_URL__` from [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) after deploy
-
-### Required environment variables
-
-Set these for the AWS stack / Lambda environment:
-
-- `RESEND_API_KEY`
-- `CONTACT_TO_EMAIL` (recipient inbox)
-- `CONTACT_FROM_EMAIL` (must be a verified sender/domain in Resend)
-- `CONTACT_REPORT_EMAIL` (optional; defaults to `CONTACT_TO_EMAIL`)
-- `ADMIN_API_KEY` (required for `/admin` dashboard access)
-
-For local setup, copy `.env.example` to `.env` and provide the same values when deploying the SAM stack.
+- **Frontend route**: `/api/contact` (default when `gvp:contact-api-url` meta is empty), or set meta / `window.__CONTACT_API_URL__` via [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs)
 
 ### Resend sender verification
 
-Resend requires that the `from` address is verified (domain or sender). Use a sender like:
+Resend requires that the `from` address is verified (domain or sender). Example:
 
 - `CONTACT_FROM_EMAIL=Marwan <no-reply@yourdomain.com>`
 
@@ -110,76 +70,7 @@ Resend requires that the `from` address is verified (domain or sender). Use a se
 - Static page: `admin/index.html`
 - Client: `js/admin.js`
 - Styles: `css/admin.css`
-- API routes:
-  - `GET /api/contact/admin/summary`
-  - `GET /api/contact/admin/messages`
-  - `GET /api/contact/admin/messages/{id}`
-  - `GET /api/contact/admin/health`
-  - `POST /api/contact/admin/retry/{id}`
-  - `POST /api/contact/admin/messages/{id}/suppress-report` (sets `reportSuppressed` on the DynamoDB item so the scheduled failure report email skips it)
-- Auth: send `x-admin-key` matching `ADMIN_API_KEY`
-- Website traffic embed:
-  - Set `<meta name="gvp:traffic-report-embed-url" content="...">` in `admin/index.html` to a Looker Studio **Share → Embed report** URL (or pass `TRAFFIC_REPORT_EMBED_URL` when running the sync script / GitHub Action with **sync_api_urls**).
-  - Recommended flow: GA4 property → Looker Studio (BigQuery data source) → **Share → Embed report** → store URL only in secrets / meta, not in git history.
-  - If left empty, the admin page shows a placeholder instead of rendering the iframe.
-
-### GA4 + BigQuery traffic analytics
-
-The admin dashboard now supports native traffic widgets (sessions, geography, exit pages, session timelines, and bot/human estimates) through BigQuery-backed API routes.
-
-#### 1) Link GA4 to BigQuery
-
-- In GA4 Admin, create a BigQuery link to your GCP project.
-- Ensure export is enabled for daily and intraday events.
-- Verify tables are arriving in dataset: `events_YYYYMMDD`.
-- BigQuery contains data only from when the link is enabled forward. It does not backfill full historical GA4 raw events unless you run a separate backfill/transfer process.
-
-#### 2) Configure AWS stack for traffic API
-
-Set these additional SAM parameters when deploying `aws/template.yaml`:
-
-- `TrafficGcpProjectId`: GCP project ID that owns BigQuery dataset
-- `TrafficBigQueryDataset`: Dataset name containing GA4 `events_*` tables
-- `TrafficServiceAccountSecretArn`: Secrets Manager ARN with service account JSON
-- `TrafficGa4PropertyId` (optional but recommended): GA4 numeric property ID for live Data API fallback
-
-Required secret payload keys:
-
-- `client_email`
-- `private_key`
-
-In the **same GCP project** that owns that service account, enable **Google Analytics Data API** (APIs & Services → Library). If this API is disabled, GA4 live traffic calls return errors like “Analytics Data API has not been used in project … before or it is disabled.”
-
-Grant that service account access to the **GA4 property** (API enablement alone is not enough): GA4 → **Admin** → **Property access management** → add the service account email with at least **Viewer**. Use the numeric **Property ID** from **Admin → Property settings** as `TRAFFIC_GA4_PROPERTY_ID` / `TrafficGa4PropertyId` (not the Measurement ID `G-…`).
-
-The same `ADMIN_API_KEY` protects contact and traffic admin APIs.
-
-Runtime behavior:
-
-- `summary`, `geo`, and `exit-pages` are **GA4 Data API first** for fresher data.
-- `summary` adds complementary BigQuery bot/human estimates when BigQuery export is fresh (latest `events_YYYYMMDD` within 1 day).
-- Session-level endpoints (`sessions`, `sessions/{sessionKey}`) remain BigQuery-backed because GA4 Data API does not provide equivalent event timeline detail.
-- Response payloads include `data_source` and may include `complementary_source` / freshness metadata.
-
-#### 3) Configure admin frontend endpoints
-
-In `admin/index.html`, inline scripts read from metas:
-
-- `gvp:contact-api-url` → sets contact, admin, and traffic API bases (`…/api/contact`, `…/admin`, `…/admin/traffic`)
-- `gvp:traffic-report-embed-url` → Looker iframe URL (optional)
-
-#### 4) Event taxonomy captured client-side
-
-GA4 now receives structured events for session analysis:
-
-- `page_view` (virtual routes: home/playground/portfolio)
-- `section_navigation` (origin and destination sections)
-- `theme_change` (space/garden)
-- `project_interaction` (`open_details`, `open_link`, `open_dialog`, `close_dialog`)
-- existing outbound click events via `data-track`
-
-Create matching GA4 custom dimensions for params like `section`, `origin_section`, `interaction_type`, `project_id`, and `theme` if you want richer reporting in GA4 UI.
-
-The admin page is intentionally separate from the public site shell. It is not linked publicly and should be accessed directly only by operators.
+- API routes: `GET /api/contact/admin/summary`, `messages`, `messages/{id}`, `health`; `POST /api/contact/admin/retry/{id}`, `messages/{id}/suppress-report`
+- Auth: header `x-admin-key` matching `ADMIN_API_KEY` from deploy env
 
 Scheduled failure reports (`aws/src/contact-report.js`) only include non-sent messages with `attempts > 0` and **exclude** items where `reportSuppressed` is true.

@@ -1,7 +1,6 @@
 node_modules
 .env
 .env.*
-!.env.example
 aws/.env
 
 # GCP / AWS credentials (never commit)

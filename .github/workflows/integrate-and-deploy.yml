@@ -28,6 +28,7 @@ concurrency:
 jobs:
   integrate-deploy:
     runs-on: ubuntu-latest
+    # Secret names match secrets.example/deploy.env.example (without the "export" prefix).
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
       SAM_STACK_NAME: ${{ vars.SAM_STACK_NAME || 'page' }}
@@ -37,13 +38,6 @@ jobs:
       CONTACT_REPORT_EMAIL: ${{ secrets.CONTACT_REPORT_EMAIL }}
       ALARM_EMAIL: ${{ secrets.ALARM_EMAIL }}
       ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
-      TRAFFIC_GCP_PROJECT_ID: ${{ secrets.TRAFFIC_GCP_PROJECT_ID }}
-      TRAFFIC_BIGQUERY_DATASET: ${{ secrets.TRAFFIC_BIGQUERY_DATASET }}
-      TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN: ${{ secrets.TRAFFIC_SERVICE_ACCOUNT_SECRET_ARN }}
-      TRAFFIC_GA4_PROPERTY_ID: ${{ secrets.TRAFFIC_GA4_PROPERTY_ID }}
-      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
-      TRAFFIC_SECRET_NAME: ${{ vars.TRAFFIC_SECRET_NAME }}
-      TRAFFIC_REPORT_EMBED_URL: ${{ secrets.TRAFFIC_REPORT_EMBED_URL }}
       SYNC_API_URLS: ${{ inputs.sync_api_urls == true && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4

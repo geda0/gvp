@@ -2,9 +2,9 @@
 # Local CI/CD: seed local config + push file secrets to AWS Secrets Manager, then SAM deploy.
 #
 # Prereq: aws CLI + SAM CLI; copy secrets.example → .secrets and fill
-#   - manifest.json (file secrets)
-#   - config.manifest.json (non-secret config values)
-#   - deploy.env
+#   - deploy.env (from secrets.example/deploy.env.example — canonical list of deploy var names)
+#   - manifest.json (optional file secrets)
+#   - config.manifest.json (optional non-secret config exports)
 # See secrets.example/README.md
 #
 # Optional: SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh
