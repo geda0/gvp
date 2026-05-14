@@ -45,6 +45,8 @@ SYNONYMS: dict[str, set[str]] = {
     'graphql': {'graphql', 'graph ql', 'apollo'},
     'kubernetes': {'kubernetes', 'k8s', 'kube'},
     'mongodb': {'mongodb', 'mongo db', 'mongo'},
+    'microservices': {'microservices', 'microservice', 'service oriented', 'soa'},
+    'mentoring': {'mentoring', 'mentor', 'leadership', 'led teams', 'team lead'},
 }
 
 

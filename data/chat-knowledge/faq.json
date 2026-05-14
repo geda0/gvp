@@ -1,5 +1,6 @@
 [
   {
+    "id": "contact-preferred-channel",
     "q": [
       "how do i contact him",
       "can i reach out",
@@ -11,6 +12,7 @@
     "trigger_tool": "open_contact_form"
   },
   {
+    "id": "resume-access",
     "q": [
       "can i see the resume",
       "do you have a cv",
@@ -21,6 +23,67 @@
     "trigger_tool": "open_resume"
   },
   {
+    "id": "leave-apptio-why",
+    "q": [
+      "why did you leave apptio",
+      "why did he leave apptio",
+      "why did he leave ibm",
+      "what happened at apptio"
+    ],
+    "a": "Apptio was acquired by IBM during Marwan's time there. As the organization integrated, it shifted toward more process overhead and company-wide structural changes. He's looking for a role with more direct technical ownership."
+  },
+  {
+    "id": "looking-for-next-role",
+    "q": [
+      "what is he looking for",
+      "what does he want next",
+      "what kind of role",
+      "what's next for him",
+      "what are you looking for next",
+      "why is he looking"
+    ],
+    "a": "Marwan is looking for a senior role where he can own systems end to end — architecture and platform work on data-intensive, cloud-native products. He works best with direct technical ownership and a high bar, and brings 15+ years of doing exactly that at HP, JumpCloud, and Apptio."
+  },
+  {
+    "id": "most-impressive-accomplishment",
+    "q": [
+      "most impressive accomplishment",
+      "impressive accomplishment",
+      "biggest accomplishment",
+      "proudest achievement",
+      "signature win",
+      "what is he most proud of",
+      "tell me about an accomplishment you're especially proud of"
+    ],
+    "a": "Marwan planned and executed the scaling of HP's Instant Ink subscription service from thousands to millions of customers, globally. He transformed a Ruby on Rails monolith into cloud-native microservices and data pipelines using Domain-Driven Design and Test-Driven Development — completed in a matter of months, across 4 geographically distributed teams, with service reliability maintained throughout."
+  },
+  {
+    "id": "most-challenging-technical-problem",
+    "q": [
+      "most challenging technical problem",
+      "most challenging project",
+      "hardest technical",
+      "most challenging engineering",
+      "toughest technical problem",
+      "most complex migration",
+      "hardest problem he solved",
+      "what project challenged you the most, and how did you approach it"
+    ],
+    "a": "At Apptio, Marwan migrated Kubernetes and Java workloads to EMR Spark with Scala to solve a scaling and cost problem — pipelines were running for days and getting expensive. The hard part was correctness: financial datasets have zero tolerance for drift. He built a reconciliation pipeline that ran both systems in parallel and flagged discrepancies, which gave the team confidence to cut over incrementally rather than all at once. The result was roughly 10x faster processing with zero correctness drift."
+  },
+  {
+    "id": "platform-architecture-experience",
+    "q": [
+      "platform architecture",
+      "platform architecture experience",
+      "architecture experience",
+      "system design experience",
+      "how do you approach platform architecture"
+    ],
+    "a": "Platform architecture is the core of Marwan's work. At HP he decomposed a Rails monolith into cloud-native microservices on AWS using Domain-Driven Design. At JumpCloud he architected a hybrid Postgres and MongoDB data layer for a multi-tenant identity platform serving 50,000+ tenants. At Apptio he designed and migrated data-processing pipelines for high-volume financial datasets. The through-line: clear service boundaries, operable systems, and designs that scale with both data and teams."
+  },
+  {
+    "id": "compensation-direct-channel",
     "q": [
       "what's his salary expectation",
       "how much does he want",
@@ -29,6 +92,7 @@
     "a": "That's not something I can answer here. Marwan handles compensation conversations directly, and the contact form is the right channel."
   },
   {
+    "id": "identity-disclosure-agent",
     "q": [
       "are you marwan",
       "is this marwan",
@@ -37,42 +101,16 @@
     "a": "No. I'm an assistant embedded in Marwan's portfolio site. I can answer questions about his work and route you to him when needed, but I'm not Marwan."
   },
   {
-    "q": [
-      "most impressive",
-      "biggest accomplishment",
-      "proudest achievement",
-      "signature win",
-      "what is he most proud of"
-    ],
-    "a": "He often points to scaling HP's Instant Ink subscription platform from thousands to millions of customers globally: moving from a Ruby on Rails monolith toward cloud-native, event-driven microservices with Domain-Driven Design and strong testing, in months, with four distributed teams, while keeping reliability and availability in focus."
-  },
-  {
-    "q": [
-      "hardest technical",
-      "most challenging engineering",
-      "toughest technical problem",
-      "most complex migration",
-      "hardest problem he solved"
-    ],
-    "a": "At Apptio, migrating Java and Kubernetes workloads to EMR Spark with Scala for scale and cost. Financial datasets tolerate essentially no correctness drift. He built a parallel reconciliation pipeline that ran legacy and new processing together, surfaced discrepancies, and allowed incremental cutover with confidence."
-  },
-  {
-    "q": [
-      "why did he leave apptio",
-      "why leave apptio",
-      "why did he leave ibm apptio",
-      "motivation to leave apptio"
-    ],
-    "a": "Apptio was acquired by IBM during his tenure. Over time the organization added more process overhead and company-wide priorities shifted. For what he wants next in a role, the contact form is the best channel."
-  },
-  {
+    "id": "ai-tooling-usage",
     "q": [
       "cursor",
       "claude code",
       "ai coding tools",
       "copilot",
-      "llm for coding"
+      "llm for coding",
+      "does he use ai tools",
+      "does marwan use ai"
     ],
-    "a": "He uses Cursor and Claude Code daily: Claude for large-initiative planning and documentation, Cursor for prototyping and writing code, and multi-model workflows to improve speed and quality, with human review on production and correctness-sensitive work."
+    "a": "Marwan works with AI-assisted tooling daily: planning large initiatives and generating documentation with Claude, prototyping and writing code in Cursor, and using multi-model workflows to move faster without lowering the quality bar. This portfolio's chat agent is itself an example of that practice."
   }
 ]

@@ -299,10 +299,5 @@ function createProjectCard(project) {
     div.appendChild(p);
   }
 
-  const hint = document.createElement('p');
-  hint.className = 'project__hint';
-  hint.textContent = `View details${project.link ? ' · link inside' : ''}`;
-  div.appendChild(hint);
-
   return div;
 }
