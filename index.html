@@ -23,31 +23,11 @@
     <link rel="stylesheet" href="css/spaceman.css" />
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYTRKC93DL"></script>
-    <!-- Contact API: set meta content to your deployed URL (.../api/contact). CI: scripts/sync-site-api-urls.mjs -->
+    <!-- API base URLs: set meta content to your deployed URLs. CI: scripts/sync-site-api-urls.mjs -->
     <meta name="gvp:contact-api-url" content="https://fvfqpef8kb.execute-api.us-east-2.amazonaws.com/api/contact" />
-    <script>
-        (function () {
-            var m = document.querySelector('meta[name="gvp:contact-api-url"]')
-            var raw = (m && m.getAttribute('content') || '').trim()
-            var cleaned = raw.replace(/\/+$/, '')
-            var host = (window.location && window.location.hostname) || ''
-            var isLocal = host === 'localhost' || host === '127.0.0.1'
-            var base = cleaned || (isLocal ? '/api/contact' : '')
-            window.__CONTACT_API_URL__ = base
-        })()
-    </script>
     <meta name="gvp:chat-api-url" content="https://m7qmz78kb6.execute-api.us-east-2.amazonaws.com/api/chat" />
-    <script>
-        (function () {
-            var m = document.querySelector('meta[name="gvp:chat-api-url"]')
-            var raw = (m && m.getAttribute('content') || '').trim()
-            var cleaned = raw.replace(/\/+$/, '')
-            var host = (window.location && window.location.hostname) || ''
-            var isLocal = host === 'localhost' || host === '127.0.0.1'
-            var base = cleaned || (isLocal ? '/api/chat' : '')
-            window.__CHAT_API_URL__ = base
-        })()
-    </script>
+    <!-- Classic (non-module) script: sets window.__CONTACT_API_URL__ / window.__CHAT_API_URL__ before the deferred app module runs -->
+    <script src="js/config-bootstrap.js"></script>
 </head>
 
 <body>

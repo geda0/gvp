@@ -9,7 +9,12 @@ import {
   UpdateCommand
 } from '@aws-sdk/lib-dynamodb'
 import { GetQueueAttributesCommand, SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs'
-import { json, optionsResponse, unauthorized } from './common/contact-shared.js'
+import {
+  json as jsonBase,
+  optionsResponse,
+  resolveCorsOrigin,
+  unauthorized as unauthorizedBase
+} from './common/contact-shared.js'
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const sqs = new SQSClient({})
@@ -181,12 +186,20 @@ async function getSummary() {
   let bestFailure = null
   let startKey
 
+  // Query the byCreatedAt GSI (listPk = CONTACT) instead of a full-table scan.
+  // Every contact item carries listPk: 'CONTACT', so this tallies the same rows
+  // while only touching contact items. ProjectionExpression keeps the payload
+  // small. Legacy items written before listPk backfill are not in the GSI; run
+  // backfill-listpk.js to include them.
   do {
     const response = await ddb.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: process.env.CONTACT_MESSAGES_TABLE,
+        IndexName: BY_CREATED_AT,
+        KeyConditionExpression: 'listPk = :pk',
         ProjectionExpression: '#st, createdAt, deliveredAt, lastError, email, id',
         ExpressionAttributeNames: { '#st': 'status' },
+        ExpressionAttributeValues: { ':pk': LIST_PK },
         ExclusiveStartKey: startKey
       })
     )
@@ -527,8 +540,12 @@ async function suppressReport(id) {
 }
 
 export const handler = async (event) => {
+  const origin = resolveCorsOrigin(event)
+  const json = (statusCode, obj) => jsonBase(statusCode, obj, origin)
+  const unauthorized = () => unauthorizedBase(origin)
+
   const method = getMethod(event)
-  if (method === 'OPTIONS') return optionsResponse()
+  if (method === 'OPTIONS') return optionsResponse(origin)
   if (!requireAdminKey(event)) return unauthorized()
 
   const path = getPath(event)

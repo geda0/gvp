@@ -1,7 +1,23 @@
 // projects.js - Project data loading and rendering
 import { trackProjectInteraction } from './analytics.js'
+// Detail cache keyed by project id. Bounded in practice by the project count
+// in data/projects.json (populated once per render, small N) — no eviction needed.
 const projectDetailsById = new Map();
 let dialogBootstrapped = false;
+// How long to wait for a dialog image before giving up and revealing the
+// dialog anyway, so a hung image request never leaves it stuck loading.
+const DIALOG_IMAGE_TIMEOUT_MS = 8000;
+
+/**
+ * Strip HTML to plain text robustly via a detached element's textContent,
+ * instead of a regex that mishandles edge cases (entities, malformed tags).
+ */
+function htmlToPlainText(html) {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return (tmp.textContent || '').trim();
+}
 
 export async function loadProjects(url) {
   try {

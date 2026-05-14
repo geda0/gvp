@@ -50,6 +50,12 @@ Globals:
 Resources:
   ChatHttpApi:
     Type: AWS::Serverless::HttpApi
+    Properties:
+      # Conservative stage-level throttling — protects the Gemini API key from
+      # cost abuse on a personal portfolio chat endpoint.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
   ChatFunction:
     Type: AWS::Serverless::Function
     Metadata:

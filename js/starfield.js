@@ -46,11 +46,23 @@ export function initStarfield(canvasId, options = {}) {
   /** Set in drawSpace each frame; Star.move multiplies depth speed by this. */
   let starSpeedScale = 1;
 
+  // Precomputed color palette: stars pick from this instead of building an
+  // hsl() string on every spawn/respawn. Visually equivalent to randomColor().
+  const STAR_PALETTE_SIZE = 64;
+  const starPalette = [];
+  for (let i = 0; i < STAR_PALETTE_SIZE; i++) {
+    starPalette.push(randomColor());
+  }
+
+  function paletteColor() {
+    return starPalette[(Math.random() * STAR_PALETTE_SIZE) | 0];
+  }
+
   function Star() {
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
     this.z = Math.random() * canvas.width;
-    this.color = randomColor();
+    this.color = paletteColor();
     this.size = Math.random() / 2;
     this.px = null;
     this.py = null;
@@ -65,7 +77,7 @@ export function initStarfield(canvasId, options = {}) {
         this.z = canvas.width;
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
-        this.color = randomColor();
+        this.color = paletteColor();
         this.px = null;
         this.py = null;
       }

@@ -104,9 +104,24 @@ export function initContactForm() {
         body: JSON.stringify(payload)
       })
 
-      const body = await res.json().catch(() => ({}))
+      // Backend may return HTML (e.g. a gateway/proxy error page) instead of JSON.
+      // Tolerate that: only parse JSON when the response advertises it.
+      const contentType = res.headers.get('content-type') || ''
+      const body = contentType.includes('application/json')
+        ? await res.json().catch(() => ({}))
+        : {}
+
       if (!res.ok) {
-        const msg = body?.error || 'Delivery failed. Try again.'
+        let msg = body?.error
+        if (!msg) {
+          if (res.status >= 400 && res.status < 500) {
+            // Validation / bad request — surface the server message if any, else a generic hint.
+            msg = 'Please check your details and try again.'
+          } else {
+            // 5xx or unexpected — server-side failure.
+            msg = 'The server had a problem. Try again in a moment.'
+          }
+        }
         setStatus(msg, 'error')
         return
       }

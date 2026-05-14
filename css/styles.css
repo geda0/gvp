@@ -705,6 +705,12 @@ body > footer a:hover {
     text-underline-offset: 3px;
 }
 
+body > footer a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
 .canvas-container {
     top: 0;
     left: 0;
@@ -804,6 +810,9 @@ body:not(.content-open) section#home {
     height: auto;
 }
 
+/* Project sections: a responsive grid so cards fill the available width
+   instead of stacking in one narrow column with dead space on wide viewports.
+   The section-label header spans the full row; cards auto-fit below it. */
 section#projects,
 section#portfolioProjects {
     margin-top: 5rem;
@@ -812,9 +821,50 @@ section#portfolioProjects {
     z-index: 1;
     transform-origin: center center;
     transition: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    align-content: start;
+    justify-content: center;
+    gap: 1.25rem;
+    width: 100%;
+    max-width: 1180px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+}
+
+section#projects > .section-label,
+section#portfolioProjects > .section-label {
+    grid-column: 1 / -1;
+    margin-bottom: 0;
+}
+
+section#projects > .projects-load-error,
+section#portfolioProjects > .projects-load-error {
+    grid-column: 1 / -1;
+}
+
+/* Cards stretch to fill their grid track; lone card stays comfortably capped. */
+section#projects .project,
+section#portfolioProjects .project {
+    margin: 0;
+    max-width: 100%;
+    width: 100%;
+}
+
+/* A single card should not stretch full-bleed — keep it centered and capped. */
+section#projects:has(> .project:only-of-type),
+section#portfolioProjects:has(> .project:only-of-type) {
+    grid-template-columns: minmax(0, 30rem);
+}
+
+@media (max-width: 767px) {
+    section#projects,
+    section#portfolioProjects {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+        max-width: 360px;
+    }
 }
 
 .section-label {
@@ -877,7 +927,7 @@ section#portfolioProjects.visible.content-section-reveal {
     max-width: min(1120px, calc(100vw - 2rem));
     margin: 0 auto;
     padding-top: 28px;
-    padding-bottom: clamp(2.75rem, 9vh, 5.5rem);
+    padding-bottom: clamp(2rem, 5vh, 3.25rem);
     text-align: center;
     position: relative;
     z-index: 10;
@@ -995,7 +1045,7 @@ section#portfolioProjects.visible.content-section-reveal {
 .experience-summary {
     max-width: 44rem;
     margin: 0 auto;
-    padding: 1.5rem 1.25rem 0;
+    padding: 0 1.25rem;
     text-align: center;
 }
 
@@ -1071,6 +1121,12 @@ section#portfolioProjects.visible.content-section-reveal {
 .cta-secondary:hover {
     background: var(--surface);
     border-color: var(--accent);
+}
+
+.cta-primary:focus-visible,
+.cta-secondary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 .hero-highlights {

@@ -18,6 +18,10 @@ Parameters:
   AdminApiKey:
     Type: String
     NoEcho: true
+  ContactCorsOrigins:
+    Type: String
+    Default: 'https://marwanelgendy.link,https://www.marwanelgendy.link'
+    Description: Comma-separated browser origins allowed by the contact Lambdas (CORS allowlist). First entry is the primary fallback origin.
 
 Globals:
   Function:
@@ -33,6 +37,7 @@ Globals:
         CONTACT_TO_EMAIL: !Ref ContactToEmail
         CONTACT_FROM_EMAIL: !Ref ContactFromEmail
         CONTACT_REPORT_EMAIL: !Ref ContactReportEmail
+        CONTACT_CORS_ORIGINS: !Ref ContactCorsOrigins
 
 Resources:
   ContactApi:
@@ -42,6 +47,45 @@ Resources:
         AllowMethods: [OPTIONS, GET, POST]
         AllowHeaders: [Content-Type, x-admin-key]
         AllowOrigins: ['*']
+      # Conservative stage-level throttling for a personal portfolio.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+      # Tighter limits on admin routes (low-traffic, sensitive).
+      RouteSettings:
+        'GET /api/contact/admin/summary':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/contact/admin/messages':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/contact/admin/messages/{id}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/contact/admin/health':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'POST /api/contact/admin/retry/{id}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'POST /api/contact/admin/messages/{id}/suppress-report':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/chat/admin/transcripts':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/chat/admin/transcripts/{id}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'POST /api/chat/admin/transcripts/{id}/note':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'POST /api/chat/admin/transcripts/{id}/reviewed':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/chat/admin/transcripts/summary':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
 
   ContactMessagesTable:
     Type: AWS::DynamoDB::Table
@@ -212,6 +256,8 @@ Resources:
                 - !GetAtt ContactDeliveryDlq.Arn
             - Effect: Allow
               Action:
+                # cloudwatch:DescribeAlarms does not support resource-level
+                # permissions, so this action must use Resource: '*'.
                 - cloudwatch:DescribeAlarms
               Resource: '*'
       Events:

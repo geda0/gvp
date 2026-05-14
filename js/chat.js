@@ -1,5 +1,5 @@
 import { trackEvent } from './analytics.js'
-import { chatBus } from './chat-bus.js'
+import { chatBus, normalizeSection } from './chat-bus.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 
@@ -72,10 +72,6 @@ function launcherReadOnlyForDevice() {
 
 export function collapseChatDialog() {
   collapseChat()
-}
-
-function normalizeSection(section) {
-  return section === 'playground' || section === 'portfolio' ? section : 'home'
 }
 
 export function syncChatLaunchers(section = 'home') {
@@ -248,14 +244,32 @@ export function initChat() {
     composerInput.style.overflowY = composerInput.scrollHeight > MAX_COMPOSER_HEIGHT ? 'auto' : 'hidden'
   }
 
-  const scrollMessagesToBottom = () => {
-    const prefersReduced = typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const NEAR_BOTTOM_THRESHOLD_PX = 120
+  let scrollCoalesceRaf = null
 
+  const scrollMessagesToBottom = (force = false) => {
     const target = messagesEl.closest('.chat-dialog__scroll') || messagesEl
-    target.scrollTo({
-      top: target.scrollHeight,
-      behavior: prefersReduced ? 'auto' : 'smooth'
+    // Only auto-smooth-scroll when the user is already near the bottom; if they
+    // scrolled up to read history, leave them be. Coalesce rapid calls so long
+    // transcripts (streaming/voice) do not jank with one scrollTo per fragment.
+    // `force` is used for user-initiated sends, which should always land at the bottom.
+    if (!force) {
+      const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+      const nearBottom = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD_PX
+      if (!nearBottom) return
+    }
+
+    if (scrollCoalesceRaf) cancelAnimationFrame(scrollCoalesceRaf)
+    scrollCoalesceRaf = requestAnimationFrame(() => {
+      scrollCoalesceRaf = null
+      const prefersReduced = typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      // Smooth only for short lists; instant jump avoids jank on long transcripts.
+      const longTranscript = messagesEl.children.length > 30
+      target.scrollTo({
+        top: target.scrollHeight,
+        behavior: (prefersReduced || longTranscript) ? 'auto' : 'smooth'
+      })
     })
   }
 
@@ -330,7 +344,7 @@ export function initChat() {
 
     messagesEl.appendChild(item)
     syncEmptyState()
-    scrollMessagesToBottom()
+    scrollMessagesToBottom(Boolean(options.forceScroll))
     return item
   }
 
@@ -536,16 +550,38 @@ export function initChat() {
     }
   }
 
-  const postChat = async (history) => {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: history,
-        stream: false,
-        sessionId: state.sessionId
+  const CHAT_MAX_RETRIES = 2
+  const CHAT_RETRY_BACKOFF_MS = [400, 900]
+
+  // Marker error: thrown for transient failures (429 / network) so the retry
+  // loop knows it may try again; the `.message` is already user-facing.
+  const makeRetryableError = (message) => {
+    const err = new Error(message)
+    err.retryable = true
+    return err
+  }
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const postChatOnce = async (history) => {
+    let response
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: history,
+          stream: false,
+          sessionId: state.sessionId
+        })
       })
-    })
+    } catch (_) {
+      // fetch() rejects on offline / DNS / connection reset — all transient.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw makeRetryableError('You appear to be offline. Check your connection and try again.')
+      }
+      throw makeRetryableError('Could not reach the chat service. Check your connection and try again.')
+    }
 
     const text = await response.text()
     let body = {}
@@ -560,7 +596,12 @@ export function initChat() {
     if (!response.ok) {
       const detail = body?.detail || body?.error
       if (response.status === 429) {
-        throw new Error('Service is busy. Try again in a moment.')
+        throw makeRetryableError('Service is busy. Try again in a moment.')
+      }
+      if (response.status >= 500) {
+        // Server errors are not retried here (could be a hard failure), but
+        // surface them specifically rather than as a generic message.
+        throw new Error('The chat service hit an error. Try again shortly.')
       }
       if (typeof detail === 'string' && detail.trim()) {
         throw new Error(detail.trim())
@@ -574,6 +615,22 @@ export function initChat() {
       : ''
     const actions = Array.isArray(body?.actions) ? body.actions : []
     return { reply, model, actions }
+  }
+
+  const postChat = async (history) => {
+    let lastError = null
+    for (let attempt = 0; attempt <= CHAT_MAX_RETRIES; attempt++) {
+      try {
+        return await postChatOnce(history)
+      } catch (error) {
+        lastError = error
+        if (!error || !error.retryable || attempt === CHAT_MAX_RETRIES) {
+          throw error
+        }
+        await sleep(CHAT_RETRY_BACKOFF_MS[attempt] || 900)
+      }
+    }
+    throw lastError || new Error('Chat request failed. Try again.')
   }
 
   const sendMessage = async (rawText, source = 'composer') => {
@@ -600,7 +657,7 @@ export function initChat() {
     chatBus.emit('sending', { source })
 
     setStatus('')
-    appendMessage('user', text)
+    appendMessage('user', text, { forceScroll: true })
     state.history = state.history.concat({ role: 'user', content: text })
     if (source === 'composer') {
       composerInput.value = ''
@@ -608,7 +665,7 @@ export function initChat() {
     }
 
     setComposerBusy(true)
-    const pendingAssistant = appendMessage('assistant', '', { streaming: true })
+    const pendingAssistant = appendMessage('assistant', '', { streaming: true, forceScroll: true })
 
     try {
       chatBus.emit('thinking', { source })
@@ -648,14 +705,12 @@ export function initChat() {
   const openPanelWithDraft = (text, _source = 'hero', options = {}) => {
     const body = String(text || '').trim()
     if (!body) return
-    const intentPill = typeof options.intentPill === 'string'
-      ? options.intentPill.trim()
-      : (typeof options.suggestedPromptPill === 'string' ? options.suggestedPromptPill.trim() : '')
     openPanel()
     composerInput.value = body
     autosizeComposer()
-    if (intentPill) setIntentPill(intentPill)
-    else clearIntentPill()
+    // The draft already lives (editable) in the composer; an intent pill here
+    // would echo the same question a second time, so keep just the composer.
+    clearIntentPill()
     reconcileComposerControls()
     requestAnimationFrame(() => {
       if (!isOpen()) return

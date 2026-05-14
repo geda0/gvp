@@ -3,6 +3,11 @@ const listeners = new Set()
 let currentState = 'idle'
 let currentDetail = {}
 
+/** Shared section-name normalization used by chat.js and agent-node.js. */
+export function normalizeSection(section) {
+  return section === 'playground' || section === 'portfolio' ? section : 'home'
+}
+
 function normalizeState(state) {
   const raw = String(state || '').trim().toLowerCase()
   if (!raw) return 'idle'

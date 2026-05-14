@@ -1,4 +1,4 @@
-import { chatBus } from './chat-bus.js'
+import { chatBus, normalizeSection } from './chat-bus.js'
 
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
@@ -9,34 +9,38 @@ const LIFECYCLE_STATES = ['sending', 'thinking', 'streaming', 'tool_call', 'erro
 const PLACEHOLDER_POOL = {
   home: [
     {
+      teaser: 'Ask about my Apptio work',
+      deepQuestion: 'What did you work on at Apptio (IBM)? Walk me through the financial data pipelines, the problems you solved, and the impact you had.'
+    },
+    {
+      teaser: "What's your AWS experience?",
+      deepQuestion: 'Tell me about your hands-on AWS experience: which services you have used in production, the scale you operated at, and a system you are proud of.'
+    },
+    {
+      teaser: 'What was your hardest project?',
+      deepQuestion: 'What is the hardest project you have worked on? Describe the problem, the constraints, your role, and how you got it across the line.'
+    },
+    {
       teaser: 'Walk me through how you design platform boundaries.',
       deepQuestion: 'How do you approach platform architecture—interfaces, ownership boundaries, and operability—and what trade-offs showed up most clearly at HP Instant Ink or JumpCloud scale?'
     },
     {
       teaser: 'What outcome still feels worth the trade-offs?',
       deepQuestion: 'Tell me about an accomplishment you are especially proud of: the problem, your role, constraints, measurable impact if you can share it, and what you would refine with hindsight.'
-    },
-    {
-      teaser: 'How do AI tools change your spec-to-ship loop?',
-      deepQuestion: 'How do AI-assisted workflows (planning, documentation, coding in Cursor or similar) change how you deliver without lowering review quality, security, or accountability for production systems?'
-    },
-    {
-      teaser: 'Pick one data-heavy system to unwind end-to-end.',
-      deepQuestion: 'Choose a thread across your work on AWS, Kubernetes, Spark, EMR, or Databricks and walk through one pipeline or service end to end: inputs, failure modes, SLAs, and how you validated correctness under load.'
     }
   ],
   playground: [
     {
+      teaser: 'What is this project and why did you build it?',
+      deepQuestion: 'What is this playground project, what problem or idea does it explore, and what did you set out to learn by building it?'
+    },
+    {
+      teaser: 'What tech stack did you use here?',
+      deepQuestion: 'What tech stack did you pick for this experiment, what alternatives did you consider, and why did you choose this one?'
+    },
+    {
       teaser: 'Which experiment should we stress-test for trade-offs?',
       deepQuestion: 'Which playground project should we dissect first—what hypothesis did it test, what stack did you pick over alternatives, and what would you instrument or simplify on a second iteration?'
-    },
-    {
-      teaser: 'Want problem framing, stack, or what you would try next?',
-      deepQuestion: 'For the experiment you care about most here, restate the problem in one paragraph, summarize the architecture you shipped, and list the top three risks you would mitigate before promoting it beyond a demo.'
-    },
-    {
-      teaser: 'How did you validate the idea without over-building?',
-      deepQuestion: 'How did you validate this experiment quickly—spikes, metrics, user feedback, or operational signals—and where did you consciously defer polish to learn faster?'
     },
     {
       teaser: 'What integration boundary hurt most—and how did you fix it?',
@@ -45,20 +49,20 @@ const PLACEHOLDER_POOL = {
   ],
   portfolio: [
     {
+      teaser: 'Tell me about this role',
+      deepQuestion: 'Tell me about this role: what you owned, the org context, and the work that best shows how you operate.'
+    },
+    {
+      teaser: 'What did you ship here?',
+      deepQuestion: 'What is one concrete thing you shipped in this role—a migration, launch, or platform change—and how did you make sure it landed safely?'
+    },
+    {
       teaser: 'Which role should we go deep on first?',
       deepQuestion: 'Which portfolio position should we unpack in depth—scope, org context, and the one deliverable or initiative that best shows how you lead execution from design through stable operations?'
     },
     {
-      teaser: 'Do you want scope, metrics, or team impact emphasized?',
-      deepQuestion: 'For your strongest role here, separate scope (what you owned), metrics (outcomes you can share), and team impact (mentoring, bar-raising). Which lens matters most for the job you are targeting?'
-    },
-    {
       teaser: 'Unpack a deliverable you still stand behind years later.',
       deepQuestion: 'Pick one concrete deliverable from this role—migration, platform cutover, reliability push, or customer-facing launch—and walk through stakeholders, timeline pressure, and how you proved it was done safely.'
-    },
-    {
-      teaser: 'How does this chapter connect to what you optimize for now?',
-      deepQuestion: 'How does this portfolio chapter connect to the problems you optimize for today—identity, data platforms, SaaS scale, or leadership—and what skill from then do you still lean on every week?'
     }
   ]
 }
@@ -75,10 +79,6 @@ function normalizePoolEntry(entry) {
 }
 
 let currentDeepQuestion = ''
-
-function normalizeSection(section) {
-  return section === 'playground' || section === 'portfolio' ? section : 'home'
-}
 
 function normalizeSlot(slot) {
   return slot === 'navbar' ? 'navbar' : 'hero'

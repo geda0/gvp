@@ -17,6 +17,7 @@ import {
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
+import { initProjectObserver } from './project-observer.js'
 import { initChat, collapseChatDialog, syncChatLaunchers } from './chat.js'
 import { initAgentNode } from './agent-node.js'
 
@@ -121,46 +122,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Intersection Observer: set spaceman context to the project card most in view
   const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project')
-  const ratios = new Map()
-  const THRESHOLD = 0.1
-  let visibleProjectRaf = 0
-
-  function updateVisibleProject() {
-    if (!spaceman) return;
-    let best = { ratio: 0, card: null };
-    ratios.forEach((ratio, card) => {
-      if (ratio > best.ratio) {
-        const section = card.closest('#playgroundContent') ? 'playground' : card.closest('#portfolioContent') ? 'portfolio' : null;
-        if (section === currentSection) best = { ratio, card };
+  const projectObserver = initProjectObserver(projectCards, {
+    getCurrentSection: () => currentSection,
+    onVisibleChange: (card) => {
+      if (!spaceman) return
+      if (!card) {
+        spaceman.setContext(null)
+        return
       }
-    });
-    if (best.ratio < THRESHOLD || !best.card) {
-      spaceman.setContext(null);
-      return;
+      spaceman.setContext({
+        projectId: card.getAttribute('data-project-id') || '',
+        projectTitle: card.getAttribute('data-project-title') || '',
+        projectDescription: card.getAttribute('data-project-description') || ''
+      })
     }
-    const c = best.card;
-    spaceman.setContext({
-      projectId: c.getAttribute('data-project-id') || '',
-      projectTitle: c.getAttribute('data-project-title') || '',
-      projectDescription: c.getAttribute('data-project-description') || ''
-    });
-  }
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        ratios.set(entry.target, entry.intersectionRatio);
-      });
-      if (!visibleProjectRaf) {
-        visibleProjectRaf = requestAnimationFrame(() => {
-          visibleProjectRaf = 0;
-          updateVisibleProject();
-        });
-      }
-    },
-    { root: null, rootMargin: '0px', threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] }
-  );
-  projectCards.forEach((card) => observer.observe(card));
+  })
 
   window.addEventListener('projectdialogopen', (e) => {
     const d = e.detail
@@ -179,7 +155,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('projectdialogclose', () => {
     trackProjectInteraction('close_dialog', '', currentSection)
     spacemanPosition?.updatePosition()
-    updateVisibleProject()
+    projectObserver.recompute()
     // Resume hero messaging only after context is refreshed (so messages match section/home).
     spaceman?.setDetermined(false)
   })

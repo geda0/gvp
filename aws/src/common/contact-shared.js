@@ -114,30 +114,52 @@ export function formatText(record) {
   ].join('\n')
 }
 
-export function json(statusCode, obj) {
+function allowedOrigins() {
+  return String(process.env.CONTACT_CORS_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)
+}
+
+// Echo back the request Origin when it's on the allowlist, otherwise fall back
+// to the primary (first) configured origin. If no allowlist is configured,
+// fall back to '*' to preserve previous behavior.
+export function resolveCorsOrigin(event) {
+  const list = allowedOrigins()
+  if (!list.length) return '*'
+  const headers = event?.headers || {}
+  const requestOrigin = safeTrim(headers.origin || headers.Origin)
+  if (requestOrigin && list.includes(requestOrigin)) return requestOrigin
+  return list[0]
+}
+
+function corsHeaders(origin) {
+  return {
+    'Access-Control-Allow-Origin': origin || resolveCorsOrigin(),
+    'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
+    'Access-Control-Allow-Methods': 'OPTIONS,GET,POST',
+    Vary: 'Origin'
+  }
+}
+
+export function json(statusCode, obj, origin) {
   return {
     statusCode,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
-      'Access-Control-Allow-Methods': 'OPTIONS,GET,POST'
+      ...corsHeaders(origin)
     },
     body: JSON.stringify(obj)
   }
 }
 
-export function optionsResponse() {
+export function optionsResponse(origin) {
   return {
     statusCode: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
-      'Access-Control-Allow-Methods': 'OPTIONS,GET,POST'
-    }
+    headers: corsHeaders(origin)
   }
 }
 
-export function unauthorized() {
-  return json(401, { error: 'Unauthorized' })
+export function unauthorized(origin) {
+  return json(401, { error: 'Unauthorized' }, origin)
 }
