@@ -74,8 +74,7 @@ async function legacyScanRecentMessages(limit) {
   return rows.slice(0, limit)
 }
 
-async function listMessages(limit, cursorRaw, wantDiag) {
-  const diag = wantDiag ? { hypothesis: 'H1-gsi-vs-legacy' } : null
+async function listMessages(limit, cursorRaw) {
   const exclusiveStartKey = decodeCursor(cursorRaw)
 
   if (exclusiveStartKey) {
@@ -93,15 +92,9 @@ async function listMessages(limit, cursorRaw, wantDiag) {
       })
     )
     const items = response.Items || []
-    if (diag) {
-      diag.branch = 'gsi_paged'
-      diag.itemCount = items.length
-      diag.hasMore = Boolean(response.LastEvaluatedKey)
-    }
     return {
       items,
-      nextCursor: encodeCursor(response.LastEvaluatedKey),
-      ...(diag ? { _diag: diag } : {})
+      nextCursor: encodeCursor(response.LastEvaluatedKey)
     }
   }
 
@@ -119,17 +112,11 @@ async function listMessages(limit, cursorRaw, wantDiag) {
         Limit: limit
       })
     )
-  } catch (err) {
+  } catch {
     const items = await legacyScanRecentMessages(limit)
-    if (diag) {
-      diag.branch = 'query_error_legacy'
-      diag.errorName = err?.name || 'unknown'
-      diag.itemCount = items.length
-    }
     return {
       items,
-      nextCursor: '',
-      ...(diag ? { _diag: diag } : {})
+      nextCursor: ''
     }
   }
 
@@ -139,20 +126,11 @@ async function listMessages(limit, cursorRaw, wantDiag) {
   if (items.length === 0 && !qResponse.LastEvaluatedKey) {
     items = await legacyScanRecentMessages(limit)
     nextCursor = ''
-    if (diag) {
-      diag.branch = 'gsi_empty_first_page_legacy_fallback'
-      diag.itemCount = items.length
-    }
-  } else if (diag) {
-    diag.branch = 'gsi_first_page'
-    diag.itemCount = items.length
-    diag.hasMore = Boolean(qResponse.LastEvaluatedKey)
   }
 
   return {
     items,
-    nextCursor,
-    ...(diag ? { _diag: diag } : {})
+    nextCursor
   }
 }
 
@@ -335,9 +313,8 @@ export const handler = async (event) => {
   if (method === 'GET' && path.endsWith('/messages')) {
     const limit = parseLimit(event)
     const cursor = event?.queryStringParameters?.cursor || ''
-    const wantDiag = event?.queryStringParameters?.diag === '1'
-    const payload = await listMessages(limit, cursor, wantDiag)
-    return json(200, payload)
+    const { items, nextCursor } = await listMessages(limit, cursor)
+    return json(200, { items, nextCursor })
   }
 
   if (method === 'GET' && path.endsWith('/health')) {
