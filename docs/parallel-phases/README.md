@@ -9,3 +9,5 @@ Use these documents to split work across **three agents or squads** working **in
 | 3 — UI | [TEAM_UI.md](./TEAM_UI.md) | Hero-first chat, **usable + creative**, a11y, both themes |
 
 **Coordination:** Agree early on `POST /api/chat` JSON shape and `/api/contact` mock behavior; Docker team wires paths last once contracts are stable.
+
+**Production handoff:** [docs/production-readiness/README.md](../production-readiness/README.md) — coordinator-led squads and release checklist.

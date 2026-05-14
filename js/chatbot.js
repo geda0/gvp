@@ -93,6 +93,12 @@ export function initChatbot() {
     }
   }
 
+  const clearAssistantMeta = () => {
+    if (!statusEl) return
+    statusEl.textContent = ''
+    statusEl.hidden = true
+  }
+
   const syncPlaceholder = () => {
     _setPlaceholderVisible(placeholder, transcript.childElementCount === 0)
   }
@@ -148,6 +154,7 @@ export function initChatbot() {
     }
 
     _clearError(errorEl, retryBtn)
+    clearAssistantMeta()
 
     messages = messages.concat([{ role: 'user', content: text }])
     _setPlaceholderVisible(placeholder, false)
@@ -159,10 +166,13 @@ export function initChatbot() {
       const { reply, model } = await postChat(messages)
       completeAssistantReply(reply, model)
     } catch (e) {
-      let msg = 'Network error. Try again.'
+      let msg = 'Network error. Retry last message.'
       if (e instanceof Error && e.message) {
         const m = e.message
         if (!/failed to fetch|networkerror|load failed|fetch/i.test(m)) msg = m
+      }
+      if (!/retry/i.test(msg)) {
+        msg = `${msg} Use "Retry last message" to try again.`
       }
       _showError(errorEl, retryBtn, msg)
     } finally {
@@ -176,15 +186,19 @@ export function initChatbot() {
     if (last.role !== 'user') return
 
     _clearError(errorEl, retryBtn)
+    clearAssistantMeta()
     setBusy(true)
     try {
       const { reply, model } = await postChat(messages)
       completeAssistantReply(reply, model)
     } catch (e) {
-      let msg = 'Network error. Try again.'
+      let msg = 'Network error. Retry last message.'
       if (e instanceof Error && e.message) {
         const m = e.message
         if (!/failed to fetch|networkerror|load failed|fetch/i.test(m)) msg = m
+      }
+      if (!/retry/i.test(msg)) {
+        msg = `${msg} Retry last message and try again.`
       }
       _showError(errorEl, retryBtn, msg)
     } finally {

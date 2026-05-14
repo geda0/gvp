@@ -1021,6 +1021,13 @@ section#portfolioProjects.visible.content-section-reveal {
     font-family: var(--font-body);
 }
 
+.hero-chat__a11y-note {
+    margin: 6px 0 0;
+    font-size: 0.76rem;
+    color: var(--text-subtle);
+    font-family: var(--font-body);
+}
+
 .hero-copy {
     width: 100%;
 }

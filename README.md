@@ -8,7 +8,7 @@ Run the static site plus mock APIs on a single origin (`http://localhost:8080`).
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). The nginx proxy serves the repo root read-only and forwards `POST /api/contact` to the mock ingress and `POST /api/chat` to the stub chat service.
+Open [http://localhost:8080](http://localhost:8080). The nginx proxy serves the repo root read-only and forwards `POST /api/contact` to the mock ingress and `POST /api/chat` to the chat service.
 
 Stop and remove containers:
 
@@ -46,6 +46,7 @@ This repo is a static site hosted on Amplify, with an AWS-native durable contact
 - **Never commit** real keys, `ADMIN_API_KEY`, or production-only values. **`.gitignore`** excludes **`.secrets/`**, `.env*`, credential JSON patterns, and `aws/.env`. Keep [`aws/samconfig.toml`](aws/samconfig.toml) free of secrets; pass parameters via env / `--parameter-overrides` as the scripts do.
 - **Public site analytics**: events go to **Google Analytics** from the browser (`js/analytics.js` + gtag in `index.html`). The private **admin** page is contact-only.
 - **Contact API URL** is in HTML **`<meta name="gvp:contact-api-url">`**. After deploy, run [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) (or the workflow with **sync_api_urls**) to patch that meta from stack output `ContactApiUrl`.
+- Optional chat URL sync uses the same script: `node scripts/sync-site-api-urls.mjs <contactApiUrl> <chatApiUrl>`. The second argument patches **`<meta name="gvp:chat-api-url">`** where present (`index.html`, and `admin/index.html` if that meta exists).
 
 ### What “success” means
 

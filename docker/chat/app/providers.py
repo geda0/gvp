@@ -17,6 +17,30 @@ def _get_provider_name() -> str:
     return (os.environ.get("CHAT_PROVIDER") or "mock").strip().lower()
 
 
+def _get_timeout_seconds(provider: str) -> float:
+    provider = provider.lower()
+    if provider == "gemini":
+        val = os.environ.get("GEMINI_TIMEOUT_SECONDS")
+    elif provider == "openai":
+        val = os.environ.get("OPENAI_TIMEOUT_SECONDS")
+    else:
+        val = os.environ.get("CHAT_PROVIDER_TIMEOUT_SECONDS")
+    if val is None:
+        val = os.environ.get("CHAT_PROVIDER_TIMEOUT_SECONDS")
+    if val is None:
+        return 15.0
+    try:
+        parsed = float(val)
+    except ValueError:
+        logger.warning("Invalid timeout value %r; using default 15s", val)
+        return 15.0
+    return max(parsed, 0.1)
+
+
+def get_provider_timeout_seconds(provider: str) -> float:
+    return _get_timeout_seconds(provider)
+
+
 def _model_id_for_provider(provider: str) -> str:
     if provider == "mock":
         return "mock-portfolio"
@@ -25,6 +49,32 @@ def _model_id_for_provider(provider: str) -> str:
     if provider == "openai":
         return os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
     return provider
+
+
+def _extract_status_code(exc: BaseException) -> int | None:
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        status = getattr(cur, "status_code", None)
+        if isinstance(status, int):
+            return status
+        response = getattr(cur, "response", None)
+        if response is not None:
+            status = getattr(response, "status_code", None)
+            if isinstance(status, int):
+                return status
+        cur = cur.__cause__ or cur.__context__
+    return None
+
+
+def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
+    status = _extract_status_code(exc)
+    if status == 429:
+        return 429, "upstream_rate_limited", "Model provider rate limited the request"
+    if status in (401, 403):
+        return 502, "upstream_auth_error", "Model provider authentication failed"
+    return 502, "model_error", "Upstream model error"
 
 
 def _inject_retrieved(
@@ -76,6 +126,7 @@ def build_llm_runnable(
     """Return (chain, model_id). Chain input: {\"messages\": list[BaseMessage]}."""
     provider = provider.lower()
     model_id = _model_id_for_provider(provider)
+    timeout_s = _get_timeout_seconds(provider)
 
     system_template = (
         "You are a concise assistant for Marwan Elgendy's portfolio site. "
@@ -112,6 +163,7 @@ def build_llm_runnable(
             model=model_id,
             google_api_key=key,
             temperature=0.2,
+            timeout=timeout_s,
         )
         chain = inject | prompt | llm
         return chain, model_id
@@ -123,7 +175,12 @@ def build_llm_runnable(
 
         from langchain_openai import ChatOpenAI
 
-        llm = ChatOpenAI(model=model_id, temperature=0.2, api_key=key)
+        llm = ChatOpenAI(
+            model=model_id,
+            temperature=0.2,
+            api_key=key,
+            timeout=timeout_s,
+        )
         chain = inject | prompt | llm
         return chain, model_id
 

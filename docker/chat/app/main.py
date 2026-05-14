@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -16,7 +17,12 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
 
 from app.context import CorpusIndex, build_chunks, summarized_corpus
-from app.providers import build_llm_runnable, get_provider_and_model
+from app.providers import (
+    build_llm_runnable,
+    classify_upstream_exception,
+    get_provider_and_model,
+    get_provider_timeout_seconds,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -79,10 +85,28 @@ def _to_lc_messages(rows: list[ChatMessageIn]) -> list[HumanMessage | AIMessage 
 async def lifespan(app: FastAPI):
     resume_p, projects_p = _corpus_paths()
     logger.info("Loading corpus from %s and %s", resume_p, projects_p)
-    chunks = build_chunks(resume_p, projects_p)
-    app.state.corpus_index = CorpusIndex(chunks)
-    app.state.corpus_summary = summarized_corpus(chunks)
+    app.state.resume_path = str(resume_p)
+    app.state.projects_path = str(projects_p)
+    app.state.corpus_error = None
+    try:
+        chunks = build_chunks(resume_p, projects_p)
+    except Exception as exc:
+        app.state.corpus_index = None
+        app.state.corpus_summary = ""
+        app.state.corpus_error = str(exc)
+        logger.exception("Corpus init failed")
+    else:
+        app.state.corpus_index = CorpusIndex(chunks)
+        app.state.corpus_summary = summarized_corpus(chunks)
     provider, _ = get_provider_and_model()
+    app.state.provider_name = provider
+    app.state.provider_timeout_seconds = get_provider_timeout_seconds(provider)
+    if app.state.corpus_index is None:
+        app.state.chain = None
+        app.state.provider_error = "Corpus failed to load"
+        logger.error("Skipping provider init because corpus is unavailable")
+        yield
+        return
     try:
         chain, model_id = build_llm_runnable(
             provider,
@@ -106,11 +130,45 @@ app.state.corpus_summary: str = ""
 app.state.chain: Any = None
 app.state.model_id: str = "mock-portfolio"
 app.state.provider_error: str | None = None
+app.state.provider_name: str = "mock"
+app.state.provider_timeout_seconds: float = 15.0
+app.state.resume_path: str = ""
+app.state.projects_path: str = ""
+app.state.corpus_error: str | None = None
 
 
 @app.get("/health")
 def health() -> dict[str, bool]:
     return {"ok": True}
+
+
+def _readiness_payload() -> tuple[bool, dict[str, Any]]:
+    corpus_ready = app.state.corpus_index is not None and not app.state.corpus_error
+    provider_ready = app.state.chain is not None and not app.state.provider_error
+    ready = bool(corpus_ready and provider_ready)
+    payload = {
+        "ok": ready,
+        "provider": {
+            "name": app.state.provider_name,
+            "model": app.state.model_id,
+            "ready": provider_ready,
+            "error": app.state.provider_error,
+            "timeout_seconds": app.state.provider_timeout_seconds,
+        },
+        "corpus": {
+            "ready": corpus_ready,
+            "error": app.state.corpus_error,
+            "resume_path": app.state.resume_path,
+            "projects_path": app.state.projects_path,
+        },
+    }
+    return ready, payload
+
+
+@app.get("/ready")
+def ready() -> JSONResponse:
+    is_ready, payload = _readiness_payload()
+    return JSONResponse(status_code=200 if is_ready else 503, content=payload)
 
 
 @app.post("/api/chat")
@@ -151,12 +209,25 @@ async def chat(payload: ChatRequest) -> JSONResponse:
     lc_messages = _to_lc_messages(payload.messages)
     t0 = time.perf_counter()
     try:
-        result = await app.state.chain.ainvoke({"messages": lc_messages})
-    except Exception:
-        logger.exception("Chat invoke failed")
+        result = await asyncio.wait_for(
+            app.state.chain.ainvoke({"messages": lc_messages}),
+            timeout=app.state.provider_timeout_seconds,
+        )
+    except TimeoutError:
+        logger.warning("Chat invoke timed out after %ss", app.state.provider_timeout_seconds)
         return JSONResponse(
-            status_code=502,
-            content={"error": "Upstream model error", "code": "model_error"},
+            status_code=504,
+            content={
+                "error": "Upstream model timed out",
+                "code": "upstream_timeout",
+            },
+        )
+    except Exception as exc:
+        logger.exception("Chat invoke failed")
+        status, code, msg = classify_upstream_exception(exc)
+        return JSONResponse(
+            status_code=status,
+            content={"error": msg, "code": code},
         )
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = result.content if isinstance(result, AIMessage) else str(result)

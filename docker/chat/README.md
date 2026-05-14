@@ -30,15 +30,19 @@ CHAT_PROVIDER=mock \
 | `GEMINI_MODEL` | Optional override (default `gemini-2.0-flash`) |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
+| `CHAT_PROVIDER_TIMEOUT_SECONDS` | Global upstream timeout in seconds (default `15`) |
+| `GEMINI_TIMEOUT_SECONDS` | Optional Gemini-specific timeout override |
+| `OPENAI_TIMEOUT_SECONDS` | Optional OpenAI-specific timeout override |
 | `CORPUS_RESUME_PATH` / `CORPUS_PROJECTS_PATH` | JSON files (defaults under repo root when unset) |
 | `CORPUS_RESUME` / `CORPUS_PROJECTS` | Legacy aliases for the same paths |
 
 ## API
 
 - `GET /health` → `{"ok": true}`
+- `GET /ready` → readiness for corpus + provider chain (`200` when ready, `503` when degraded)
 - `POST /api/chat` → body `{"messages":[{"role":"user|assistant|system","content":"..."}],"stream":false}` → `{"reply":"...","model":"..."}`
 
-Errors: JSON body with `error` and `code` where applicable.
+Errors: JSON body with `error` and `code` where applicable. Timeout and upstream failures are mapped to stable codes (`upstream_timeout`, `upstream_rate_limited`, `upstream_auth_error`, `model_error`).
 
 ## Tests
 
