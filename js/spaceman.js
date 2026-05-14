@@ -42,6 +42,8 @@ const toGraphemes = (str) => {
   return [...str]
 }
 
+const inviteCopyTone = (msg) => /[\u{1F4AC}\u{2328}]/u.test(String(msg || ''))
+
 const CHAT_STATE_CLASSES = [
   'chat-state-sending',
   'chat-state-thinking',
@@ -82,6 +84,7 @@ class Spaceman {
     this._chatLifecycleState = 'idle';
     this._chatLifecycleDetail = {};
     this._chatLifecycleTimer = null;
+    this._launcherBlurTimer = null;
     this._chatBusUnsubscribe = null;
 
     /** Resolves when the spaceman has finished loading data and rendering (safe to query #spaceman in DOM). */
@@ -287,14 +290,14 @@ class Spaceman {
 
     this.elements = {
       spaceman: document.getElementById('spaceman'),
-      text: document.querySelector('#agentNode .agent-node__bubble-text'),
-      cursor: document.querySelector('#agentNode .agent-node__cursor'),
+      text: document.getElementById('agentNodeInput'),
       chips: document.getElementById('spacemanChips'),
       quietMenu: document.getElementById('spacemanQuietMenu'),
       stayMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="stay"]'),
       freeMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="free"]'),
       quietMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="quiet"]')
     };
+    this._bindLauncherField()
     this._syncChipVisibility()
     this._bindHeroMenu();
   }
@@ -304,6 +307,53 @@ class Spaceman {
     if (!chips) return
     chips.hidden = this.state !== 'home' || this.isQuiet
     chips.setAttribute('aria-hidden', chips.hidden ? 'true' : 'false')
+  }
+
+  _bindLauncherField() {
+    const input = this.elements.text
+    if (!input || input.tagName !== 'INPUT' || input.dataset.gvpLauncherBound) return
+    input.dataset.gvpLauncherBound = '1'
+    input.addEventListener('focus', () => this._onLauncherFieldFocus())
+    input.addEventListener('blur', () => this._onLauncherFieldBlur())
+  }
+
+  _syncAgentNodeCopyTone(message) {
+    const node = document.getElementById('agentNode')
+    if (!node) return
+    const m = String(message || '')
+    if (!m) {
+      delete node.dataset.copyTone
+      return
+    }
+    node.dataset.copyTone = inviteCopyTone(m) ? 'invite' : 'ambient'
+  }
+
+  _onLauncherFieldFocus() {
+    clearTimeout(this._launcherBlurTimer)
+    this._launcherBlurTimer = null
+    const input = this.elements.text
+    if (!input || input.tagName !== 'INPUT') return
+    if (!input.readOnly) return
+    this._clearTimer('typing')
+    this._clearTimer('message')
+    input.readOnly = false
+    input.value = ''
+    const node = document.getElementById('agentNode')
+    if (node) delete node.dataset.copyTone
+  }
+
+  _onLauncherFieldBlur() {
+    clearTimeout(this._launcherBlurTimer)
+    this._launcherBlurTimer = setTimeout(() => {
+      this._launcherBlurTimer = null
+      const input = this.elements.text
+      if (!input || input.tagName !== 'INPUT') return
+      if (document.activeElement === input) return
+      if (String(input.value || '').trim() !== '') return
+      if (this.isQuiet || this._chatLifecycleState !== 'idle' || this.isDetermined) return
+      input.readOnly = true
+      this._startMessageCycle()
+    }, 420)
   }
 
   _bindHeroMenu() {
@@ -515,7 +565,14 @@ class Spaceman {
       // Stop all messaging and animations
       this._clearAllTimers();
       const { text } = this.elements;
-      if (text) text.textContent = '';
+      if (text && text.tagName === 'INPUT') {
+        text.value = ''
+        text.readOnly = true
+      } else if (text) {
+        text.textContent = '';
+      }
+      const agentNode = document.getElementById('agentNode')
+      if (agentNode) delete agentNode.dataset.copyTone
       this._stayPromptActive = false;
       this._hideHeroMenuUI();
       this._clearStayVisual();
@@ -564,7 +621,14 @@ class Spaceman {
 
     // Immediately clear any stale text from the previous section.
     const { text } = this.elements;
-    if (text) text.textContent = '';
+    if (text && text.tagName === 'INPUT') {
+      text.value = ''
+      text.readOnly = true
+    } else if (text) {
+      text.textContent = '';
+    }
+    const agentNode = document.getElementById('agentNode')
+    if (agentNode) delete agentNode.dataset.copyTone
 
     const { spaceman } = this.elements;
     if (spaceman) {
@@ -596,21 +660,26 @@ class Spaceman {
   }
 
   _applyChatStatusCopy(state, detail) {
-    const { text } = this.elements;
-    if (!text) return;
+    const input = this.elements.text
+    if (!input || input.tagName !== 'INPUT') return
+    const node = document.getElementById('agentNode')
     if (state === 'idle') {
-      text.textContent = '';
-      return;
+      input.value = ''
+      input.readOnly = true
+      if (node) delete node.dataset.copyTone
+      return
     }
+    input.readOnly = true
+    if (node) node.dataset.copyTone = 'status'
     if (state === 'tool_call') {
       const first = Array.isArray(detail?.actions) ? detail.actions[0] : null;
       const label = first?.label || first?.id || '';
-      text.textContent = label
+      input.value = label
         ? `${CHAT_STATUS_COPY.tool_call} (${label})`
         : CHAT_STATUS_COPY.tool_call;
       return;
     }
-    text.textContent = CHAT_STATUS_COPY[state] || CHAT_STATUS_COPY.thinking;
+    input.value = CHAT_STATUS_COPY[state] || CHAT_STATUS_COPY.thinking;
   }
 
   _resumeAmbientAfterChat() {
@@ -684,18 +753,24 @@ class Spaceman {
   }
 
   _typeMessage(message, speed = DEFAULTS.typingSpeed) {
-    const { text } = this.elements;
-    if (!text) return;
+    const input = this.elements.text
+    if (!input || input.tagName !== 'INPUT') return
 
-    this._lastSpokenMessage = message;
-    this._clearTimer('typing');
-    text.textContent = '';
+    this._lastSpokenMessage = message
+    this._clearTimer('typing')
+    input.readOnly = true
+    input.value = ''
+    this._syncAgentNodeCopyTone(message)
 
     const segs = toGraphemes(message)
     let i = 0
     const type = () => {
       if (i < segs.length) {
-        text.textContent += segs[i++]
+        input.value += segs[i++]
+        try {
+          const len = input.value.length
+          input.setSelectionRange(len, len)
+        } catch (_) {}
         this._timers.typing = setTimeout(type, speed)
       }
     }
@@ -798,6 +873,10 @@ class Spaceman {
     if (this._clickTimeout) {
       clearTimeout(this._clickTimeout);
       this._clickTimeout = null;
+    }
+    if (this._launcherBlurTimer) {
+      clearTimeout(this._launcherBlurTimer)
+      this._launcherBlurTimer = null
     }
   }
 

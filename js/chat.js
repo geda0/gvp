@@ -128,8 +128,8 @@ export function initChat() {
 
   const syncAgentPlaceholder = (section = 'home') => {
     agentInput.placeholder = section === 'home'
-      ? 'Ask anything about my work…'
-      : 'Ask about this project, or anything else…'
+      ? 'Type a question…'
+      : 'Ask in this section…'
   }
 
   const clearPanelAnimation = () => {
@@ -308,6 +308,8 @@ export function initChat() {
     clearPanelAnimation()
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
+    agentInput.readOnly = true
+    agentInput.blur()
     setStatus('')
     if (restoreFocus && state.lastFocus && typeof state.lastFocus.focus === 'function') {
       state.lastFocus.focus()
@@ -321,6 +323,8 @@ export function initChat() {
     clearPanelAnimation()
     state.agentNodeApi?.setState?.('modal')
     setDialogVisible(true)
+    agentInput.readOnly = true
+    agentInput.blur()
 
     const reduceMotion = prefersReducedMotion()
     const seedRect = readSeedRect()

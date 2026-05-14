@@ -20,7 +20,6 @@ export function initAgentNode(options = {}) {
   const trail = document.getElementById('agentTrail')
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
-  const bubble = node?.querySelector('.agent-node__bubble')
 
   if (!node || !heroSlot || !navbarSlot || !form || !input) return null
 
@@ -147,6 +146,14 @@ export function initAgentNode(options = {}) {
     openPanelWithMessage(text, source)
   })
 
+  input.addEventListener('pointerdown', (event) => {
+    if (isFinePointer()) return
+    if (state.mode === 'modal') return
+    if (!input.readOnly) return
+    event.preventDefault()
+    openFromNode()
+  })
+
   input.addEventListener('focus', () => {
     if (isFinePointer() && state.mode !== 'modal') {
       setState('bar')
@@ -162,12 +169,6 @@ export function initAgentNode(options = {}) {
         queueBubbleMode()
       }
     })
-  })
-
-  bubble?.addEventListener('click', () => {
-    if (isFinePointer()) return
-    if (state.mode === 'modal') return
-    openFromNode()
   })
 
   const applyLifecycleClass = (chatState) => {
