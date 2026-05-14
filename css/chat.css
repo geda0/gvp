@@ -135,7 +135,15 @@ body.chat-dialog-open {
 }
 
 .hero-chat__label-wrap {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     margin-bottom: 0.45rem;
 }
 
@@ -148,8 +156,15 @@ body.chat-dialog-open {
     text-transform: uppercase;
     color: var(--text-muted);
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
+    justify-content: center;
     gap: 0.42rem;
+    min-width: 0;
+    flex: 1 1 auto;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: center;
 }
 
 .hero-chat__dot {
@@ -162,6 +177,7 @@ body.chat-dialog-open {
 }
 
 .hero-chat__new {
+    flex-shrink: 0;
     border-radius: 999px;
     border: 1px solid var(--border-strong);
     background: var(--surface);
