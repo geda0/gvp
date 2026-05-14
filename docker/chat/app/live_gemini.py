@@ -74,7 +74,8 @@ async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
         '.GenerativeService.BidiGenerateContentConstrained'
     )
 
-    ws_url = f'wss://{host}{path}?access_token={quote(token_name, safe="")}'
+    # Keep "/" in auth_tokens/… unescaped; some clients + Google reject %2F-only tokens.
+    ws_url = f'wss://{host}{path}?access_token={quote(token_name, safe="/")}'
 
     return {
         'websocketUrl': ws_url,

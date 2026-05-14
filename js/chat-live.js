@@ -581,7 +581,8 @@ export function bindChatLiveVoice(opts) {
               ? Object.keys(handshake.setup).slice(0, 40)
               : [],
             clientSlimsFirstFrame,
-            constrainedWs
+            constrainedWs,
+            wsUrlHasPct2f: wsUrlStr.includes('%2F')
           },
           timestamp: Date.now()
         })
