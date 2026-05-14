@@ -263,7 +263,37 @@ function createProjectCard(project) {
   title.textContent = project.title || '';
   div.appendChild(title);
 
-  if (cardDescription) {
+  if (project.role) {
+    const role = document.createElement('p');
+    role.className = 'project__role';
+    role.textContent = project.role;
+    div.appendChild(role);
+  }
+
+  const isStructured = !!(project.problem || project.work || project.outcome);
+
+  if (isStructured) {
+    ['problem', 'work', 'outcome'].forEach((key) => {
+      if (!project[key]) return;
+      const p = document.createElement('p');
+      p.className = `project__${key}`;
+      p.textContent = project[key];
+      div.appendChild(p);
+    });
+
+    const tech = Array.isArray(project.tech) ? project.tech : [];
+    if (tech.length) {
+      const tags = document.createElement('div');
+      tags.className = 'project__tags';
+      tech.forEach((t) => {
+        const tag = document.createElement('span');
+        tag.className = 'project__tag';
+        tag.textContent = t;
+        tags.appendChild(tag);
+      });
+      div.appendChild(tags);
+    }
+  } else if (cardDescription) {
     const p = document.createElement('p');
     p.textContent = cardDescription;
     div.appendChild(p);

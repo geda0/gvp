@@ -331,6 +331,7 @@ h3 {
     position: relative;
     z-index: 101;
     cursor: pointer;
+    text-align: left;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
@@ -359,6 +360,59 @@ h3 {
     margin: 0.6rem 0 0;
     font-style: italic;
     font-family: var(--font-body);
+}
+
+.project p.project__role {
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.01em;
+    margin: 0 0 0.6rem;
+}
+
+.project p.project__problem,
+.project p.project__work,
+.project p.project__outcome {
+    font-family: var(--font-body);
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 0 0 0.5rem;
+}
+
+.project p.project__problem {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.project p.project__outcome {
+    color: var(--text-primary);
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 0.55rem;
+    margin-top: 0.6rem;
+}
+
+.project__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.65rem 0 0;
+}
+
+.project__tag {
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0.15rem 0.5rem;
+    white-space: nowrap;
+}
+
+[data-theme="garden"] .project__tag {
+    background: rgba(255, 255, 255, 0.42);
 }
 
 .projects-load-error {
@@ -852,11 +906,75 @@ section#portfolioProjects.visible.content-section-reveal {
 .hero-tagline {
     font-size: 0.95em;
     color: var(--text-subtle);
-    margin-bottom: 28px;
+    margin-bottom: 22px;
     font-family: var(--font-body);
     max-width: 36rem;
     margin-left: auto;
     margin-right: auto;
+}
+
+.hero-proof {
+    position: relative;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    line-height: 1.5;
+    max-width: 38rem;
+    margin: 0 auto 0.85rem;
+    padding-top: 0.9rem;
+}
+
+.hero-proof::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+}
+
+.hero-companies {
+    font-size: 0.8em;
+    color: var(--text-subtle);
+    font-family: var(--font-body);
+    margin: 0 auto 26px;
+}
+
+.hero-companies__label {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-right: 0.4rem;
+}
+
+.experience-summary {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 0;
+    text-align: center;
+}
+
+.experience-summary p {
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+    margin: 0 0 0.5rem;
+}
+
+.experience-summary p:first-child {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.experience-summary p:last-child {
+    margin-bottom: 0;
 }
 
 .hero-cta {

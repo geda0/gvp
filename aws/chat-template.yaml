@@ -21,8 +21,8 @@ Parameters:
       Fallback model when the primary returns rate limits (429 / quota). Default Gemma 4 26B A4B IT.
   ChatCorsOrigins:
     Type: String
-    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link'
-    Description: Comma-separated browser origins for API Gateway CORS (and CHAT_CORS_ORIGINS in the function).
+    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link'
+    Description: Comma-separated browser origins for CHAT_CORS_ORIGINS in the function (FastAPI CORS; apex and www variants are expanded automatically for two-label hosts).
   ChatTranscriptsTableName:
     Type: String
     Default: ''
@@ -41,12 +41,6 @@ Globals:
 Resources:
   ChatHttpApi:
     Type: AWS::Serverless::HttpApi
-    Properties:
-      CorsConfiguration:
-        AllowMethods: [OPTIONS, GET, POST]
-        AllowHeaders: [Content-Type, Authorization]
-        AllowOrigins: !Split [',', !Ref ChatCorsOrigins]
-
   ChatFunction:
     Type: AWS::Serverless::Function
     Metadata:
