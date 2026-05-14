@@ -44,22 +44,59 @@ SYNONYMS: dict[str, set[str]] = {
 }
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+def _content_root() -> Path:
+    """Repo root (dev) or image app root (Docker).
+
+    In the monorepo, this file lives at ``<root>/docker/chat/app/``.
+    In the compose image it lives at ``/app/app/`` with corpus files under
+    ``/app/``. Walking upward avoids brittle ``parents[N]`` indexing.
+    """
+    here = Path(__file__).resolve().parent
+    cur: Path | None = here
+    for _ in range(32):
+        if cur is None:
+            break
+        try:
+            if (cur / 'data' / 'chat-knowledge').is_dir():
+                return cur
+        except OSError:
+            pass
+        try:
+            if (cur / 'docker' / 'chat' / 'prompts' / 'system-prompt.md').is_file():
+                return cur
+        except OSError:
+            pass
+        try:
+            if (cur / 'prompts' / 'system-prompt.md').is_file():
+                return cur
+        except OSError:
+            pass
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+    return here.parent
 
 
 def default_pack_dir() -> Path:
     env_path = os.environ.get('CHAT_KNOWLEDGE_DIR', '').strip()
     if env_path:
         return Path(env_path)
-    return _repo_root() / 'data' / 'chat-knowledge'
+    return _content_root() / 'data' / 'chat-knowledge'
 
 
 def default_system_prompt_path() -> Path:
     env_path = os.environ.get('CHAT_SYSTEM_PROMPT_PATH', '').strip()
     if env_path:
         return Path(env_path)
-    return _repo_root() / 'docker' / 'chat' / 'prompts' / 'system-prompt.md'
+    root = _content_root()
+    mono = root / 'docker' / 'chat' / 'prompts' / 'system-prompt.md'
+    if mono.is_file():
+        return mono
+    flat = root / 'prompts' / 'system-prompt.md'
+    if flat.is_file():
+        return flat
+    return mono
 
 
 def normalize(text: str) -> str:

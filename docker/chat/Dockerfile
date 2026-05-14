@@ -10,6 +10,8 @@ COPY docker/chat/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY docker/chat/app /app/app
+COPY data/chat-knowledge /app/data/chat-knowledge
+COPY docker/chat/prompts/system-prompt.md /app/prompts/system-prompt.md
 COPY resume/resume.json /app/corpus/resume.json
 COPY data/projects.json /app/corpus/projects.json
 
