@@ -69,12 +69,10 @@ def _extract_status_code(exc: BaseException) -> int | None:
 
 
 def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
-    status = _extract_status_code(exc)
-    if status == 429:
-        return 429, "upstream_rate_limited", "Model provider rate limited the request"
-    if status in (401, 403):
-        return 502, "upstream_auth_error", "Model provider authentication failed"
-    return 502, "model_error", "Upstream model error"
+    from app.upstream_errors import upstream_error_body
+
+    status, body = upstream_error_body(exc)
+    return status, str(body.get("code", "model_error")), str(body.get("error", "Upstream model error"))
 
 
 def _inject_retrieved(

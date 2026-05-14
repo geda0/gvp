@@ -72,10 +72,15 @@ export function initChatbot() {
 
   const humanizeError = (res, body) => {
     if (res.status === 429) return 'Service busy, try again in a moment.'
-    if (res.status >= 500) return 'Service busy, try again.'
-    if (body && typeof body.error === 'string' && body.error.trim()) {
-      return body.error.trim()
+    const err = body && typeof body.error === 'string' ? body.error.trim() : ''
+    const det = body && typeof body.detail === 'string' ? body.detail.trim() : ''
+    if (res.status >= 500) {
+      if (err && det) return `${err} — ${det}`
+      if (det) return det
+      if (err) return err
+      return 'Service busy, try again.'
     }
+    if (err) return err
     if (res.status === 413 || res.status === 400) {
       return 'Could not send that message. Try shortening it.'
     }

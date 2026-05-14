@@ -20,10 +20,10 @@ from pydantic import BaseModel, Field, field_validator
 from app.context import CorpusIndex, build_chunks, summarized_corpus
 from app.providers import (
     build_llm_runnable,
-    classify_upstream_exception,
     get_provider_and_model,
     get_provider_timeout_seconds,
 )
+from app.upstream_errors import upstream_error_body
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -241,11 +241,8 @@ async def chat(payload: ChatRequest) -> JSONResponse:
         )
     except Exception as exc:
         logger.exception("Chat invoke failed")
-        status, code, msg = classify_upstream_exception(exc)
-        return JSONResponse(
-            status_code=status,
-            content={"error": msg, "code": code},
-        )
+        status, content = upstream_error_body(exc)
+        return JSONResponse(status_code=status, content=content)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = result.content if isinstance(result, AIMessage) else str(result)
     logger.info("chat ok model=%s latency_ms=%s", app.state.model_id, elapsed_ms)
