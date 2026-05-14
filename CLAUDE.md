@@ -33,8 +33,7 @@ Personal portfolio website for Marwan Elgendy ("The Computerist"). A static site
 │       ├── backfill-listpk.js  # One-off: add listPk for GSI (see README)
 │       └── common/
 ├── scripts/
-│   ├── integrate-and-deploy.sh   # sam build/deploy + optional chat ECR/ECS + HTML meta sync [prod|stage]
-│   ├── orchestrate-deploy.sh       # .secrets → Secrets Manager → integrate script
+│   ├── integrate-and-deploy.sh   # Secrets Manager prep (when manifests exist) + sam build/deploy + chat + HTML meta [prod|stage]
 │   ├── sync-site-api-urls.mjs
 │   ├── seed_local_configs.py, push_local_secrets_to_sm.py
 ├── secrets.example/        # Templates for .secrets/ (deploy.env, manifests)
@@ -74,8 +73,7 @@ Then open `http://localhost:8000` in a browser.
 ### SAM / deploy
 
 - **Canonical env names**: [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) → copy to `.secrets/deploy.env`.
-- **Local full pipeline**: `bash scripts/orchestrate-deploy.sh [prod|stage]` (optional Secrets Manager file push + `integrate-and-deploy.sh` with same args).
-- **Deploy only**: `bash scripts/integrate-and-deploy.sh [prod|stage]` — default `prod`; `stage` uses `SAM_STACK_NAME_STAGE` (default `page-staging`) and default staging chat meta when syncing. Loads `.secrets/deploy.env` when `RESEND_API_KEY` is unset; optional `.secrets/chat-deploy.env` for chat ECR/ECS.
+- **Deploy**: `bash scripts/integrate-and-deploy.sh [prod|stage]` — default `prod`; `stage` uses `SAM_STACK_NAME_STAGE` (default `page-staging`). When `.secrets/manifest.json` + `config.manifest.json` exist, runs Secrets Manager seed/push first (skip with `SKIP_SECRETS_MANAGER=1`). Loads `.secrets/deploy.env` when `RESEND_API_KEY` is unset; optional `.secrets/chat-deploy.env` for chat ECR/ECS.
 - **CI**: GitHub Actions workflow **Integrate and deploy** — same secret names as `deploy.env.example`; workflow input **deploy_environment** (`prod` / `stage`).
 
 ### Tests

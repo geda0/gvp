@@ -1,7 +1,7 @@
 version = 0.1
 
 # Local deploy defaults only — no secrets or personal data in repo.
-# Use `bash scripts/integrate-and-deploy.sh` or pass --parameter-overrides for real values.
+# Use `bash scripts/integrate-and-deploy.sh [prod|stage]` or pass --parameter-overrides for real values.
 [default.deploy.parameters]
 stack_name = "page"
 resolve_s3 = true

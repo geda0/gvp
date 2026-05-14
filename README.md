@@ -40,8 +40,7 @@ This repo is a static site hosted on Amplify, with an AWS-native durable contact
 ### Secrets and deploy configuration (single source of truth)
 
 - **Canonical template**: [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) lists every **name** used for SAM deploy (`export …` in the file body). Copy to **`.secrets/deploy.env`** (gitignored), fill real values, `chmod 600`. See [`secrets.example/README.md`](secrets.example/README.md).
-- **Local full pipeline**: [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) — seeds `config.manifest.json`, pushes optional file secrets from `manifest.json` to AWS Secrets Manager, sources `.secrets/deploy.env` + generated files, then runs [`scripts/integrate-and-deploy.sh`](scripts/integrate-and-deploy.sh) with the same optional trailing **`prod`** or **`stage`** argument.
-- **Deploy script only**: `bash scripts/integrate-and-deploy.sh` or `bash scripts/integrate-and-deploy.sh stage` — separate AWS contact stack (`SAM_STACK_NAME_STAGE`, default `page-staging`). **`chat.marwanelgendy.link`** is the **staging frontend**; **`gvp:chat-api-url`** must target the **chat API** (execute-api URL from optional Lambda stack, ALB, etc.). **Lambda + Gemini (recommended for staging):** set **`CHAT_SAM_STACK_NAME`** (e.g. `gvp-chat-stage`) and **`GEMINI_API_KEY`** in [`.secrets/chat-deploy.env`](secrets.example/chat-deploy.env.example) — deploy runs **`aws/chat-template.yaml`** after the contact stack and uses output **`ChatPostApiUrl`** for meta when **`CHAT_STAGE_CHAT_API_URL`** is unset. Replace placeholder **`GEMINI-KEY-PLACEHOLDER`** with a real [AI Studio](https://aistudio.google.com/apikey) key. When **HTML sync** is on, **`CHAT_STAGE_CHAT_API_URL`** overrides that output; prod uses **`CHAT_PROD_CHAT_API_URL`**. Omitted first argument defaults to **prod**. Loads **`.secrets/deploy.env`** + optional **`.secrets/chat-deploy.env`**. **Actions → Integrate and deploy** includes **deploy_environment** (`prod` / `stage`).
+- **Deploy**: [`scripts/integrate-and-deploy.sh`](scripts/integrate-and-deploy.sh) — `bash scripts/integrate-and-deploy.sh` or `… stage`. Omitted argument defaults to **prod** (`SAM_STACK_NAME`, default **`page`**). Loads **`.secrets/deploy.env`** when **`RESEND_API_KEY`** is unset, then optional **`.secrets/chat-deploy.env`**. When **`.secrets/manifest.json`** and **`config.manifest.json`** both exist, the script first runs **Secrets Manager** seed + push (same as the old orchestrate step); set **`SKIP_SECRETS_MANAGER=1`** to skip that (quick redeploys; CI has no manifests so it never runs there). **`chat.marwanelgendy.link`** is the **staging frontend**; **`gvp:chat-api-url`** must target the **chat API** (execute-api URL from optional Lambda stack, ALB, etc.). **Lambda + Gemini (recommended for staging):** set **`CHAT_SAM_STACK_NAME`** (e.g. `gvp-chat-stage`) and **`GEMINI_API_KEY`** in [`.secrets/chat-deploy.env`](secrets.example/chat-deploy.env.example) — deploy runs **`aws/chat-template.yaml`** after the contact stack and uses output **`ChatPostApiUrl`** for meta when **`CHAT_STAGE_CHAT_API_URL`** is unset. Replace placeholder **`GEMINI-KEY-PLACEHOLDER`** with a real [AI Studio](https://aistudio.google.com/apikey) key. When **HTML sync** is on, **`CHAT_STAGE_CHAT_API_URL`** overrides that output; prod uses **`CHAT_PROD_CHAT_API_URL`** then **`ChatPostApiUrl`** from the same-run chat deploy when set. **Actions → Integrate and deploy** includes **deploy_environment** (`prod` / `stage`).
 - **GitHub Actions**: create repository **secrets** with the **same names** as in `deploy.env.example` (no `export` prefix). Optional **variables**: `AWS_REGION`, `SAM_STACK_NAME`, `SAM_STACK_NAME_STAGE`, **`CHAT_SAM_STACK_NAME`**, **`CHAT_CORS_ORIGINS`**, **`GEMINI_MODEL`**, **`GEMINI_FALLBACK_MODEL`** (defaults in code/template to **`gemini-3.1-flash-lite`** + **`gemma-4-26b-a4b-it`**), plus chat/ECR/ECS names from `chat-deploy.env.example`. Optional secret **`GEMINI_API_KEY`** for the Lambda chat stack.
 - **Never commit** real keys, `ADMIN_API_KEY`, or production-only values. **`.gitignore`** excludes **`.secrets/`**, `.env*`, credential JSON patterns, and `aws/.env`. Keep [`aws/samconfig.toml`](aws/samconfig.toml) free of secrets; pass parameters via env / `--parameter-overrides` as the scripts do.
 - **Public site analytics**: events go to **Google Analytics** from the browser (`js/analytics.js` + gtag in `index.html`). The private **admin** page is contact-only.
@@ -63,17 +62,17 @@ Use **Actions → Integrate and deploy → Run workflow** (`sam build` / `sam de
 3. **AWS auth** (workflow input): **OIDC** — `AWS_DEPLOY_ROLE_ARN`; or **keys** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 4. **Workflow input** **sync_api_urls**: patches `index.html` and `admin/index.html` and uploads artifact **`site-html-api-urls`**.
 
-### Local orchestrated deploy
+### Local deploy (with optional Secrets Manager)
 
 ```bash
 cp -R secrets.example .secrets
 cp secrets.example/deploy.env.example .secrets/deploy.env
-# Edit .secrets/deploy.env; optional: manifest.json + .secrets/files/
+# Edit .secrets/deploy.env; optional: manifest.json + config.manifest.json + .secrets/files/
 chmod 600 .secrets/deploy.env .secrets/files/* 2>/dev/null || true
-bash scripts/orchestrate-deploy.sh
+bash scripts/integrate-and-deploy.sh
 ```
 
-Override directory: `SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh stage`.
+With **`manifest.json`** + **`config.manifest.json`** present under **`.secrets/`**, the same command uploads manifest file secrets and seeds config before SAM deploy. Override directory: `SECRETS_DIR=/path/to/.secrets bash scripts/integrate-and-deploy.sh stage`. Skip Secrets Manager prep: `SKIP_SECRETS_MANAGER=1 bash scripts/integrate-and-deploy.sh`.
 
 **IAM** (caller): `secretsmanager:CreateSecret`, `DescribeSecret`, `PutSecretValue` for manifest secret IDs, plus `sam deploy` / CloudFormation permissions.
 

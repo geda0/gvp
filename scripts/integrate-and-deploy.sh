@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# SAM build + deploy (contact stack), optional chat image push + ECS roll, optional HTML meta sync.
+# Build + deploy contact SAM stack, optional Lambda chat, optional ECS chat image, optional HTML meta sync.
 # Usage: bash scripts/integrate-and-deploy.sh [prod|stage]
 #   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta: CHAT_PROD_CHAT_API_URL or Chat SAM output.
 #   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ChatPostApiUrl when CHAT_SAM_STACK_NAME + GEMINI_API_KEY deploy aws/chat-template.yaml
 #
-# Prefer: scripts/orchestrate-deploy.sh [prod|stage] (same trailing args forwarded).
+# Secrets Manager (local): when .secrets/manifest.json AND .secrets/config.manifest.json exist, runs
+#   seed_local_configs.py + push_local_secrets_to_sm.py then sources deploy.env (+ generated files).
+# Skip with SKIP_SECRETS_MANAGER=1 (e.g. quick redeploy, or CI where secrets are already in the environment).
 #
 # Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
 # (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
@@ -21,6 +23,7 @@ usage() {
   echo "usage: bash scripts/integrate-and-deploy.sh [prod|stage]" >&2
   echo "  prod  — production contact stack (SAM_STACK_NAME, default page)" >&2
   echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
+  echo "  Auto-runs Secrets Manager seed/push when .secrets/manifest.json + config.manifest.json exist (SKIP_SECRETS_MANAGER=1 to skip)." >&2
   exit 1
 }
 
@@ -35,6 +38,32 @@ DEPLOY_ENV="${1:-prod}"
 DEPLOY_ENV="$(printf '%s' "${DEPLOY_ENV}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${DEPLOY_ENV}" != "prod" && "${DEPLOY_ENV}" != "stage" ]]; then
   usage
+fi
+
+if [[ "${SKIP_SECRETS_MANAGER:-0}" != "1" && -f "$SECRETS_DIR/manifest.json" && -f "$SECRETS_DIR/config.manifest.json" ]]; then
+  if [[ ! -f "$SECRETS_DIR/deploy.env" ]]; then
+    echo "error: $SECRETS_DIR/deploy.env missing (required with manifest.json + config.manifest.json)" >&2
+    echo "  cp \"$ROOT/secrets.example/deploy.env.example\" \"$SECRETS_DIR/deploy.env\" && edit" >&2
+    exit 1
+  fi
+  ORCH_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-2}}"
+  export AWS_DEFAULT_REGION="${ORCH_REGION}"
+  echo "Secrets prep: seeding config exports (config.manifest.json)…"
+  python3 "$ROOT/scripts/seed_local_configs.py" --secrets-dir "$SECRETS_DIR"
+  echo "Secrets prep: pushing manifest files to AWS Secrets Manager…"
+  python3 "$ROOT/scripts/push_local_secrets_to_sm.py" --secrets-dir "$SECRETS_DIR" --region "${ORCH_REGION}"
+  set -a
+  # shellcheck source=/dev/null
+  source "$SECRETS_DIR/deploy.env"
+  if [[ -f "$SECRETS_DIR/config.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/config.generated.env"
+  fi
+  if [[ -f "$SECRETS_DIR/deploy.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/deploy.generated.env"
+  fi
+  set +a
 fi
 
 # When not already exported (e.g. GitHub Actions exports secrets), load local .secrets/deploy.env
@@ -178,6 +207,16 @@ CONTACT_URL="$(aws cloudformation describe-stacks \
 
 echo "ContactApiUrl=${CONTACT_URL}"
 
+CHAT_TRANSCRIPTS_TABLE_NAME="$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}" \
+  --region "${REGION}" \
+  --query "Stacks[0].Outputs[?OutputKey=='ChatTranscriptsTableName'].OutputValue | [0]" \
+  --output text)"
+if [[ "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" == "None" ]]; then
+  CHAT_TRANSCRIPTS_TABLE_NAME=""
+fi
+echo "ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME:-}"
+
 CHAT_SAM_CHAT_URL=""
 if [[ "${run_chat_sam}" == "true" ]]; then
   CHAT_PO=(
@@ -186,6 +225,11 @@ if [[ "${run_chat_sam}" == "true" ]]; then
     "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
   )
+  if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
+    CHAT_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
+  else
+    echo "warning: contact stack output ChatTranscriptsTableName missing or empty; chat Lambda will not write transcripts (admin transcript tab stays empty)." >&2
+  fi
   echo "sam deploy chat stack=${CHAT_SAM_STACK_NAME} region=${REGION}"
   (
     cd "${AWS_DIR}"
@@ -248,7 +292,7 @@ fi
 if [[ "${DEPLOY_ENV}" == "stage" ]]; then
   CHAT_SYNC_CHAT_URL="${CHAT_STAGE_CHAT_API_URL:-${CHAT_SAM_CHAT_URL}}"
 else
-  CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-}"
+  CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-${CHAT_SAM_CHAT_URL}}"
 fi
 
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then

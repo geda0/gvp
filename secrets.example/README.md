@@ -12,10 +12,10 @@ chmod 600 .secrets/deploy.env .secrets/files/* 2>/dev/null || true
 Then run:
 
 ```bash
-bash scripts/orchestrate-deploy.sh
+bash scripts/integrate-and-deploy.sh
 ```
 
-That command **uploads** each entry in `manifest.json` to **AWS Secrets Manager** (if any), writes **`.secrets/deploy.generated.env`** (exports ARNs for optional `exportAs` keys), **sources** `deploy.env` + generated env files, and runs **`scripts/integrate-and-deploy.sh`** (SAM build/deploy and optional HTML sync).
+That command **uploads** each entry in `manifest.json` to **AWS Secrets Manager** when both `manifest.json` and `config.manifest.json` exist (unless `SKIP_SECRETS_MANAGER=1`), writes **`.secrets/deploy.generated.env`** (exports ARNs for optional `exportAs` keys), **sources** `deploy.env` + generated env files, then runs **SAM build/deploy** and optional HTML sync.
 
 It also seeds **non-secret config values** from `config.manifest.json` into **`.secrets/config.generated.env`**, then sources that file before deploy.
 
