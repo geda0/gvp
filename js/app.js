@@ -17,7 +17,7 @@ import {
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
-import { initChat, collapseChatDialog } from './chat.js'
+import { initChat, collapseChatDialog, syncHeroChatSurface } from './chat.js'
 
 // Global spaceman reference for navigation hooks
 let spaceman = null
@@ -30,7 +30,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme()
   initStarfield('canvas', { getTheme })
   initContactForm()
-  initChat()
 
   // Theme toggle — emoji; data-target + CSS set button background to the theme you switch *to*
   const themeToggle = document.getElementById('themeToggle')
@@ -75,7 +74,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Initialize navigation with spaceman hook
+  initChat()
+
+  // Initialize navigation with spaceman hook (after chat so first navigateByHash sync runs real impl)
   initNavigation({
     onStateChange: (state) => {
       currentSection = state
@@ -91,6 +92,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (state === 'playground' || state === 'portfolio') {
         collapseChatDialog()
       }
+      syncHeroChatSurface(state)
     }
   })
 

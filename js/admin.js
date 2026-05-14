@@ -1,7 +1,19 @@
+const CHAT_FLAGS = [
+  'no_retrieval_match',
+  'negative_feedback',
+  'possible_refusal',
+  'long_conversation',
+  'tool_offered_not_taken'
+]
+
 const contactApiBase = String(window.__CONTACT_API_URL__ || '').replace(/\/+$/, '')
-const adminBaseUrl =
+const contactAdminBaseUrl =
   window.__ADMIN_API_BASE_URL__ ||
   (contactApiBase ? `${contactApiBase}/admin` : '')
+const apiRoot = contactApiBase.endsWith('/api/contact')
+  ? contactApiBase.slice(0, -'/api/contact'.length)
+  : ''
+const chatAdminBaseUrl = apiRoot ? `${apiRoot}/api/chat/admin` : '/api/chat/admin'
 const isLocalAdminHost =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
@@ -14,6 +26,12 @@ const app = document.getElementById('adminApp')
 const globalStatus = document.getElementById('adminGlobalStatus')
 const refreshBtn = document.getElementById('adminRefreshBtn')
 const signOutBtn = document.getElementById('adminSignOutBtn')
+
+const tabContactBtn = document.getElementById('adminTabContact')
+const tabTranscriptsBtn = document.getElementById('adminTabTranscripts')
+const panelContact = document.getElementById('adminPanelContact')
+const panelTranscripts = document.getElementById('adminPanelTranscripts')
+
 const retryBtn = document.getElementById('adminRetryBtn')
 const showMessageBtn = document.getElementById('adminShowMessageBtn')
 const clearReportBtn = document.getElementById('adminClearReportBtn')
@@ -33,6 +51,26 @@ const outcomeEl = document.getElementById('adminOutcomeDetail')
 const limitEl = document.getElementById('adminLimit')
 const loadMoreBtn = document.getElementById('adminLoadMoreBtn')
 
+const chatSummaryEls = {
+  total: document.getElementById('chatSummaryTotal'),
+  reviewed: document.getElementById('chatSummaryReviewed'),
+  unreviewed: document.getElementById('chatSummaryUnreviewed'),
+  flagged: document.getElementById('chatSummaryFlagged')
+}
+const chatLimitEl = document.getElementById('chatAdminLimit')
+const chatTable = document.getElementById('chatTranscriptsTable')
+const chatLoadMoreBtn = document.getElementById('chatLoadMoreBtn')
+const chatReviewedFilters = document.getElementById('chatReviewedFilters')
+const chatFlagFilters = document.getElementById('chatFlagFilters')
+const chatPromptVersionFilter = document.getElementById('chatPromptVersionFilter')
+const chatMetaEl = document.getElementById('chatTranscriptMeta')
+const chatTurnsEl = document.getElementById('chatTranscriptTurns')
+const chatNoteEl = document.getElementById('chatTranscriptNote')
+const chatSaveNoteBtn = document.getElementById('chatSaveNoteBtn')
+const chatMarkReviewedBtn = document.getElementById('chatMarkReviewedBtn')
+const chatMarkUnreviewedBtn = document.getElementById('chatMarkUnreviewedBtn')
+
+let activeTab = 'contact'
 let adminKey = sessionStorage.getItem('admin-api-key') || ''
 let selectedMessageId = null
 let currentMessages = []
@@ -40,18 +78,15 @@ let selectedDetailItem = null
 let messageBodyVisible = false
 let messagesNextCursor = ''
 
-function resetMessageBodyView() {
-  messageBodyVisible = false
-  if (messageBodyEl) {
-    messageBodyEl.hidden = true
-    messageBodyEl.textContent = ''
-  }
-  if (showMessageBtn) showMessageBtn.textContent = 'Show message'
-}
-
-function eligibleForDailyReport(item) {
-  if (!item || item.status === 'sent') return false
-  return (item.attempts || 0) > 0
+let chatSelectedId = null
+let chatCurrentItems = []
+let chatNextCursor = ''
+let chatSelectedItem = null
+let chatHasLoaded = false
+const chatFilters = {
+  reviewed: '',
+  promptVersion: '',
+  flags: new Set()
 }
 
 function escapeHtml(value) {
@@ -74,8 +109,15 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
-async function request(path, options = {}) {
-  const url = `${adminBaseUrl}${path}`
+function flagLabel(flag) {
+  return flag
+    .split('_')
+    .map((part) => `${part[0] || ''}${part.slice(1)}`)
+    .join(' ')
+}
+
+async function request(baseUrl, path, options = {}) {
+  const url = `${baseUrl}${path}`
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -89,6 +131,28 @@ async function request(path, options = {}) {
     throw new Error(body?.error || `Request failed (${response.status})`)
   }
   return body
+}
+
+function requestContact(path, options = {}) {
+  return request(contactAdminBaseUrl, path, options)
+}
+
+function requestChat(path, options = {}) {
+  return request(chatAdminBaseUrl, path, options)
+}
+
+function resetMessageBodyView() {
+  messageBodyVisible = false
+  if (messageBodyEl) {
+    messageBodyEl.hidden = true
+    messageBodyEl.textContent = ''
+  }
+  if (showMessageBtn) showMessageBtn.textContent = 'Show message'
+}
+
+function eligibleForDailyReport(item) {
+  if (!item || item.status === 'sent') return false
+  return (item.attempts || 0) > 0
 }
 
 function renderSummary(summary) {
@@ -177,16 +241,16 @@ function renderDetail(item) {
   `
 }
 
-async function loadDashboard() {
-  setStatus(globalStatus, 'Loading dashboard…')
+async function loadContactDashboard() {
+  setStatus(globalStatus, 'Loading contact dashboard…')
   try {
     const limit = Number(limitEl.value || 25)
     messagesNextCursor = ''
     if (loadMoreBtn) loadMoreBtn.hidden = true
     const [summary, messages, health] = await Promise.all([
-      request('/summary'),
-      request(`/messages?limit=${limit}`),
-      request('/health')
+      requestContact('/summary'),
+      requestContact(`/messages?limit=${limit}`),
+      requestContact('/health')
     ])
 
     renderSummary(summary)
@@ -196,14 +260,14 @@ async function loadDashboard() {
     renderHealth(health)
 
     if (selectedMessageId) {
-      const item = await request(`/messages/${selectedMessageId}`)
+      const item = await requestContact(`/messages/${selectedMessageId}`)
       renderDetail(item)
     } else {
       renderDetail(null)
     }
-    setStatus(globalStatus, 'Dashboard updated.', 'success')
+    setStatus(globalStatus, 'Contact dashboard updated.', 'success')
   } catch (error) {
-    setStatus(globalStatus, error.message || 'Could not load dashboard.', 'error')
+    setStatus(globalStatus, error.message || 'Could not load contact dashboard.', 'error')
     if (/Unauthorized/i.test(String(error.message || ''))) {
       app.hidden = true
       authCard.hidden = false
@@ -214,11 +278,11 @@ async function loadDashboard() {
 
 async function loadMoreMessages() {
   if (!messagesNextCursor || !loadMoreBtn) return
-  setStatus(globalStatus, 'Loading…')
+  setStatus(globalStatus, 'Loading older contact messages…')
   try {
     const limit = Number(limitEl.value || 25)
     const q = `/messages?limit=${limit}&cursor=${encodeURIComponent(messagesNextCursor)}`
-    const body = await request(q)
+    const body = await requestContact(q)
     const batch = body.items || []
     currentMessages = currentMessages.concat(batch)
     messagesNextCursor = body.nextCursor || ''
@@ -230,9 +294,162 @@ async function loadMoreMessages() {
   }
 }
 
+function renderChatSummary(summary) {
+  chatSummaryEls.total.textContent = summary.total ?? 0
+  chatSummaryEls.reviewed.textContent = summary.reviewed ?? 0
+  chatSummaryEls.unreviewed.textContent = summary.unreviewed ?? 0
+  chatSummaryEls.flagged.textContent = summary.flagged ?? 0
+}
+
+function refreshPromptVersionFilter(summary) {
+  const selected = chatFilters.promptVersion || ''
+  const versions = Object.keys(summary.byPromptVersion || {}).sort()
+  chatPromptVersionFilter.innerHTML = [
+    '<option value="">All versions</option>',
+    ...versions.map((version) => `<option value="${escapeHtml(version)}">${escapeHtml(version)}</option>`)
+  ].join('')
+  chatPromptVersionFilter.value = selected
+}
+
+function renderChatTable(items) {
+  chatCurrentItems = items
+  if (!items.length) {
+    chatTable.innerHTML = '<tr><td colspan="5">No transcripts match these filters.</td></tr>'
+    return
+  }
+  chatTable.innerHTML = items.map((item) => {
+    const flagNames = CHAT_FLAGS.filter((flag) => item.flags?.[flag]).map(flagLabel)
+    return `
+      <tr data-id="${escapeHtml(item.id)}" class="${item.id === chatSelectedId ? 'is-selected' : ''}">
+        <td>${escapeHtml(formatDate(item.updatedAt || item.createdAt))}</td>
+        <td>${escapeHtml(item.promptVersion || 'unknown')}</td>
+        <td>${escapeHtml(item.turnCount || 0)}</td>
+        <td>${item.reviewed ? 'Yes' : 'No'}</td>
+        <td>${escapeHtml(flagNames.join(', ') || '—')}</td>
+      </tr>
+    `
+  }).join('')
+}
+
+function renderChatDetail(item) {
+  chatSelectedItem = item || null
+  const disabled = !item
+  if (chatSaveNoteBtn) chatSaveNoteBtn.disabled = disabled
+  if (chatMarkReviewedBtn) chatMarkReviewedBtn.disabled = disabled || item.reviewed
+  if (chatMarkUnreviewedBtn) chatMarkUnreviewedBtn.disabled = disabled || !item.reviewed
+  if (!item) {
+    chatMetaEl.innerHTML = '<div><dt>Transcript</dt><dd>Select a transcript</dd></div>'
+    chatTurnsEl.textContent = 'No transcript selected.'
+    chatNoteEl.value = ''
+    return
+  }
+
+  const flagNames = CHAT_FLAGS.filter((flag) => item.flags?.[flag]).map(flagLabel)
+  chatMetaEl.innerHTML = `
+    <div><dt>ID</dt><dd>${escapeHtml(item.id)}</dd></div>
+    <div><dt>Prompt version</dt><dd>${escapeHtml(item.promptVersion || 'unknown')}</dd></div>
+    <div><dt>Reviewed</dt><dd>${item.reviewed ? 'Yes' : 'No'}</dd></div>
+    <div><dt>Updated</dt><dd>${escapeHtml(formatDate(item.updatedAt || item.createdAt))}</dd></div>
+    <div><dt>Turns</dt><dd>${escapeHtml(item.turnCount || 0)}</dd></div>
+    <div><dt>Flags</dt><dd>${escapeHtml(flagNames.join(', ') || '—')}</dd></div>
+  `
+  chatNoteEl.value = item.adminNotes || ''
+
+  const turns = Array.isArray(item.turns) ? item.turns : []
+  if (!turns.length) {
+    chatTurnsEl.textContent = 'No transcript turns captured.'
+    return
+  }
+  chatTurnsEl.textContent = turns.map((turn, idx) => {
+    const userMessages = (turn.requestMessages || [])
+      .filter((m) => m.role === 'user')
+      .map((m) => `- ${m.content}`)
+      .join('\n')
+    return [
+      `Turn ${idx + 1} (${formatDate(turn.capturedAt)})`,
+      'User messages:',
+      userMessages || '- (none)',
+      'Assistant:',
+      String(turn.reply || '').trim() || '(empty)',
+      ''
+    ].join('\n')
+  }).join('\n')
+}
+
+function chatQueryString() {
+  const params = new URLSearchParams()
+  params.set('limit', String(Number(chatLimitEl.value || 25)))
+  if (chatFilters.reviewed) params.set('reviewed', chatFilters.reviewed)
+  if (chatFilters.promptVersion) params.set('promptVersion', chatFilters.promptVersion)
+  if (chatFilters.flags.size > 0) {
+    params.set('flags', Array.from(chatFilters.flags).join(','))
+  }
+  return params.toString()
+}
+
+async function loadChatDashboard() {
+  setStatus(globalStatus, 'Loading chat transcript dashboard…')
+  try {
+    chatNextCursor = ''
+    if (chatLoadMoreBtn) chatLoadMoreBtn.hidden = true
+    const [summary, listBody] = await Promise.all([
+      requestChat('/transcripts/summary'),
+      requestChat(`/transcripts?${chatQueryString()}`)
+    ])
+    renderChatSummary(summary)
+    refreshPromptVersionFilter(summary)
+
+    chatNextCursor = listBody.nextCursor || ''
+    if (chatLoadMoreBtn) chatLoadMoreBtn.hidden = !chatNextCursor
+    renderChatTable(listBody.items || [])
+
+    if (chatSelectedId) {
+      const detail = await requestChat(`/transcripts/${encodeURIComponent(chatSelectedId)}`)
+      renderChatDetail(detail)
+    } else {
+      renderChatDetail(null)
+    }
+    chatHasLoaded = true
+    setStatus(globalStatus, 'Chat transcript dashboard updated.', 'success')
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not load transcripts.', 'error')
+  }
+}
+
+async function loadMoreChatTranscripts() {
+  if (!chatNextCursor || !chatLoadMoreBtn) return
+  setStatus(globalStatus, 'Loading older transcripts…')
+  try {
+    const params = new URLSearchParams(chatQueryString())
+    params.set('cursor', chatNextCursor)
+    const body = await requestChat(`/transcripts?${params.toString()}`)
+    const batch = body.items || []
+    chatCurrentItems = chatCurrentItems.concat(batch)
+    chatNextCursor = body.nextCursor || ''
+    if (chatLoadMoreBtn) chatLoadMoreBtn.hidden = !chatNextCursor
+    renderChatTable(chatCurrentItems)
+    setStatus(globalStatus, 'Older transcripts loaded.', 'success')
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not load older transcripts.', 'error')
+  }
+}
+
+function setActiveTab(tab) {
+  activeTab = tab === 'transcripts' ? 'transcripts' : 'contact'
+  tabContactBtn.classList.toggle('is-active', activeTab === 'contact')
+  tabTranscriptsBtn.classList.toggle('is-active', activeTab === 'transcripts')
+  tabContactBtn.setAttribute('aria-selected', activeTab === 'contact' ? 'true' : 'false')
+  tabTranscriptsBtn.setAttribute('aria-selected', activeTab === 'transcripts' ? 'true' : 'false')
+  panelContact.hidden = activeTab !== 'contact'
+  panelTranscripts.hidden = activeTab !== 'transcripts'
+  if (activeTab === 'transcripts' && !chatHasLoaded) {
+    void loadChatDashboard()
+  }
+}
+
 authForm?.addEventListener('submit', async (event) => {
   event.preventDefault()
-  if (!adminBaseUrl && !isLocalAdminHost) {
+  if (!contactAdminBaseUrl && !isLocalAdminHost) {
     setStatus(
       authStatus,
       'Admin API URL is not configured. Deploy with SYNC_API_URLS enabled so meta "gvp:contact-api-url" is populated.',
@@ -244,16 +461,19 @@ authForm?.addEventListener('submit', async (event) => {
   sessionStorage.setItem('admin-api-key', adminKey)
   setStatus(authStatus, 'Checking access…')
   try {
-    await request('/summary')
+    await requestContact('/summary')
     authCard.hidden = true
     app.hidden = false
     setStatus(authStatus, '')
-    await loadDashboard()
+    await loadContactDashboard()
   } catch (error) {
     sessionStorage.removeItem('admin-api-key')
     setStatus(authStatus, error.message || 'Could not authenticate.', 'error')
   }
 })
+
+tabContactBtn?.addEventListener('click', () => setActiveTab('contact'))
+tabTranscriptsBtn?.addEventListener('click', () => setActiveTab('transcripts'))
 
 messagesTable?.addEventListener('click', async (event) => {
   const row = event.target.closest('tr[data-id]')
@@ -261,9 +481,21 @@ messagesTable?.addEventListener('click', async (event) => {
   selectedMessageId = row.dataset.id
   renderMessages(currentMessages)
   try {
-    renderDetail(await request(`/messages/${selectedMessageId}`))
+    renderDetail(await requestContact(`/messages/${selectedMessageId}`))
   } catch (error) {
     setStatus(globalStatus, error.message || 'Could not load message.', 'error')
+  }
+})
+
+chatTable?.addEventListener('click', async (event) => {
+  const row = event.target.closest('tr[data-id]')
+  if (!row) return
+  chatSelectedId = row.dataset.id
+  renderChatTable(chatCurrentItems)
+  try {
+    renderChatDetail(await requestChat(`/transcripts/${encodeURIComponent(chatSelectedId)}`))
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not load transcript detail.', 'error')
   }
 })
 
@@ -271,9 +503,9 @@ retryBtn?.addEventListener('click', async () => {
   if (!selectedMessageId) return
   if (!window.confirm('Retry this message?')) return
   try {
-    await request(`/retry/${selectedMessageId}`, { method: 'POST' })
+    await requestContact(`/retry/${selectedMessageId}`, { method: 'POST' })
     setStatus(globalStatus, 'Message requeued.', 'success')
-    await loadDashboard()
+    await loadContactDashboard()
   } catch (error) {
     setStatus(globalStatus, error.message || 'Retry failed.', 'error')
   }
@@ -303,35 +535,135 @@ clearReportBtn?.addEventListener('click', async () => {
     return
   }
   try {
-    await request(`/messages/${selectedMessageId}/suppress-report`, { method: 'POST' })
+    await requestContact(`/messages/${selectedMessageId}/suppress-report`, { method: 'POST' })
     setStatus(globalStatus, 'Daily report suppressed for this message.', 'success')
-    await loadDashboard()
+    await loadContactDashboard()
   } catch (error) {
     setStatus(globalStatus, error.message || 'Could not update report setting.', 'error')
   }
 })
 
-refreshBtn?.addEventListener('click', loadDashboard)
-limitEl?.addEventListener('change', loadDashboard)
+chatSaveNoteBtn?.addEventListener('click', async () => {
+  if (!chatSelectedItem) return
+  const note = String(chatNoteEl.value || '').slice(0, 4000)
+  try {
+    await requestChat(`/transcripts/${encodeURIComponent(chatSelectedItem.id)}/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note })
+    })
+    setStatus(globalStatus, 'Transcript note saved.', 'success')
+    await loadChatDashboard()
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not save transcript note.', 'error')
+  }
+})
+
+chatMarkReviewedBtn?.addEventListener('click', async () => {
+  if (!chatSelectedItem) return
+  try {
+    await requestChat(`/transcripts/${encodeURIComponent(chatSelectedItem.id)}/reviewed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewed: true })
+    })
+    setStatus(globalStatus, 'Transcript marked reviewed.', 'success')
+    await loadChatDashboard()
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not update reviewed state.', 'error')
+  }
+})
+
+chatMarkUnreviewedBtn?.addEventListener('click', async () => {
+  if (!chatSelectedItem) return
+  try {
+    await requestChat(`/transcripts/${encodeURIComponent(chatSelectedItem.id)}/reviewed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewed: false })
+    })
+    setStatus(globalStatus, 'Transcript marked unreviewed.', 'success')
+    await loadChatDashboard()
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not update reviewed state.', 'error')
+  }
+})
+
+refreshBtn?.addEventListener('click', () => {
+  if (activeTab === 'transcripts') {
+    void loadChatDashboard()
+    return
+  }
+  void loadContactDashboard()
+})
+
+limitEl?.addEventListener('change', () => {
+  void loadContactDashboard()
+})
 loadMoreBtn?.addEventListener('click', loadMoreMessages)
+chatLimitEl?.addEventListener('change', () => {
+  void loadChatDashboard()
+})
+chatLoadMoreBtn?.addEventListener('click', loadMoreChatTranscripts)
+
+chatPromptVersionFilter?.addEventListener('change', () => {
+  chatFilters.promptVersion = String(chatPromptVersionFilter.value || '')
+  void loadChatDashboard()
+})
+
+chatReviewedFilters?.addEventListener('click', (event) => {
+  const pill = event.target.closest('[data-reviewed]')
+  if (!pill) return
+  chatFilters.reviewed = String(pill.dataset.reviewed || '')
+  for (const button of chatReviewedFilters.querySelectorAll('.admin-pill')) {
+    button.classList.toggle('is-active', button === pill)
+  }
+  void loadChatDashboard()
+})
+
+chatFlagFilters?.addEventListener('click', (event) => {
+  const pill = event.target.closest('[data-flag]')
+  if (!pill) return
+  const flag = String(pill.dataset.flag || '')
+  if (!flag) return
+  if (chatFilters.flags.has(flag)) {
+    chatFilters.flags.delete(flag)
+    pill.classList.remove('is-active')
+  } else {
+    chatFilters.flags.add(flag)
+    pill.classList.add('is-active')
+  }
+  void loadChatDashboard()
+})
 
 signOutBtn?.addEventListener('click', () => {
   adminKey = ''
   selectedMessageId = null
   currentMessages = []
   messagesNextCursor = ''
+  chatSelectedId = null
+  chatCurrentItems = []
+  chatNextCursor = ''
+  chatSelectedItem = null
+  chatHasLoaded = false
+  chatFilters.reviewed = ''
+  chatFilters.promptVersion = ''
+  chatFilters.flags = new Set()
   if (loadMoreBtn) loadMoreBtn.hidden = true
+  if (chatLoadMoreBtn) chatLoadMoreBtn.hidden = true
   sessionStorage.removeItem('admin-api-key')
   app.hidden = true
   authCard.hidden = false
   authInput.value = ''
   resetMessageBodyView()
   renderDetail(null)
+  renderChatDetail(null)
+  setActiveTab('contact')
   setStatus(globalStatus, '')
 })
 
 if (adminKey) {
-  if (!adminBaseUrl && !isLocalAdminHost) {
+  if (!contactAdminBaseUrl && !isLocalAdminHost) {
     setStatus(
       authStatus,
       'Admin API URL is not configured. Deploy with SYNC_API_URLS enabled so meta "gvp:contact-api-url" is populated.',
@@ -342,6 +674,7 @@ if (adminKey) {
     authInput.value = adminKey
     authCard.hidden = true
     app.hidden = false
-    loadDashboard()
+    setActiveTab('contact')
+    void loadContactDashboard()
   }
 }

@@ -23,6 +23,13 @@ Parameters:
     Type: String
     Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link'
     Description: Comma-separated browser origins for API Gateway CORS (and CHAT_CORS_ORIGINS in the function).
+  ChatTranscriptsTableName:
+    Type: String
+    Default: ''
+    Description: Optional external DynamoDB table for transcript persistence (from contact stack output).
+
+Conditions:
+  HasChatTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
 
 Globals:
   Function:
@@ -47,6 +54,16 @@ Resources:
       Dockerfile: docker/chat/Dockerfile.lambda
     Properties:
       PackageType: Image
+      Policies:
+        - !If
+          - HasChatTranscriptsTable
+          - Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChatTranscriptsTableName}
+          - !Ref AWS::NoValue
       Environment:
         Variables:
           CHAT_PROVIDER: gemini
@@ -54,6 +71,7 @@ Resources:
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
+          CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
       Events:
         RootAny:
           Type: HttpApi

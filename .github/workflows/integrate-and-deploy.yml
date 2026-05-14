@@ -34,7 +34,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  chat-eval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install chat dependencies
+        working-directory: docker/chat
+        run: python -m pip install -r requirements.txt
+
+      - name: Run phase4 eval gate
+        working-directory: docker/chat
+        run: PYTHONPATH=. python -m pytest tests/test_eval_gate.py -v
+
   integrate-deploy:
+    needs:
+      - chat-eval-gate
     runs-on: ubuntu-latest
     # Secret names match secrets.example/deploy.env.example (without the "export" prefix).
     env:

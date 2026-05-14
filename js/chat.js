@@ -7,6 +7,7 @@ const SESSION_KEY = 'gvp-chat-session-id'
 const MAX_COMPOSER_HEIGHT = 128
 
 let collapseChat = () => {}
+let syncHeroChatSurfaceImpl = () => {}
 
 function createSessionId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -56,7 +57,18 @@ export function collapseChatDialog() {
   collapseChat()
 }
 
+function normalizeSection(section) {
+  return section === 'playground' || section === 'portfolio' ? section : 'home'
+}
+
+export function syncHeroChatSurface(section = 'home') {
+  syncHeroChatSurfaceImpl(section)
+}
+
 export function initChat() {
+  const heroChat = document.getElementById('heroChat')
+  const heroChatDock = document.getElementById('heroChatDock')
+  const newSessionPill = heroChat?.querySelector('[data-chat-new-pill]')
   const heroForm = document.getElementById('heroChatForm')
   const heroInput = document.getElementById('heroChatInput')
   const suggestions = document.getElementById('heroChatSuggestions')
@@ -70,7 +82,10 @@ export function initChat() {
   const composerSend = composer?.querySelector('.chat-composer__send')
   const statusEl = document.getElementById('chatStatus')
 
-  if (!heroForm || !heroInput || !dialog || !messagesEl || !composer || !composerInput || !statusEl) return
+  if (!heroChat || !heroChatDock || !heroForm || !heroInput || !dialog || !messagesEl || !composer || !composerInput || !statusEl) return
+
+  const heroChatHomeParent = heroChat.parentElement
+  const heroChatHomeNextSibling = heroChat.nextSibling
 
   const endpoint = window.__CHAT_API_URL__ || CHAT_DEFAULT_PATH
   const state = {
@@ -82,6 +97,50 @@ export function initChat() {
 
   const isOpen = () => !dialog.hidden
 
+  const restoreHeroChatHome = () => {
+    if (!heroChatHomeParent) return
+    if (heroChat.parentElement === heroChatHomeParent) return
+
+    if (heroChatHomeNextSibling && heroChatHomeNextSibling.parentNode === heroChatHomeParent) {
+      heroChatHomeParent.insertBefore(heroChat, heroChatHomeNextSibling)
+      return
+    }
+    heroChatHomeParent.appendChild(heroChat)
+  }
+
+  syncHeroChatSurfaceImpl = (section = 'home') => {
+    const nextSection = normalizeSection(section)
+    const shouldRestoreFocus = document.activeElement === heroInput
+
+    if (nextSection === 'home') {
+      restoreHeroChatHome()
+      heroChatDock.hidden = true
+      heroChatDock.setAttribute('aria-hidden', 'true')
+      heroChat.classList.add('hero-chat--embedded')
+      heroChat.classList.remove('hero-chat--docked')
+    } else {
+      heroChatDock.hidden = false
+      heroChatDock.setAttribute('aria-hidden', 'false')
+      if (heroChat.parentElement !== heroChatDock) {
+        heroChatDock.appendChild(heroChat)
+      }
+      heroChat.classList.add('hero-chat--docked')
+      heroChat.classList.remove('hero-chat--embedded')
+    }
+
+    requestAnimationFrame(() => {
+      // Keep a layout pass after moving between embedded/docked surfaces.
+      heroChatDock.getBoundingClientRect()
+      heroChat.getBoundingClientRect()
+    })
+
+    if (shouldRestoreFocus) {
+      requestAnimationFrame(() => {
+        heroInput.focus()
+      })
+    }
+  }
+
   const setStatus = (text, tone = 'muted') => {
     statusEl.textContent = text || ''
     if (!text || tone === 'muted') {
@@ -89,6 +148,13 @@ export function initChat() {
       return
     }
     statusEl.dataset.tone = tone
+  }
+
+  const syncSessionUi = () => {
+    if (!newSessionPill) return
+    const hasMessages = state.history.length > 0
+    newSessionPill.hidden = !hasMessages
+    newSessionPill.setAttribute('aria-hidden', hasMessages ? 'false' : 'true')
   }
 
   const autosizeComposer = () => {
@@ -229,14 +295,21 @@ export function initChat() {
     })
   }
 
-  const resetConversation = () => {
+  const resetConversation = ({ focusTarget = 'composer' } = {}) => {
     messagesEl.textContent = ''
     state.history = []
     state.sessionId = renewSessionId()
+    syncSessionUi()
     setStatus('Started over with a fresh chat session.')
     composerInput.value = ''
     autosizeComposer()
-    composerInput.focus()
+    if (focusTarget === 'hero') {
+      heroInput.focus()
+      return
+    }
+    if (isOpen()) {
+      composerInput.focus()
+    }
   }
 
   const postChat = async (history) => {
@@ -295,6 +368,7 @@ export function initChat() {
     setStatus('')
     appendMessage('user', text)
     state.history = state.history.concat({ role: 'user', content: text })
+    syncSessionUi()
     if (source === 'composer') {
       composerInput.value = ''
       autosizeComposer()
@@ -395,5 +469,11 @@ export function initChat() {
     }
   })
 
+  newSessionPill?.addEventListener('click', () => {
+    const focusTarget = isOpen() ? 'composer' : 'hero'
+    resetConversation({ focusTarget })
+  })
+
+  syncSessionUi()
   autosizeComposer()
 }

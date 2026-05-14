@@ -27,6 +27,7 @@ export function initNavigation(options = {}) {
     const previousSection = state.section
     state.activeTab = nextSection !== 'home'
     state.section = nextSection
+    document.body.classList.toggle('content-open', nextSection !== 'home')
     if (nextSection === 'playground') {
       goPlay(elements, event)
     } else if (nextSection === 'portfolio') {

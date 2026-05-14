@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
@@ -19,6 +20,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.gemini_routing import GeminiRoutingChain
 from app.knowledge_context import (
+    build_context,
+    compact_history,
     default_pack_dir,
     default_system_prompt_path,
     load_knowledge_pack,
@@ -29,6 +32,7 @@ from app.providers import (
     get_provider_and_model,
     get_provider_timeout_seconds,
 )
+from app.transcript_store import build_transcript_store
 from app.upstream_errors import upstream_error_body
 
 logger = logging.getLogger(__name__)
@@ -147,6 +151,97 @@ def _actions_from_result(result: Any) -> list[dict[str, Any]]:
     return deduped
 
 
+def _tool_calls_from_result(result: Any) -> list[dict[str, Any]]:
+    if not isinstance(result, AIMessage):
+        return []
+    calls: list[dict[str, Any]] = []
+    for call in getattr(result, 'tool_calls', []) or []:
+        calls.append(
+            {
+                'name': str(call.get('name', '')).strip(),
+                'args': _normalize_tool_args(call.get('args')),
+                'id': str(call.get('id', '')).strip() or None,
+            }
+        )
+    return calls
+
+
+def _get_retrieval_snapshot(messages: list[HumanMessage | AIMessage | SystemMessage]) -> dict[str, Any]:
+    if app.state.knowledge_pack is None:
+        return {
+            'tags': [],
+            'faq_id': None,
+            'faq_question': None,
+            'role_ids': [],
+            'project_ids': [],
+        }
+    compacted = compact_history(messages)
+    last_user = ''
+    for msg in reversed(compacted):
+        if getattr(msg, 'type', None) == 'human':
+            last_user = str(getattr(msg, 'content', ''))
+            break
+    history_text = ' '.join(str(getattr(m, 'content', ''))[:300] for m in compacted[-6:])
+    context = build_context(last_user, history_text, app.state.knowledge_pack)
+    faq_match = context.get('faq_match') or {}
+    question = None
+    if isinstance(faq_match.get('q'), list) and faq_match.get('q'):
+        question = str(faq_match.get('q')[0]).strip() or None
+    return {
+        'tags': context.get('tags') or [],
+        'faq_id': faq_match.get('id'),
+        'faq_question': question,
+        'role_ids': [str(role.get('id', '')) for role in context.get('roles') or [] if role.get('id')],
+        'project_ids': [
+            str(project.get('id', ''))
+            for project in context.get('projects') or []
+            if project.get('id')
+        ],
+        'retrieval_fallback': bool(context.get('retrieval_fallback')),
+    }
+
+
+def _build_flags(
+    messages: list[ChatMessageIn],
+    reply_text: str,
+    retrieval: dict[str, Any],
+    actions: list[dict[str, Any]],
+) -> dict[str, bool]:
+    last_user = ''
+    for row in reversed(messages):
+        if row.role == 'user':
+            last_user = row.content.lower()
+            break
+    reply_lower = reply_text.lower()
+    negative_tokens = (
+        'not helpful',
+        'didn',
+        'wrong',
+        'bad answer',
+        'that is incorrect',
+        'hallucinat',
+    )
+    refusal_tokens = (
+        "i can't",
+        'i cannot',
+        "i'm unable",
+        'i am unable',
+        'not able to',
+        "don't have enough",
+    )
+    # Spec: tag retrieval fell back to defaults (not FAQ-driven context).
+    no_retrieval_match = bool(retrieval.get('retrieval_fallback')) and not (
+        retrieval.get('faq_id') or retrieval.get('faq_question')
+    )
+    return {
+        'no_retrieval_match': bool(no_retrieval_match),
+        'negative_feedback': any(token in last_user for token in negative_tokens),
+        'possible_refusal': any(token in reply_lower for token in refusal_tokens),
+        'long_conversation': len(messages) >= 12,
+        'tool_offered_not_taken': len(actions) > 0,
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     pack_dir = default_pack_dir()
@@ -155,6 +250,7 @@ async def lifespan(app: FastAPI):
     app.state.pack_path = str(pack_dir)
     app.state.prompt_path = str(prompt_path)
     app.state.corpus_error = None
+    app.state.transcript_store = build_transcript_store()
     try:
         pack = load_knowledge_pack(pack_dir)
         prompt_text, prompt_version = load_system_prompt(prompt_path)
@@ -225,6 +321,7 @@ app.state.prompt_path: str = ""
 app.state.corpus_error: str | None = None
 app.state.gemini_primary_model: str | None = None
 app.state.gemini_fallback_model: str | None = None
+app.state.transcript_store = None
 
 
 @app.get("/health")
@@ -328,7 +425,35 @@ async def chat(payload: ChatRequest) -> JSONResponse:
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = _reply_text_from_result(result)
     actions = _actions_from_result(result)
+    tool_calls = _tool_calls_from_result(result)
     model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
+    retrieval = _get_retrieval_snapshot(lc_messages)
+    flags = _build_flags(payload.messages, reply_text, retrieval, actions)
+
+    store = app.state.transcript_store
+    if store is not None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        turn = {
+            'capturedAt': now_iso,
+            'promptVersion': app.state.prompt_version,
+            'requestMessages': [row.model_dump() for row in payload.messages],
+            'reply': reply_text,
+            'retrieval': retrieval,
+            'toolCalls': tool_calls,
+            'actions': actions,
+            'flags': flags,
+            'latencyMs': elapsed_ms,
+        }
+        await store.persist_turn(
+            session_id=payload.sessionId,
+            created_at=now_iso,
+            prompt_version=app.state.prompt_version,
+            provider=app.state.provider_name,
+            model=model_used,
+            turn=turn,
+            flags=flags,
+        )
+
     logger.info("chat ok model=%s latency_ms=%s", model_used, elapsed_ms)
     return JSONResponse(content={"reply": reply_text, "model": model_used, "actions": actions})
 

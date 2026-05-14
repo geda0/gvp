@@ -40,12 +40,6 @@ class SpacemanPosition {
   _syncBodyContentOpen() {
     const pg = document.getElementById('playgroundContent');
     const pf = document.getElementById('portfolioContent');
-    const snapshot = {
-      isQuiet: this.isQuiet,
-      contentOpen: document.body.classList.contains('content-open'),
-      pgVisible: Boolean(pg && pg.classList.contains('visible') && !pg.classList.contains('hidden')),
-      pfVisible: Boolean(pf && pf.classList.contains('visible') && !pf.classList.contains('hidden'))
-    };
     const wrapperOpen =
       !!(pg &&
         pg.classList.contains('visible') &&
@@ -53,7 +47,9 @@ class SpacemanPosition {
       !!(pf &&
         pf.classList.contains('visible') &&
         !pf.classList.contains('hidden'));
-    document.body.classList.toggle('content-open', wrapperOpen);
+    // Navigation owns clearing `content-open` on Home. Only assert true here so we never
+    // transiently remove it during layout passes (which used to re-center `#load`).
+    if (wrapperOpen) document.body.classList.add('content-open');
   }
 
   init() {
@@ -361,8 +357,17 @@ class SpacemanPosition {
     this.updatePosition();
   }
 
+  _getDockClearance() {
+    const dock = document.getElementById('heroChatDock')
+    if (!dock || dock.hidden) return 0
+    const rect = dock.getBoundingClientRect()
+    if (rect.height <= 0 || rect.width <= 0) return 0
+    return rect.height + 8
+  }
+
   _getBounds(vw, vh, scale) {
     const { navHeight } = this.options;
+    const dockClearance = this._getDockClearance()
     const edgePad = vw < 768 ? 12 : this.options.edgePad;
     const rect = this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
@@ -372,7 +377,7 @@ class SpacemanPosition {
     return {
       minX: -vw / 2 + w / 2 + edgePad,
       maxX: vw / 2 - w / 2 - edgePad,
-      minY: -vh / 2 + h / 2 + edgePad + navHeight,
+      minY: -vh / 2 + h / 2 + edgePad + navHeight + dockClearance,
       maxY: vh / 2 - h / 2 - edgePad
     };
   }

@@ -67,6 +67,33 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  ChatTranscriptsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: listPk
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      GlobalSecondaryIndexes:
+        - IndexName: byCreatedAt
+          KeySchema:
+            - AttributeName: listPk
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
   ContactDeliveryQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -165,11 +192,16 @@ Resources:
           ADMIN_API_KEY: !Ref AdminApiKey
           CONTACT_DELIVERY_DLQ_URL: !Ref ContactDeliveryDlq
           CONTACT_DLQ_ALARM_NAME: !Ref ContactDlqAlarm
+          CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTable
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref ContactMessagesTable
         - DynamoDBCrudPolicy:
             TableName: !Ref ContactMessagesTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ChatTranscriptsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ChatTranscriptsTable
         - Statement:
             - Effect: Allow
               Action:
@@ -225,6 +257,42 @@ Resources:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/{proxy+}
             Method: OPTIONS
+        ChatAdminTranscripts:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/chat/admin/transcripts
+            Method: GET
+        ChatAdminTranscriptDetail:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/chat/admin/transcripts/{id}
+            Method: GET
+        ChatAdminTranscriptNote:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/chat/admin/transcripts/{id}/note
+            Method: POST
+        ChatAdminTranscriptReviewed:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/chat/admin/transcripts/{id}/reviewed
+            Method: POST
+        ChatAdminTranscriptsSummary:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/chat/admin/transcripts/summary
+            Method: GET
+        ChatAdminOptions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/chat/admin/{proxy+}
+            Method: OPTIONS
 
 Outputs:
   ContactApiUrl:
@@ -233,3 +301,5 @@ Outputs:
     Value: !Ref ContactMessagesTable
   ContactDeliveryQueueUrl:
     Value: !Ref ContactDeliveryQueue
+  ChatTranscriptsTableName:
+    Value: !Ref ChatTranscriptsTable

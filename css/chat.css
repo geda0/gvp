@@ -11,6 +11,58 @@ body.chat-dialog-open {
     box-sizing: border-box;
 }
 
+.hero-chat--embedded {
+    margin-top: -0.5rem;
+}
+
+.hero-chat--docked {
+    margin-top: 0;
+}
+
+.hero-chat-dock {
+    position: sticky;
+    top: 0;
+    z-index: 120;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.7rem 1rem 0.8rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
+    /* Own stacking; no transform (hero .scale-in stays on #home only) */
+    transform: none;
+    isolation: isolate;
+}
+
+body.content-open .hero-chat-dock:not([hidden]) {
+    max-width: min(1120px, calc(100vw - 2rem));
+    margin-left: auto;
+    margin-right: auto;
+    padding-top: clamp(4rem, 16vh, 10rem);
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+.hero-chat-dock[hidden] {
+    display: none !important;
+}
+
+.hero-chat-dock .hero-chat {
+    max-width: min(36rem, 100%);
+}
+
+.hero-chat-dock .hero-chat__label {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+}
+
+.hero-chat-dock .hero-chat__form {
+    padding: 0.22rem 0.3rem 0.22rem 0.72rem;
+}
+
+.hero-chat-dock .hero-chat__chip {
+    font-size: 0.74rem;
+}
+
 .hero-chat__label-wrap {
     display: flex;
     align-items: center;
@@ -501,9 +553,33 @@ body.chat-dialog-open {
         font-size: 0.74rem;
         padding: 0.3rem 0.55rem;
     }
+
+    .hero-chat-dock {
+        padding: 0.58rem 0.72rem 0.66rem;
+    }
+
+    body.content-open .hero-chat-dock:not([hidden]) {
+        padding-top: max(3.25rem, env(safe-area-inset-top, 0px));
+    }
+
+    .hero-chat--docked {
+        max-width: min(34rem, 100%);
+    }
 }
 
 @media (max-width: 640px) {
+    .hero-chat-dock {
+        top: 0;
+        padding-top: max(0.52rem, env(safe-area-inset-top, 0px));
+        padding-left: max(0.72rem, env(safe-area-inset-left, 0px));
+        padding-right: max(0.72rem, env(safe-area-inset-right, 0px));
+        padding-bottom: 0.58rem;
+    }
+
+    .hero-chat-dock .hero-chat__suggestions {
+        justify-content: flex-start;
+    }
+
     .chat-dialog {
         padding: 0;
         align-items: stretch;

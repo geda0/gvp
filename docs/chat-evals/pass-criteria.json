@@ -1,0 +1,18 @@
+{
+  "suite": "phase4-eval-gate",
+  "description": "Regression gate for transcript-derived chatbot quality checks.",
+  "required_metrics": {
+    "hallucination_correctness": {
+      "minimum_rate": 1.0,
+      "minimum_cases": 4
+    },
+    "refusal_correctness": {
+      "minimum_rate": 1.0,
+      "minimum_cases": 4
+    },
+    "handoff_correctness": {
+      "minimum_rate": 1.0,
+      "minimum_cases": 4
+    }
+  }
+}

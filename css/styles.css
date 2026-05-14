@@ -288,7 +288,7 @@ h3 {
 }
 
 .project {
-    margin: 20px 0;
+    margin: 20px auto;
     background: var(--surface-elevated);
     border: 1px solid var(--border-subtle);
     padding: 1rem 1.1rem;
@@ -640,6 +640,12 @@ img {
     min-height: 0;
     width: 100%;
     position: relative;
+}
+
+body.content-open #load {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
 }
 
 canvas {

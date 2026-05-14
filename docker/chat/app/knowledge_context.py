@@ -128,7 +128,15 @@ def load_knowledge_pack(pack_dir: Path) -> dict[str, Any]:
 
 
 def parse_prompt_version(text: str) -> str:
-    match = re.search(r'prompt-version:\s*([a-zA-Z0-9.\-_]+)', text or '')
+    lines = [line.strip() for line in (text or '').splitlines() if line.strip()]
+    if not lines:
+        return 'unknown'
+    first = lines[0]
+    match = re.match(
+        r'(?:<!--\s*)?prompt-version:\s*([a-zA-Z0-9.\-_]+)(?:\s*-->)?$',
+        first,
+        flags=re.IGNORECASE,
+    )
     return match.group(1) if match else 'unknown'
 
 
@@ -138,7 +146,12 @@ def load_system_prompt(path: Path) -> tuple[str, str]:
     text = path.read_text(encoding='utf-8').strip()
     if not text:
         raise RuntimeError(f'System prompt file is empty: {path}')
-    return text, parse_prompt_version(text)
+    version = parse_prompt_version(text)
+    if version == 'unknown':
+        raise RuntimeError(
+            'System prompt is missing a parseable first-line prompt-version header'
+        )
+    return text, version
 
 
 def summarize_pruned_messages(messages: list[Any], max_topics: int = 4) -> str:
@@ -223,13 +236,14 @@ def build_context(
     roles_all = list(pack.get('roles') or [])
     projects_all = list(pack.get('projects') or [])
 
-    roles = [r for r in roles_all if _is_relevant(r, tags)][:max_roles]
-    projects = [p for p in projects_all if _is_relevant(p, tags)][:max_projects]
-
-    if not roles:
-        roles = roles_all[:2]
-    if not projects:
-        projects = projects_all[:2]
+    matched_roles = [r for r in roles_all if _is_relevant(r, tags)][:max_roles]
+    matched_projects = [p for p in projects_all if _is_relevant(p, tags)][:max_projects]
+    role_fallback = len(matched_roles) == 0
+    project_fallback = len(matched_projects) == 0
+    roles = matched_roles if not role_fallback else roles_all[:2]
+    projects = matched_projects if not project_fallback else projects_all[:2]
+    # True when tag-based retrieval yielded no role/project hits and defaults were used.
+    retrieval_fallback = role_fallback or project_fallback
 
     return {
         'bio': pack.get('bio') or {},
@@ -237,6 +251,7 @@ def build_context(
         'projects': projects,
         'faq_match': faq_match,
         'tags': sorted(tags),
+        'retrieval_fallback': retrieval_fallback,
     }
 
 

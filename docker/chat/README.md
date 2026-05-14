@@ -88,6 +88,13 @@ cd docker/chat
 .venv/bin/pytest
 ```
 
+Phase 4 eval gate only:
+
+```bash
+cd docker/chat
+.venv/bin/pytest tests/test_eval_gate.py -v
+```
+
 Or without a venv (after `pip install -r requirements.txt` in your environment):
 
 ```bash

@@ -246,6 +246,71 @@ h2 {
   color: var(--text-muted);
 }
 
+.admin-tabs {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.admin-tab {
+  background: transparent;
+  border-color: var(--border-subtle);
+}
+
+.admin-tab.is-active {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.admin-card--filters {
+  margin-bottom: 1rem;
+}
+
+.admin-filter-row {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.admin-inline-label {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.admin-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.admin-pill {
+  background: transparent;
+  border-color: var(--border-subtle);
+  padding: 0.4rem 0.68rem;
+  border-radius: 999px;
+  font-size: 0.86rem;
+}
+
+.admin-pill.is-active {
+  background: rgba(79, 124, 206, 0.25);
+  border-color: rgba(107, 148, 220, 0.8);
+}
+
+#chatPromptVersionFilter,
+#chatTranscriptNote {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.78rem;
+}
+
+#chatTranscriptNote {
+  resize: vertical;
+  min-height: 5.5rem;
+}
+
 .admin-status[data-tone="error"] {
   color: var(--danger);
 }
@@ -265,5 +330,9 @@ h2 {
 
   .admin-header {
     flex-direction: column;
+  }
+
+  .admin-tabs {
+    flex-wrap: wrap;
   }
 }
