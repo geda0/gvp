@@ -56,7 +56,7 @@ Voice uses the **Gemini Live** WebSocket protocol (preview). Official overview: 
 
 ## Deploy (stage / prod)
 
-Single entry point: **`scripts/integrate-and-deploy.sh`** from the repo root (see [`secrets.example/deploy.env.example`](../secrets.example/deploy.env.example) and optional [`secrets.example/chat-deploy.env.example`](../secrets.example/chat-deploy.env.example)).
+Single entry point: **`scripts/integrate-and-deploy.sh`** from the repo root (see [`secrets.example/deploy.env.example`](../secrets.example/deploy.env.example) and optional [`secrets.example/chat-deploy.env.example`](../secrets.example/chat-deploy.env.example)). **`GVP_CHAT_VOICE=1`** (or **`true`** / **`yes`**) turns on the static site’s mic UI via **`gvp:chat-voice-enabled`** during the same script’s HTML meta sync; omit for a text-only chat surface in the browser.
 
 ```bash
 bash scripts/integrate-and-deploy.sh        # prod — stack SAM_STACK_NAME (default page)

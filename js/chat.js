@@ -1,6 +1,6 @@
 import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
-import { chatApiUrl } from './site-config.js'
+import { chatApiUrl, chatVoiceFeatureEnabled } from './site-config.js'
 import { normalizeSection } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
@@ -337,20 +337,38 @@ export function initChat() {
 
   const reconcileComposerControls = () => {
     const textBusy = state.pending
-    const voiceBusy = liveUi.active || liveUi.connecting
+    const voiceBusy =
+      chatVoiceFeatureEnabled && (liveUi.active || liveUi.connecting)
     composerInput.disabled = textBusy || voiceBusy
     if (composerSend) composerSend.disabled = textBusy || voiceBusy
     if (composerClear) composerClear.disabled = textBusy || voiceBusy
+    if (!chatVoiceFeatureEnabled) {
+      if (composerMic) {
+        composerMic.hidden = true
+        composerMic.disabled = true
+        composerMic.setAttribute('inert', '')
+        composerMic.setAttribute('aria-hidden', 'true')
+      }
+      if (agentNodeMic) {
+        agentNodeMic.hidden = true
+        agentNodeMic.disabled = true
+        agentNodeMic.setAttribute('inert', '')
+        agentNodeMic.setAttribute('aria-hidden', 'true')
+      }
+      return
+    }
     if (composerMic || agentNodeMic) {
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
       if (composerMic) {
         composerMic.disabled = micBusy
         composerMic.hidden = false
         composerMic.removeAttribute('inert')
+        composerMic.removeAttribute('aria-hidden')
       }
       if (agentNodeMic) {
         agentNodeMic.disabled = micBusy
         agentNodeMic.removeAttribute('inert')
+        agentNodeMic.removeAttribute('aria-hidden')
       }
     }
   }
@@ -791,7 +809,7 @@ export function initChat() {
   window.addEventListener(EV_OPEN_CHAT, onOpenChatEvent)
 
   const disposeChatLiveVoice = bindChatLiveVoice({
-    micButtons: [composerMic, agentNodeMic].filter(Boolean),
+    micButtons: chatVoiceFeatureEnabled ? [composerMic, agentNodeMic].filter(Boolean) : [],
     messagesEl,
     statusEl,
     syncEmptyState,

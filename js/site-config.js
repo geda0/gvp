@@ -11,8 +11,15 @@ function resolveApiUrl(metaName, localFallback) {
   return cleaned || (isLocal ? localFallback : '')
 }
 
+function readChatVoiceFeatureEnabled() {
+  const m = document.querySelector('meta[name="gvp:chat-voice-enabled"]')
+  const raw = (m && m.getAttribute('content') || '').trim().toLowerCase()
+  return raw === '1' || raw === 'true'
+}
+
 export const contactApiUrl = resolveApiUrl('gvp:contact-api-url', '/api/contact')
 export const chatApiUrl = resolveApiUrl('gvp:chat-api-url', '/api/chat')
+export const chatVoiceFeatureEnabled = readChatVoiceFeatureEnabled()
 
 if (typeof window !== 'undefined') {
   window.__CONTACT_API_URL__ = contactApiUrl

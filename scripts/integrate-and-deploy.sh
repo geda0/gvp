@@ -10,6 +10,8 @@
 #
 # Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
 # (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
+# HTML chat voice (browser mic): optional GVP_CHAT_VOICE=1|true|yes during meta sync sets
+#   <meta name="gvp:chat-voice-enabled" content="1">; otherwise content=0. Unset defaults to off.
 # Chat on Lambda (Gemini): set CHAT_SAM_STACK_NAME (legacy fallback), or CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD per deploy env, plus GEMINI_API_KEY; template aws/chat-template.yaml
 
 set -euo pipefail
@@ -25,6 +27,7 @@ usage() {
   echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
   echo "  Auto-runs Secrets Manager seed/push when .secrets/manifest.json + config.manifest.json exist (SKIP_SECRETS_MANAGER=1 to skip)." >&2
   echo "  When CHAT_PROD_CHAT_API_URL / CHAT_STAGE_CHAT_API_URL are unset, derives gvp:chat-api-url from ECS ALB DNS (CHAT_ECS_* cluster+service). Opt out: CHAT_ECS_AUTO_SYNC_CHAT_URL=0." >&2
+  echo "  Optional GVP_CHAT_VOICE=1|true|yes: sets HTML meta gvp:chat-voice-enabled=1 (browser mic); default off." >&2
   exit 1
 }
 
@@ -367,13 +370,18 @@ else
   CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-${CHAT_ECS_DISCOVERED_URL:-${CHAT_SAM_CHAT_URL}}}"
 fi
 
+CHAT_VOICE_META=0
+case "${GVP_CHAT_VOICE:-0}" in
+  1|true|TRUE|True|yes|YES|Yes) CHAT_VOICE_META=1 ;;
+esac
+
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
   if [[ -n "${CHAT_SYNC_CHAT_URL}" ]]; then
-    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_SYNC_CHAT_URL}"
-    echo "Patched index.html and admin/index.html (gvp:contact-api-url + gvp:chat-api-url)."
+    env GVP_CHAT_VOICE="${CHAT_VOICE_META}" node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_SYNC_CHAT_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url, gvp:chat-api-url, gvp:chat-voice-enabled=${CHAT_VOICE_META})."
   else
-    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
-    echo "Patched index.html and admin/index.html (gvp:contact-api-url meta)."
+    env GVP_CHAT_VOICE="${CHAT_VOICE_META}" node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url; gvp:chat-voice-enabled=${CHAT_VOICE_META})."
   fi
   if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_SYNC_CHAT_URL}" ]]; then
     echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL, or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB discovery, or deploy Lambda chat (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY) for ChatPostApiUrl." >&2

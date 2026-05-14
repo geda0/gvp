@@ -4,7 +4,7 @@
 
 import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
-import { chatApiUrl } from './site-config.js'
+import { chatApiUrl, chatVoiceFeatureEnabled } from './site-config.js'
 
 const INPUT_RATE = 16000
 
@@ -281,6 +281,7 @@ function normalizeMicButtons(opts) {
 }
 
 export function bindChatLiveVoice(opts) {
+  if (!chatVoiceFeatureEnabled) return () => {}
   const {
     messagesEl,
     statusEl,
