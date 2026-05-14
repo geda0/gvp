@@ -239,10 +239,12 @@
     <div id="chatDialog" class="contact-dialog chat-dialog" hidden aria-hidden="true">
         <div class="contact-dialog__backdrop chat-dialog__backdrop" aria-hidden="true"></div>
         <div class="contact-dialog__panel chat-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="chatDialogTitle">
-            <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>
             <header class="chat-dialog__header">
-                <h2 id="chatDialogTitle" class="section-label chat-dialog__title">Ask about my work</h2>
-                <p class="chat-dialog__subtitle">Grounded in my resume and projects. Not a general chatbot.</p>
+                <div class="chat-dialog__head-text">
+                    <h2 id="chatDialogTitle" class="chat-dialog__title">Ask about my work</h2>
+                    <p class="chat-dialog__subtitle">Grounded in my resume and projects. Not a general chatbot.</p>
+                </div>
+                <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>
             </header>
             <div class="chat-dialog__scroll">
                 <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
