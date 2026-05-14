@@ -1,13 +1,18 @@
 import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
+import { bindChatLiveVoice } from './chat-live.js'
+import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
 const EV_COLLAPSE = 'gvp:site-chat-collapse'
+/** Open chat dialog from decoupled surfaces (e.g. spaceman) without importing chat from those modules. */
+export const EV_OPEN_CHAT = 'gvp:open-chat'
 const SESSION_KEY = 'gvp-chat-session-id'
 const MAX_COMPOSER_HEIGHT = 128
 const SUCCESS_IDLE_DELAY_MS = 700
 const ERROR_IDLE_DELAY_MS = 2300
+const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 
 let collapseChat = () => {}
 let syncChatLaunchersImpl = () => {}
@@ -56,6 +61,15 @@ function extractErrorMessage(error) {
   return 'Network error. Please try again.'
 }
 
+function isFinePointer() {
+  return typeof window.matchMedia === 'function'
+    && window.matchMedia(FINE_POINTER_QUERY).matches
+}
+
+function launcherReadOnlyForDevice() {
+  return !isFinePointer()
+}
+
 export function collapseChatDialog() {
   collapseChat()
 }
@@ -68,21 +82,23 @@ export function syncChatLaunchers(section = 'home') {
   syncChatLaunchersImpl(section)
 }
 
-// Backward-compatible export while app wiring updates.
 export function syncHeroChatSurface(section = 'home') {
   syncChatLaunchers(section)
 }
 
 export function initChat() {
-  const heroChat = document.getElementById('heroChat')
-  const heroForm = document.getElementById('heroChatForm')
-  const heroInput = document.getElementById('heroChatInput')
-  const suggestions = document.getElementById('heroChatSuggestions')
-  const headerForm = document.getElementById('headerChatForm')
-  const headerInput = document.getElementById('headerChatInput')
-  const headerIconBtn = document.getElementById('headerChatIconBtn')
+  document.documentElement.style.setProperty('--gvp-chat-panel-anim-ms', `${PANEL_ANIM_MS}ms`)
+  document.documentElement.style.setProperty('--gvp-chat-panel-anim-ease', PANEL_ANIM_EASE)
+
+  const agentNode = document.getElementById('agentNode')
+  const agentForm = agentNode?.querySelector('.agent-node__form')
+  const agentInput = agentNode?.querySelector('.agent-node__input')
+  const agentSend = agentNode?.querySelector('.agent-node__send')
+  const heroSlotEl = document.getElementById('agentSlotHero')
 
   const dialog = document.getElementById('chatDialog')
+  const panel = dialog?.querySelector('.chat-dialog__panel')
+  const dialogHeader = dialog?.querySelector('.chat-dialog__header')
   const backdrop = dialog?.querySelector('.chat-dialog__backdrop')
   const closeBtn = dialog?.querySelector('.chat-dialog__close')
   const messagesEl = document.getElementById('chatMessages')
@@ -91,10 +107,11 @@ export function initChat() {
   const composer = document.getElementById('chatComposer')
   const composerInput = document.getElementById('chatComposerInput')
   const composerSend = composer?.querySelector('.chat-composer__send')
+  const composerMic = document.getElementById('chatComposerMic')
+  const composerClear = document.getElementById('chatComposerClear')
   const statusEl = document.getElementById('chatStatus')
 
-  if (!heroChat || !heroForm || !heroInput || !headerForm || !headerInput || !headerIconBtn
-    || !dialog || !messagesEl || !composer || !composerInput || !statusEl) return
+  if (!agentNode || !agentForm || !agentInput || !heroSlotEl || !dialog || !panel || !messagesEl || !composer || !composerInput || !statusEl) return null
 
   const endpoint = window.__CHAT_API_URL__ || CHAT_DEFAULT_PATH
   const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
@@ -102,81 +119,117 @@ export function initChat() {
     history: [],
     pending: false,
     lastFocus: null,
-    sessionId: getOrCreateSessionId()
+    sessionId: getOrCreateSessionId(),
+    agentNodeApi: null
   }
   const launcherState = {
-    section: 'home',
-    heroVisible: true
+    section: 'home'
   }
-  let launcherObserver = null
   let lifecycleResetTimer = null
+  let intentPillEl = null
+  let panelAnim = {
+    token: 0,
+    raf: null,
+    timeout: null,
+    endHandler: null
+  }
 
   const isOpen = () => !dialog.hidden
 
-  const setHeaderLauncherVisibility = (visible, { immediate = false } = {}) => {
-    headerForm.setAttribute('aria-hidden', visible ? 'false' : 'true')
-    headerIconBtn.setAttribute('aria-hidden', visible ? 'false' : 'true')
-    if (visible) {
-      headerForm.removeAttribute('inert')
-      headerIconBtn.removeAttribute('inert')
+  const prefersReducedMotion = () => (
+    typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+
+  const resolveLauncherSource = () => {
+    const slot = state.agentNodeApi?.getSlot?.() || agentNode.dataset.slot || 'hero'
+    return slot === 'navbar' ? 'header' : 'hero'
+  }
+
+  const syncAgentLauncherChrome = (_section = 'home') => {
+    const nextSection = normalizeSection(_section)
+    const source = resolveLauncherSource()
+    if (source === 'header') {
+      agentInput.setAttribute('data-track', 'header_chat_input_focus')
+      if (agentSend) agentSend.setAttribute('data-track', 'header_chat_submit')
     } else {
-      headerForm.setAttribute('inert', '')
-      headerIconBtn.setAttribute('inert', '')
+      agentInput.setAttribute('data-track', 'hero_chat_input_focus')
+      if (agentSend) agentSend.setAttribute('data-track', 'hero_chat_submit')
     }
-    if (immediate) {
-      headerForm.classList.toggle('header-chatbar--visible', visible)
-      headerIconBtn.classList.toggle('header-chatbar-icon--visible', visible)
-      return
-    }
-    requestAnimationFrame(() => {
-      headerForm.classList.toggle('header-chatbar--visible', visible)
-      headerIconBtn.classList.toggle('header-chatbar-icon--visible', visible)
-    })
   }
 
-  const syncHeaderLauncherPlaceholder = (section = 'home') => {
-    headerInput.placeholder = section === 'home'
-      ? 'Ask anything about my work…'
-      : 'Ask about this project, or anything else…'
-  }
-
-  const updateLauncherVisibility = ({ immediate = false } = {}) => {
-    const showHeaderLauncher = launcherState.section === 'home'
-      ? !launcherState.heroVisible
-      : true
-    setHeaderLauncherVisibility(showHeaderLauncher, { immediate })
-  }
-
-  const setupLauncherObserver = () => {
-    if (typeof IntersectionObserver !== 'function') {
-      launcherState.heroVisible = false
-      updateLauncherVisibility({ immediate: true })
-      return
+  const clearPanelAnimation = () => {
+    if (panelAnim.raf) {
+      cancelAnimationFrame(panelAnim.raf)
+      panelAnim.raf = null
     }
-    launcherObserver?.disconnect()
-    launcherObserver = new IntersectionObserver((entries) => {
-      const [entry] = entries
-      if (!entry) return
-      launcherState.heroVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35
-      updateLauncherVisibility()
-    }, {
-      root: null,
-      rootMargin: '0px',
-      threshold: [0, 0.2, 0.35, 0.6, 1]
-    })
-    launcherObserver.observe(heroChat)
+    if (panelAnim.timeout) {
+      clearTimeout(panelAnim.timeout)
+      panelAnim.timeout = null
+    }
+    if (panelAnim.endHandler) {
+      panel.removeEventListener('transitionend', panelAnim.endHandler)
+      panelAnim.endHandler = null
+    }
+    panel.style.removeProperty('transform')
+    panel.style.removeProperty('transform-origin')
+    panel.style.removeProperty('transition')
+  }
+
+  const readSeedRect = () => {
+    const rect = state.agentNodeApi?.getRect?.() || agentNode.getBoundingClientRect()
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null
+    return rect
+  }
+
+  const buildTransformFromSeed = (seedRect, targetRect) => {
+    if (!seedRect || !targetRect || targetRect.width <= 0 || targetRect.height <= 0) return 'none'
+    const dx = seedRect.left - targetRect.left
+    const dy = seedRect.top - targetRect.top
+    const sx = Math.max(0.08, seedRect.width / targetRect.width)
+    const sy = Math.max(0.08, seedRect.height / targetRect.height)
+    return `translate(${Math.round(dx)}px, ${Math.round(dy)}px) scale(${sx}, ${sy})`
   }
 
   syncChatLaunchersImpl = (section = 'home') => {
     const nextSection = normalizeSection(section)
     launcherState.section = nextSection
-    if (nextSection === 'home') {
-      const rect = heroChat.getBoundingClientRect()
-      const vh = window.innerHeight || document.documentElement.clientHeight || 0
-      launcherState.heroVisible = rect.bottom > 0 && rect.top < vh
-    }
-    syncHeaderLauncherPlaceholder(nextSection)
-    updateLauncherVisibility({ immediate: true })
+    syncAgentLauncherChrome(nextSection)
+    state.agentNodeApi?.syncFromNavigation?.(nextSection)
+    state.agentNodeApi?.syncTrailVisibility?.()
+  }
+
+  const clearIntentPill = () => {
+    if (!intentPillEl) return
+    intentPillEl.remove()
+    intentPillEl = null
+  }
+
+  const setIntentPill = (rawText) => {
+    clearIntentPill()
+    const text = String(rawText || '').trim()
+    if (!dialogHeader || !text) return
+    const wrap = document.createElement('div')
+    wrap.className = 'chat-dialog__intent-pill'
+
+    const label = document.createElement('span')
+    label.className = 'chat-dialog__intent-pill-text'
+    label.textContent = text
+
+    const dismiss = document.createElement('button')
+    dismiss.type = 'button'
+    dismiss.className = 'chat-dialog__intent-pill-dismiss'
+    dismiss.setAttribute('aria-label', 'Dismiss topic hint')
+    dismiss.textContent = '×'
+
+    dismiss.addEventListener('click', () => {
+      discardComposerDraft()
+    })
+
+    wrap.appendChild(label)
+    wrap.appendChild(dismiss)
+    dialogHeader.insertAdjacentElement('afterend', wrap)
+    intentPillEl = wrap
   }
 
   const setStatus = (text, tone = 'muted') => {
@@ -230,25 +283,6 @@ export function initChat() {
       chatBus.emit('idle', detail)
     }, Math.max(0, Number(delayMs) || 0))
   }
-
-  const applyHeaderLifecycleState = (chatState) => {
-    const targets = [headerForm, headerIconBtn]
-    const states = ['sending', 'thinking', 'streaming', 'tool_call', 'error']
-    targets.forEach((target) => {
-      if (!target) return
-      target.classList.remove('chat-lifecycle-active')
-      states.forEach((stateName) => {
-        target.classList.remove(`chat-lifecycle-${stateName.replace('_', '-')}`)
-      })
-      if (chatState === 'idle') return
-      target.classList.add('chat-lifecycle-active')
-      target.classList.add(`chat-lifecycle-${String(chatState).replace('_', '-')}`)
-    })
-  }
-
-  chatBus.on((chatState) => {
-    applyHeaderLifecycleState(chatState)
-  })
 
   const createActionButton = (action) => {
     const button = document.createElement('button')
@@ -318,41 +352,146 @@ export function initChat() {
     scrollMessagesToBottom()
   }
 
+  const liveUi = { active: false, connecting: false }
+
+  const reconcileComposerControls = () => {
+    const textBusy = state.pending
+    const voiceBusy = liveUi.active || liveUi.connecting
+    composerInput.disabled = textBusy || voiceBusy
+    if (composerSend) composerSend.disabled = textBusy || voiceBusy
+    if (composerClear) composerClear.disabled = textBusy || voiceBusy
+    if (composerMic) {
+      const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
+      composerMic.disabled = micBusy
+      composerMic.hidden = false
+      composerMic.removeAttribute('inert')
+    }
+  }
+
+  function discardComposerDraft({ focusComposer = true } = {}) {
+    clearIntentPill()
+    composerInput.value = ''
+    autosizeComposer()
+    reconcileComposerControls()
+    if (focusComposer && isOpen() && typeof composerInput.focus === 'function') {
+      composerInput.focus()
+    }
+  }
+
+  const patchLiveUi = (patch) => {
+    if ('active' in patch) liveUi.active = Boolean(patch.active)
+    if ('connecting' in patch) liveUi.connecting = Boolean(patch.connecting)
+    reconcileComposerControls()
+  }
+
   const setComposerBusy = (busy) => {
     state.pending = busy
-    composerInput.disabled = busy
-    if (composerSend) composerSend.disabled = busy
+    reconcileComposerControls()
   }
 
-  const openPanel = () => {
-    if (isOpen()) return
-    state.lastFocus = document.activeElement
-    dialog.hidden = false
-    dialog.setAttribute('aria-hidden', 'false')
-    document.body.classList.add('chat-dialog-open')
-    requestAnimationFrame(() => {
-      syncEmptyState()
-      autosizeComposer()
-      composerInput.focus()
-    })
+  const setDialogVisible = (visible) => {
+    dialog.hidden = !visible
+    dialog.setAttribute('aria-hidden', visible ? 'false' : 'true')
+    document.body.classList.toggle('chat-dialog-open', visible)
+    state.agentNodeApi?.syncTrailVisibility?.()
   }
 
-  const closePanel = ({ restoreFocus = true } = {}) => {
-    if (!isOpen()) return
-    dialog.hidden = true
-    dialog.setAttribute('aria-hidden', 'true')
-    document.body.classList.remove('chat-dialog-open')
+  const snapClose = ({ restoreFocus = true } = {}) => {
+    clearPanelAnimation()
+    clearIntentPill()
+    setDialogVisible(false)
+    state.agentNodeApi?.setState?.('bubble')
+    agentInput.readOnly = launcherReadOnlyForDevice()
+    agentInput.blur()
     setStatus('')
     if (restoreFocus && state.lastFocus && typeof state.lastFocus.focus === 'function') {
       state.lastFocus.focus()
     }
     state.lastFocus = null
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const n = document.getElementById('agentNode')
+        if (n && (n.matches(':hover') || n.matches(':focus-within'))) {
+          state.agentNodeApi?.setState?.('bar')
+        }
+      })
+    })
   }
 
-  collapseChat = () => closePanel({ restoreFocus: false })
+  const openPanel = () => {
+    if (isOpen()) return
+    clearIntentPill()
+    state.lastFocus = document.activeElement
+    clearPanelAnimation()
+    state.agentNodeApi?.setState?.('modal')
+    setDialogVisible(true)
+    agentInput.readOnly = true
+    agentInput.blur()
+
+    const reduceMotion = prefersReducedMotion()
+    const seedRect = readSeedRect()
+    if (!reduceMotion && seedRect) {
+      panel.style.transition = 'none'
+      panel.style.transformOrigin = 'top left'
+      const targetRect = panel.getBoundingClientRect()
+      panel.style.transform = buildTransformFromSeed(seedRect, targetRect)
+      panel.getBoundingClientRect()
+      panelAnim.raf = requestAnimationFrame(() => {
+        panelAnim.raf = null
+        panel.style.transition = `transform ${PANEL_ANIM_MS}ms ${PANEL_ANIM_EASE}`
+        panel.style.transform = 'none'
+      })
+    }
+
+    requestAnimationFrame(() => {
+      syncEmptyState()
+      autosizeComposer()
+      reconcileComposerControls()
+      composerInput.focus()
+    })
+  }
+
+  const closePanel = ({ restoreFocus = true, immediate = false } = {}) => {
+    if (!isOpen()) return
+    clearPanelAnimation()
+    if (immediate || prefersReducedMotion()) {
+      snapClose({ restoreFocus })
+      return
+    }
+
+    const token = ++panelAnim.token
+    const seedRect = readSeedRect()
+    if (!seedRect) {
+      snapClose({ restoreFocus })
+      return
+    }
+
+    const fromRect = panel.getBoundingClientRect()
+    const toTransform = buildTransformFromSeed(seedRect, fromRect)
+
+    panel.style.transformOrigin = 'top left'
+    panel.style.transition = `transform ${PANEL_ANIM_MS}ms ${PANEL_ANIM_EASE}`
+    panel.style.transform = 'none'
+    panel.getBoundingClientRect()
+
+    const finish = () => {
+      if (token !== panelAnim.token) return
+      snapClose({ restoreFocus })
+    }
+
+    panelAnim.endHandler = (event) => {
+      if (event.target !== panel || event.propertyName !== 'transform') return
+      finish()
+    }
+    panel.addEventListener('transitionend', panelAnim.endHandler)
+    panelAnim.timeout = setTimeout(finish, PANEL_ANIM_MS + 80)
+    panel.style.transform = toTransform
+  }
+
+  collapseChat = () => closePanel({ restoreFocus: false, immediate: true })
 
   const openContactFromChat = (prefill) => {
-    closePanel({ restoreFocus: false })
+    closePanel({ restoreFocus: false, immediate: true })
     document.getElementById('openContactBtn')?.click()
     if (!prefill || typeof prefill !== 'object') return
 
@@ -374,6 +513,7 @@ export function initChat() {
   }
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
+    clearIntentPill()
     messagesEl.textContent = ''
     syncEmptyState()
     state.history = []
@@ -382,7 +522,7 @@ export function initChat() {
     composerInput.value = ''
     autosizeComposer()
     if (focusTarget === 'hero') {
-      heroInput.focus()
+      agentInput.focus()
       return
     }
     if (isOpen()) {
@@ -439,6 +579,10 @@ export function initChat() {
       return
     }
 
+    if (source === 'composer') {
+      clearIntentPill()
+    }
+
     if (source === 'hero') {
       trackEvent('hero_chat_submit', { surface: 'hero' })
     } else if (source === 'header') {
@@ -479,66 +623,70 @@ export function initChat() {
       scheduleIdleLifecycle(ERROR_IDLE_DELAY_MS, { source })
     } finally {
       setComposerBusy(false)
-      composerInput.focus()
+      if (source === 'composer') {
+        composerInput.focus()
+      }
     }
   }
 
-  const openPanelWithMessage = (text, source = 'hero') => {
+  const openPanelWithMessage = (text, source = 'hero', options = {}) => {
+    const intentPill = typeof options.intentPill === 'string'
+      ? options.intentPill.trim()
+      : (typeof options.suggestedPromptPill === 'string' ? options.suggestedPromptPill.trim() : '')
     openPanel()
+    if (intentPill) setIntentPill(intentPill)
+    else clearIntentPill()
     void sendMessage(text, source)
   }
 
-  heroInput.addEventListener('focus', () => {
+  const openPanelWithDraft = (text, _source = 'hero', options = {}) => {
+    const body = String(text || '').trim()
+    if (!body) return
+    const intentPill = typeof options.intentPill === 'string'
+      ? options.intentPill.trim()
+      : (typeof options.suggestedPromptPill === 'string' ? options.suggestedPromptPill.trim() : '')
+    openPanel()
+    composerInput.value = body
+    autosizeComposer()
+    if (intentPill) setIntentPill(intentPill)
+    else clearIntentPill()
+    reconcileComposerControls()
+    requestAnimationFrame(() => {
+      if (!isOpen()) return
+      composerInput.focus()
+    })
+  }
+
+  agentInput.addEventListener('focus', () => {
+    const source = resolveLauncherSource()
+    if (source === 'header') {
+      trackEvent('header_chat_focus', { surface: 'header' })
+      return
+    }
     trackEvent('hero_chat_focus', { surface: 'hero' })
   })
 
-  heroInput.addEventListener('click', () => {
+  agentInput.addEventListener('click', () => {
     if (state.history.length > 0 && !isOpen()) {
       openPanel()
     }
   })
 
-  heroForm.addEventListener('submit', (event) => {
-    event.preventDefault()
-    const text = String(heroInput.value || '').trim()
-    if (!text) return
-    heroInput.value = ''
-    openPanelWithMessage(text, 'hero')
-  })
-
-  headerInput.addEventListener('focus', () => {
-    trackEvent('header_chat_focus', { surface: 'header' })
-  })
-
-  headerInput.addEventListener('click', () => {
-    if (state.history.length > 0 && !isOpen()) {
-      openPanel()
-    }
-  })
-
-  headerForm.addEventListener('submit', (event) => {
-    event.preventDefault()
-    const text = String(headerInput.value || '').trim()
-    if (!text) {
-      openPanel()
-      return
-    }
-    headerInput.value = ''
-    openPanelWithMessage(text, 'header')
-  })
-
-  headerIconBtn.addEventListener('click', () => {
-    trackEvent('header_chat_icon_open', { surface: 'header' })
-    openPanel()
-  })
-
-  suggestions?.addEventListener('click', (event) => {
+  document.addEventListener('click', (event) => {
+    const chipsRoot = event.target.closest('#heroChatSuggestions')
+      || event.target.closest('#navbarChatSuggestions')
+    if (!chipsRoot) return
     const chip = event.target.closest('[data-prompt]')
     if (!chip) return
     const prompt = String(chip.getAttribute('data-prompt') || '').trim()
     if (!prompt) return
-    trackEvent('hero_chat_chip', { prompt: chip.textContent || '' })
-    openPanelWithMessage(prompt, 'hero')
+    const source = resolveLauncherSource()
+    if (source === 'header') {
+      trackEvent('header_chat_chip', { prompt: chip.textContent || '' })
+    } else {
+      trackEvent('hero_chat_chip', { prompt: chip.textContent || '' })
+    }
+    openPanelWithDraft(prompt, source, { intentPill: prompt })
   })
 
   dialogSuggestions?.addEventListener('click', (event) => {
@@ -566,17 +714,22 @@ export function initChat() {
     autosizeComposer()
   })
 
+  composerClear?.addEventListener('click', () => {
+    discardComposerDraft()
+  })
+
   backdrop?.addEventListener('click', () => closePanel())
   closeBtn?.addEventListener('click', () => closePanel())
 
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !isOpen()) return
     event.preventDefault()
-    closePanel()
+    const hasActiveTransition = Boolean(panelAnim.timeout || panelAnim.endHandler)
+    closePanel({ immediate: hasActiveTransition })
   })
 
   window.addEventListener(EV_COLLAPSE, () => {
-    closePanel({ restoreFocus: false })
+    closePanel({ restoreFocus: false, immediate: true })
   })
 
   dialog.addEventListener('click', (event) => {
@@ -600,7 +753,44 @@ export function initChat() {
 
   autosizeComposer()
   syncEmptyState()
-  setupLauncherObserver()
+  agentInput.readOnly = launcherReadOnlyForDevice()
   syncChatLaunchersImpl('home')
   chatBus.emit('idle', { source: 'chat-init' })
+
+  const onOpenChatEvent = () => {
+    openPanel()
+    reconcileComposerControls()
+  }
+  window.addEventListener(EV_OPEN_CHAT, onOpenChatEvent)
+
+  const disposeChatLiveVoice = bindChatLiveVoice({
+    micButton: composerMic,
+    messagesEl,
+    statusEl,
+    syncEmptyState,
+    scrollMessagesToBottom,
+    setStatus,
+    getSessionId: () => state.sessionId,
+    isTextPending: () => state.pending,
+    openPanel,
+    isPanelOpen: isOpen,
+    patchLiveUi
+  })
+
+  reconcileComposerControls()
+
+  const bindAgentNode = (agentNodeApi) => {
+    state.agentNodeApi = agentNodeApi || null
+    syncChatLaunchersImpl(launcherState.section || 'home')
+  }
+
+  return {
+    bindAgentNode,
+    disposeChatLiveVoice,
+    openPanel: () => openPanel(),
+    openPanelWithMessage: (text, source = resolveLauncherSource(), options) => openPanelWithMessage(text, source, options),
+    openPanelWithDraft: (text, source = resolveLauncherSource(), options) => openPanelWithDraft(text, source, options),
+    closePanelImmediate: ({ restoreFocus = false } = {}) => closePanel({ restoreFocus, immediate: true }),
+    isOpen
+  }
 }

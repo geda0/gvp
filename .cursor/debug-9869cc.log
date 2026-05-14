@@ -1,0 +1,10 @@
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"entry","data":{"_section":"home","willUseWrongSection":true},"timestamp":1778783334069,"runId":"pre-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"after normalize","data":{"nextSection":"home"},"timestamp":1778783334070,"runId":"post-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"entry","data":{"_section":"home","willUseWrongSection":true},"timestamp":1778783334073,"runId":"pre-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"after normalize","data":{"nextSection":"home"},"timestamp":1778783334074,"runId":"post-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"entry","data":{"_section":"portfolio","willUseWrongSection":true},"timestamp":1778783334080,"runId":"pre-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"after normalize","data":{"nextSection":"portfolio"},"timestamp":1778783334081,"runId":"post-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"entry","data":{"_section":"playground","willUseWrongSection":true},"timestamp":1778783338712,"runId":"pre-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"after normalize","data":{"nextSection":"playground"},"timestamp":1778783338712,"runId":"post-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"entry","data":{"_section":"home","willUseWrongSection":true},"timestamp":1778783340120,"runId":"pre-fix","hypothesisId":"A"}
+{"sessionId":"9869cc","location":"chat.js:syncAgentLauncherChrome","message":"after normalize","data":{"nextSection":"home"},"timestamp":1778783340121,"runId":"post-fix","hypothesisId":"A"}

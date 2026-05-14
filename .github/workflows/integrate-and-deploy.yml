@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_environment:
-        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME + GEMINI_API_KEY deploys Lambda chat (aws/chat-template.yaml) and can fill chat meta'
+        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY deploys Lambda chat (aws/chat-template.yaml) and can fill chat meta'
         required: true
         default: prod
         type: choice
@@ -45,7 +45,7 @@ jobs:
 
       - name: Install chat dependencies
         working-directory: docker/chat
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run phase4 eval gate
         working-directory: docker/chat
@@ -70,7 +70,10 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
       GEMINI_FALLBACK_MODEL: ${{ vars.GEMINI_FALLBACK_MODEL }}
+      GEMINI_LIVE_MODEL: ${{ vars.GEMINI_LIVE_MODEL }}
       CHAT_SAM_STACK_NAME: ${{ vars.CHAT_SAM_STACK_NAME }}
+      CHAT_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_SAM_STACK_NAME_STAGE }}
+      CHAT_SAM_STACK_NAME_PROD: ${{ vars.CHAT_SAM_STACK_NAME_PROD }}
       CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}

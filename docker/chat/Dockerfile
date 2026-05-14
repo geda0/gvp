@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     CHAT_PROVIDER=mock
 
 COPY docker/chat/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY docker/chat/requirements-dev.txt /app/requirements-dev.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt -r /app/requirements-dev.txt
 
 COPY docker/chat/app /app/app
 COPY data/chat-knowledge /app/data/chat-knowledge

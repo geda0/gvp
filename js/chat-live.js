@@ -1,0 +1,569 @@
+/**
+ * Gemini Live (browser WebSocket): mic capture + PCM playback + transcript bubbles.
+ */
+
+import { trackEvent } from './analytics.js'
+import { chatBus } from './chat-bus.js'
+
+const INPUT_RATE = 16000
+
+function prefersReducedMotion() {
+  return typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function resolveChatApiBase() {
+  const raw = window.__CHAT_API_URL__ || ''
+  const trimmed = raw.replace(/\/+$/, '')
+  if (trimmed.endsWith('/api/chat')) return trimmed.slice(0, -'/api/chat'.length)
+  const stripped = trimmed.replace(/\/api\/chat\/?$/i, '')
+  if (stripped.startsWith('http://') || stripped.startsWith('https://')) return stripped
+  if (stripped.startsWith('/')) return stripped
+  return stripped || ''
+}
+
+function extractErrorMessage(error) {
+  if (error instanceof Error && error.message) return error.message
+  return 'Voice chat failed. Please try again.'
+}
+
+function voiceCaptureGateMessage() {
+  if (typeof window.isSecureContext === 'boolean' && !window.isSecureContext) {
+    return 'Voice needs a secure page (HTTPS). Use the https:// URL or localhost.'
+  }
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+    return 'This browser does not support microphone capture for voice chat.'
+  }
+  return ''
+}
+
+function micAccessUserMessage(error) {
+  const name = error && typeof error === 'object' ? error.name : ''
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Microphone access was denied. Allow the mic for this site in your browser settings.'
+  }
+  if (name === 'NotFoundError') {
+    return 'No microphone was found. Connect a mic or pick an input device, then try again.'
+  }
+  if (name === 'NotReadableError' || name === 'AbortError' || name === 'OverconstrainedError') {
+    return 'The microphone is busy or unavailable. Close other apps using the mic and try again.'
+  }
+  return extractErrorMessage(error)
+}
+
+function downsampleFloat32(input, inputRate, outRate) {
+  if (inputRate === outRate) return input
+  const ratio = inputRate / outRate
+  const outLen = Math.floor(input.length / ratio)
+  const out = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i++) {
+    out[i] = input[Math.floor(i * ratio)]
+  }
+  return out
+}
+
+function floatTo16BitPCM(float32) {
+  const buf = new ArrayBuffer(float32.length * 2)
+  const view = new DataView(buf)
+  for (let i = 0; i < float32.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32[i]))
+    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+  }
+  return new Uint8Array(buf)
+}
+
+function base64FromBytes(bytes) {
+  let binary = ''
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  for (let i = 0; i < u8.length; i++) binary += String.fromCharCode(u8[i])
+  return btoa(binary)
+}
+
+function decodePcmBase64(b64, mimeType) {
+  const rateMatch = /rate=(\d+)/i.exec(mimeType || '')
+  const rate = rateMatch ? Number(rateMatch[1]) : 24000
+  const bin = atob(b64)
+  const buf = new ArrayBuffer(bin.length)
+  const u8 = new Uint8Array(buf)
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i)
+  const dv = new DataView(buf)
+  const len = Math.floor(bin.length / 2)
+  const floats = new Float32Array(len)
+  for (let i = 0; i < len; i++) {
+    floats[i] = dv.getInt16(i * 2, true) / 32768
+  }
+  return { floats, rate }
+}
+
+function resampleLinear(input, inRate, outRate) {
+  if (inRate === outRate) return input
+  const outLen = Math.max(1, Math.round(input.length * outRate / inRate))
+  const out = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * inRate / outRate
+    const i0 = Math.floor(pos)
+    const i1 = Math.min(i0 + 1, input.length - 1)
+    const f = pos - i0
+    out[i] = input[i0] * (1 - f) + input[i1] * f
+  }
+  return out
+}
+
+function appendChatBubble(messagesEl, role, text, streaming) {
+  const item = document.createElement('li')
+  item.className = `chat-msg chat-msg--${role}`
+  if (streaming) item.classList.add('chat-msg--streaming')
+
+  const bubble = document.createElement('div')
+  bubble.className = 'chat-msg__bubble'
+  const body = document.createElement('p')
+  body.className = 'chat-msg__text'
+  body.textContent = text || ''
+  bubble.appendChild(body)
+
+  if (streaming) {
+    const cursor = document.createElement('span')
+    cursor.className = 'chat-msg__cursor'
+    cursor.setAttribute('aria-hidden', 'true')
+    bubble.appendChild(cursor)
+  }
+
+  item.appendChild(bubble)
+  messagesEl.appendChild(item)
+  return item
+}
+
+function finalizeBubble(el, text) {
+  const textEl = el.querySelector('.chat-msg__text')
+  if (textEl) textEl.textContent = text || ''
+  el.classList.remove('chat-msg--streaming')
+  el.querySelector('.chat-msg__cursor')?.remove()
+}
+
+class PcmJitterPlayer {
+  constructor() {
+    this.ctx = null
+    this.sources = []
+    this.scheduledEnd = 0
+  }
+
+  async ensure(sampleRate) {
+    if (!this.ctx) {
+      try {
+        this.ctx = new AudioContext({ sampleRate })
+      } catch (_) {
+        this.ctx = new AudioContext()
+      }
+    }
+    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    return this.ctx
+  }
+
+  interrupt() {
+    for (const s of this.sources) {
+      try {
+        s.stop()
+      } catch (_) {}
+    }
+    this.sources = []
+    if (this.ctx) this.scheduledEnd = this.ctx.currentTime
+  }
+
+  async enqueue(floats, sampleRate) {
+    const ctx = await this.ensure(sampleRate)
+    const sr = ctx.sampleRate
+    const adjusted = sampleRate === sr ? floats : resampleLinear(floats, sampleRate, sr)
+    const buffer = ctx.createBuffer(1, adjusted.length, sr)
+    buffer.copyToChannel(adjusted, 0)
+    const src = ctx.createBufferSource()
+    src.buffer = buffer
+    src.connect(ctx.destination)
+    const now = ctx.currentTime
+    const startAt = Math.max(this.scheduledEnd, now + 0.02)
+    src.start(startAt)
+    this.sources.push(src)
+    src.onended = () => {
+      const i = this.sources.indexOf(src)
+      if (i >= 0) this.sources.splice(i, 1)
+    }
+    this.scheduledEnd = startAt + buffer.duration
+  }
+
+  close() {
+    this.interrupt()
+    if (this.ctx) this.ctx.close().catch(() => {})
+    this.ctx = null
+  }
+}
+
+export function bindChatLiveVoice(opts) {
+  const {
+    micButton,
+    messagesEl,
+    statusEl,
+    syncEmptyState,
+    scrollMessagesToBottom,
+    setStatus,
+    getSessionId,
+    isTextPending,
+    openPanel,
+    isPanelOpen,
+    patchLiveUi
+  } = opts
+
+  if (!micButton || !messagesEl) return () => {}
+  if (typeof patchLiveUi !== 'function') return () => {}
+  if (micButton.dataset.gvpChatLiveVoice === '1') return () => {}
+  micButton.dataset.gvpChatLiveVoice = '1'
+
+  let ws = null
+  let stream = null
+  let audioCtx = null
+  let processor = null
+  let mediaSource = null
+  let player = null
+  let setupDone = false
+  let active = false
+  /** True after POST /api/live/session succeeds; ensures ws.onclose cleans partial setup. */
+  let voiceSessionOpen = false
+
+  let userBubble = null
+  let assistantBubble = null
+  let userDraft = ''
+  let assistantDraft = ''
+
+  const resetDraftState = () => {
+    userBubble = null
+    assistantBubble = null
+    userDraft = ''
+    assistantDraft = ''
+  }
+
+  const syncMicChrome = () => {
+    micButton.setAttribute('aria-pressed', active ? 'true' : 'false')
+    micButton.classList.toggle('chat-composer__mic--live', active)
+    micButton.setAttribute(
+      'aria-label',
+      active ? 'Stop voice mode' : 'Start voice mode'
+    )
+  }
+
+  const stopVoiceInternal = ({ silent } = {}) => {
+    if (userBubble || assistantBubble) finalizeTurn()
+
+    voiceSessionOpen = false
+    active = false
+    syncMicChrome()
+
+    if (mediaSource && processor) {
+      try {
+        mediaSource.disconnect()
+      } catch (_) {}
+    }
+    mediaSource = null
+
+    if (processor && audioCtx) {
+      try {
+        processor.disconnect()
+      } catch (_) {}
+      processor.onaudioprocess = null
+    }
+    processor = null
+
+    if (audioCtx) {
+      audioCtx.close().catch(() => {})
+      audioCtx = null
+    }
+
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop())
+      stream = null
+    }
+
+    if (ws) {
+      const w = ws
+      ws = null
+      w.onopen = null
+      w.onmessage = null
+      w.onerror = null
+      w.onclose = null
+      if (w.readyState === WebSocket.OPEN) {
+        try {
+          w.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }))
+        } catch (_) {}
+        try {
+          w.close()
+        } catch (_) {}
+      }
+    }
+
+    player?.close()
+    player = null
+    setupDone = false
+
+    patchLiveUi({ active: false, connecting: false })
+
+    if (!silent) {
+      chatBus.emit('idle', { source: 'chat-live' })
+    }
+
+    resetDraftState()
+  }
+
+  const ensureAssistantBubble = () => {
+    if (assistantBubble) return assistantBubble
+    assistantBubble = appendChatBubble(messagesEl, 'assistant', '', true)
+    syncEmptyState()
+    scrollMessagesToBottom()
+    return assistantBubble
+  }
+
+  const ensureUserBubble = () => {
+    if (userBubble) return userBubble
+    userBubble = appendChatBubble(messagesEl, 'user', '', false)
+    syncEmptyState()
+    scrollMessagesToBottom()
+    return userBubble
+  }
+
+  const patchUserText = (fragment) => {
+    if (!fragment) return
+    userDraft = `${userDraft}${fragment}`.trimStart()
+    const el = ensureUserBubble().querySelector('.chat-msg__text')
+    if (el) el.textContent = userDraft.trim()
+    scrollMessagesToBottom()
+  }
+
+  const patchAssistantText = (fragment) => {
+    if (!fragment) return
+    assistantDraft = `${assistantDraft}${fragment}`
+    const el = ensureAssistantBubble().querySelector('.chat-msg__text')
+    if (el) el.textContent = assistantDraft.trim()
+    scrollMessagesToBottom()
+  }
+
+  const finalizeTurn = () => {
+    if (userBubble) finalizeBubble(userBubble, userDraft.trim())
+    if (assistantBubble) finalizeBubble(assistantBubble, assistantDraft.trim())
+    resetDraftState()
+    scrollMessagesToBottom()
+  }
+
+  const handlePayload = async (raw) => {
+    let text = raw
+    if (text instanceof Blob) text = await text.text()
+
+    let msg = {}
+    try {
+      msg = JSON.parse(text)
+    } catch (_) {
+      return
+    }
+
+    if (msg.setupComplete) {
+      setupDone = true
+      chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
+    }
+
+    const rootIn = msg.inputTranscription?.text
+    const rootOut = msg.outputTranscription?.text
+    if (rootIn) patchUserText(rootIn)
+    if (rootOut) patchAssistantText(rootOut)
+
+    const sc = msg.serverContent
+    if (sc) {
+      if (sc.interrupted) {
+        player?.interrupt()
+      }
+
+      if (sc.inputTranscription?.text) patchUserText(sc.inputTranscription.text)
+      if (sc.outputTranscription?.text) patchAssistantText(sc.outputTranscription.text)
+
+      const parts = sc.modelTurn?.parts
+      if (Array.isArray(parts)) {
+        for (const part of parts) {
+          const inline = part.inlineData || part.inline_data
+          const mime = inline?.mimeType || inline?.mime_type || ''
+          const data = inline?.data
+          if (mime.includes('audio/pcm') && data && player) {
+            const { floats, rate } = decodePcmBase64(data, mime)
+            player.enqueue(floats, rate).catch(() => {})
+          }
+          if (part.text) patchAssistantText(part.text)
+        }
+      }
+
+      if (sc.turnComplete) {
+        finalizeTurn()
+      }
+    }
+  }
+
+  const startVoice = async () => {
+    if (prefersReducedMotion()) {
+      setStatus('Voice mode is disabled when reduced motion is on.', 'error')
+      trackEvent('chat_live_blocked', { reason: 'reduced_motion' })
+      return
+    }
+
+    if (isTextPending()) {
+      setStatus('Wait for the text reply to finish, then try voice.', 'error')
+      return
+    }
+
+    if (!isPanelOpen()) openPanel()
+
+    const gateMsg = voiceCaptureGateMessage()
+    if (gateMsg) {
+      setStatus(gateMsg, 'error')
+      trackEvent('chat_live_blocked', { reason: 'insecure_or_no_mediadevices' })
+      return
+    }
+
+    patchLiveUi({ connecting: true, active: false })
+    setStatus('Connecting voice…')
+    chatBus.emit('thinking', { source: 'chat-live' })
+
+    try {
+      const root = resolveChatApiBase().replace(/\/+$/, '')
+      const postUrl = `${root}/api/live/session`
+
+      const response = await fetch(postUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: getSessionId() })
+      })
+
+      const responseText = await response.text()
+      let body = {}
+      if (responseText) {
+        try {
+          body = JSON.parse(responseText)
+        } catch (_) {
+          body = {}
+        }
+      }
+
+      if (!response.ok) {
+        const detail = body?.detail || body?.error
+        throw new Error(typeof detail === 'string' && detail.trim()
+          ? detail.trim()
+          : 'Could not start voice session.')
+      }
+
+      const { websocketUrl, handshake } = body
+      if (!websocketUrl || !handshake) {
+        throw new Error('Voice session response was incomplete.')
+      }
+
+      if (!String(websocketUrl).startsWith('wss://')) {
+        throw new Error('Invalid voice session URL.')
+      }
+
+      voiceSessionOpen = true
+
+      player = new PcmJitterPlayer()
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          channelCount: 1
+        },
+        video: false
+      })
+
+      audioCtx = new AudioContext()
+      const inRate = audioCtx.sampleRate
+
+      processor = audioCtx.createScriptProcessor(4096, 1, 1)
+      processor.onaudioprocess = (event) => {
+        if (!active || !setupDone || !ws || ws.readyState !== WebSocket.OPEN) return
+        const input = event.inputBuffer.getChannelData(0)
+        const pcmInput = downsampleFloat32(input, inRate, INPUT_RATE)
+        const bytes = floatTo16BitPCM(pcmInput)
+        try {
+          ws.send(JSON.stringify({
+            realtimeInput: {
+              audio: {
+                mimeType: `audio/pcm;rate=${INPUT_RATE}`,
+                data: base64FromBytes(bytes)
+              }
+            }
+          }))
+        } catch (_) {}
+      }
+
+      const mute = audioCtx.createGain()
+      mute.gain.value = 0
+      processor.connect(mute)
+      mute.connect(audioCtx.destination)
+
+      ws = new WebSocket(websocketUrl)
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify(handshake))
+      }
+
+      ws.onmessage = (ev) => {
+        void handlePayload(ev.data)
+      }
+
+      ws.onerror = () => {
+        setStatus('Voice connection error.', 'error')
+        trackEvent('chat_live_error', { phase: 'websocket' })
+        chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
+      }
+
+      ws.onclose = () => {
+        if (!voiceSessionOpen) return
+        const ready = setupDone
+        stopVoiceInternal({ silent: true })
+        if (!ready) {
+          setStatus('Voice session could not start. Check microphone permission and try again.', 'error')
+          trackEvent('chat_live_error', { phase: 'ws_closed_before_ready' })
+          chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
+        }
+      }
+
+      active = true
+      syncMicChrome()
+      patchLiveUi({ active: true, connecting: false })
+      setStatus('Listening… speak about Marwan\'s work.')
+      trackEvent('chat_live_start', {})
+
+      await audioCtx.resume()
+      mediaSource = audioCtx.createMediaStreamSource(stream)
+      mediaSource.connect(processor)
+    } catch (error) {
+      stopVoiceInternal({ silent: true })
+      const msg = micAccessUserMessage(error)
+      setStatus(msg, 'error')
+      trackEvent('chat_live_error', { phase: 'start', message: msg })
+      chatBus.emit('error', { source: 'chat-live', message: msg })
+    }
+  }
+
+  const onMicClick = () => {
+    if (micButton.disabled && !active) return
+
+    if (active) {
+      trackEvent('chat_live_stop', {})
+      stopVoiceInternal({ silent: false })
+      setStatus('')
+      return
+    }
+
+    void startVoice()
+  }
+
+  micButton.addEventListener('click', onMicClick)
+
+  syncMicChrome()
+
+  return () => {
+    delete micButton.dataset.gvpChatLiveVoice
+    micButton.removeEventListener('click', onMicClick)
+    stopVoiceInternal({ silent: true })
+  }
+}

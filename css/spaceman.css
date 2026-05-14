@@ -47,7 +47,7 @@
   --hero-cape-bg: linear-gradient(180deg, #b91c1c 0%, #dc2626 30%, #991b1b 100%);
 }
 
-/* Container */
+/* Outer flex shell; limbs + torso paint inside `.spaceman-body` (120×200) like main. */
 .spaceman {
   position: relative;
   display: flex;
@@ -82,6 +82,10 @@
   animation: chatToolPing 0.7s ease-in-out infinite;
 }
 
+.spaceman.chat-state-error {
+  animation: chatErrorSlump 0.45s ease-out forwards;
+}
+
 .spaceman.chat-state-thinking .bubble-dot,
 .spaceman.chat-state-streaming .bubble-dot {
   animation: chatBubbleDotPulse 0.95s ease-in-out infinite;
@@ -95,10 +99,6 @@
 .spaceman.chat-state-thinking .dot-3,
 .spaceman.chat-state-streaming .dot-3 {
   animation-delay: 0.24s;
-}
-
-.spaceman.chat-state-error {
-  animation: chatErrorSlump 0.45s ease-out forwards;
 }
 
 /* ===== QUIET MODE OPTION MENU ===== */
@@ -133,7 +133,7 @@
   color: var(--spaceman-bubble-text);
   border: none;
   border-radius: 14px;
-  font-family: 'Open Sans', sans-serif;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -154,101 +154,6 @@
 
 .spaceman-quiet-menu-btn:active {
   transform: scale(0.98);
-}
-
-/* ===== THOUGHT BUBBLE ===== */
-/* Counter #spacemanContainer scale(--ss) so speech stays readable */
-.thought-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  max-width: min(
-    calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px),
-    340px
-  );
-  min-width: 0;
-  padding: 0 10px;
-  box-sizing: border-box;
-  transform: scale(calc(1 / var(--ss, 1)));
-  transform-origin: bottom center;
-}
-
-.thought-bubble {
-  background: var(--spaceman-bubble-bg);
-  color: var(--spaceman-bubble-text);
-  padding: 10px 14px;
-  border-radius: 16px;
-  box-sizing: border-box;
-  min-width: 100px;
-  /* Block + explicit width: shrink-to-fit inline-block was growing to one line with flex parents */
-  display: block;
-  width: min(clamp(130px, 42vw, 290px), calc(100vw - 5.5rem));
-  max-width: min(clamp(130px, 42vw, 290px), calc(100vw - 5.5rem));
-  box-shadow: var(--spaceman-bubble-shadow);
-  position: relative;
-  font-family: 'Open Sans', sans-serif;
-  font-size: 12.5px;
-  line-height: 1.45;
-  text-align: center;
-  animation: bubblePulse 6s ease-in-out infinite;
-}
-
-.thought-text {
-  display: inline;
-  white-space: normal;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
-.cursor {
-  display: inline-block;
-  color: var(--spaceman-cursor-color);
-  font-weight: bold;
-  margin-left: 1px;
-  animation: blink 0.8s infinite;
-}
-
-/* Tail: connects bubble (bottom-left) to head; dots curve from left toward center */
-.thought-tail {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  margin-top: -6px;
-  margin-left: -36px;
-  margin-bottom: 2px;
-}
-
-.bubble-dot {
-  background: var(--spaceman-tail-dot-bg);
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
-  flex-shrink: 0;
-}
-
-[data-theme="garden"] .bubble-dot {
-  box-shadow: 0 2px 8px rgba(30, 50, 30, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);
-}
-
-.dot-1 {
-  width: 12px;
-  height: 12px;
-  margin-left: 0;
-  margin-top: 0;
-}
-
-.dot-2 {
-  width: 10px;
-  height: 10px;
-  margin-left: 10px;
-  margin-top: 2px;
-}
-
-.dot-3 {
-  width: 8px;
-  height: 8px;
-  margin-left: 18px;
-  margin-top: 2px;
 }
 
 /* ===== SPACEMAN BODY ===== */
@@ -726,16 +631,6 @@
   100% { transform: translateY(3px) rotate(-5deg); }
 }
 
-@keyframes bubblePulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.005); }
-}
-
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
-}
-
 @keyframes eyeGlow {
   0% { box-shadow: 0 0 5px rgba(255, 255, 255, 0.5); }
   100% { box-shadow: 0 0 15px rgba(255, 255, 255, 1); }
@@ -818,6 +713,7 @@
 /* Wave */
 .spaceman.wave .right-arm {
   animation: waveHello 0.5s ease-in-out 3;
+  transform-origin: left center;
 }
 
 @keyframes waveHello {
@@ -900,38 +796,21 @@ body.contact-dialog-open:not(.chat-dialog-open) #spacemanContainer {
 /* Chat overlay covers the hero — keep mascot under the panel so bubbles never paint on messages */
 body.chat-dialog-open #spacemanContainer {
   z-index: 1040;
-  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--gvp-chat-panel-anim-ms, 280ms) var(--gvp-chat-panel-anim-ease, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-/* Keep speech bubbles from colliding with overlay panels. */
-body.chat-dialog-open .thought-stack,
-body.project-dialog-open .thought-stack,
-body.contact-dialog-open .thought-stack {
-  opacity: 0;
-  pointer-events: none;
+/* Trail hidden while overlays are open (agent-node also syncs via JS). */
+body.chat-dialog-open #agentTrail,
+body.project-dialog-open #agentTrail,
+body.contact-dialog-open #agentTrail {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* ===== RESPONSIVE SCALING ===== */
 
 @media (max-width: 767px) {
-  /* Partial counter-scale: full 1/--ss would balloon the bubble past the viewport on phones */
-  .thought-stack {
-    transform: scale(calc(1 / max(var(--ss, 1), 0.6)));
-    transform-origin: bottom center;
-  }
-
-  .thought-bubble {
-    width: min(clamp(112px, 40vw, 260px), calc(100vw - 5.8rem));
-    max-width: min(clamp(112px, 40vw, 260px), calc(100vw - 5.8rem));
-    min-width: 92px;
-    padding: 8px 11px;
-    font-size: 11.5px;
-  }
-
-  .thought-tail {
-    margin-left: -28px;
-  }
-
   .spaceman {
     animation: floatMobile 6s ease-in-out infinite;
   }
@@ -940,37 +819,6 @@ body.contact-dialog-open .thought-stack {
 @keyframes floatMobile {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-3px); }
-}
-
-/* Small mobile */
-@media (max-width: 480px) {
-  .thought-stack {
-    transform: scale(calc(1 / max(var(--ss, 1), 0.66)));
-    transform-origin: bottom center;
-  }
-
-  .thought-bubble {
-    width: min(clamp(104px, 42vw, 240px), calc(100vw - 5rem));
-    max-width: min(clamp(104px, 42vw, 240px), calc(100vw - 5rem));
-    min-width: 86px;
-    padding: 7px 9px;
-    font-size: 11px;
-  }
-
-  .thought-tail {
-    margin-left: -22px;
-  }
-
-  .dot-1 { width: 10px; height: 10px; }
-  .dot-2 { width: 8px; height: 8px; margin-left: 8px; }
-  .dot-3 { width: 6px; height: 6px; margin-left: 14px; }
-}
-
-@media (min-width: 768px) {
-  body.chat-dialog-open .thought-bubble {
-    width: min(clamp(130px, 40vw, 280px), calc(100vw - 22rem));
-    max-width: min(clamp(130px, 40vw, 280px), calc(100vw - 22rem));
-  }
 }
 
 /* Touch devices - disable hover effects */
@@ -993,7 +841,6 @@ body.contact-dialog-open .thought-stack {
   .flame-inner,
   .bubble-dot,
   .chest-panel,
-  .thought-bubble,
   .hero-cape .cape-cloth,
   #spacemanContainer {
     animation: none !important;

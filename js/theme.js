@@ -90,7 +90,8 @@ export function transitionToTheme(theme) {
   });
   
   // Handle first transition end (overlay fade-in complete)
-  const onFirstTransitionEnd = () => {
+  const onFirstTransitionEnd = (event) => {
+    if (event.propertyName !== 'opacity') return
     overlay.removeEventListener('transitionend', onFirstTransitionEnd);
     
     // Now switch the actual theme
@@ -111,13 +112,14 @@ export function transitionToTheme(theme) {
     });
     
     // Handle second transition end (overlay fade-out complete)
-    const onSecondTransitionEnd = () => {
+    const onSecondTransitionEnd = (event) => {
+      if (event.propertyName !== 'opacity') return
       overlay.removeEventListener('transitionend', onSecondTransitionEnd);
       cleanup();
     };
     
-    overlay.addEventListener('transitionend', onSecondTransitionEnd, { once: true });
+    overlay.addEventListener('transitionend', onSecondTransitionEnd);
   };
   
-  overlay.addEventListener('transitionend', onFirstTransitionEnd, { once: true });
+  overlay.addEventListener('transitionend', onFirstTransitionEnd);
 }

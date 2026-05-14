@@ -49,8 +49,8 @@
     --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-ring) 18%, transparent);
     --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-ring) 28%, transparent);
 
-    /* Fixed site header: navbar row + optional notch (see `body > header`, `main` padding) */
-    --site-header-height: calc(3.35rem + env(safe-area-inset-top, 0px));
+    /* Fixed site header: single compact row + optional notch */
+    --site-header-height: calc(2.65rem + env(safe-area-inset-top, 0px));
 }
 
 [data-theme="garden"] {
@@ -432,6 +432,12 @@ h3 {
     border-color: var(--border-strong);
     box-shadow: var(--shadow-md);
     transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .project:hover {
+        transform: none;
+    }
 }
 
 #portfolioContent .project {
@@ -883,6 +889,25 @@ section#portfolioProjects.visible.content-section-reveal {
 
 .hero-copy-block {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.hero-chat {
+    max-width: 36rem;
+    width: 100%;
+    margin: 0 auto 2.5rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+@media (min-width: 768px) {
+    .hero-copy-block > .hero-chat {
+        order: -1;
+    }
 }
 
 .hero-copy {
@@ -1236,8 +1261,8 @@ body.contact-dialog-open {
     box-sizing: border-box;
 }
 
-[data-theme=\"garden\"] .contact-form input,
-[data-theme=\"garden\"] .contact-form textarea {
+[data-theme="garden"] .contact-form input,
+[data-theme="garden"] .contact-form textarea {
     background: rgba(255, 255, 255, 0.45);
 }
 
@@ -1307,7 +1332,11 @@ body.contact-dialog-open {
 }
 
 .contact-form__status[data-tone="error"] {
-    color: var(--accent-hover);
+    color: #c94c4c;
+}
+
+[data-theme="garden"] .contact-form__status[data-tone="error"] {
+    color: #b63d3d;
 }
 
 .contact-form__hp {
@@ -1415,26 +1444,22 @@ body.contact-dialog-open {
 
     /* Resume / Contact directly under tagline on small screens */
     .hero-cta {
-        order: 5;
+        order: 7;
         margin-top: 0.35rem;
-        margin-bottom: 0.45rem;
+        margin-bottom: 1.45rem;
         flex-wrap: wrap;
         justify-content: center;
     }
 
     .hero-proof {
-        order: 6;
+        order: 5;
         margin-bottom: 0.35rem;
         padding-top: 0.5rem;
     }
 
     .hero-companies {
-        order: 7;
+        order: 6;
         margin-bottom: 0.55rem;
-    }
-
-    #heroChat.hero-chat {
-        order: 8;
     }
 
     .hero-chat {
@@ -1486,10 +1511,12 @@ body.contact-dialog-open {
 
 .navbar {
     display: flex;
-    justify-content: space-between;
+    flex-wrap: nowrap;
     align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
     background-color: var(--navbar-bg);
-    padding: 0.55rem 0.25rem;
+    padding: 0.32rem 0.4rem;
     position: relative;
     max-width: 100%;
     min-width: 0;
@@ -1500,51 +1527,27 @@ body.contact-dialog-open {
 .navbar-right {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-    margin: 0 0.35rem;
+    gap: 0.28rem;
+    margin: 0;
+    flex: 0 0 auto;
 }
 
 .navbar-center {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    position: static;
+    transform: none;
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
     align-items: center;
-}
-
-@media (max-width: 900px) {
-    .navbar {
-        flex-wrap: wrap;
-        row-gap: 0.35rem;
-        justify-content: center;
-    }
-
-    .navbar-left {
-        order: 1;
-        margin-right: auto;
-    }
-
-    .navbar-right {
-        order: 2;
-        margin-left: auto;
-    }
-
-    .navbar-center {
-        position: static;
-        transform: none;
-        order: 3;
-        width: 100%;
-        justify-content: center;
-        margin: 0.15rem 0 0;
-    }
+    justify-content: center;
 }
 
 .navbar a {
     color: var(--navbar-link);
     text-decoration: none;
-    padding: 0.45rem 0.85rem;
+    padding: 0.32rem 0.55rem;
     font-weight: 500;
-    font-size: 0.9em;
+    font-size: 0.86em;
     border-radius: var(--radius-sm);
     transition: color 0.2s ease, opacity 0.2s ease;
 }
@@ -1566,10 +1569,10 @@ body.contact-dialog-open {
     background: transparent;
     border: 1px solid var(--border-subtle);
     color: var(--navbar-link);
-    padding: 0.35rem 0.52rem;
+    padding: 0.28rem 0.42rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 0.76em;
+    font-size: 0.72em;
     font-weight: 500;
     font-family: var(--font-body);
     transition:
@@ -1648,7 +1651,7 @@ h6 {
 
 @media screen and (max-width: 767px) {
     .navbar {
-        padding: 0.45rem 0.28rem;
+        padding: 0.28rem 0.32rem;
     }
 
     /* Stabilize garden scene height so it doesn't resize when mobile URL bar hides/shows */
@@ -1702,13 +1705,6 @@ h6 {
         align-items: center;
         margin: 0 0.22rem;
         gap: 0.28rem;
-    }
-
-    .navbar-center {
-        position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-        max-width: min(22rem, calc(100% - 9rem));
     }
 
     .theme-toggle {

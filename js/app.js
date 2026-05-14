@@ -18,6 +18,7 @@ import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
 import { initChat, collapseChatDialog, syncChatLaunchers } from './chat.js'
+import { initAgentNode } from './agent-node.js'
 
 // Global spaceman reference for navigation hooks
 let spaceman = null
@@ -74,7 +75,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  initChat()
+  const chatApi = initChat()
+  if (chatApi) {
+    const agentNodeApi = initAgentNode({
+      openPanelWithMessage: (text, source, options) => chatApi.openPanelWithMessage(text, source, options),
+      openPanelWithDraft: (text, source, options) => chatApi.openPanelWithDraft(text, source, options),
+      isOpen: () => chatApi.isOpen(),
+      spacemanPosition,
+      onStateChange: () => spacemanPosition?.updatePosition?.(),
+      onDockChange: () => spacemanPosition?.updatePosition?.()
+    })
+    chatApi.bindAgentNode(agentNodeApi)
+  }
 
   // Initialize navigation with spaceman hook (after chat so first navigateByHash sync runs real impl)
   initNavigation({

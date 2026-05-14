@@ -6,8 +6,7 @@ Parameters:
   GeminiApiKey:
     Type: String
     NoEcho: true
-    Default: 'GEMINI-KEY-PLACEHOLDER'
-    Description: Google AI Studio / Gemini API key (replace placeholder for real traffic).
+    Description: Google AI Studio / Gemini API key (required for real traffic; pass via deploy — no template default).
   GeminiModel:
     Type: String
     Default: gemini-3.1-flash-lite
@@ -19,6 +18,11 @@ Parameters:
     Default: gemma-4-26b-a4b-it
     Description: >
       Fallback model when the primary returns rate limits (429 / quota). Default Gemma 4 26B A4B IT.
+  GeminiLiveModel:
+    Type: String
+    Default: gemini-3.1-flash-live-preview
+    Description: >
+      Gemini Live API model id for browser voice sessions (Multimodal Live / BidiGenerateContent).
   ChatCorsOrigins:
     Type: String
     Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link'
@@ -27,9 +31,14 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional external DynamoDB table for transcript persistence (from contact stack output).
+  ChatErrorAlarmEmail:
+    Type: String
+    Default: ''
+    Description: Optional email for SNS when chat Lambda errors exceed alarm threshold (empty skips alarm).
 
 Conditions:
   HasChatTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
+  HasChatErrorAlarm: !Not [!Equals [!Ref ChatErrorAlarmEmail, '']]
 
 Globals:
   Function:
@@ -64,6 +73,7 @@ Resources:
           GEMINI_API_KEY: !Ref GeminiApiKey
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
+          GEMINI_LIVE_MODEL: !Ref GeminiLiveModel
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
       Events:
@@ -80,9 +90,38 @@ Resources:
             Path: /{proxy+}
             Method: ANY
 
+  ChatErrorTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasChatErrorAlarm
+    Properties:
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref ChatErrorAlarmEmail
+
+  ChatLambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatErrorAlarm
+    Properties:
+      AlarmDescription: Chat Lambda errors (sum over 5 minutes).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ChatFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatErrorTopic
+
 Outputs:
   ChatPostApiUrl:
-    Description: Full URL for hero chat fetch (POST JSON) — use in gvp:chat-api-url meta.
+    Description: >
+      Full URL for POST /api/chat (hero text) — use in gvp:chat-api-url meta.
+      Same API origin also serves POST /api/live/session, GET /health, GET /ready.
     Value: !Sub https://${ChatHttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/chat
   ChatHttpApiId:
     Value: !Ref ChatHttpApi

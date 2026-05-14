@@ -132,11 +132,14 @@ export function initProjectDetailDialog() {
       imageEl.classList.remove('project-dialog__image--loading');
       mediaWrap.hidden = true;
     }
-    titleEl.textContent = data.title || '';
-    descEl.innerHTML = data.description || '';
-    descEl.hidden = !data.description;
+    if (titleEl) titleEl.textContent = data.title || ''
+    if (descEl) {
+      const plainDesc = (data.descriptionPlain || '').trim()
+      descEl.textContent = plainDesc
+      descEl.hidden = !plainDesc
+    }
 
-    techEl.replaceChildren();
+    if (techEl) techEl.replaceChildren();
     const tech = data.tech || [];
     if (tech.length && techWrap) {
       techWrap.hidden = false;
