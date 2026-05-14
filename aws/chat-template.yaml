@@ -21,7 +21,7 @@ Parameters:
       Fallback model when the primary returns rate limits (429 / quota). Default Gemma 4 26B A4B IT.
   ChatCorsOrigins:
     Type: String
-    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link'
+    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link'
     Description: Comma-separated browser origins for API Gateway CORS (and CHAT_CORS_ORIGINS in the function).
   ChatTranscriptsTableName:
     Type: String

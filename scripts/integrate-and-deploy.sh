@@ -221,7 +221,7 @@ CHAT_SAM_CHAT_URL=""
 if [[ "${run_chat_sam}" == "true" ]]; then
   CHAT_PO=(
     "GeminiApiKey=${GEMINI_API_KEY}"
-    "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link}"
+    "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link}"
     "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
   )
