@@ -105,35 +105,6 @@
         <div id="contentWrapper">
             <div id="load">
                 <section id="home" class="scale-in">
-                    <div id="heroChat" class="hero-chat">
-                        <div class="hero-chat__label-wrap">
-                            <p class="hero-chat__label">
-                                <span class="hero-chat__dot" aria-hidden="true"></span>
-                                 Ask anything about my work
-                            </p>
-                        </div>
-                        <form id="heroChatForm" class="hero-chat__form" novalidate>
-                            <label for="heroChatInput" class="visually-hidden">Ask about Marwan's work</label>
-                            <input type="text" id="heroChatInput" class="hero-chat__input" inputmode="text" autocomplete="off"
-                                placeholder="e.g., What is your most recent project?"
-                                data-track="hero_chat_input_focus" />
-                            <button type="submit" id="heroChatSubmit" class="hero-chat__submit" aria-label="Open chat and send message"
-                                data-track="hero_chat_submit">
-                                <span aria-hidden="true">↑</span>
-                            </button>
-                        </form>
-                        <div id="heroChatSuggestions" class="hero-chat__suggestions" aria-label="Suggested prompts">
-                            <button type="button" class="hero-chat__chip"
-                                data-prompt="How do you approach platform architecture?"
-                                data-track="hero_chat_chip_architecture">Platform architecture</button>
-                            <button type="button" class="hero-chat__chip"
-                                data-prompt="Tell me about an accomplishment you're especially proud of."
-                                data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
-                            <button type="button" class="hero-chat__chip"
-                                data-prompt="What project challenged you the most, and how did you approach it?"
-                                data-track="hero_chat_chip_challenge">Most challenging project</button>
-                        </div>
-                    </div>
                     <div class="hero">
                         <div class="hero-layout">
                             <div class="hero-copy-block">
@@ -147,6 +118,35 @@
                                     <div class="hero-cta">
                                         <a href="resume/Marwan_Elgendy_Resume_public.pdf" target="_blank" rel="noopener noreferrer" class="cta-primary" data-track="resume_click">Resume (PDF)</a>
                                         <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
+                                    </div>
+                                </div>
+                                <div id="heroChat" class="hero-chat">
+                                    <div class="hero-chat__label-wrap">
+                                        <p class="hero-chat__label">
+                                            <span class="hero-chat__dot" aria-hidden="true"></span>
+                                             Ask anything about my work
+                                        </p>
+                                    </div>
+                                    <form id="heroChatForm" class="hero-chat__form" novalidate>
+                                        <label for="heroChatInput" class="visually-hidden">Ask about Marwan's work</label>
+                                        <input type="text" id="heroChatInput" class="hero-chat__input" inputmode="text" autocomplete="off"
+                                            placeholder="e.g., What is your most recent project?"
+                                            data-track="hero_chat_input_focus" />
+                                        <button type="submit" id="heroChatSubmit" class="hero-chat__submit" aria-label="Open chat and send message"
+                                            data-track="hero_chat_submit">
+                                            <span aria-hidden="true">↑</span>
+                                        </button>
+                                    </form>
+                                    <div id="heroChatSuggestions" class="hero-chat__suggestions" aria-label="Suggested prompts">
+                                        <button type="button" class="hero-chat__chip"
+                                            data-prompt="How do you approach platform architecture?"
+                                            data-track="hero_chat_chip_architecture">Platform architecture</button>
+                                        <button type="button" class="hero-chat__chip"
+                                            data-prompt="Tell me about an accomplishment you're especially proud of."
+                                            data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
+                                        <button type="button" class="hero-chat__chip"
+                                            data-prompt="What project challenged you the most, and how did you approach it?"
+                                            data-track="hero_chat_chip_challenge">Most challenging project</button>
                                     </div>
                                 </div>
                                 <div class="hero-highlights">

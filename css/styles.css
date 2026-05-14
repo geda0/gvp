@@ -883,6 +883,15 @@ section#portfolioProjects.visible.content-section-reveal {
 
 .hero-copy-block {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+@media (min-width: 768px) {
+    .hero-copy-block > #heroChat.hero-chat {
+        order: -1;
+    }
 }
 
 .hero-copy {
@@ -1431,10 +1440,6 @@ body.contact-dialog-open {
     .hero-companies {
         order: 6;
         margin-bottom: 0.55rem;
-    }
-
-    #heroChat.hero-chat {
-        order: 8;
     }
 
     .hero-chat {
