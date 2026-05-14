@@ -1,0 +1,255 @@
+[
+  {
+    "id": "monday-rover",
+    "name": "Monday Rover (Raspberry Pi)",
+    "summary": "Raspberry Pi robotics exploration with computer vision. Monday Rover is a robotics exploration project built to iterate quickly on perception + control loops. Computer vision-assisted behaviors (prototype stage) Hardware bring-up, sensor/actuator integration, and debugging on-device Emphasis on tight feedback cycles and observability while experimenting",
+    "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
+    "tech": [
+      "Raspberry Pi",
+      "Python",
+      "Linux",
+      "GPIO / robotics",
+      "OpenCV"
+    ],
+    "links": [
+      {
+        "label": "Watch on YouTube",
+        "url": "https://www.youtube.com/shorts/16ZIXOpuNQs"
+      }
+    ],
+    "relevance_tags": [
+      "python",
+      "embedded",
+      "hardware",
+      "computer vision",
+      "playground"
+    ]
+  },
+  {
+    "id": "gvp",
+    "name": "Generative Video Platform",
+    "summary": "Exploring generative AI for video workflows, from UX to pipeline shape. Generative Video Platform (GVP) explores how generative systems fit into real video workflows—where latency, repeatability, and UX matter. Product-shaped prototyping: iterate on UI, prompts, and outputs together Pipeline thinking: inputs → generation → review → publish Focus on composability and clear system boundaries as it evolves",
+    "why_it_matters": "Demonstrates how Marwan combines product UX with clear service boundaries for AI-enabled workflows.",
+    "tech": [
+      "Video / streaming",
+      "Web front-end",
+      "Backend services",
+      "Generative media pipeline"
+    ],
+    "links": [
+      {
+        "label": "Open live demo",
+        "url": "https://gvp-tv.marwanelgendy.link/"
+      }
+    ],
+    "relevance_tags": [
+      "this-site",
+      "frontend",
+      "ai",
+      "platform architecture",
+      "playground"
+    ]
+  },
+  {
+    "id": "apptio",
+    "name": "Apptio (IBM)",
+    "summary": "Enterprise TBM / IT financial management SaaS — data-intensive, customer-critical. Apptio (IBM) — a platform for financial data pipelines where correctness and traceability were mandatory. Kubernetes/Java workloads were re-architected onto EMR Spark with Scala to improve throughput and cost efficiency A reconciliation layer compared legacy and modernized outputs in parallel before each cutover step Infrastructure and runtime paths were standardized to improve operability, observability, and cost control across data jobs An incremental rollout model preserved planning and cost-reporting accuracy throughout the migration",
+    "why_it_matters": "Shows Marwan's approach to platform modernization in data-intensive SaaS with strong operability guardrails.",
+    "tech": [
+      "Enterprise SaaS",
+      "Java / JVM",
+      "Scala",
+      "EMR",
+      "FinOps",
+      "Cloud operations",
+      "Data platforms"
+    ],
+    "links": [
+      {
+        "label": "Apptio.com",
+        "url": "https://apptio.com/"
+      }
+    ],
+    "relevance_tags": [
+      "saas",
+      "data pipelines",
+      "platform architecture",
+      "aws",
+      "java",
+      "portfolio"
+    ]
+  },
+  {
+    "id": "jumpcloud",
+    "name": "JumpCloud",
+    "summary": "Cloud directory + device management — identity and access at org scale. JumpCloud — identity and device-management platform work for distributed organizations operating at enterprise scale. Core workflows were designed around security, reliability, and predictable behavior under organizational load API and integration surfaces prioritized operational correctness and safe backward-compatible evolution Delivery patterns emphasized guardrails, progressive rollout, and clear failure boundaries",
+    "why_it_matters": "Reflects Marwan's work in identity-critical systems where reliability and safe rollout matter.",
+    "tech": [
+      "Cloud directory",
+      "Identity & access",
+      "Device management",
+      "APIs & integrations",
+      "Security at scale"
+    ],
+    "links": [
+      {
+        "label": "jumpcloud.com",
+        "url": "https://jumpcloud.com/"
+      }
+    ],
+    "relevance_tags": [
+      "identity",
+      "security",
+      "saas",
+      "portfolio"
+    ]
+  },
+  {
+    "id": "instant-ink",
+    "name": "Instant Ink (HP)",
+    "summary": "Subscription commerce + fulfillment systems for high-volume consumer services. Instant Ink (HP) — global scaling efforts that evolved subscription and fulfillment systems from early scale to millions of subscribers. The Ruby on Rails monolith was decomposed into cloud-native services and data pipelines Domain-Driven Design established clearer service boundaries across subscription and fulfillment workflows Cross-team TDD practices helped maintain reliability and service stability during rapid expansion",
+    "why_it_matters": "Highlights experience evolving subscription systems to larger scale while protecting reliability.",
+    "tech": [
+      "Subscription commerce",
+      "Fulfillment systems",
+      "Consumer IoT / print",
+      "High-volume services"
+    ],
+    "links": [
+      {
+        "label": "instantink.com",
+        "url": "https://instantink.hpconnected.com/"
+      }
+    ],
+    "relevance_tags": [
+      "subscriptions",
+      "saas",
+      "backend",
+      "portfolio"
+    ]
+  },
+  {
+    "id": "att",
+    "name": "AT&T",
+    "summary": "TQL: a SQL-like query language for ticket search and operational analytics. AT&amp;T — TQL project: a SQL-like domain language for ticket search and operational analytics workflows. The language model balanced expressive queries with predictable semantics and bounded execution behavior Query flows were shaped around real support operations, including filters, search, and drill-down analytics Grammar, validation, and test coverage were structured for maintainability and debuggable execution paths",
+    "why_it_matters": "Shows foundational backend work where query semantics and operational usefulness were both central.",
+    "tech": [
+      "Domain-specific language",
+      "Query engines",
+      "Java / enterprise stack",
+      "Ticketing & analytics"
+    ],
+    "links": [],
+    "relevance_tags": [
+      "backend",
+      "query systems",
+      "java",
+      "portfolio"
+    ]
+  },
+  {
+    "id": "miu",
+    "name": "Master's in Computer Science",
+    "summary": "M.S. CS focus: machine learning, data science, and software engineering practice. Master's in Computer Science (MIU) — applied graduate work spanning machine learning, data science, and software engineering delivery discipline. Projects emphasized turning ML/data foundations into production-oriented engineering decisions Algorithmic and systems thinking were applied to solution design under practical constraints SDLC rigor and implementation quality were treated as first-class outcomes, not afterthoughts",
+    "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
+    "tech": [
+      "Machine learning",
+      "Data science",
+      "Algorithms",
+      "Software engineering lifecycle"
+    ],
+    "links": [
+      {
+        "label": "miu.edu",
+        "url": "https://www.miu.edu/"
+      }
+    ],
+    "relevance_tags": [
+      "portfolio"
+    ]
+  },
+  {
+    "id": "sunrise",
+    "name": "Sunrise Resorts & Cruises",
+    "summary": "Infra + ops: datacenters, VPN/networking, and internal tooling. Sunrise Resorts &amp; Cruises — infrastructure and operations initiatives supporting business-critical hospitality systems. Datacenter and VPN/network architecture supported always-on operational workflows across sites Internal tooling improved asset tracking and day-to-day operational visibility Execution favored reliability, security controls, and pragmatic automation over unnecessary complexity",
+    "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
+    "tech": [
+      "Datacenters",
+      "VPN / networking",
+      "Asset management",
+      "IT operations"
+    ],
+    "links": [
+      {
+        "label": "sunrise-resorts.com",
+        "url": "https://www.sunrise-resorts.com"
+      }
+    ],
+    "relevance_tags": [
+      "infrastructure",
+      "operations",
+      "portfolio"
+    ]
+  },
+  {
+    "id": "campus-party",
+    "name": "Campus Party Milenio (Spain)",
+    "summary": "Community + collaboration: technical exchange with an international builder community. Campus Party Milenio (Spain) — international technical collaboration focused on rapid experimentation and cross-discipline exchange. Projects and demos were developed in builder-heavy environments with fast feedback loops Emerging technology ideas were pressure-tested through hands-on iteration and peer review The working model emphasized shipping early, learning publicly, and refining quickly",
+    "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
+    "tech": [
+      "Events & community",
+      "Emerging tech",
+      "International collaboration"
+    ],
+    "links": [
+      {
+        "label": "facebook.com/campuspartymilenio",
+        "url": "https://www.facebook.com/campuspartymilenio/"
+      }
+    ],
+    "relevance_tags": [
+      "portfolio"
+    ]
+  },
+  {
+    "id": "5d-agency",
+    "name": "5d-agency (SWI)",
+    "summary": "Client delivery across web/mobile, AR, and Unity-powered experiences. 5d-agency (SWI) — multi-platform client delivery across web, mobile, AR, and Unity-based interactive products. Delivery flows balanced creative product goals with fixed timelines and implementation constraints Interactive and AR experiences were engineered for usability, performance, and maintainability Execution cadence prioritized shipping, stabilization, and iterative quality improvements",
+    "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
+    "tech": [
+      "Unity / game dev",
+      "Web & mobile",
+      "AR",
+      "CMS"
+    ],
+    "links": [
+      {
+        "label": "5d-agency.com",
+        "url": "https://5d-agency.com/"
+      }
+    ],
+    "relevance_tags": [
+      "frontend",
+      "games",
+      "mobile",
+      "portfolio"
+    ]
+  },
+  {
+    "id": "early",
+    "name": "Early Startups",
+    "summary": "Early-stage work across web apps, embedded Linux, and research tooling. Early startups — cross-domain product engineering across ad-tech, embedded Linux, and research-oriented web tooling. DDA Advertising : ad-tech and web systems focused on rapid product iteration OIG OS : Linux-based embedded systems under hardware and platform constraints QREO : web applications and research tooling designed for exploratory workflows",
+    "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
+    "tech": [
+      "Embedded Linux",
+      "Web applications",
+      "Advertising tech",
+      "Research tooling"
+    ],
+    "links": [],
+    "relevance_tags": [
+      "frontend",
+      "portfolio"
+    ]
+  }
+]

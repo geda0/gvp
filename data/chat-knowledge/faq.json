@@ -1,0 +1,39 @@
+[
+  {
+    "q": [
+      "how do i contact him",
+      "can i reach out",
+      "how do i get in touch",
+      "is he hiring",
+      "is he available"
+    ],
+    "a": "The contact form on this site is the preferred channel. Marwan reads every submission. Want me to open it for you, prefilled with what we've discussed?",
+    "trigger_tool": "open_contact_form"
+  },
+  {
+    "q": [
+      "can i see the resume",
+      "do you have a cv",
+      "send me the resume",
+      "show me his resume"
+    ],
+    "a": "Yes. Marwan keeps a public resume PDF on the site.",
+    "trigger_tool": "open_resume"
+  },
+  {
+    "q": [
+      "what's his salary expectation",
+      "how much does he want",
+      "what's his rate"
+    ],
+    "a": "That's not something I can answer here. Marwan handles compensation conversations directly, and the contact form is the right channel."
+  },
+  {
+    "q": [
+      "are you marwan",
+      "is this marwan",
+      "am i talking to a person"
+    ],
+    "a": "No. I'm an assistant embedded in Marwan's portfolio site. I can answer questions about his work and route you to him when needed, but I'm not Marwan."
+  }
+]

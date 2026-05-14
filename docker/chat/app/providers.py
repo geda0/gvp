@@ -9,6 +9,9 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import Runnable, RunnableLambda
+from langchain_core.tools import tool
+
+from app.knowledge_context import build_context, compact_history, serialize_context_xml
 
 logger = logging.getLogger(__name__)
 
@@ -80,81 +83,101 @@ def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
     from app.upstream_errors import upstream_error_body
 
     status, body = upstream_error_body(exc)
-    return status, str(body.get("code", "model_error")), str(body.get("error", "Upstream model error"))
+    return status, str(body.get("code", "model_error")), str(
+        body.get("error", "Upstream model error")
+    )
+
+
+@tool
+def open_resume() -> str:
+    """Surface a resume action for the visitor."""
+    return "Open resume"
+
+
+@tool
+def open_contact_form(subject: str = "", message: str = "") -> str:
+    """Surface a prefilled contact-form action for the visitor."""
+    del subject, message
+    return "Open contact form"
+
+
+def chat_tools() -> list[Any]:
+    return [open_resume, open_contact_form]
 
 
 def _inject_retrieved(
-    corpus_index: Any,
-    corpus_digest: str,
+    knowledge_pack: dict[str, Any],
     inp: dict[str, Any],
 ) -> dict[str, Any]:
-    msgs = inp["messages"]
-    last = ""
-    for m in reversed(msgs):
+    raw_messages = list(inp["messages"])
+    compacted = compact_history(raw_messages)
+    last = ''
+    for m in reversed(compacted):
         if getattr(m, "type", None) == "human":
             last = str(m.content)
             break
-    retrieved = ""
-    if corpus_index is not None and last:
-        bits = corpus_index.retrieve(last, k=4)
-        retrieved = "\n".join(bits)
+    history_text = ' '.join(
+        str(getattr(m, 'content', ''))[:300] for m in compacted[-6:]
+    )
+    context = build_context(last, history_text, knowledge_pack)
+    knowledge_xml = serialize_context_xml(context)
+    messages = [HumanMessage(content=knowledge_xml), *compacted]
     return {
-        "messages": msgs,
-        "retrieved": retrieved or "(none)",
-        "corpus_digest": corpus_digest[:12000],
+        "messages": messages,
+        "faq_match": context.get("faq_match"),
     }
 
 
-def _mock_llm_reply(corpus_index: Any, prompt_value: Any) -> AIMessage:
+def _mock_llm_reply(prompt_value: Any) -> AIMessage:
     msgs = prompt_value.to_messages()
-    last = ""
+    last = ''
+    knowledge = ''
     for m in reversed(msgs):
         if isinstance(m, HumanMessage):
-            last = str(m.content)
+            if not knowledge and str(m.content).startswith('<knowledge_pack>'):
+                knowledge = str(m.content)
+                continue
+            if not last:
+                last = str(m.content)
+        if last and knowledge:
             break
-    bits: list[str] = []
-    if corpus_index is not None and last:
-        bits = corpus_index.retrieve(last, k=4)
-    ctx = "\n".join(bits) if bits else "(no matching corpus snippets)"
-    text = (
-        "Portfolio assistant (mock). Relevant excerpts from Marwan's materials:\n"
-        f"{ctx}\n"
-        "In production, a full model would answer using only this context."
-    )
+    query = last.lower()
+    if (
+        'tbm' in query
+        or 'technology business management' in query
+        or 'financial management' in query
+        or 'financial planning' in query
+    ) and 'Apptio' in knowledge:
+        text = "Marwan's materials link Technology Business Management work to Apptio (IBM)."
+    elif ('resume' in query or 'cv' in query) and 'trigger_tool' in knowledge:
+        text = "Marwan keeps a public resume PDF on the site."
+    else:
+        text = "I can answer questions about Marwan's work using the provided knowledge pack."
     return AIMessage(content=text)
 
 
 def build_llm_runnable(
     provider: str,
-    corpus_index: Any,
-    corpus_digest: str,
+    system_prompt: str,
+    knowledge_pack: dict[str, Any],
 ) -> tuple[Any, str]:
     """Return (chain, model_id). Chain input: {\"messages\": list[BaseMessage]}."""
     provider = provider.lower()
     model_id = _model_id_for_provider(provider)
     timeout_s = _get_timeout_seconds(provider)
 
-    system_template = (
-        "You are a concise assistant for Marwan Elgendy's portfolio site. "
-        "Ground answers in the digest and retrieved excerpts; do not invent "
-        "employers or projects. If the question is unrelated, say you only "
-        "discuss this portfolio.\n\n"
-        "Portfolio digest:\n{corpus_digest}\n\n"
-        "Retrieved excerpts (BM25):\n{retrieved}"
-    )
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", system_template),
+            ("system", system_prompt),
             MessagesPlaceholder("messages"),
         ]
     )
 
-    inject = RunnableLambda(
-        lambda inp: _inject_retrieved(corpus_index, corpus_digest, inp)
-    )
+    inject = RunnableLambda(lambda inp: _inject_retrieved(knowledge_pack, inp))
+    tools = chat_tools()
 
     if provider == "mock":
-        reply_fn = RunnableLambda(lambda pv: _mock_llm_reply(corpus_index, pv))
+        reply_fn = RunnableLambda(_mock_llm_reply)
         chain: Runnable = inject | prompt | reply_fn
         return chain, model_id
 
@@ -176,6 +199,7 @@ def build_llm_runnable(
             fallback_id,
             key,
             timeout_s,
+            tools=tools,
         )
         return chain, primary_id
 
@@ -192,6 +216,7 @@ def build_llm_runnable(
             api_key=key,
             timeout=timeout_s,
         )
+        llm = llm.bind_tools(tools)
         chain = inject | prompt | llm
         return chain, model_id
 

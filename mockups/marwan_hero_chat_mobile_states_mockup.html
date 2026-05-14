@@ -1,0 +1,95 @@
+<style>
+.mw-row { display:flex; gap: 24px; justify-content: center; flex-wrap: wrap; padding: 16px 0; }
+.mw-device { width: 280px; background: #0d1117; border-radius: 28px; border: 6px solid #1a1f26; overflow: hidden; color: #e6e6e6; font-family: 'Source Sans 3', -apple-system, sans-serif; box-shadow: 0 18px 36px rgba(0,0,0,0.35); }
+.mw-label { text-align: center; font-size: 12px; color: var(--color-text-secondary); margin-top: 10px; font-family: var(--font-sans); }
+.mw-screen { padding: 18px 18px 24px; min-height: 520px; position: relative; }
+
+/* Mobile hero */
+.mw-nav { display:flex; justify-content: space-between; align-items: center; font-size: 12px; opacity: 0.7; margin-bottom: 24px; }
+.mw-h1 { font-family: 'Source Serif 4', Georgia, serif; font-size: 26px; line-height: 1.1; margin: 0 0 6px; font-weight: 600; }
+.mw-sub { font-size: 12px; opacity: 0.7; margin: 0 0 10px; }
+.mw-tag { font-size: 12px; opacity: 0.6; line-height: 1.5; margin: 0 0 18px; }
+.mw-cta { display:flex; gap: 6px; margin-bottom: 22px; }
+.mw-cta-p { flex: 1; background: #e6e6e6; color: #0d1117; padding: 8px 0; border-radius: 999px; font-size: 12px; font-weight: 500; text-align: center; }
+.mw-cta-s { flex: 1; background: transparent; color: #e6e6e6; padding: 8px 0; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid rgba(255,255,255,0.2); text-align: center; }
+
+.mw-chat-label { font-size: 10px; opacity: 0.55; margin-bottom: 6px; display:flex; align-items:center; gap: 6px; }
+.mw-dot { width: 5px; height: 5px; border-radius: 50%; background: #7f77dd; }
+.mw-chat-form { display:flex; gap: 5px; align-items:center; background: rgba(255,255,255,0.04); border: 1px solid rgba(127,119,221,0.35); border-radius: 999px; padding: 4px 4px 4px 14px; }
+.mw-chat-input { flex: 1; background: transparent; border: 0; outline: 0; color: rgba(230,230,230,0.4); font-size: 11px; padding: 5px 0; }
+.mw-chat-submit { width: 26px; height: 26px; border-radius: 999px; background: #7f77dd; color: #fff; border: 0; font-size: 12px; display:flex; align-items:center; justify-content:center; }
+.mw-chips { display:flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.mw-chip { background: transparent; border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; padding: 3px 8px; font-size: 10px; color: rgba(230,230,230,0.75); }
+
+/* Fullscreen panel (mobile) */
+.mw-panel-head { display:flex; justify-content: space-between; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 14px; }
+.mw-panel-head h2 { margin: 0 0 2px; font-size: 13px; font-weight: 500; }
+.mw-panel-head .mw-psub { margin: 0; font-size: 10px; opacity: 0.55; }
+.mw-close { width: 24px; height: 24px; border: 0; background: transparent; color: rgba(255,255,255,0.6); font-size: 16px; line-height: 1; }
+.mw-msgs { display:flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.mw-bubble-u { align-self: flex-end; max-width: 82%; background: #7f77dd; color:#fff; border-radius: 12px; border-bottom-right-radius: 4px; padding: 7px 10px; font-size: 11.5px; }
+.mw-bubble-a { align-self: flex-start; max-width: 90%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; border-bottom-left-radius: 4px; padding: 7px 10px; font-size: 11.5px; line-height: 1.45; }
+.mw-acts { display:flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+.mw-inline { background: rgba(127,119,221,0.18); color: #cfcaf5; border: 1px solid rgba(127,119,221,0.4); border-radius: 999px; padding: 3px 8px; font-size: 10px; }
+.mw-mcursor { display:inline-block; width: 5px; height: 11px; background: rgba(230,230,230,0.7); vertical-align: -1px; margin-left: 2px; animation: blink2 1s steps(2) infinite; }
+@keyframes blink2 { 50% { opacity: 0; } }
+.mw-composer { position: absolute; left: 18px; right: 18px; bottom: 18px; display:flex; gap: 5px; }
+.mw-ta { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 6px 8px; font-size: 11px; color: rgba(230,230,230,0.5); }
+.mw-send { background: #e6e6e6; color: #0d1117; border: 0; border-radius: 8px; padding: 6px 12px; font-size: 11px; font-weight: 500; }
+</style>
+
+<div class="mw-row">
+  <div>
+    <div class="mw-device">
+      <div class="mw-screen">
+        <div class="mw-nav"><span>Home</span><span style="font-size:16px">🦸</span><span style="font-size:10px;">≡</span></div>
+        <h1 class="mw-h1">Marwan Elgendy</h1>
+        <p class="mw-sub">Software Engineer — Architecture &amp; Platforms</p>
+        <p class="mw-tag">I build systems that hold up in production: clear boundaries, operable services, and end-to-end delivery.</p>
+        <div class="mw-cta"><span class="mw-cta-p">Resume</span><span class="mw-cta-s">Contact</span></div>
+        <div class="mw-chat-label"><span class="mw-dot"></span>Or ask anything about my work</div>
+        <div class="mw-chat-form">
+          <input class="mw-chat-input" placeholder="What did you build at IBM?" />
+          <button class="mw-chat-submit">↑</button>
+        </div>
+        <div class="mw-chips">
+          <span class="mw-chip">Platform architecture</span>
+          <span class="mw-chip">IBM Apptio</span>
+          <span class="mw-chip">A relevant project</span>
+        </div>
+      </div>
+    </div>
+    <div class="mw-label">Mobile hero — idle</div>
+  </div>
+
+  <div>
+    <div class="mw-device">
+      <div class="mw-screen">
+        <div class="mw-panel-head">
+          <div>
+            <h2>Ask about my work</h2>
+            <p class="mw-psub">Grounded in my resume and projects.</p>
+          </div>
+          <button class="mw-close">×</button>
+        </div>
+        <div class="mw-msgs">
+          <div class="mw-bubble-u">What did you build at IBM Apptio?</div>
+          <div class="mw-bubble-a">At IBM (Apptio) I worked on Cloudability — cloud financial management. My focus was platform architecture for subscription and identity flows: defining service boundaries and making ingestion pipelines operable.</div>
+          <div class="mw-bubble-u">Would that translate to a staff role at a Series C?</div>
+          <div class="mw-bubble-a">
+            Yes — the patterns transfer cleanly. Series C is where boundary definition starts paying off.<span class="mw-mcursor"></span>
+            <div class="mw-acts">
+              <span class="mw-inline">📩 Contact (prefilled)</span>
+              <span class="mw-inline">📄 Resume</span>
+            </div>
+          </div>
+        </div>
+        <div class="mw-composer">
+          <div class="mw-ta">Ask a follow-up…</div>
+          <button class="mw-send">Send</button>
+        </div>
+      </div>
+    </div>
+    <div class="mw-label">Mobile panel — full-screen</div>
+  </div>
+</div>

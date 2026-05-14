@@ -8,7 +8,7 @@
 - **Secrets:** only `GEMINI_API_KEY` / `OPENAI_API_KEY` via env; never client or repo.
 - **Readiness:** resolve tension between Docker healthcheck hitting `/health` and `chain is None` (503 on `/api/chat`)—prefer `/ready` or make `/health` reflect provider+corpus.
 - **Upstream hardening:** timeouts, map 429/401 to JSON `code` + status per brief.
-- **Corpus:** document rebuild-on-publish when `resume.json` / `projects.json` change (image COPY is build-time).
+- **Knowledge pack:** document rebuild-on-publish for `data/chat-knowledge/*.json` and keep `scripts/build-chat-knowledge.mjs` in the release path (image COPY is build-time).
 
 ## Pre-audit notes (squad input)
 

@@ -32,6 +32,7 @@ export function initContactForm() {
     dialog.hidden = false
     dialog.setAttribute('aria-hidden', 'false')
     document.body.classList.add('contact-dialog-open')
+    window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'))
     showFormView(true)
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
   }

@@ -22,7 +22,7 @@
 
 ### 2) UX and hero behavior
 
-- Manual acceptance for [index.html](../../index.html), [js/chatbot.js](../../js/chatbot.js), and [css/styles.css](../../css/styles.css):
+- Manual acceptance for [index.html](../../index.html), [js/chat.js](../../js/chat.js), and [css/chat.css](../../css/chat.css):
   - space/garden parity
   - keyboard behavior
   - error and retry handling

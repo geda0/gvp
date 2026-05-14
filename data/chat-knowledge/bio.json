@@ -1,0 +1,23 @@
+{
+  "name": "Marwan Elgendy",
+  "current_status": "Software engineer focused on platform architecture and data-intensive SaaS.",
+  "based": "United States",
+  "summary": "Marwan builds production systems with clear boundaries, operable services, and end-to-end delivery. His work spans enterprise SaaS, identity, subscriptions, and data-intensive cloud platforms. He has shipped at IBM (Apptio/Cloudability), HP, JumpCloud, and AT&T.",
+  "strengths": [
+    "Platform architecture and service boundary design",
+    "Identity, subscriptions, and billing infrastructure",
+    "Data-intensive pipelines (ingestion, transformation, reporting)",
+    "End-to-end delivery across ship, stabilize, and iterate",
+    "Operability with observability, alerting, and on-call discipline"
+  ],
+  "tech_at_glance": [
+    "AWS (Lambda, DynamoDB, SQS, API Gateway, SAM)",
+    "Node.js",
+    "Python",
+    "Java",
+    "TypeScript",
+    "PostgreSQL",
+    "Kafka"
+  ],
+  "contact_preference": "The contact form on this site is the preferred channel. Marwan reads every submission."
+}

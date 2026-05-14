@@ -11,7 +11,15 @@ logger = logging.getLogger(__name__)
 class GeminiRoutingChain:
     """Shared inject|prompt prefix; swap ChatGoogleGenerativeAI by model id per attempt."""
 
-    __slots__ = ('prefix', 'primary_id', 'fallback_id', 'key', 'timeout', 'last_model_id')
+    __slots__ = (
+        'prefix',
+        'primary_id',
+        'fallback_id',
+        'key',
+        'timeout',
+        'last_model_id',
+        'tools',
+    )
 
     def __init__(
         self,
@@ -20,6 +28,7 @@ class GeminiRoutingChain:
         fallback_id: str,
         key: str,
         timeout: float,
+        tools: list[Any] | None = None,
     ) -> None:
         self.prefix = prefix
         self.primary_id = primary_id
@@ -27,6 +36,7 @@ class GeminiRoutingChain:
         self.key = key
         self.timeout = timeout
         self.last_model_id = primary_id
+        self.tools = list(tools or [])
 
     def _model_order(self) -> list[str]:
         from app.gemini_limit_state import prefer_fallback_first
@@ -50,6 +60,8 @@ class GeminiRoutingChain:
                 temperature=0.2,
                 timeout=self.timeout,
             )
+            if self.tools:
+                llm = llm.bind_tools(self.tools)
             chain = self.prefix | llm
             try:
                 out = await chain.ainvoke(inp, config=config)

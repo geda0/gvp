@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, Request
@@ -17,8 +17,13 @@ from fastapi.responses import JSONResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
 
-from app.context import CorpusIndex, build_chunks, summarized_corpus
 from app.gemini_routing import GeminiRoutingChain
+from app.knowledge_context import (
+    default_pack_dir,
+    default_system_prompt_path,
+    load_knowledge_pack,
+    load_system_prompt,
+)
 from app.providers import (
     build_llm_runnable,
     get_provider_and_model,
@@ -33,24 +38,11 @@ MAX_MESSAGES = int(os.environ.get("CHAT_MAX_MESSAGES", "32"))
 MAX_CONTENT_LEN = int(os.environ.get("CHAT_MAX_CONTENT_LEN", "8000"))
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
 def _cors_allow_origins() -> list[str]:
     raw = os.environ.get('CHAT_CORS_ORIGINS', '').strip()
     if not raw:
         return []
     return [o.strip() for o in raw.split(',') if o.strip()]
-
-
-def _corpus_paths() -> tuple[Path, Path]:
-    r = os.environ.get("CORPUS_RESUME_PATH") or os.environ.get("CORPUS_RESUME")
-    p = os.environ.get("CORPUS_PROJECTS_PATH") or os.environ.get("CORPUS_PROJECTS")
-    if r and p:
-        return Path(r), Path(p)
-    root = _repo_root()
-    return root / "resume" / "resume.json", root / "data" / "projects.json"
 
 
 class ChatMessageIn(BaseModel):
@@ -76,6 +68,7 @@ class ChatMessageIn(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessageIn] = Field(default_factory=list)
     stream: bool = False
+    sessionId: str | None = None
 
 
 def _to_lc_messages(rows: list[ChatMessageIn]) -> list[HumanMessage | AIMessage | SystemMessage]:
@@ -90,37 +83,105 @@ def _to_lc_messages(rows: list[ChatMessageIn]) -> list[HumanMessage | AIMessage 
     return out
 
 
+def _reply_text_from_result(result: Any) -> str:
+    if not isinstance(result, AIMessage):
+        return str(result)
+    content = result.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        lines: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                lines.append(part)
+                continue
+            if isinstance(part, dict) and isinstance(part.get('text'), str):
+                lines.append(part['text'])
+        return '\n'.join(line for line in lines if line).strip()
+    return str(content)
+
+
+def _normalize_tool_args(args: Any) -> dict[str, Any]:
+    if isinstance(args, dict):
+        return args
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
+def _actions_from_result(result: Any) -> list[dict[str, Any]]:
+    if not isinstance(result, AIMessage):
+        return []
+    actions: list[dict[str, Any]] = []
+    for call in getattr(result, 'tool_calls', []) or []:
+        name = str(call.get('name', '')).strip()
+        args = _normalize_tool_args(call.get('args'))
+        if name == 'open_resume':
+            actions.append({'id': 'open-resume', 'label': 'Open resume'})
+            continue
+        if name == 'open_contact_form':
+            action: dict[str, Any] = {'id': 'open-contact', 'label': 'Open contact form'}
+            subject = args.get('subject')
+            message = args.get('message')
+            prefill: dict[str, str] = {}
+            if isinstance(subject, str) and subject.strip():
+                prefill['subject'] = subject.strip()
+            if isinstance(message, str) and message.strip():
+                prefill['message'] = message.strip()
+            if prefill:
+                action['prefill'] = prefill
+            actions.append(action)
+    deduped: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for action in actions:
+        aid = str(action.get('id', ''))
+        if aid in seen_ids:
+            continue
+        seen_ids.add(aid)
+        deduped.append(action)
+    return deduped
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    resume_p, projects_p = _corpus_paths()
-    logger.info("Loading corpus from %s and %s", resume_p, projects_p)
-    app.state.resume_path = str(resume_p)
-    app.state.projects_path = str(projects_p)
+    pack_dir = default_pack_dir()
+    prompt_path = default_system_prompt_path()
+    logger.info("Loading knowledge pack from %s", pack_dir)
+    app.state.pack_path = str(pack_dir)
+    app.state.prompt_path = str(prompt_path)
     app.state.corpus_error = None
     try:
-        chunks = build_chunks(resume_p, projects_p)
+        pack = load_knowledge_pack(pack_dir)
+        prompt_text, prompt_version = load_system_prompt(prompt_path)
     except Exception as exc:
-        app.state.corpus_index = None
-        app.state.corpus_summary = ""
+        app.state.knowledge_pack = None
+        app.state.system_prompt = ''
+        app.state.prompt_version = 'unknown'
         app.state.corpus_error = str(exc)
-        logger.exception("Corpus init failed")
+        logger.exception("Knowledge init failed")
     else:
-        app.state.corpus_index = CorpusIndex(chunks)
-        app.state.corpus_summary = summarized_corpus(chunks)
+        app.state.knowledge_pack = pack
+        app.state.system_prompt = prompt_text
+        app.state.prompt_version = prompt_version
     provider, _ = get_provider_and_model()
     app.state.provider_name = provider
     app.state.provider_timeout_seconds = get_provider_timeout_seconds(provider)
-    if app.state.corpus_index is None:
+    if app.state.knowledge_pack is None or not app.state.system_prompt:
         app.state.chain = None
-        app.state.provider_error = "Corpus failed to load"
-        logger.error("Skipping provider init because corpus is unavailable")
+        app.state.provider_error = "Knowledge pack or system prompt failed to load"
+        logger.error("Skipping provider init because knowledge is unavailable")
         yield
         return
     try:
         chain, model_id = build_llm_runnable(
             provider,
-            app.state.corpus_index,
-            app.state.corpus_summary,
+            app.state.system_prompt,
+            app.state.knowledge_pack,
         )
         app.state.chain = chain
         app.state.model_id = model_id
@@ -151,15 +212,16 @@ if _cors:
         allow_methods=['GET', 'POST', 'OPTIONS'],
         allow_headers=['*'],
     )
-app.state.corpus_index: CorpusIndex | None = None
-app.state.corpus_summary: str = ""
+app.state.knowledge_pack: dict[str, Any] | None = None
+app.state.system_prompt: str = ''
+app.state.prompt_version: str = 'unknown'
 app.state.chain: Any = None
 app.state.model_id: str = "mock-portfolio"
 app.state.provider_error: str | None = None
 app.state.provider_name: str = "mock"
 app.state.provider_timeout_seconds: float = 15.0
-app.state.resume_path: str = ""
-app.state.projects_path: str = ""
+app.state.pack_path: str = ""
+app.state.prompt_path: str = ""
 app.state.corpus_error: str | None = None
 app.state.gemini_primary_model: str | None = None
 app.state.gemini_fallback_model: str | None = None
@@ -171,7 +233,7 @@ def health() -> dict[str, bool]:
 
 
 def _readiness_payload() -> tuple[bool, dict[str, Any]]:
-    corpus_ready = app.state.corpus_index is not None and not app.state.corpus_error
+    corpus_ready = app.state.knowledge_pack is not None and not app.state.corpus_error
     provider_ready = app.state.chain is not None and not app.state.provider_error
     ready = bool(corpus_ready and provider_ready)
     payload = {
@@ -186,8 +248,9 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
         "corpus": {
             "ready": corpus_ready,
             "error": app.state.corpus_error,
-            "resume_path": app.state.resume_path,
-            "projects_path": app.state.projects_path,
+            "pack_path": app.state.pack_path,
+            "prompt_path": app.state.prompt_path,
+            "prompt_version": app.state.prompt_version,
         },
     }
     if isinstance(app.state.chain, GeminiRoutingChain):
@@ -263,10 +326,11 @@ async def chat(payload: ChatRequest) -> JSONResponse:
         status, content = upstream_error_body(exc)
         return JSONResponse(status_code=status, content=content)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    reply_text = result.content if isinstance(result, AIMessage) else str(result)
+    reply_text = _reply_text_from_result(result)
+    actions = _actions_from_result(result)
     model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
     logger.info("chat ok model=%s latency_ms=%s", model_used, elapsed_ms)
-    return JSONResponse(content={"reply": reply_text, "model": model_used})
+    return JSONResponse(content={"reply": reply_text, "model": model_used, "actions": actions})
 
 
 @app.exception_handler(RequestValidationError)

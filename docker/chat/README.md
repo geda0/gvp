@@ -8,15 +8,15 @@ Build from the **repository root** so `resume/` and `data/` are in scope:
 docker build -f docker/chat/Dockerfile .
 ```
 
-The image copies `resume/resume.json` and `data/projects.json` into `/app/corpus/` and sets `CORPUS_RESUME_PATH` / `CORPUS_PROJECTS_PATH`.
+The image copies `data/chat-knowledge/` and `docker/chat/prompts/system-prompt.md` into Lambda and sets `CHAT_KNOWLEDGE_DIR` / `CHAT_SYSTEM_PROMPT_PATH`.
 
 ## Run locally
 
 ```bash
 cd docker/chat
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-CORPUS_RESUME_PATH=/path/to/gvp/resume/resume.json \
-CORPUS_PROJECTS_PATH=/path/to/gvp/data/projects.json \
+CHAT_KNOWLEDGE_DIR=/path/to/gvp/data/chat-knowledge \
+CHAT_SYSTEM_PROMPT_PATH=/path/to/gvp/docker/chat/prompts/system-prompt.md \
 CHAT_PROVIDER=mock \
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
@@ -34,8 +34,8 @@ CHAT_PROVIDER=mock \
 | `CHAT_PROVIDER_TIMEOUT_SECONDS` | Global upstream timeout in seconds (default `15`) |
 | `GEMINI_TIMEOUT_SECONDS` | Optional Gemini-specific timeout override |
 | `OPENAI_TIMEOUT_SECONDS` | Optional OpenAI-specific timeout override |
-| `CORPUS_RESUME_PATH` / `CORPUS_PROJECTS_PATH` | JSON files (defaults under repo root when unset) |
-| `CORPUS_RESUME` / `CORPUS_PROJECTS` | Legacy aliases for the same paths |
+| `CHAT_KNOWLEDGE_DIR` | Directory containing `bio.json`, `roles.json`, `projects.json`, `faq.json` (default `data/chat-knowledge`) |
+| `CHAT_SYSTEM_PROMPT_PATH` | Prompt markdown file with `prompt-version` header (default `docker/chat/prompts/system-prompt.md`) |
 | `CHAT_CORS_ORIGINS` | Optional comma-separated list of browser origins allowed to call the API (e.g. `https://marwanelgendy.link`). Required when the static site and chat run on different hosts. |
 
 ## Deploy (stage / prod)
@@ -76,8 +76,8 @@ curl -sS -o /dev/null -w '%{http_code} %{url_effective}\n' -L 'https://YOUR-API-
 ## API
 
 - `GET /health` → `{"ok": true}`
-- `GET /ready` → readiness for corpus + provider chain (`200` when ready, `503` when degraded). With **`CHAT_PROVIDER=gemini`**, `provider.gemini` includes **`primary_model`**, **`fallback_model`**, and **`primary_rate_limits_today`** (count of primary 429/quota events since last **UTC** midnight).
-- `POST /api/chat` → body `{"messages":[{"role":"user|assistant|system","content":"..."}],"stream":false}` → `{"reply":"...","model":"..."}`
+- `GET /ready` → readiness for knowledge pack + provider chain (`200` when ready, `503` when degraded). With **`CHAT_PROVIDER=gemini`**, `provider.gemini` includes **`primary_model`**, **`fallback_model`**, and **`primary_rate_limits_today`** (count of primary 429/quota events since last **UTC** midnight).
+- `POST /api/chat` → body `{"messages":[{"role":"user|assistant|system","content":"..."}],"stream":false,"sessionId?":"..."}` → `{"reply":"...","model":"...","actions":[...]}` where `actions` may include `open-resume` or `open-contact` buttons with optional prefill fields.
 
 Errors: JSON body with `error` and `code` where applicable. Timeout and upstream failures are mapped to stable codes (`upstream_timeout`, `upstream_rate_limited`, `upstream_auth_error`, `model_error`).
 

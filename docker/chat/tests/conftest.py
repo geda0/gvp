@@ -12,13 +12,10 @@ from httpx import ASGITransport, AsyncClient
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 os.environ["CHAT_PROVIDER"] = "mock"
+os.environ.setdefault("CHAT_KNOWLEDGE_DIR", str(REPO_ROOT / "data" / "chat-knowledge"))
 os.environ.setdefault(
-    "CORPUS_RESUME_PATH",
-    str(REPO_ROOT / "resume" / "resume.json"),
-)
-os.environ.setdefault(
-    "CORPUS_PROJECTS_PATH",
-    str(REPO_ROOT / "data" / "projects.json"),
+    "CHAT_SYSTEM_PROMPT_PATH",
+    str(REPO_ROOT / "docker" / "chat" / "prompts" / "system-prompt.md"),
 )
 
 

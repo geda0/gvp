@@ -2,7 +2,7 @@
 
 **Mission:** Make the **chatbot the visual and interaction centerpiece** of the home experience: **usable**, **presentable**, and **creative** within the existing Space / Garden identity (typography, CSS variables, spaceman world).
 
-**You own:** [`index.html`](../../index.html) structure for the hero, new [`js/chatbot.js`](../../js/chatbot.js) (or split modules), CSS in [`css/styles.css`](../../css/styles.css) (and small additions to [`css/spaceman.css`](../../css/spaceman.css) only if required for collision), accessibility, responsive behavior, empty/loading/error states.
+**You own:** [`index.html`](../../index.html) structure for the hero, new [`js/chat.js`](../../js/chat.js), CSS in [`css/chat.css`](../../css/chat.css) (and supporting tokens/layout in [`css/styles.css`](../../css/styles.css), plus small additions to [`css/spaceman.css`](../../css/spaceman.css) only if required for collision), accessibility, responsive behavior, empty/loading/error states.
 
 **You do not own:** Reverse proxy, model keys, LangChain. You **consume** the HTTP contract documented by Team Chatbot and base URLs from meta / `window` globals (mirror the contact pattern).
 

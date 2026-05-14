@@ -4,7 +4,7 @@
 
 ## Coordinator responsibilities
 
-- Own [`index.html`](../../index.html), [`js/chatbot.js`](../../js/chatbot.js), [`js/contact.js`](../../js/contact.js), [`js/app.js`](../../js/app.js), [`css/styles.css`](../../css/styles.css), [`scripts/sync-site-api-urls.mjs`](../../scripts/sync-site-api-urls.mjs), [`scripts/integrate-and-deploy.sh`](../../scripts/integrate-and-deploy.sh) (only where it touches HTML meta).
+- Own [`index.html`](../../index.html), [`js/chat.js`](../../js/chat.js), [`js/contact.js`](../../js/contact.js), [`js/app.js`](../../js/app.js), [`css/styles.css`](../../css/styles.css), [`css/chat.css`](../../css/chat.css), [`scripts/sync-site-api-urls.mjs`](../../scripts/sync-site-api-urls.mjs), [`scripts/integrate-and-deploy.sh`](../../scripts/integrate-and-deploy.sh) (only where it touches HTML meta).
 - **Chat URL:** ensure production `gvp:chat-api-url` is set OR origin proxies `/api/chat`—never ship a state where meta is empty and CDN has no `/api/chat` route unless intentional.
 - **Sync automation:** extend `sync-site-api-urls.mjs` (or add `sync-chat-api-url.mjs`) to patch `gvp:chat-api-url` in `index.html` + `admin/index.html` if needed.
 - **Contact fetch:** add `Content-Type: application/json` in [`js/contact.js`](../../js/contact.js) for parity with chat and strict gateways.

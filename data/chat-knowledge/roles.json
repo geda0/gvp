@@ -1,0 +1,130 @@
+[
+  {
+    "id": "apptio-ibm",
+    "company": "Apptio (IBM)",
+    "product": "TBM / IT Financial Management",
+    "tenure": "Recent",
+    "team": "TBM / IT Financial Management",
+    "summary": "Data-intensive SaaS for IT financial planning and cost transparency",
+    "highlights": [
+      "Data-intensive SaaS for IT financial planning and cost transparency"
+    ],
+    "tech": [],
+    "relevance_tags": [
+      "aws",
+      "platform architecture",
+      "saas",
+      "subscriptions",
+      "identity",
+      "data pipelines",
+      "finops",
+      "cloudability"
+    ]
+  },
+  {
+    "id": "jumpcloud",
+    "company": "JumpCloud",
+    "product": "Directory & Device Management",
+    "tenure": "Cloud",
+    "team": "Directory & Device Management",
+    "summary": "Cloud directory and device management at organizational scale",
+    "highlights": [
+      "Cloud directory and device management at organizational scale"
+    ],
+    "tech": [],
+    "relevance_tags": [
+      "identity",
+      "platform architecture",
+      "saas",
+      "security",
+      "apis",
+      "cloud"
+    ]
+  },
+  {
+    "id": "instant-ink-hp",
+    "company": "Instant Ink (HP)",
+    "product": "Subscription & Financial Services",
+    "tenure": "SaaS",
+    "team": "Subscription & Financial Services",
+    "summary": "Subscription commerce and service delivery for consumer printing",
+    "highlights": [
+      "Subscription commerce and service delivery for consumer printing"
+    ],
+    "tech": [],
+    "relevance_tags": [
+      "subscriptions",
+      "saas",
+      "platform architecture",
+      "high-scale systems"
+    ]
+  },
+  {
+    "id": "at-t",
+    "company": "AT&T",
+    "product": "Full-stack Developer",
+    "tenure": "Past",
+    "team": "Full-stack Developer",
+    "summary": "TQL — SQL-like ticketing query language for operations",
+    "highlights": [
+      "TQL — SQL-like ticketing query language for operations"
+    ],
+    "tech": [],
+    "relevance_tags": [
+      "backend",
+      "data systems",
+      "query systems"
+    ]
+  },
+  {
+    "id": "sunrise-resorts-cruises",
+    "company": "Sunrise Resorts & Cruises",
+    "product": "Datacenters & Infrastructure",
+    "tenure": "Past",
+    "team": "Datacenters & Infrastructure",
+    "summary": "Datacenters, VPNs, asset and operations tooling",
+    "highlights": [
+      "Datacenters, VPNs, asset and operations tooling"
+    ],
+    "tech": [],
+    "relevance_tags": [
+      "infrastructure",
+      "operations",
+      "networks"
+    ]
+  },
+  {
+    "id": "5d-agency-swi",
+    "company": "5d-agency (SWI)",
+    "product": "Games & AR",
+    "tenure": "Past",
+    "team": "Games & AR",
+    "summary": "Web and mobile games, AR, Unity 3D",
+    "highlights": [
+      "Web and mobile games, AR, Unity 3D"
+    ],
+    "tech": [],
+    "relevance_tags": [
+      "frontend",
+      "games",
+      "mobile"
+    ]
+  },
+  {
+    "id": "dda-oig-qreo",
+    "company": "DDA / OIG / QREO",
+    "product": "Early Startups",
+    "tenure": "Past",
+    "team": "Early Startups",
+    "summary": "Web apps, Linux embedded systems, research tooling",
+    "highlights": [
+      "Web apps, Linux embedded systems, research tooling"
+    ],
+    "tech": [],
+    "relevance_tags": [
+      "startups",
+      "full-stack",
+      "linux"
+    ]
+  }
+]

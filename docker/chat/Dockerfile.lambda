@@ -8,11 +8,11 @@ COPY docker/chat/requirements-lambda.txt ./requirements-lambda.txt
 RUN pip install --no-cache-dir -r requirements-lambda.txt
 
 COPY docker/chat/app ./app
-COPY resume/resume.json ./corpus/resume.json
-COPY data/projects.json ./corpus/projects.json
+COPY docker/chat/prompts ./prompts
+COPY data/chat-knowledge ./chat-knowledge
 
-ENV CORPUS_RESUME_PATH=/var/task/corpus/resume.json \
-    CORPUS_PROJECTS_PATH=/var/task/corpus/projects.json \
+ENV CHAT_KNOWLEDGE_DIR=/var/task/chat-knowledge \
+    CHAT_SYSTEM_PROMPT_PATH=/var/task/prompts/system-prompt.md \
     CHAT_PROVIDER=gemini
 
 CMD ["app.lambda_handler.handler"]

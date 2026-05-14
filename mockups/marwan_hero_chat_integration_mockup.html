@@ -1,0 +1,93 @@
+<style>
+.mk-stage { background: #0d1117; border-radius: 14px; padding: 0; overflow: hidden; border: 0.5px solid var(--color-border-tertiary); font-family: 'Source Sans 3', -apple-system, sans-serif; color: #e6e6e6; }
+.mk-caption { font-size: 12px; color: var(--color-text-tertiary); padding: 8px 14px; background: var(--color-background-secondary); border-bottom: 0.5px solid var(--color-border-tertiary); display: flex; justify-content: space-between; align-items: center; font-family: var(--font-sans); }
+.mk-caption span { color: var(--color-text-secondary); font-weight: 500; }
+
+/* Site nav */
+.mk-nav { display:flex; align-items:center; justify-content:space-between; padding: 18px 36px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.mk-nav-left { font-size: 14px; opacity: 0.7; }
+.mk-nav-center { font-size: 22px; }
+.mk-nav-right { display:flex; gap: 22px; font-size: 14px; opacity: 0.8; }
+
+/* Hero */
+.mk-hero { padding: 56px 56px 48px; display:grid; grid-template-columns: 1.3fr 1fr; gap: 56px; }
+.mk-eyebrow { font-size: 12px; letter-spacing: 0.12em; opacity: 0.55; text-transform: uppercase; margin: 0 0 14px; }
+.mk-h1 { font-family: 'Source Serif 4', Georgia, serif; font-size: 44px; line-height: 1.05; font-weight: 600; margin: 0 0 10px; letter-spacing: -0.01em; }
+.mk-subtitle { font-size: 16px; opacity: 0.75; margin: 0 0 14px; }
+.mk-tagline { font-size: 15px; line-height: 1.55; opacity: 0.7; margin: 0 0 22px; max-width: 32rem; }
+.mk-cta-row { display:flex; gap: 10px; margin-bottom: 28px; }
+.mk-cta-primary { background: #e6e6e6; color: #0d1117; padding: 10px 18px; border-radius: 999px; font-size: 14px; font-weight: 500; }
+.mk-cta-secondary { background: transparent; color: #e6e6e6; padding: 10px 18px; border-radius: 999px; font-size: 14px; font-weight: 500; border: 1px solid rgba(255,255,255,0.2); }
+
+/* CHAT — the new element */
+.mk-chat { max-width: 36rem; position: relative; }
+.mk-chat-label { font-size: 12px; opacity: 0.55; margin-bottom: 8px; display:flex; align-items:center; gap: 8px; }
+.mk-chat-label .mk-dot { width: 6px; height: 6px; border-radius: 50%; background: #7f77dd; box-shadow: 0 0 0 3px rgba(127,119,221,0.18); }
+.mk-chat-form { display:flex; gap: 8px; align-items:center; background: rgba(255,255,255,0.04); border: 1px solid rgba(127,119,221,0.35); border-radius: 999px; padding: 6px 6px 6px 18px; box-shadow: 0 0 0 4px rgba(127,119,221,0.08); }
+.mk-chat-input { flex: 1; background: transparent; border: 0; outline: 0; color: inherit; font: inherit; font-size: 14px; padding: 8px 0; }
+.mk-chat-input::placeholder { color: rgba(230,230,230,0.4); }
+.mk-chat-submit { width: 34px; height: 34px; border-radius: 999px; background: #7f77dd; color: #fff; border: 0; display:flex; align-items:center; justify-content:center; }
+.mk-chips { display:flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.mk-chip { background: transparent; border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; padding: 5px 12px; font-size: 12px; color: rgba(230,230,230,0.8); }
+
+/* Highlights column */
+.mk-highlights { display:flex; flex-direction: column; gap: 14px; padding-top: 12px; }
+.mk-highlight { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 16px 18px; }
+.mk-highlight h4 { margin: 0 0 4px; font-size: 14px; font-weight: 500; }
+.mk-highlight p { margin: 0; font-size: 13px; opacity: 0.65; line-height: 1.5; }
+
+/* Annotation pointing to chat */
+.mk-annotation { position: absolute; top: -14px; right: -16px; font-size: 11px; padding: 4px 10px; background: var(--color-background-info); color: var(--color-text-info); border-radius: 999px; font-weight: 500; }
+
+/* Spaceman hint */
+.mk-spaceman { position: absolute; right: 30px; bottom: 30px; font-size: 28px; opacity: 0.6; }
+</style>
+
+<div class="mk-caption">
+  <span>State 1 — Hero with chat entry (idle)</span>
+  <span style="opacity:0.6">marwanelgendy.link</span>
+</div>
+
+<div class="mk-stage" style="border-radius: 0; position: relative;">
+  <div class="mk-nav">
+    <div class="mk-nav-left">Home</div>
+    <div class="mk-nav-center">🦸</div>
+    <div class="mk-nav-right"><span>Playground</span><span>Portfolio</span></div>
+  </div>
+
+  <div class="mk-hero">
+    <div>
+      <p class="mk-eyebrow">Software engineer</p>
+      <h1 class="mk-h1">Marwan Elgendy</h1>
+      <p class="mk-subtitle">Architecture & Platforms</p>
+      <p class="mk-tagline">I build systems that hold up in production: clear boundaries, operable services, and end-to-end delivery across data-intensive SaaS and cloud platforms.</p>
+
+      <div class="mk-cta-row">
+        <button class="mk-cta-primary">Resume (PDF)</button>
+        <button class="mk-cta-secondary">Contact</button>
+      </div>
+
+      <div class="mk-chat">
+        <div class="mk-annotation">new</div>
+        <div class="mk-chat-label"><span class="mk-dot"></span>Or ask anything about my work</div>
+        <div class="mk-chat-form">
+          <input class="mk-chat-input" placeholder="e.g., What did you build at IBM Apptio?" />
+          <button class="mk-chat-submit"><i class="ti ti-arrow-up" aria-hidden="true"></i></button>
+        </div>
+        <div class="mk-chips">
+          <button class="mk-chip">Platform architecture</button>
+          <button class="mk-chip">IBM Apptio</button>
+          <button class="mk-chip">A relevant project</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="mk-highlights">
+      <div class="mk-highlight"><h4>Platform Architecture</h4><p>Interfaces, boundaries, and operable systems that scale with teams.</p></div>
+      <div class="mk-highlight"><h4>End-to-End Delivery</h4><p>Own the whole loop: ship, stabilize, and iterate with feedback.</p></div>
+      <div class="mk-highlight"><h4>Data-Intensive SaaS</h4><p>Reliability, correctness, and throughput in customer-critical platforms.</p></div>
+    </div>
+  </div>
+
+  <div class="mk-spaceman">🦸</div>
+</div>

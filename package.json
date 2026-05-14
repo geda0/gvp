@@ -4,6 +4,7 @@
   "description": "Static portfolio site with an AWS durable contact pipeline.",
   "type": "module",
   "scripts": {
+    "build:chat-knowledge": "node scripts/build-chat-knowledge.mjs",
     "test:reduced-motion": "node --test test/starfield-reduced-motion.test.mjs",
     "sam:build": "cd aws && sam build --template-file template.yaml",
     "sam:build:chat": "cd aws && sam build --template-file chat-template.yaml --build-dir .aws-sam/build-chat",

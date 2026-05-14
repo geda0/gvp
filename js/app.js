@@ -17,7 +17,7 @@ import {
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
-import { initChatbot } from './chatbot.js'
+import { initChat, collapseChatDialog } from './chat.js'
 
 // Global spaceman reference for navigation hooks
 let spaceman = null
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme()
   initStarfield('canvas', { getTheme })
   initContactForm()
-  initChatbot()
+  initChat()
 
   // Theme toggle — emoji; data-target + CSS set button background to the theme you switch *to*
   const themeToggle = document.getElementById('themeToggle')
@@ -87,6 +87,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (spacemanPosition) {
         spacemanPosition.updatePosition()
+      }
+      if (state === 'playground' || state === 'portfolio') {
+        collapseChatDialog()
       }
     }
   })

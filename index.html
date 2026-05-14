@@ -19,6 +19,7 @@
     <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,600;1,8..60,600&family=Source+Sans+3:wght@400;500;600&display=swap" />
     <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/chat.css" />
     <link rel="stylesheet" href="css/spaceman.css" />
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYTRKC93DL"></script>
@@ -95,39 +96,6 @@
                 <section id="home" class="scale-in">
                     <div class="hero">
                         <div class="hero-layout">
-                            <div class="hero-chat hero-chat--enter hero-chat--collapsed" id="heroChatPanel"
-                                aria-labelledby="heroChatHeading" aria-busy="false" aria-expanded="false">
-                                <div class="hero-chat__expandable" id="heroChatExpandable" aria-hidden="true">
-                                    <div class="hero-chat__expandable-inner">
-                                        <h2 class="hero-chat__title" id="heroChatHeading">Ground control</h2>
-                                        <p class="hero-chat__lede">Ask about this site, the stack, or Marwan’s platform engineering work.</p>
-                                        <div class="hero-chat__transcript-wrap" tabindex="-1" role="region"
-                                            aria-label="Chat transcript">
-                                            <div id="heroChatTranscript" class="hero-chat__transcript" aria-live="polite"
-                                                aria-relevant="additions text"></div>
-                                            <p id="heroChatPlaceholder" class="hero-chat__placeholder">Try: "What stack powers this site?"</p>
-                                        </div>
-                                        <p id="heroChatError" class="hero-chat__error" role="alert" hidden></p>
-                                        <p id="heroChatStatus" class="hero-chat__status" hidden></p>
-                                    </div>
-                                </div>
-                                <div class="hero-chat__composer">
-                                    <label for="heroChatInput" class="visually-hidden">Message to assistant</label>
-                                    <div class="hero-chat__composer-row">
-                                        <textarea id="heroChatInput" class="hero-chat__input" rows="1"
-                                            placeholder="Ask anything about this site or Marwan’s work…"
-                                            aria-describedby="heroChatHint heroChatA11yNote"></textarea>
-                                        <div class="hero-chat__actions">
-                                            <button type="button" id="heroChatSend"
-                                                class="hero-chat__send cta-primary"><span class="hero-chat__send-label">Send</span></button>
-                                            <button type="button" id="heroChatRetry"
-                                                class="hero-chat__retry cta-secondary" hidden>Retry last message</button>
-                                        </div>
-                                    </div>
-                                </div>
-                                <p class="hero-chat__hint" id="heroChatHint">Enter sends · Shift+Enter adds a new line</p>
-                                <p class="hero-chat__a11y-note" id="heroChatA11yNote">New assistant replies are announced politely for screen readers.</p>
-                            </div>
                             <div class="hero-copy-block">
                                 <div class="hero-copy">
                                     <p class="hero-eyebrow"></p>
@@ -137,6 +105,36 @@
                                     <div class="hero-cta">
                                         <a href="resume/Marwan_Elgendy_Resume_public.pdf" target="_blank" rel="noopener noreferrer" class="cta-primary" data-track="resume_click">Resume (PDF)</a>
                                         <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
+                                    </div>
+                                    <div id="heroChat" class="hero-chat">
+                                        <div class="hero-chat__label-wrap">
+                                            <p class="hero-chat__label">
+                                                <span class="hero-chat__dot" aria-hidden="true"></span>
+                                                Or ask anything about my work
+                                            </p>
+                                            <span class="hero-chat__new" data-chat-new-pill hidden>New</span>
+                                        </div>
+                                        <form id="heroChatForm" class="hero-chat__form" novalidate>
+                                            <label for="heroChatInput" class="visually-hidden">Ask about Marwan's work</label>
+                                            <input type="text" id="heroChatInput" class="hero-chat__input" inputmode="text" autocomplete="off"
+                                                placeholder="e.g., What did you build at IBM Apptio?"
+                                                data-track="hero_chat_input_focus" />
+                                            <button type="submit" id="heroChatSubmit" class="hero-chat__submit" aria-label="Open chat and send message"
+                                                data-track="hero_chat_submit">
+                                                <span aria-hidden="true">↑</span>
+                                            </button>
+                                        </form>
+                                        <div id="heroChatSuggestions" class="hero-chat__suggestions" aria-label="Suggested prompts">
+                                            <button type="button" class="hero-chat__chip"
+                                                data-prompt="How do you approach platform architecture?"
+                                                data-track="hero_chat_chip_architecture">Platform architecture</button>
+                                            <button type="button" class="hero-chat__chip"
+                                                data-prompt="What did you build at IBM Apptio?"
+                                                data-track="hero_chat_chip_ibm">IBM Apptio</button>
+                                            <button type="button" class="hero-chat__chip"
+                                                data-prompt="Show me a relevant project for staff platform roles."
+                                                data-track="hero_chat_chip_project">A relevant project</button>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="hero-highlights">
@@ -236,6 +234,32 @@
                     <button type="button" id="contactCloseBtn" class="cta-secondary contact-form__secondary-action">Close</button>
                 </div>
             </div>
+        </div>
+    </div>
+    <div id="chatDialog" class="contact-dialog chat-dialog" hidden aria-hidden="true">
+        <div class="contact-dialog__backdrop chat-dialog__backdrop" aria-hidden="true"></div>
+        <div class="contact-dialog__panel chat-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="chatDialogTitle">
+            <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>
+            <header class="chat-dialog__header">
+                <h2 id="chatDialogTitle" class="section-label chat-dialog__title">Ask about my work</h2>
+                <p class="chat-dialog__subtitle">Grounded in my resume and projects. Not a general chatbot.</p>
+            </header>
+            <div class="chat-dialog__scroll">
+                <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
+            </div>
+            <form id="chatComposer" class="chat-composer" novalidate>
+                <label for="chatComposerInput" class="visually-hidden">Message to chat assistant</label>
+                <div class="chat-composer__row">
+                    <textarea id="chatComposerInput" rows="1" placeholder="Ask a follow-up…" data-track="chat_composer_focus"></textarea>
+                    <button type="submit" class="chat-composer__send" data-track="chat_composer_submit">Send</button>
+                </div>
+            </form>
+            <p id="chatStatus" class="chat-status" role="status" aria-live="polite"></p>
+            <footer class="chat-dialog__footer">
+                <button type="button" class="chat-dialog__action" data-action="open-resume" data-track="chat_footer_open_resume">Open resume</button>
+                <button type="button" class="chat-dialog__action" data-action="open-contact" data-track="chat_footer_open_contact">Get in touch</button>
+                <button type="button" class="chat-dialog__action chat-dialog__action--secondary" data-action="start-over" data-track="chat_footer_start_over">Start over</button>
+            </footer>
         </div>
     </div>
 

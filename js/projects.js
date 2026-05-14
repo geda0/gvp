@@ -162,6 +162,7 @@ export function initProjectDetailDialog() {
     dialog.hidden = false;
     dialog.setAttribute('aria-hidden', 'false');
     document.body.classList.add('project-dialog-open');
+    window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'));
     window.dispatchEvent(
       new CustomEvent('projectdialogopen', {
         detail: {

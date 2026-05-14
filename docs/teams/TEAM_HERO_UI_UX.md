@@ -5,8 +5,8 @@
 **Primary ownership**
 
 - [index.html](../../index.html)
-- [js/chatbot.js](../../js/chatbot.js)
-- [css/styles.css](../../css/styles.css)
+- [js/chat.js](../../js/chat.js)
+- [css/chat.css](../../css/chat.css)
 
 ## Focus areas
 
@@ -19,7 +19,7 @@
 
 ```text
 You are Team Hero UI/UX in /Users/marwanelgendy/workspace/PP/gvp.
-Work in index.html, js/chatbot.js, and css/styles.css only.
+Work in index.html, js/chat.js, and css/chat.css only.
 Polish hero chat usability and visuals while preserving existing routing/contact/spaceman behavior.
 Validate Enter/Shift+Enter behavior, error/retry copy, and theme parity (space/garden).
 Do not modify backend contract.

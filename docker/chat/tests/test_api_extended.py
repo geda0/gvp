@@ -22,6 +22,23 @@ class RecordingChain:
         return AIMessage(content="recorded reply")
 
 
+class ToolCallChain:
+    async def ainvoke(self, _payload: dict[str, object]) -> AIMessage:
+        return AIMessage(
+            content="Use the contact form.",
+            tool_calls=[
+                {
+                    "name": "open_contact_form",
+                    "args": {
+                        "subject": "Portfolio conversation",
+                        "message": "I would like to discuss a role fit.",
+                    },
+                    "id": "tool_1",
+                }
+            ],
+        )
+
+
 @pytest.mark.asyncio
 async def test_chat_multi_turn_preserves_order(client: AsyncClient) -> None:
     chain_before = app.state.chain
@@ -126,3 +143,37 @@ async def test_chat_parallel_requests_are_stable(client: AsyncClient) -> None:
         body = r.json()
         assert body.get("reply", "").strip()
         assert body.get("model") == "mock-portfolio"
+
+
+@pytest.mark.asyncio
+async def test_chat_surfaces_actions_from_tool_calls(client: AsyncClient) -> None:
+    chain_before = app.state.chain
+    model_before = app.state.model_id
+    provider_error_before = app.state.provider_error
+    app.state.chain = ToolCallChain()
+    app.state.model_id = "mock-portfolio"
+    app.state.provider_error = None
+
+    try:
+        r = await client.post(
+            "/api/chat",
+            json={"messages": [{"role": "user", "content": "How do I reach him?"}]},
+        )
+    finally:
+        app.state.chain = chain_before
+        app.state.model_id = model_before
+        app.state.provider_error = provider_error_before
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reply"] == "Use the contact form."
+    assert body["actions"] == [
+        {
+            "id": "open-contact",
+            "label": "Open contact form",
+            "prefill": {
+                "subject": "Portfolio conversation",
+                "message": "I would like to discuss a role fit.",
+            },
+        }
+    ]
