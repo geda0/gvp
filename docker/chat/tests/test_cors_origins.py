@@ -1,4 +1,4 @@
-"""CORS origin expansion (apex <-> www for two-label hosts)."""
+"""CORS origin expansion (apex <-> www for two-label hosts; https chat. apex for voice WebSocket relay)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ def test_expand_apex_adds_www() -> None:
     assert set(out) == {
         'https://marwanelgendy.link',
         'https://www.marwanelgendy.link',
+        'https://chat.marwanelgendy.link',
     }
 
 
@@ -18,6 +19,7 @@ def test_expand_www_adds_apex() -> None:
     assert set(out) == {
         'https://marwanelgendy.link',
         'https://www.marwanelgendy.link',
+        'https://chat.marwanelgendy.link',
     }
 
 
@@ -33,8 +35,9 @@ def test_dedupe_and_order_stable() -> None:
             'https://www.marwanelgendy.link',
         ]
     )
-    assert len(out) == 2
+    assert len(out) == 3
     assert set(out) == {
         'https://marwanelgendy.link',
         'https://www.marwanelgendy.link',
+        'https://chat.marwanelgendy.link',
     }

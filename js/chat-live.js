@@ -42,16 +42,6 @@ class GvpMicPcmSenderProcessor extends AudioWorkletProcessor {
 registerProcessor('gvp-mic-pcm-sender', GvpMicPcmSenderProcessor)
 `
 
-// #region agent log
-const _AGENT_VOICE_DEBUG_ENDPOINT = 'http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf'
-function _agentVoiceDebug(payload) {
-  fetch(_AGENT_VOICE_DEBUG_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '750a2a' },
-    body: JSON.stringify({ sessionId: '750a2a', timestamp: Date.now(), ...payload }),
-  }).catch(() => {})
-}
-// #endregion
 
 async function decodeWebSocketJsonPayload(raw) {
   let text = ''
@@ -332,9 +322,6 @@ export function bindChatLiveVoice(opts) {
   let voiceMaxSessionTimer = null
   /** Resolves when Live setupComplete arrives; cleared after await or on stop. */
   let pendingSetupLatch = null
-  /** Debug: first inbound JSON frame count (non-empty decode). */
-  let voiceDebugInboundJsonCount = 0
-  let voiceDebugWsOpenedAt = null
 
   const clearVoiceTimers = () => {
     if (voiceWsIdleTimer) {
@@ -511,23 +498,6 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
-    // #region agent log
-    voiceDebugInboundJsonCount += 1
-    if (voiceDebugInboundJsonCount === 1) {
-      _agentVoiceDebug({
-        location: 'chat-live.js:handlePayload',
-        message: 'first_inbound_json',
-        hypothesisId: 'H4',
-        data: {
-          topKeys: Object.keys(msg).slice(0, 20),
-          hasSetupComplete: !!(msg.setupComplete ?? msg.setup_complete),
-          hasError: !!msg.error,
-          errorCode: msg.error?.code ?? msg.error?.status ?? null,
-        },
-      })
-    }
-    // #endregion
-
     const setupPayload = msg.setupComplete ?? msg.setup_complete
     if (setupPayload) {
       setupDone = true
@@ -662,48 +632,6 @@ export function bindChatLiveVoice(opts) {
 
       lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
 
-      // #region agent log
-      voiceDebugInboundJsonCount = 0
-      voiceDebugWsOpenedAt = null
-      try {
-        const u = new URL(wsUrlStr)
-        _agentVoiceDebug({
-          location: 'chat-live.js:startVoice',
-          message: 'live_session_response',
-          hypothesisId: 'H1',
-          data: {
-            transport: lastLiveVoiceTransport,
-            constrainedWs,
-            wsHost: u.host,
-            pathEndsWith: u.pathname.length > 56 ? u.pathname.slice(-56) : u.pathname,
-            hasAccessTokenParam: u.searchParams.has('access_token'),
-          },
-        })
-      } catch (_) {
-        _agentVoiceDebug({
-          location: 'chat-live.js:startVoice',
-          message: 'live_session_response_url_parse_failed',
-          hypothesisId: 'H1',
-          data: { transport: lastLiveVoiceTransport, constrainedWs },
-        })
-      }
-      _agentVoiceDebug({
-        location: 'chat-live.js:startVoice',
-        message: 'first_client_setup',
-        hypothesisId: 'H2',
-        data: {
-          mode: clientSlimsFirstFrame ? 'slim' : 'full',
-          handshakeSetupKeyCount: handshake?.setup && typeof handshake.setup === 'object'
-            ? Object.keys(handshake.setup).length
-            : 0,
-          handshakeSetupKeys: handshake?.setup && typeof handshake.setup === 'object'
-            ? Object.keys(handshake.setup).slice(0, 16)
-            : [],
-          modelHint: modelResource ? String(modelResource).replace(/^models\//, '').slice(0, 48) : '',
-        },
-      })
-      // #endregion
-
       if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
         throw new Error('Invalid voice session URL.')
       }
@@ -729,15 +657,6 @@ export function bindChatLiveVoice(opts) {
       ws = new WebSocket(websocketUrl)
 
       ws.onopen = () => {
-        // #region agent log
-        voiceDebugWsOpenedAt = Date.now()
-        _agentVoiceDebug({
-          location: 'chat-live.js:ws.onopen',
-          message: 'websocket_open',
-          hypothesisId: 'H3',
-          data: { setupDoneBeforeOpen: setupDone },
-        })
-        // #endregion
         bumpVoiceWsIdleTimer()
         ws.send(JSON.stringify(firstClientSetup))
       }
@@ -758,21 +677,6 @@ export function bindChatLiveVoice(opts) {
         const ready = setupDone
         const code = ev.code
         const reason = ev.reason
-        // #region agent log
-        _agentVoiceDebug({
-          location: 'chat-live.js:ws.onclose',
-          message: 'websocket_close',
-          hypothesisId: 'H5',
-          data: {
-            code,
-            reason: typeof reason === 'string' ? reason.slice(0, 240) : '',
-            setupDone: ready,
-            inboundJsonCount: voiceDebugInboundJsonCount,
-            msAfterOpen: voiceDebugWsOpenedAt != null ? Date.now() - voiceDebugWsOpenedAt : null,
-            transport: lastLiveVoiceTransport,
-          },
-        })
-        // #endregion
         const transportForCloseMsg = lastLiveVoiceTransport
         const markHostBlocked = !ready
           && transportForCloseMsg === 'relay'

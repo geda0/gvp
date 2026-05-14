@@ -63,7 +63,11 @@ MAX_CONTENT_LEN = int(os.environ.get("CHAT_MAX_CONTENT_LEN", "8000"))
 
 
 def _cors_expand_apex_www(origins: list[str]) -> list[str]:
-    """Add www <-> apex variants for bare hosts (example.com). Skips deeper subdomains (chat.example.com)."""
+    """Add www <-> apex variants for bare hosts (example.com).
+
+    Also adds https://chat.apex for each two-label https apex (e.g. marwanelgendy.link) so
+    WebSocket relay Origin checks match the chat UI subdomain without duplicating every URL in env.
+    """
     seen: set[str] = set()
     out: list[str] = []
     for o in origins:
@@ -97,6 +101,28 @@ def _cors_expand_apex_www(origins: list[str]) -> list[str]:
             additions.append(alt)
 
     for a in additions:
+        if a not in seen:
+            seen.add(a)
+            out.append(a)
+
+    chat_additions: list[str] = []
+    for o in list(out):
+        try:
+            p = urlparse(o)
+        except ValueError:
+            continue
+        if p.scheme != 'https' or not p.hostname:
+            continue
+        host_l = p.hostname.lower()
+        parts = host_l.split('.')
+        if len(parts) == 2 and parts[0] != 'www' and parts[0] != 'chat':
+            chat_host = f'chat.{host_l}'
+            alt = f'https://{chat_host}'
+            if p.port:
+                alt = f'https://{chat_host}:{p.port}'
+            chat_additions.append(alt)
+
+    for a in chat_additions:
         if a not in seen:
             seen.add(a)
             out.append(a)

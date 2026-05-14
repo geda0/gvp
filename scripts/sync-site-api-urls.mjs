@@ -10,7 +10,7 @@ if (!contactUrl) {
   console.error(
     'usage: sync-site-api-urls.mjs <contactApiUrl> [chatApiUrl]\n' +
       '  contactApiUrl: full URL ending in /api/contact\n' +
-      '  chatApiUrl: optional full URL ending in /api/chat'
+      '  chatApiUrl: optional full URL ending in /api/chat (for browser voice use a WebSocket-capable chat host, e.g. ECS/ALB, not Lambda-only execute-api)'
   )
   process.exit(1)
 }

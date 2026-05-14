@@ -29,7 +29,7 @@ CHAT_PROVIDER=mock \
 | `GEMINI_API_KEY` | Required when `CHAT_PROVIDER=gemini` |
 | `GEMINI_MODEL` | Primary model override (default **`gemini-3.1-flash-lite`**) |
 | `GEMINI_LIVE_MODEL` | Multimodal **Live** model id for browser voice (default **`gemini-3.1-flash-live-preview`**) |
-| `CHAT_LIVE_RELAY` | **`1`**: browser WebSocket to **`/api/live/relay/…`** on this app (needs WS-capable hosting). **`0`**: browser opens Google **`BidiGenerateContentConstrained`** directly (typical with API Gateway HTTP + Lambda). SAM chat template sets **`0`**. |
+| `CHAT_LIVE_RELAY` | **`1`** (default in [`Dockerfile`](Dockerfile) for ECS images): browser WebSocket to **`/api/live/relay/…`** on this app; upstream Google uses **`Authorization: Token`**. **`0`**: browser opens Google with **`access_token`** query only (Lambda HTTP API stack; **voice from the browser typically fails** with Google close 1011). SAM [`chat-template.yaml`](../aws/chat-template.yaml) sets **`0`**. |
 | `CHAT_LIVE_SYSTEM_MAX_CHARS` | Max characters for combined voice system instruction + knowledge XML (default **14000**) |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
@@ -50,7 +50,9 @@ Voice uses the **Gemini Live** WebSocket protocol (preview). Official overview: 
 
 **Audio:** input **16-bit PCM, 16 kHz**; model output is typically **24 kHz** (see Google’s multimodal-live doc). The static site opens the Live WebSocket and completes the **`setup` / `setupComplete`** handshake **before** requesting the microphone, so the ephemeral token’s **new-session** window is not spent during the permission prompt. Mic PCM is sent only after **`setupComplete`** ([`js/chat-live.js`](../js/chat-live.js)).
 
-**Backend:** [`app/live_gemini.py`](app/live_gemini.py) mints tokens with **`v1alpha`**, explicit **`new_session_expire_time`** / **`expire_time`**, and **`LiveConnectConstraints`**. Optional relay: [`app/live_relay.py`](app/live_relay.py).
+**Backend:** [`app/live_gemini.py`](app/live_gemini.py) mints tokens with **`v1alpha`**, explicit **`new_session_expire_time`** / **`expire_time`**, and **`LiveConnectConstraints`**. Relay: [`app/live_relay.py`](app/live_relay.py) (required for working voice in practice).
+
+**Verify voice after deploy:** `POST /api/live/session` on the **same host** as `gvp:chat-api-url` should return **`liveVoiceTransport":"relay"`** and a **`websocketUrl`** containing **`/api/live/relay/`**. In DevTools Network, the voice socket should hit your API host (not `generativelanguage.googleapis.com`). First inbound JSON should include **`setupComplete`**. If you only see **`direct_google`**, set **`CHAT_PROD_CHAT_API_URL`** / **`CHAT_STAGE_CHAT_API_URL`** to your ECS/ALB chat URL and redeploy the image with relay enabled.
 
 ## Deploy (stage / prod)
 
