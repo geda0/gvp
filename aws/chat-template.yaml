@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Portfolio chat API (FastAPI + Gemini on Lambda container, HTTP API).
+
+Parameters:
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+    Default: 'GEMINI-KEY-PLACEHOLDER'
+    Description: Google AI Studio / Gemini API key (replace placeholder for real traffic).
+  ChatCorsOrigins:
+    Type: String
+    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link'
+    Description: Comma-separated browser origins for API Gateway CORS (and CHAT_CORS_ORIGINS in the function).
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 1536
+    Architectures:
+      - x86_64
+
+Resources:
+  ChatHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods: [OPTIONS, GET, POST]
+        AllowHeaders: [Content-Type, Authorization]
+        AllowOrigins: !Split [',', !Ref ChatCorsOrigins]
+
+  ChatFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      DockerContext: ../
+      Dockerfile: docker/chat/Dockerfile.lambda
+    Properties:
+      PackageType: Image
+      Environment:
+        Variables:
+          CHAT_PROVIDER: gemini
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
+      Events:
+        RootAny:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChatHttpApi
+            Path: /
+            Method: ANY
+        ProxyAny:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChatHttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ChatPostApiUrl:
+    Description: Full URL for hero chat fetch (POST JSON) — use in gvp:chat-api-url meta.
+    Value: !Sub https://${ChatHttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/chat
+  ChatHttpApiId:
+    Value: !Ref ChatHttpApi
+  ChatApiBaseUrl:
+    Value: !Sub https://${ChatHttpApi}.execute-api.${AWS::Region}.amazonaws.com

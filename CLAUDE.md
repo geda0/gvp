@@ -24,7 +24,8 @@ Personal portfolio website for Marwan Elgendy ("The Computerist"). A static site
 ├── css/
 ├── js/
 ├── aws/
-│   ├── template.yaml       # SAM: HttpApi, DynamoDB, SQS, Lambdas
+│   ├── template.yaml         # SAM: contact HttpApi, DynamoDB, SQS, Lambdas
+│   ├── chat-template.yaml    # SAM: chat HttpApi + Lambda container (FastAPI + Gemini)
 │   ├── samconfig.toml      # Stack name / region defaults (no secrets)
 │   └── src/
 │       ├── package.json    # @aws-sdk deps — bundled by `sam build` into each function
@@ -67,7 +68,7 @@ Then open `http://localhost:8000` in a browser.
 
 ### npm (root)
 
-- **`package.json`** at repo root: `npm run test:reduced-motion` (node:test), `npm run sam:build` (runs `sam build` in `aws/`).
+- **`package.json`** at repo root: `npm run test:reduced-motion` (node:test), `npm run sam:build` (contact SAM), `npm run sam:build:chat` (chat Lambda image SAM build).
 - **Lambda dependencies** live only in **`aws/src/package.json`** (`@aws-sdk/*`). `sam build` runs `npm install` there and ships `node_modules` with each function.
 
 ### SAM / deploy

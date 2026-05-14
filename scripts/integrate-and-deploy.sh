@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SAM build + deploy (contact stack), optional chat image push + ECS roll, optional HTML meta sync.
 # Usage: bash scripts/integrate-and-deploy.sh [prod|stage]
-#   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta only if CHAT_PROD_CHAT_API_URL is set.
-#   stage — separate AWS stack: SAM_STACK_NAME_STAGE (default page-staging). Chat meta defaults to https://chat.marwanelgendy.link/api/chat
+#   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta: CHAT_PROD_CHAT_API_URL or Chat SAM output.
+#   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ChatPostApiUrl when CHAT_SAM_STACK_NAME + GEMINI_API_KEY deploy aws/chat-template.yaml
 #
 # Prefer: scripts/orchestrate-deploy.sh [prod|stage] (same trailing args forwarded).
 #
 # Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
 # (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
+# Chat on Lambda (Gemini): set CHAT_SAM_STACK_NAME (e.g. gvp-chat-stage) + GEMINI_API_KEY; template aws/chat-template.yaml
 
 set -euo pipefail
 
@@ -19,7 +20,7 @@ SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
 usage() {
   echo "usage: bash scripts/integrate-and-deploy.sh [prod|stage]" >&2
   echo "  prod  — production contact stack (SAM_STACK_NAME, default page)" >&2
-  echo "  stage — staging stack (SAM_STACK_NAME_STAGE, default page-staging); chat URL meta defaults to chat.marwanelgendy.link" >&2
+  echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
   exit 1
 }
 
@@ -64,11 +65,8 @@ fi
 REGION="${AWS_REGION:-us-east-2}"
 if [[ "${DEPLOY_ENV}" == "stage" ]]; then
   STACK_NAME="${SAM_STACK_NAME_STAGE:-page-staging}"
-  CHAT_STAGE_CHAT_API_URL="${CHAT_STAGE_CHAT_API_URL:-https://chat.marwanelgendy.link/api/chat}"
-  CHAT_META_URL="${CHAT_STAGE_CHAT_API_URL}"
 else
   STACK_NAME="${SAM_STACK_NAME:-page}"
-  CHAT_META_URL="${CHAT_PROD_CHAT_API_URL:-}"
 fi
 
 require() {
@@ -108,6 +106,12 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" || "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; 
   run_chat_docker=true
 fi
 
+run_chat_sam=false
+if [[ -n "${CHAT_SAM_STACK_NAME:-}" ]]; then
+  run_chat_sam=true
+  require GEMINI_API_KEY
+fi
+
 test_pid=""
 if [[ "${CHAT_PARALLEL_TEST:-0}" == "1" && "${SKIP_CHAT_TESTS:-0}" != "1" && "${run_chat_docker}" == "true" ]]; then
   if command -v python3 >/dev/null 2>&1; then
@@ -121,7 +125,7 @@ if [[ "${CHAT_PARALLEL_TEST:-0}" == "1" && "${SKIP_CHAT_TESTS:-0}" != "1" && "${
   fi
 fi
 
-echo "sam build (${AWS_DIR}) + deploy env=${DEPLOY_ENV} stack=${STACK_NAME} (parallel chat docker: ${run_chat_docker})"
+echo "sam build contact (${AWS_DIR}) env=${DEPLOY_ENV} stack=${STACK_NAME} (parallel ECS chat docker: ${run_chat_docker})"
 sam_pid=""
 ( cd "${AWS_DIR}" && sam build --template-file template.yaml ) &
 sam_pid=$!
@@ -139,12 +143,20 @@ if [[ -n "${docker_pid}" ]]; then
   wait "${docker_pid}"
 fi
 
+if [[ "${run_chat_sam}" == "true" ]]; then
+  echo "sam build chat Lambda image (${AWS_DIR}/chat-template.yaml → .aws-sam/build-chat)"
+  (
+    cd "${AWS_DIR}"
+    sam build --template-file chat-template.yaml --build-dir .aws-sam/build-chat
+  )
+fi
+
 if [[ -n "${test_pid}" ]]; then
   echo "Waiting for parallel pytest…"
   wait "${test_pid}"
 fi
 
-echo "sam deploy stack=${STACK_NAME} region=${REGION}"
+echo "sam deploy contact stack=${STACK_NAME} region=${REGION}"
 (
   cd "${AWS_DIR}"
   sam deploy \
@@ -165,6 +177,34 @@ CONTACT_URL="$(aws cloudformation describe-stacks \
   --output text)"
 
 echo "ContactApiUrl=${CONTACT_URL}"
+
+CHAT_SAM_CHAT_URL=""
+if [[ "${run_chat_sam}" == "true" ]]; then
+  CHAT_PO=(
+    "GeminiApiKey=${GEMINI_API_KEY}"
+    "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link}"
+  )
+  echo "sam deploy chat stack=${CHAT_SAM_STACK_NAME} region=${REGION}"
+  (
+    cd "${AWS_DIR}"
+    sam deploy \
+      --template-file .aws-sam/build-chat/template.yaml \
+      --stack-name "${CHAT_SAM_STACK_NAME}" \
+      --capabilities CAPABILITY_IAM \
+      --no-confirm-changeset \
+      --no-fail-on-empty-changeset \
+      --resolve-s3 \
+      --resolve-image-repos \
+      --region "${REGION}" \
+      --parameter-overrides "${CHAT_PO[@]}"
+  )
+  CHAT_SAM_CHAT_URL="$(aws cloudformation describe-stacks \
+    --stack-name "${CHAT_SAM_STACK_NAME}" \
+    --region "${REGION}" \
+    --query "Stacks[0].Outputs[?OutputKey=='ChatPostApiUrl'].OutputValue | [0]" \
+    --output text)"
+  echo "ChatPostApiUrl=${CHAT_SAM_CHAT_URL}"
+fi
 
 if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; then
   ECR_HOST="${CHAT_ECR_REPOSITORY_URI%%/*}"
@@ -203,13 +243,22 @@ elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
   echo "CHAT_ECR_REPOSITORY_URI unset — chat image built locally as ${CHAT_IMAGE_LOCAL} only."
 fi
 
+if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+  CHAT_SYNC_CHAT_URL="${CHAT_STAGE_CHAT_API_URL:-${CHAT_SAM_CHAT_URL}}"
+else
+  CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-}"
+fi
+
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
-  if [[ -n "${CHAT_META_URL}" ]]; then
-    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_META_URL}"
+  if [[ -n "${CHAT_SYNC_CHAT_URL}" ]]; then
+    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_SYNC_CHAT_URL}"
     echo "Patched index.html and admin/index.html (gvp:contact-api-url + gvp:chat-api-url)."
   else
     node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
     echo "Patched index.html and admin/index.html (gvp:contact-api-url meta)."
+  fi
+  if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_SYNC_CHAT_URL}" ]]; then
+    echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL or deploy with CHAT_SAM_STACK_NAME + GEMINI_API_KEY to create ChatPostApiUrl."
   fi
 fi
 

@@ -23,4 +23,5 @@ config.local.js
 .secrets/
 docker/chat/.venv/
 docker/chat/.venv-ci/
+docker/chat/.venv-samtest/
 **/__pycache__/

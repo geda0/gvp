@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_environment:
-        description: 'AWS target — stage uses a separate contact stack + default chat.marwanelgendy.link meta when syncing'
+        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME + GEMINI_API_KEY deploys Lambda chat (aws/chat-template.yaml) and can fill chat meta'
         required: true
         default: prod
         type: choice
@@ -48,6 +48,9 @@ jobs:
       CHAT_ECS_SERVICE_STAGE: ${{ vars.CHAT_ECS_SERVICE_STAGE }}
       CHAT_ECS_CLUSTER_PROD: ${{ vars.CHAT_ECS_CLUSTER_PROD }}
       CHAT_ECS_SERVICE_PROD: ${{ vars.CHAT_ECS_SERVICE_PROD }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      CHAT_SAM_STACK_NAME: ${{ vars.CHAT_SAM_STACK_NAME }}
+      CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
       CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}

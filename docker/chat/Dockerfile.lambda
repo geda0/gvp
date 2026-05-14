@@ -1,0 +1,18 @@
+# Lambda container image — build from repo root:
+#   docker build -f docker/chat/Dockerfile.lambda .
+FROM public.ecr.aws/lambda/python:3.12
+
+WORKDIR /var/task
+
+COPY docker/chat/requirements-lambda.txt ./requirements-lambda.txt
+RUN pip install --no-cache-dir -r requirements-lambda.txt
+
+COPY docker/chat/app ./app
+COPY resume/resume.json ./corpus/resume.json
+COPY data/projects.json ./corpus/projects.json
+
+ENV CORPUS_RESUME_PATH=/var/task/corpus/resume.json \
+    CORPUS_PROJECTS_PATH=/var/task/corpus/projects.json \
+    CHAT_PROVIDER=gemini
+
+CMD ["app.lambda_handler.handler"]
