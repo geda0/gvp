@@ -52,6 +52,22 @@ function voiceSessionEarlyCloseUserMessage(code, reason) {
   return 'Voice session ended before it was ready. Try again or check your connection.'
 }
 
+function voiceEarlyCloseMessageForTransport(code, reason, liveVoiceTransport) {
+  const t = liveVoiceTransport || ''
+  if (t === 'direct_google') {
+    const r = String(reason || '').toLowerCase()
+    if (code === 1011 || r.includes('internal')) {
+      return (
+        'Live voice cannot run on this chat deployment: the API uses serverless HTTP only '
+        + '(no WebSocket relay), and a direct browser connection to Google was rejected. '
+        + 'Use text chat here, or host the chat API where WebSockets work (e.g. ALB → ECS) '
+        + 'and set CHAT_LIVE_RELAY=1.'
+      )
+    }
+  }
+  return voiceSessionEarlyCloseUserMessage(code, reason)
+}
+
 function prefersReducedMotion() {
   return typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -284,6 +300,8 @@ export function bindChatLiveVoice(opts) {
   let voiceConnectInFlight = false
   /** Debug: inbound WS JSON messages this voice session (debug session f3789b). */
   let voiceWsMsgCount = 0
+  /** Last POST /api/live/session `liveVoiceTransport` for close-message context. */
+  let lastLiveVoiceTransport = null
 
   let userBubble = null
   let assistantBubble = null
@@ -314,6 +332,7 @@ export function bindChatLiveVoice(opts) {
     voiceSessionOpen = false
     active = false
     voiceWsMsgCount = 0
+    lastLiveVoiceTransport = null
     syncMicChrome()
 
     if (mediaSource && processor) {
@@ -508,6 +527,7 @@ export function bindChatLiveVoice(opts) {
 
     if (voiceConnectInFlight) return
     voiceConnectInFlight = true
+    lastLiveVoiceTransport = null
 
     patchLiveUi({ connecting: true, active: false })
     setStatus('Connecting voice…')
@@ -562,6 +582,8 @@ export function bindChatLiveVoice(opts) {
       const firstClientSetup = clientSlimsFirstFrame
         ? { setup: { model: modelResource } }
         : handshake
+
+      lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
 
       // #region agent log
       fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
@@ -719,15 +741,17 @@ export function bindChatLiveVoice(opts) {
               code,
               reason: typeof reason === 'string' ? reason.slice(0, 200) : '',
               setupDoneBeforeClose: ready,
-              inboundMsgCount: voiceWsMsgCount
+              inboundMsgCount: voiceWsMsgCount,
+              lastLiveVoiceTransport
             },
             timestamp: Date.now()
           })
         }).catch(() => {})
         // #endregion
+        const transportForCloseMsg = lastLiveVoiceTransport
         stopVoiceInternal({ silent: true })
         if (!ready) {
-          setStatus(voiceSessionEarlyCloseUserMessage(code, reason), 'error')
+          setStatus(voiceEarlyCloseMessageForTransport(code, reason, transportForCloseMsg), 'error')
           trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
           chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
         }
