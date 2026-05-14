@@ -138,7 +138,7 @@ body.chat-dialog-open {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     gap: 0.5rem;
     width: 100%;
     max-width: 100%;
@@ -174,20 +174,6 @@ body.chat-dialog-open {
     background: var(--chat-launcher-ring);
     box-shadow: 0 0 0 0.22rem var(--chat-launcher-dot-halo);
     animation: hero-chat-pulse 1.8s ease-in-out infinite;
-}
-
-.hero-chat__new {
-    flex-shrink: 0;
-    border-radius: 999px;
-    border: 1px solid var(--border-strong);
-    background: var(--surface);
-    color: var(--text-muted);
-    font-family: var(--font-body);
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    padding: 0.1rem 0.45rem;
-    text-transform: uppercase;
 }
 
 .hero-chat__form {

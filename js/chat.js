@@ -72,7 +72,6 @@ export function syncHeroChatSurface(section = 'home') {
 
 export function initChat() {
   const heroChat = document.getElementById('heroChat')
-  const newSessionPill = heroChat?.querySelector('[data-chat-new-pill]')
   const heroForm = document.getElementById('heroChatForm')
   const heroInput = document.getElementById('heroChatInput')
   const suggestions = document.getElementById('heroChatSuggestions')
@@ -180,13 +179,6 @@ export function initChat() {
       return
     }
     statusEl.dataset.tone = tone
-  }
-
-  const syncSessionUi = () => {
-    if (!newSessionPill) return
-    const hasMessages = state.history.length > 0
-    newSessionPill.hidden = !hasMessages
-    newSessionPill.setAttribute('aria-hidden', hasMessages ? 'false' : 'true')
   }
 
   const autosizeComposer = () => {
@@ -331,7 +323,6 @@ export function initChat() {
     messagesEl.textContent = ''
     state.history = []
     state.sessionId = renewSessionId()
-    syncSessionUi()
     setStatus('Started over with a fresh chat session.')
     composerInput.value = ''
     autosizeComposer()
@@ -402,7 +393,6 @@ export function initChat() {
     setStatus('')
     appendMessage('user', text)
     state.history = state.history.concat({ role: 'user', content: text })
-    syncSessionUi()
     if (source === 'composer') {
       composerInput.value = ''
       autosizeComposer()
@@ -529,12 +519,6 @@ export function initChat() {
     }
   })
 
-  newSessionPill?.addEventListener('click', () => {
-    const focusTarget = isOpen() ? 'composer' : 'hero'
-    resetConversation({ focusTarget })
-  })
-
-  syncSessionUi()
   autosizeComposer()
   setupLauncherObserver()
   syncChatLaunchersImpl('home')
