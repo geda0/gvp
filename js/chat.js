@@ -93,7 +93,7 @@ export function initChat() {
   const agentNode = document.getElementById('agentNode')
   const agentForm = agentNode?.querySelector('.agent-node__form')
   const agentInput = agentNode?.querySelector('.agent-node__input')
-  const agentSend = agentNode?.querySelector('.agent-node__send')
+  const agentNodeMic = document.getElementById('agentNodeMic')
   const heroSlotEl = document.getElementById('agentSlotHero')
 
   const dialog = document.getElementById('chatDialog')
@@ -151,10 +151,10 @@ export function initChat() {
     const source = resolveLauncherSource()
     if (source === 'header') {
       agentInput.setAttribute('data-track', 'header_chat_input_focus')
-      if (agentSend) agentSend.setAttribute('data-track', 'header_chat_submit')
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'header_agent_node_mic')
     } else {
       agentInput.setAttribute('data-track', 'hero_chat_input_focus')
-      if (agentSend) agentSend.setAttribute('data-track', 'hero_chat_submit')
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'hero_agent_node_mic')
     }
   }
 
@@ -360,11 +360,14 @@ export function initChat() {
     composerInput.disabled = textBusy || voiceBusy
     if (composerSend) composerSend.disabled = textBusy || voiceBusy
     if (composerClear) composerClear.disabled = textBusy || voiceBusy
-    if (composerMic) {
+    if (composerMic || agentNodeMic) {
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
-      composerMic.disabled = micBusy
-      composerMic.hidden = false
-      composerMic.removeAttribute('inert')
+      if (composerMic) {
+        composerMic.disabled = micBusy
+        composerMic.hidden = false
+        composerMic.removeAttribute('inert')
+      }
+      if (agentNodeMic) agentNodeMic.disabled = micBusy
     }
   }
 
@@ -764,7 +767,7 @@ export function initChat() {
   window.addEventListener(EV_OPEN_CHAT, onOpenChatEvent)
 
   const disposeChatLiveVoice = bindChatLiveVoice({
-    micButton: composerMic,
+    micButtons: [composerMic, agentNodeMic].filter(Boolean),
     messagesEl,
     statusEl,
     syncEmptyState,

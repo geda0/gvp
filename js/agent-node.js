@@ -344,7 +344,7 @@ export function initAgentNode(options = {}) {
 
   form.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.button !== undefined) return
-    if (event.target.closest('.agent-node__send')) return
+    if (event.target.closest('.agent-node__mic')) return
     if (!shouldOpenDeepIntentFromLauncher()) return
     const inLane = event.target.closest('.agent-node__text-lane')
       || event.target === input
@@ -353,8 +353,7 @@ export function initAgentNode(options = {}) {
     openLauncherDeepIntent()
   }, true)
 
-  form.addEventListener('submit', (event) => {
-    event.preventDefault()
+  const submitLauncher = () => {
     const text = String(input.value || '').trim()
     const source = state.slot === 'navbar' ? 'header' : 'hero'
     if (!text) {
@@ -363,6 +362,17 @@ export function initAgentNode(options = {}) {
     }
     input.value = ''
     openPanelWithMessage(text, source)
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault()
+    submitLauncher()
+  })
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    submitLauncher()
   })
 
   input.addEventListener('focus', () => {
@@ -374,6 +384,7 @@ export function initAgentNode(options = {}) {
   node.addEventListener('click', (event) => {
     if (isFinePointer()) return
     if (state.mode !== 'bubble' || isOpen()) return
+    if (event.target.closest('.agent-node__mic')) return
     if (event.target.closest('.agent-node__form')) return
     if (String(input.value || '').trim()) return
     openLauncherDeepIntent()
