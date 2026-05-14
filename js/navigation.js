@@ -23,6 +23,20 @@ export function initNavigation(options = {}) {
     portfolioProjects: document.getElementById('portfolioProjects')
   }
 
+  const navRequired = [
+    'homeNav',
+    'playgroundNav',
+    'portfolioNav',
+    'playgroundContent',
+    'portfolioContent',
+    'projects',
+    'portfolioProjects'
+  ]
+  if (navRequired.some((key) => !elements[key])) {
+    console.warn('initNavigation: missing required DOM nodes; hash navigation disabled')
+    return
+  }
+
   function applySection(nextSection, event = null, shouldTrack = true) {
     const previousSection = state.section
     state.activeTab = nextSection !== 'home'
@@ -79,6 +93,7 @@ export function initNavigation(options = {}) {
 }
 
 function goHome(el, event) {
+  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
   el.projects.classList.remove('content-section-reveal')
   el.portfolioProjects.classList.remove('content-section-reveal')
@@ -92,14 +107,13 @@ function goHome(el, event) {
   el.projects.classList.add('section-invisible')
   el.portfolioProjects.classList.remove('visible')
   el.portfolioProjects.classList.add('hidden')
-  el.projects.classList.remove('visible')
-  el.projects.classList.add('hidden')
   el.portfolioContent.classList.remove('visible')
   el.portfolioContent.classList.add('hidden')
   if (event) trackClick(event)
 }
 
 function goPlay(el, event) {
+  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
   el.portfolioProjects.classList.remove('content-section-reveal')
   el.projects.classList.remove('content-section-reveal')
@@ -122,6 +136,7 @@ function goPlay(el, event) {
 }
 
 function goPortfolio(el, event) {
+  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
   el.projects.classList.remove('content-section-reveal')
   el.portfolioProjects.classList.remove('content-section-reveal')

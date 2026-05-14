@@ -347,6 +347,36 @@ def _compact_project(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> str:
+    """Compact portfolio grounding + voice instructions for Gemini Live setup."""
+    lines = [ln for ln in (system_prompt or '').splitlines() if ln.strip()]
+    body_lines = lines[1:] if len(lines) > 1 else lines
+    prompt_body = '\n'.join(body_lines).strip() or str(system_prompt or '').strip()
+    prompt_body = _truncate_text(prompt_body, 7200)
+
+    ctx = build_context('', '', pack)
+    blob = serialize_context_xml(ctx)
+    try:
+        max_total = int((os.environ.get('CHAT_LIVE_SYSTEM_MAX_CHARS') or '14000').strip())
+    except ValueError:
+        max_total = 14000
+    max_total = max(6000, min(max_total, 32000))
+    budget_pack = max(3500, max_total - len(prompt_body) - 900)
+    if len(blob) > budget_pack:
+        blob = _truncate_text(blob, budget_pack)
+
+    voice_rules = (
+        'Voice mode: answer concisely for speech. Stay grounded in the portfolio '
+        'XML below — no invented employers, dates, titles, or projects. If asked '
+        'for unrelated trivia or general chat, briefly refuse and steer back to '
+        "Marwan Elgendy's work.\n\n"
+    )
+    combined = f'{voice_rules}{prompt_body}\n\n--- Portfolio context (XML) ---\n{blob}'
+    if len(combined) > max_total:
+        combined = _truncate_text(combined, max_total)
+    return combined
+
+
 def serialize_context_xml(context: dict[str, Any]) -> str:
     bio = _compact_bio(context.get('bio') or {})
     roles = [_compact_role(r) for r in (context.get('roles') or [])]

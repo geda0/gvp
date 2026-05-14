@@ -2,7 +2,7 @@
 # Build + deploy contact SAM stack, optional Lambda chat, optional ECS chat image, optional HTML meta sync.
 # Usage: bash scripts/integrate-and-deploy.sh [prod|stage]
 #   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta: CHAT_PROD_CHAT_API_URL or Chat SAM output.
-#   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ChatPostApiUrl when CHAT_SAM_STACK_NAME + GEMINI_API_KEY deploy aws/chat-template.yaml
+#   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ChatPostApiUrl when chat SAM deploy runs (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY).
 #
 # Secrets Manager (local): when .secrets/manifest.json AND .secrets/config.manifest.json exist, runs
 #   seed_local_configs.py + push_local_secrets_to_sm.py then sources deploy.env (+ generated files).
@@ -10,7 +10,7 @@
 #
 # Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
 # (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
-# Chat on Lambda (Gemini): set CHAT_SAM_STACK_NAME (e.g. gvp-chat-stage) + GEMINI_API_KEY; template aws/chat-template.yaml
+# Chat on Lambda (Gemini): set CHAT_SAM_STACK_NAME (legacy fallback), or CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD per deploy env, plus GEMINI_API_KEY; template aws/chat-template.yaml
 
 set -euo pipefail
 
@@ -22,7 +22,7 @@ SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
 usage() {
   echo "usage: bash scripts/integrate-and-deploy.sh [prod|stage]" >&2
   echo "  prod  — production contact stack (SAM_STACK_NAME, default page)" >&2
-  echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
+  echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
   echo "  Auto-runs Secrets Manager seed/push when .secrets/manifest.json + config.manifest.json exist (SKIP_SECRETS_MANAGER=1 to skip)." >&2
   exit 1
 }
@@ -98,6 +98,14 @@ else
   STACK_NAME="${SAM_STACK_NAME:-page}"
 fi
 
+# Resolve chat SAM stack name: prefer per-environment vars to avoid prod/stage overwriting the same stack.
+CHAT_STACK_RESOLVED=""
+if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+  CHAT_STACK_RESOLVED="${CHAT_SAM_STACK_NAME_STAGE:-${CHAT_SAM_STACK_NAME:-}}"
+else
+  CHAT_STACK_RESOLVED="${CHAT_SAM_STACK_NAME_PROD:-${CHAT_SAM_STACK_NAME:-}}"
+fi
+
 require() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
@@ -136,7 +144,7 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" || "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; 
 fi
 
 run_chat_sam=false
-if [[ -n "${CHAT_SAM_STACK_NAME:-}" ]]; then
+if [[ -n "${CHAT_STACK_RESOLVED}" ]]; then
   run_chat_sam=true
   require GEMINI_API_KEY
 fi
@@ -146,7 +154,7 @@ if [[ "${CHAT_PARALLEL_TEST:-0}" == "1" && "${SKIP_CHAT_TESTS:-0}" != "1" && "${
   if command -v python3 >/dev/null 2>&1; then
     (
       cd "${CHAT_DIR}"
-      python3 -m pip install -q -r requirements.txt
+      python3 -m pip install -q -r requirements.txt -r requirements-dev.txt
       PYTHONPATH=. python3 -m pytest tests/ -q --tb=no
     ) &
     test_pid=$!
@@ -224,18 +232,23 @@ if [[ "${run_chat_sam}" == "true" ]]; then
     "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link}"
     "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
+    "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
   )
   if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
     CHAT_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
   else
     echo "warning: contact stack output ChatTranscriptsTableName missing or empty; chat Lambda will not write transcripts (admin transcript tab stays empty)." >&2
   fi
-  echo "sam deploy chat stack=${CHAT_SAM_STACK_NAME} region=${REGION}"
+  CHAT_ALARM_EMAIL="${CHAT_ERROR_ALARM_EMAIL:-${ALARM_EMAIL:-}}"
+  if [[ -n "${CHAT_ALARM_EMAIL}" ]]; then
+    CHAT_PO+=("ChatErrorAlarmEmail=${CHAT_ALARM_EMAIL}")
+  fi
+  echo "sam deploy chat stack=${CHAT_STACK_RESOLVED} region=${REGION}"
   (
     cd "${AWS_DIR}"
     sam deploy \
       --template-file .aws-sam/build-chat/template.yaml \
-      --stack-name "${CHAT_SAM_STACK_NAME}" \
+      --stack-name "${CHAT_STACK_RESOLVED}" \
       --capabilities CAPABILITY_IAM \
       --no-confirm-changeset \
       --no-fail-on-empty-changeset \
@@ -245,7 +258,7 @@ if [[ "${run_chat_sam}" == "true" ]]; then
       --parameter-overrides "${CHAT_PO[@]}"
   )
   CHAT_SAM_CHAT_URL="$(aws cloudformation describe-stacks \
-    --stack-name "${CHAT_SAM_STACK_NAME}" \
+    --stack-name "${CHAT_STACK_RESOLVED}" \
     --region "${REGION}" \
     --query "Stacks[0].Outputs[?OutputKey=='ChatPostApiUrl'].OutputValue | [0]" \
     --output text)"
@@ -304,7 +317,7 @@ if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
     echo "Patched index.html and admin/index.html (gvp:contact-api-url meta)."
   fi
   if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_SYNC_CHAT_URL}" ]]; then
-    echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL or deploy with CHAT_SAM_STACK_NAME + GEMINI_API_KEY to create ChatPostApiUrl."
+    echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL or deploy Lambda chat (CHAT_SAM_STACK_NAME_STAGE or CHAT_SAM_STACK_NAME + GEMINI_API_KEY) to create ChatPostApiUrl."
   fi
 fi
 

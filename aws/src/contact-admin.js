@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
@@ -31,8 +32,14 @@ function requireAdminKey(event) {
     event?.headers?.['x-admin-key'] ||
     event?.headers?.['X-Admin-Key'] ||
     ''
-  if (!expected || provided !== expected) return false
-  return true
+  if (!expected || typeof provided !== 'string' || !provided) return false
+  try {
+    const eh = crypto.createHash('sha256').update(expected, 'utf8').digest()
+    const ph = crypto.createHash('sha256').update(provided, 'utf8').digest()
+    return crypto.timingSafeEqual(eh, ph)
+  } catch {
+    return false
+  }
 }
 
 function getPath(event) {

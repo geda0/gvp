@@ -17,6 +17,7 @@ os.environ.setdefault(
     "CHAT_SYSTEM_PROMPT_PATH",
     str(REPO_ROOT / "docker" / "chat" / "prompts" / "system-prompt.md"),
 )
+os.environ.setdefault("CHAT_READY_VERBOSE", "1")
 
 
 @pytest.fixture(autouse=True)

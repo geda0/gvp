@@ -14,7 +14,7 @@ The image copies `data/chat-knowledge/` and `docker/chat/prompts/system-prompt.m
 
 ```bash
 cd docker/chat
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 CHAT_KNOWLEDGE_DIR=/path/to/gvp/data/chat-knowledge \
 CHAT_SYSTEM_PROMPT_PATH=/path/to/gvp/docker/chat/prompts/system-prompt.md \
 CHAT_PROVIDER=mock \
@@ -28,7 +28,8 @@ CHAT_PROVIDER=mock \
 | `CHAT_PROVIDER` | `mock` (default, no network), `gemini` (`GEMINI_API_KEY`), `openai` (`OPENAI_API_KEY`) |
 | `GEMINI_API_KEY` | Required when `CHAT_PROVIDER=gemini` |
 | `GEMINI_MODEL` | Primary model override (default **`gemini-3.1-flash-lite`**) |
-| `GEMINI_FALLBACK_MODEL` | Used when the primary returns rate limits / quota (default **`gemma-4-26b-a4b-it`**). After a primary 429, the service prefers the fallback first until **UTC midnight**, then resets. |
+| `GEMINI_LIVE_MODEL` | Multimodal **Live** model id for browser voice (default **`gemini-3.1-flash-live-preview`**) |
+| `CHAT_LIVE_SYSTEM_MAX_CHARS` | Max characters for combined voice system instruction + knowledge XML (default **14000**) |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
 | `CHAT_PROVIDER_TIMEOUT_SECONDS` | Global upstream timeout in seconds (default `15` for mock/OpenAI; ignored for Gemini when unset in favor of Gemini default below) |
@@ -39,6 +40,8 @@ CHAT_PROVIDER=mock \
 | `CHAT_KNOWLEDGE_DIR` | Directory containing `bio.json`, `roles.json`, `projects.json`, `faq.json` (default `data/chat-knowledge`) |
 | `CHAT_SYSTEM_PROMPT_PATH` | Prompt markdown file with `prompt-version` header (default `docker/chat/prompts/system-prompt.md`) |
 | `CHAT_CORS_ORIGINS` | Optional comma-separated list of browser origins allowed to call the API (e.g. `https://marwanelgendy.link`). Required when the static site and chat run on different hosts. |
+| `CHAT_READY_VERBOSE` | Set to **`1`** so **`GET /ready`** returns the full diagnostics JSON (default is **`{"ok": …}`** only). |
+| `CHAT_READY_VERBOSE_SECRET` | With **`CHAT_READY_VERBOSE` unset**, full **`/ready`** body is available only as **`GET /ready?verbose=1&token=<secret>`** (token and secret must be the same length for comparison). |
 
 ## Deploy (stage / prod)
 
@@ -53,11 +56,11 @@ Chat Docker build runs **in parallel with `sam build`** when `CHAT_ECR_REPOSITOR
 
 ### AWS Lambda + Gemini (staging API URL)
 
-SAM template **[`aws/chat-template.yaml`](../aws/chat-template.yaml)** deploys an **HTTP API** + **Lambda container** (image from [`Dockerfile.lambda`](../docker/chat/Dockerfile.lambda)) with **`CHAT_PROVIDER=gemini`**. Set **`CHAT_SAM_STACK_NAME`** + **`GEMINI_API_KEY`** in `.secrets/chat-deploy.env`; `integrate-and-deploy.sh` writes **`ChatPostApiUrl`** into **`gvp:chat-api-url`** on stage when **`CHAT_STAGE_CHAT_API_URL`** is unset. **`CHAT_CORS_ORIGINS`** (comma-separated) should include your staging **frontend** origin (e.g. `https://chat.marwanelgendy.link`) so the browser can call the execute-api host. Local image build: `npm run sam:build:chat` from repo root (requires SAM CLI + Docker). If you run **`sam deploy`** yourself for this template, pass **`--resolve-image-repos`** (or **`--image-repository`** / **`--image-repositories`**) so SAM can push the container image to ECR.
+SAM template **[`aws/chat-template.yaml`](../aws/chat-template.yaml)** deploys an **HTTP API** + **Lambda container** (image from [`Dockerfile.lambda`](../docker/chat/Dockerfile.lambda)) with **`CHAT_PROVIDER=gemini`**. Set **`CHAT_SAM_STACK_NAME_STAGE`** / **`CHAT_SAM_STACK_NAME_PROD`** (or legacy **`CHAT_SAM_STACK_NAME`**) + **`GEMINI_API_KEY`** in `.secrets/chat-deploy.env`; `integrate-and-deploy.sh` writes **`ChatPostApiUrl`** into **`gvp:chat-api-url`** on stage when **`CHAT_STAGE_CHAT_API_URL`** is unset. **`CHAT_CORS_ORIGINS`** (comma-separated) should include your staging **frontend** origin (e.g. `https://chat.marwanelgendy.link`) so the browser can call the execute-api host. Local image build: `npm run sam:build:chat` from repo root (requires SAM CLI + Docker). If you run **`sam deploy`** yourself for this template, pass **`GeminiApiKey`** (required) and **`--resolve-image-repos`** (or **`--image-repository`** / **`--image-repositories`**) so SAM can push the container image to ECR.
 
 ## Staging: frontend vs chat API
 
-**`chat.marwanelgendy.link`** is used as the **staging static site** (S3 + CloudFront). That is expected: there is no FastAPI there unless you add a **CloudFront behavior** to proxy **`/api/chat`**, **`/health`**, **`/ready`** to your ECS/ALB origin.
+**`chat.marwanelgendy.link`** is used as the **staging static site** (S3 + CloudFront). That is expected: there is no FastAPI there unless you add a **CloudFront behavior** to proxy **`/api/chat`**, **`/api/live/session`**, **`/health`**, **`/ready`** to your ECS/ALB origin.
 
 **`<meta name="gvp:chat-api-url">`** (and env **`CHAT_STAGE_CHAT_API_URL`** when syncing) must be the URL that reaches **uvicorn** — e.g. an **ALB HTTPS URL**, **`https://api-chat.…/api/chat`**, or the same **`chat.…`** host **only if** you proxy `/api/*` to the container.
 
@@ -78,8 +81,9 @@ curl -sS -o /dev/null -w '%{http_code} %{url_effective}\n' -L 'https://YOUR-API-
 ## API
 
 - `GET /health` → `{"ok": true}`
-- `GET /ready` → readiness for knowledge pack + provider chain (`200` when ready, `503` when degraded). With **`CHAT_PROVIDER=gemini`**, `provider.gemini` includes **`primary_model`**, **`fallback_model`**, and **`primary_rate_limits_today`** (count of primary 429/quota events since last **UTC** midnight).
+- `GET /ready` → **`{"ok": true|false}`** by default (HTTP **200** when ready, **503** when degraded). Set **`CHAT_READY_VERBOSE=1`** or **`GET /ready?verbose=1&token=…`** matching **`CHAT_READY_VERBOSE_SECRET`** for the full diagnostics payload (paths, provider errors). Tests set **`CHAT_READY_VERBOSE=1`** automatically.
 - `POST /api/chat` → body `{"messages":[{"role":"user|assistant|system","content":"..."}],"stream":false,"sessionId?":"..."}` → `{"reply":"...","model":"...","actions":[...]}` where `actions` may include `open-resume` or `open-contact` buttons with optional prefill fields.
+- `POST /api/live/session` → optional body `{"sessionId?":"..."}` → `{ "websocketUrl", "handshake", "model", "apiVersion" }` mints a short-lived Gemini Live token and returns the JSON to send as the **first WebSocket frame** plus a `wss://…?access_token=…` URL for the browser. Requires **`GEMINI_API_KEY`** and a loaded knowledge pack. Local dev: if the static site proxies `/api/chat` to uvicorn, add the same proxy for **`/api/live/session`**.
 
 Errors: JSON body with `error` and `code` where applicable. Timeout and upstream failures are mapped to stable codes (`upstream_timeout`, `upstream_rate_limited`, `upstream_auth_error`, `model_error`).
 
@@ -97,7 +101,7 @@ cd docker/chat
 .venv/bin/pytest tests/test_eval_gate.py -v
 ```
 
-Or without a venv (after `pip install -r requirements.txt` in your environment):
+Or without a venv (after `pip install -r requirements.txt -r requirements-dev.txt` in your environment):
 
 ```bash
 cd docker/chat && pytest

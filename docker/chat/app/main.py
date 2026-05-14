@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import time
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
@@ -22,12 +23,14 @@ from pydantic import BaseModel, Field, field_validator
 from app.gemini_routing import GeminiRoutingChain
 from app.knowledge_context import (
     build_context,
+    build_live_system_instruction,
     compact_history,
     default_pack_dir,
     default_system_prompt_path,
     load_knowledge_pack,
     load_system_prompt,
 )
+from app.live_gemini import mint_live_session_async
 from app.providers import (
     build_llm_runnable,
     get_provider_and_model,
@@ -116,6 +119,10 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessageIn] = Field(default_factory=list)
     stream: bool = False
     sessionId: str | None = None
+
+
+class LiveSessionRequest(BaseModel):
+    sessionId: str | None = Field(default=None, max_length=128)
 
 
 def _to_lc_messages(rows: list[ChatMessageIn]) -> list[HumanMessage | AIMessage | SystemMessage]:
@@ -404,10 +411,30 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
     return ready, payload
 
 
+def _ready_verbose_allowed(request: Request) -> bool:
+    """Full /ready JSON is for local debugging or when token matches secret."""
+    if os.environ.get("CHAT_READY_VERBOSE", "").strip() == "1":
+        return True
+    secret = os.environ.get("CHAT_READY_VERBOSE_SECRET", "").strip()
+    if not secret:
+        return False
+    if request.query_params.get("verbose") != "1":
+        return False
+    token = request.query_params.get("token") or ""
+    ta, tb = token.encode("utf-8"), secret.encode("utf-8")
+    if len(ta) != len(tb):
+        return False
+    return secrets.compare_digest(ta, tb)
+
+
 @app.get("/ready")
-def ready() -> JSONResponse:
+def ready(request: Request) -> JSONResponse:
     is_ready, payload = _readiness_payload()
-    return JSONResponse(status_code=200 if is_ready else 503, content=payload)
+    if _ready_verbose_allowed(request):
+        body: dict[str, Any] = payload
+    else:
+        body = {"ok": is_ready}
+    return JSONResponse(status_code=200 if is_ready else 503, content=body)
 
 
 @app.post("/api/chat")
@@ -499,6 +526,53 @@ async def chat(payload: ChatRequest) -> JSONResponse:
 
     logger.info("chat ok model=%s latency_ms=%s", model_used, elapsed_ms)
     return JSONResponse(content={"reply": reply_text, "model": model_used, "actions": actions})
+
+
+@app.post("/api/live/session")
+async def live_session(payload: LiveSessionRequest) -> JSONResponse:
+    if payload.sessionId:
+        logger.info("live session request session=%s", payload.sessionId[:48])
+
+    if app.state.knowledge_pack is None or not app.state.system_prompt:
+        msg = app.state.corpus_error or "Knowledge pack or system prompt failed to load"
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": msg,
+                "code": "corpus_unavailable",
+            },
+        )
+
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Gemini API key is not configured",
+                "code": "gemini_key_missing",
+            },
+        )
+
+    try:
+        instruction = build_live_system_instruction(
+            app.state.system_prompt,
+            app.state.knowledge_pack,
+        )
+        session_payload = await mint_live_session_async(instruction)
+    except RuntimeError as exc:
+        logger.warning("live session unavailable: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={"error": str(exc), "code": "live_unavailable"},
+        )
+    except Exception as exc:
+        logger.exception("live session token mint failed")
+        status, content = upstream_error_body(exc)
+        return JSONResponse(status_code=status, content=content)
+
+    logger.info("live session ok model=%s", session_payload.get("model"))
+    # Response may include websocketUrl with access_token; do not log response body or URL.
+    return JSONResponse(content=session_payload)
 
 
 @app.exception_handler(RequestValidationError)

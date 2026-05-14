@@ -434,6 +434,12 @@ h3 {
     transform: translateY(-2px);
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .project:hover {
+        transform: none;
+    }
+}
+
 #portfolioContent .project {
     background: var(--surface-elevated);
 }
@@ -888,8 +894,18 @@ section#portfolioProjects.visible.content-section-reveal {
     align-items: stretch;
 }
 
+.hero-chat {
+    max-width: 36rem;
+    width: 100%;
+    margin: 0 auto 2.5rem;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
 @media (min-width: 768px) {
-    .hero-copy-block > #heroChat.hero-chat {
+    .hero-copy-block > .hero-chat {
         order: -1;
     }
 }
@@ -1245,8 +1261,8 @@ body.contact-dialog-open {
     box-sizing: border-box;
 }
 
-[data-theme=\"garden\"] .contact-form input,
-[data-theme=\"garden\"] .contact-form textarea {
+[data-theme="garden"] .contact-form input,
+[data-theme="garden"] .contact-form textarea {
     background: rgba(255, 255, 255, 0.45);
 }
 
@@ -1316,7 +1332,11 @@ body.contact-dialog-open {
 }
 
 .contact-form__status[data-tone="error"] {
-    color: var(--accent-hover);
+    color: #c94c4c;
+}
+
+[data-theme="garden"] .contact-form__status[data-tone="error"] {
+    color: #b63d3d;
 }
 
 .contact-form__hp {

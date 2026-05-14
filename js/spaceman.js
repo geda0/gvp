@@ -218,73 +218,71 @@ class Spaceman {
           <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
         </div>
         <div class="spaceman" id="spaceman">
-        <div class="thought-stack">
-        <div class="thought-bubble" id="thoughtBubble">
-          <span class="thought-text" id="thoughtText"></span>
-          <span class="cursor">|</span>
-        </div>
-        <div class="thought-tail">
-          <span class="bubble-dot dot-1"></span>
-          <span class="bubble-dot dot-2"></span>
-          <span class="bubble-dot dot-3"></span>
-        </div>
-        </div>
-        <div class="spaceman-body">
-          <div class="jetpack">
-            <div class="pack"></div>
-            <div class="flames-container">
-              <div class="flame left-flame"><div class="flame-inner"></div></div>
-              <div class="flame right-flame"><div class="flame-inner"></div></div>
+          <div class="spaceman-body">
+            <div class="jetpack">
+              <div class="pack"></div>
+              <div class="flames-container">
+                <div class="flame left-flame"><div class="flame-inner"></div></div>
+                <div class="flame right-flame"><div class="flame-inner"></div></div>
+              </div>
             </div>
-          </div>
-          <div class="hero-cape" aria-hidden="true">
-            <div class="cape-cloth"></div>
-          </div>
-          <div class="hero-head" aria-hidden="true">
-            <div class="hero-face"></div>
-            <div class="hero-hair"></div>
-            <div class="hero-mask"></div>
-            <div class="hero-eyes">
-              <span class="eye left-eye"></span>
-              <span class="eye right-eye"></span>
+            <div class="hero-cape" aria-hidden="true">
+              <div class="cape-cloth"></div>
             </div>
-          </div>
-          <div class="helmet">
-            <div class="visor">
-              <div class="visor-reflection"></div>
-              <div class="eyes">
+            <div class="hero-head" aria-hidden="true">
+              <div class="hero-face"></div>
+              <div class="hero-hair"></div>
+              <div class="hero-mask"></div>
+              <div class="hero-eyes">
                 <span class="eye left-eye"></span>
                 <span class="eye right-eye"></span>
               </div>
             </div>
-          </div>
-          <div class="arm left-arm"></div>
-          <div class="arm right-arm"></div>
-          <div class="torso">
-            <div class="chest-panel">
-              <span class="light light-1"></span>
-              <span class="light light-2"></span>
+            <div class="helmet">
+              <div class="visor">
+                <div class="visor-reflection"></div>
+                <div class="eyes">
+                  <span class="eye left-eye"></span>
+                  <span class="eye right-eye"></span>
+                </div>
+              </div>
             </div>
+            <div class="arm left-arm"></div>
+            <div class="arm right-arm"></div>
+            <div class="torso">
+              <div class="chest-panel">
+                <span class="light light-1"></span>
+                <span class="light light-2"></span>
+              </div>
+            </div>
+            <div class="legs">
+              <div class="leg left-leg"></div>
+              <div class="leg right-leg"></div>
+            </div>
+            <div class="hero-stay-anchor" aria-hidden="true">⚓</div>
           </div>
-          <div class="legs">
-            <div class="leg left-leg"></div>
-            <div class="leg right-leg"></div>
-          </div>
-          <div class="hero-stay-anchor" aria-hidden="true">⚓</div>
         </div>
-      </div>
       </div>
     `;
 
     this.elements = {
       spaceman: document.getElementById('spaceman'),
-      text: document.getElementById('thoughtText'),
+      text: document.querySelector('#agentNode .agent-node__bubble-text'),
       quietMenu: document.getElementById('spacemanQuietMenu'),
       stayMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="stay"]'),
       freeMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="free"]'),
       quietMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="quiet"]')
     };
     this._bindHeroMenu();
+    this._syncChipVisibility();
+  }
+
+  _syncChipVisibility() {
+    const chips = document.getElementById('heroChatSuggestions')
+    if (!chips) return
+    const show = (this.state === 'home' || this.state === 'idle') && !this.isQuiet
+    chips.hidden = !show
+    chips.setAttribute('aria-hidden', show ? 'false' : 'true')
   }
 
   _bindHeroMenu() {
@@ -310,6 +308,7 @@ class Spaceman {
     this._quietMenuOutsideClick = (e) => {
       if (quietMenu.hidden) return;
       if (quietMenu.contains(e.target) || this.elements.spaceman?.contains(e.target)) return;
+      if (e.target.closest('#heroChatSuggestions')) return;
       this._dismissHeroMenu();
     };
   }
@@ -413,8 +412,10 @@ class Spaceman {
       } else {
         this._clickTimeout = setTimeout(() => {
           this._clickTimeout = null;
-          const mode = this.isStayingHero ? 'staying' : 'default';
-          this._openHeroMenu(mode);
+          window.dispatchEvent(new CustomEvent('gvp:open-chat', {
+            bubbles: true,
+            detail: { source: 'spaceman' }
+          }));
         }, 300);
       }
     });
@@ -525,6 +526,7 @@ class Spaceman {
       this._startIdleAnimations();
       this._startMessageCycle();
     }
+    this._syncChipVisibility();
   }
 
   // Public API
@@ -556,6 +558,7 @@ class Spaceman {
     } else {
       this._applyChatStatusCopy(this._chatLifecycleState, this._chatLifecycleDetail);
     }
+    this._syncChipVisibility();
   }
 
   _clearChatLifecycleTimer() {
@@ -662,21 +665,46 @@ class Spaceman {
   }
 
   _typeMessage(message, speed = DEFAULTS.typingSpeed) {
-    const { text } = this.elements;
-    if (!text) return;
+    const { text } = this.elements
+    if (!text) return
 
-    this._lastSpokenMessage = message;
-    this._clearTimer('typing');
-    text.textContent = '';
+    this._lastSpokenMessage = message
+    this._clearTimer('typing')
+    text.classList.remove('agent-node__bubble-text--exiting', 'agent-node__bubble-text--entering')
 
-    let i = 0;
-    const type = () => {
-      if (i < message.length) {
-        text.textContent += message[i++];
-        this._timers.typing = setTimeout(type, speed);
+    const reduced = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const runType = () => {
+      text.textContent = ''
+      if (!reduced) {
+        void text.offsetWidth
+        text.classList.add('agent-node__bubble-text--entering')
       }
-    };
-    type();
+
+      let i = 0
+      const type = () => {
+        if (i < message.length) {
+          text.textContent += message[i++]
+          this._timers.typing = setTimeout(type, speed)
+        } else if (!reduced) {
+          this._timers.typing = setTimeout(() => {
+            text.classList.remove('agent-node__bubble-text--entering')
+          }, 400)
+        }
+      }
+      type()
+    }
+
+    if (!reduced && text.textContent) {
+      text.classList.add('agent-node__bubble-text--exiting')
+      this._timers.typing = setTimeout(() => {
+        text.classList.remove('agent-node__bubble-text--exiting')
+        runType()
+      }, 190)
+      return
+    }
+    runType()
   }
 
   _react(type) {
@@ -793,8 +821,11 @@ class Spaceman {
  * once data is loaded and the hero is rendered. Await before initializing positioning.
  */
 export function initSpaceman(containerId, dataUrl) {
-  const instance = new Spaceman(containerId, dataUrl);
-  return instance.ready ? instance.ready.then(() => instance) : Promise.resolve(instance);
+  const instance = new Spaceman(containerId, dataUrl)
+  if (!instance.container) {
+    return Promise.resolve(null)
+  }
+  return instance.ready.then(() => instance)
 }
 
 export { Spaceman };

@@ -34,6 +34,10 @@ class SpacemanPosition {
     this._dragReturnTimer = null;
     this._layoutCooldownUntil = 0;
     this._hooks = {};
+    this.agentTrail = document.getElementById('agentTrail')
+    this.agentNode = document.getElementById('agentNode')
+    this._trailVisible = true
+    this._trailLoopRaf = null
 
     this.init();
   }
@@ -71,6 +75,7 @@ class SpacemanPosition {
     // After assets/fonts
     window.addEventListener('load', () => this.updatePosition(), { once: true });
     document.fonts?.ready?.then(() => this.updatePosition());
+    this._updateTrail()
   }
 
   _readDialogPanelRect(dialogId, panelSelector) {
@@ -143,6 +148,7 @@ class SpacemanPosition {
       if (panel) this._resizeObs.observe(panel);
     });
     this._resizeObs.observe(this.container);
+    if (this.agentNode) this._resizeObs.observe(this.agentNode)
     const heroCopy = document.querySelector('.hero-copy')
     if (heroCopy) this._resizeObs.observe(heroCopy)
 
@@ -172,6 +178,14 @@ class SpacemanPosition {
       this._visualViewport.addEventListener('scroll', this._onScrollLike);
       this._visualViewport.addEventListener('resize', this._onScrollLike);
     }
+
+    if (this.agentNode) {
+      this._agentNodeMutationObs = new MutationObserver(() => this._updateTrail())
+      this._agentNodeMutationObs.observe(this.agentNode, {
+        attributes: true,
+        attributeFilter: ['class', 'data-state', 'data-slot']
+      })
+    }
   }
 
   _isLayoutCooldownActive() {
@@ -195,6 +209,7 @@ class SpacemanPosition {
     }
     clearTimeout(this._updateT);
     this._updateT = setTimeout(() => this._update(), 50);
+    this._updateTrail()
   }
 
   _bindDrag() {
@@ -361,24 +376,61 @@ class SpacemanPosition {
         x = pos.x;
         y = pos.y;
       } else {
-        scale = isMobile ? (vw < 480 ? 0.5 : 0.55) : isTablet ? 0.65 : 0.75;
+        /* Home hero: slightly smaller than legacy full-page scale, closer to docked agent */
+        scale = isMobile ? (vw < 480 ? 0.4 : 0.46) : isTablet ? 0.5 : 0.54;
         const bounds = this._getBounds(vw, vh, scale);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
         const heroCopy = document.querySelector('.hero-copy')
+        const heroSlot = document.getElementById('agentSlotHero')
+        const dockedAgent = document.getElementById('agentNode')
+        const slotRect = (heroSlot && dockedAgent?.parentElement === heroSlot)
+          ? heroSlot.getBoundingClientRect()
+          : null
         const rect = this.container.getBoundingClientRect()
         const baseW = (rect.width / (this.currentScale || 1)) || 200
         const baseH = (rect.height / (this.currentScale || 1)) || 320
         const w = baseW * scale
         const h = baseH * scale
         const pad = this.options.padding
+        const heroPad = Math.min(pad, vw < 768 ? 26 : 22)
 
-        if (heroCopy) {
+        let placedHome = false
+        const navGlue = vw < 768 ? 8 : 6
+        if (dockedAgent?.dataset?.slot === 'navbar') {
+          const nr = dockedAgent.getBoundingClientRect()
+          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue)
+          if (g) {
+            x = g.x
+            y = g.y
+            placedHome = true
+          }
+        }
+
+        if (
+          !placedHome
+          && slotRect
+          && slotRect.width > 40
+          && slotRect.height > 8
+        ) {
+          const nodeRect = dockedAgent?.getBoundingClientRect?.()
+          const ref =
+            nodeRect && nodeRect.width > 8 && nodeRect.height > 8 ? nodeRect : slotRect
+          /* Tight horizontal glue: right edge of figure ≈ ref.left − heroGlueGap */
+          const heroGlueGap = vw < 768 ? 7 : 5
+          const g = this._glueLeftOfAgentRect(vw, vh, scale, ref, heroGlueGap)
+          if (g) {
+            x = g.x
+            y = g.y
+            placedHome = true
+          }
+        }
+        if (!placedHome && heroCopy) {
           const r = heroCopy.getBoundingClientRect()
           if (r.width > 0 && r.height > 0) {
             const edgePad = vw < 768 ? 12 : this.options.edgePad
-            const fitsLeft = r.left - pad - w >= edgePad
+            const fitsLeft = r.left - heroPad - w >= edgePad
             if (fitsLeft) {
-              const cx = r.left - pad - w / 2
+              const cx = r.left - heroPad - w / 2
               const cy = r.top + r.height / 2
               x = clamp(cx - vw / 2, bounds.minX, bounds.maxX)
               y = clamp(cy - vh / 2, bounds.minY, bounds.maxY)
@@ -391,7 +443,7 @@ class SpacemanPosition {
             x = clamp(0, bounds.minX, bounds.maxX)
             y = clamp(isMobile ? -30 : 0, bounds.minY, bounds.maxY)
           }
-        } else {
+        } else if (!placedHome) {
           const desiredX = isMobile ? 32 : 0
           const desiredY = isMobile ? -30 : 0
           x = clamp(desiredX, bounds.minX, bounds.maxX)
@@ -401,6 +453,7 @@ class SpacemanPosition {
     }
 
     this._moveTo(x, y, scale);
+    this._updateTrail()
   }
 
   setQuietPosition(quiet) {
@@ -409,12 +462,43 @@ class SpacemanPosition {
     this.updatePosition();
   }
 
+  /**
+   * Place spaceman so its right edge sits `glueGap` px left of `ref` (agent or slot rect).
+   * Vertical center tracks ref midline; clamps to viewport bounds.
+   */
+  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap) {
+    if (!ref || ref.width < 8 || ref.height < 8) return null
+    const bounds = this._getBounds(vw, vh, scale)
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+    const rect = this.container.getBoundingClientRect()
+    const baseW = (rect.width / (this.currentScale || 1)) || 200
+    const baseH = (rect.height / (this.currentScale || 1)) || 320
+    const w = baseW * scale
+    const h = baseH * scale
+    const cx = ref.left - glueGap - w / 2
+    const cy = ref.top + ref.height / 2
+    return {
+      x: clamp(cx - vw / 2, bounds.minX, bounds.maxX),
+      y: clamp(cy - vh / 2, bounds.minY, bounds.maxY)
+    }
+  }
+
   _getDockClearance() {
-    const dock = document.getElementById('heroChatDock')
-    if (!dock || dock.hidden) return 0
-    const rect = dock.getBoundingClientRect()
-    if (rect.height <= 0 || rect.width <= 0) return 0
-    return rect.height + 8
+    const node = document.getElementById('agentNode')
+    if (!node || node.dataset.slot !== 'hero') return 0
+    const nRect = node.getBoundingClientRect()
+    if (nRect.height > 8 && nRect.width > 0) return nRect.height + 10
+    const heroSlot = document.getElementById('agentSlotHero')
+    if (heroSlot) {
+      const r = heroSlot.getBoundingClientRect()
+      if (r.height > 0 && r.width > 0) return r.height + 8
+    }
+    const legacyDock = document.getElementById('heroChatDock')
+    if (legacyDock && !legacyDock.hidden) {
+      const r = legacyDock.getBoundingClientRect()
+      if (r.height > 0 && r.width > 0) return r.height + 8
+    }
+    return 0
   }
 
   _getBounds(vw, vh, scale) {
@@ -458,6 +542,16 @@ class SpacemanPosition {
     const { minX, maxX, minY, maxY } = bounds;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+    const dockedAgent = document.getElementById('agentNode')
+    if (dockedAgent?.dataset?.slot === 'navbar') {
+      const br = dockedAgent.getBoundingClientRect()
+      if (br.width >= 8 && br.height >= 8) {
+        const navGap = vw < 768 ? 8 : 6
+        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap)
+        if (glued) return glued
+      }
+    }
+
     const rect = this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;
@@ -487,6 +581,7 @@ class SpacemanPosition {
   _moveTo(x, y, scale) {
     clearTimeout(this._cleanupTimer);
     this.movable.classList.add('moving', 'thrust');
+    this._startTrailLoop()
 
     // No wobble when content open
     const wobble =
@@ -501,10 +596,13 @@ class SpacemanPosition {
     this.movable.style.setProperty('--sy', `${y + wobble}px`);
     this.movable.style.setProperty('--ss', `${scale}`);
     this.currentScale = scale;
+    this._updateTrail()
 
     const cleanup = () => {
       this.movable.classList.remove('thrust', 'moving');
       this.movable.removeEventListener('transitionend', onEnd);
+      this._stopTrailLoop()
+      this._updateTrail()
     };
 
     const onEnd = (e) => {
@@ -518,14 +616,125 @@ class SpacemanPosition {
     this._cleanupTimer = setTimeout(cleanup, this.options.transitionSpeed * 1000 + 50);
   }
 
+  _startTrailLoop() {
+    if (this._trailLoopRaf) return
+    const tick = () => {
+      this._trailLoopRaf = null
+      if (!this.movable.classList.contains('moving')) return
+      this._updateTrail()
+      this._trailLoopRaf = requestAnimationFrame(tick)
+    }
+    this._trailLoopRaf = requestAnimationFrame(tick)
+  }
+
+  _stopTrailLoop() {
+    if (!this._trailLoopRaf) return
+    cancelAnimationFrame(this._trailLoopRaf)
+    this._trailLoopRaf = null
+  }
+
+  updateTrail() {
+    this._updateTrail()
+  }
+
+  setTrailVisible(visible) {
+    this._trailVisible = Boolean(visible)
+    if (!this.agentTrail) return
+    this.agentTrail.classList.toggle('agent-trail--hidden', !this._trailVisible)
+    this.agentTrail.setAttribute('aria-hidden', 'true')
+    if (!this._trailVisible) {
+      this.agentTrail.style.opacity = '0'
+      this.agentTrail.style.pointerEvents = 'none'
+      return
+    }
+    this.agentTrail.style.opacity = ''
+    this.agentTrail.style.pointerEvents = 'none'
+    this._updateTrail()
+  }
+
+  _updateTrail() {
+    const trail = this.agentTrail || document.getElementById('agentTrail')
+    const node = this.agentNode || document.getElementById('agentNode')
+    if (!trail || !node) return
+    const dots = trail.querySelectorAll('.agent-trail__dot')
+    if (!dots.length) return
+
+    if (!this._trailVisible || this.isQuiet) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const dialogOpen = document.body.classList.contains('chat-dialog-open')
+      || document.body.classList.contains('project-dialog-open')
+      || document.body.classList.contains('contact-dialog-open')
+    if (dialogOpen) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const anchorEl = this.spaceman.querySelector('.helmet') || this.spaceman.querySelector('.hero-head')
+    if (!anchorEl) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const a = anchorEl.getBoundingClientRect()
+    const b = node.getBoundingClientRect()
+    if (a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const ax = a.left + a.width / 2
+    const ay = a.top + a.height / 2
+    const bx = Math.max(b.left, Math.min(ax, b.right))
+    const by = Math.max(b.top, Math.min(ay, b.bottom))
+    const rdx = bx - ax
+    const rdy = by - ay
+    const rlen = Math.hypot(rdx, rdy) || 1
+    /* Long chords: shallower arc + lower t so dots stay nearer the helmet (less “stretched” line) */
+    const stretch = Math.min(1, Math.max(0, (rlen - 64) / 260))
+    const bulgeMag = Math.max(7, 16 - 9 * stretch)
+    const ts = [
+      0.22 + (0.12 - 0.22) * stretch,
+      0.52 + (0.32 - 0.52) * stretch,
+      0.8 + (0.55 - 0.8) * stretch
+    ]
+    let ox = (-rdy / rlen) * bulgeMag
+    let oy = (rdx / rlen) * bulgeMag
+    if (oy > 0) {
+      ox = -ox
+      oy = -oy
+    }
+    const cx = (ax + bx) / 2 + ox
+    const cy = (ay + by) / 2 + oy
+    const quad = (t) => {
+      const u = 1 - t
+      return {
+        x: u * u * ax + 2 * u * t * cx + t * t * bx,
+        y: u * u * ay + 2 * u * t * cy + t * t * by
+      }
+    }
+
+    dots.forEach((dot, index) => {
+      const t = ts[index] ?? ts[ts.length - 1]
+      const p = quad(t)
+      dot.style.transform = `translate(${p.x}px, ${p.y}px)`
+    })
+
+    trail.classList.remove('agent-trail--hidden')
+  }
+
   destroy() {
     clearTimeout(this._updateT);
     clearTimeout(this._cleanupTimer);
     clearTimeout(this._resizeTimer);
     clearTimeout(this._scrollTimer);
     this._clearPostDragCooldown();
+    this._stopTrailLoop()
     if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._mutationObs?.disconnect();
+    this._agentNodeMutationObs?.disconnect()
     this._resizeObs?.disconnect();
     this._contentEls?.forEach(el => el.removeEventListener('transitionend', this._onTransitionEnd));
     if (this._onResize) window.removeEventListener('resize', this._onResize);
