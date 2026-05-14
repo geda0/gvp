@@ -205,7 +205,9 @@ body.chat-dialog-open {
     border-radius: 999px;
     border: 1px solid var(--chat-launcher-ring-mix);
     background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
-    box-shadow: 0 0 0 0.14rem var(--chat-launcher-glow-outer);
+    box-shadow:
+        0 0 0 0.12rem var(--chat-launcher-glow-outer),
+        0 0 1.15rem var(--chat-launcher-glow-diffuse);
     padding: 0.28rem 0.75rem;
     transition:
         max-width var(--agent-morph-ms) var(--agent-morph-ease),
@@ -234,9 +236,16 @@ body.chat-dialog-open {
     max-width: 36rem;
 }
 
+/* Hero: match original `.hero-chat__form` — full band up to 36rem (bubble state tied specificity with 22rem cap). */
+.agent-slot--hero .agent-node[data-state='bubble'] {
+    max-width: 36rem;
+}
+
 .agent-node:focus-within {
-    border-color: var(--chat-launcher-ring);
-    box-shadow: 0 0 0 0.2rem var(--chat-launcher-glow-focus);
+    border-color: color-mix(in srgb, var(--chat-launcher-ring) 48%, var(--chat-launcher-glow-chrome) 52%);
+    box-shadow:
+        0 0 0 0.18rem var(--chat-launcher-glow-focus),
+        0 0 1.45rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 15%, transparent);
 }
 
 .agent-node__form {
@@ -470,6 +479,9 @@ body.chat-dialog-open {
     padding: 0.28rem 0.32rem 0.28rem 0.88rem;
     gap: 0.5rem;
     min-height: var(--agent-text-lane-height);
+    box-shadow:
+        0 0 0 0.11rem var(--chat-launcher-glow-outer),
+        0 0 1.05rem var(--chat-launcher-glow-diffuse);
 }
 
 /* Original hero bar had no leading 💬 in the pill */
@@ -480,8 +492,10 @@ body.chat-dialog-open {
 .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form:focus-within,
 .agent-slot--hero .agent-node[data-state='bar'] .agent-node__form:focus-within,
 .agent-slot--hero .agent-node[data-state='modal'] .agent-node__form:focus-within {
-    border-color: var(--chat-launcher-ring);
-    box-shadow: 0 0 0 0.25rem var(--chat-launcher-glow-focus);
+    border-color: color-mix(in srgb, var(--chat-launcher-ring) 42%, var(--chat-launcher-glow-chrome) 58%);
+    box-shadow:
+        0 0 0 0.22rem var(--chat-launcher-glow-focus),
+        0 0 1.35rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 13%, transparent);
 }
 
 .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
