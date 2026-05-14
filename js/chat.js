@@ -7,7 +7,7 @@ const SESSION_KEY = 'gvp-chat-session-id'
 const MAX_COMPOSER_HEIGHT = 128
 
 let collapseChat = () => {}
-let syncHeroChatSurfaceImpl = () => {}
+let syncChatLaunchersImpl = () => {}
 
 function createSessionId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -61,17 +61,24 @@ function normalizeSection(section) {
   return section === 'playground' || section === 'portfolio' ? section : 'home'
 }
 
+export function syncChatLaunchers(section = 'home') {
+  syncChatLaunchersImpl(section)
+}
+
+// Backward-compatible export while app wiring updates.
 export function syncHeroChatSurface(section = 'home') {
-  syncHeroChatSurfaceImpl(section)
+  syncChatLaunchers(section)
 }
 
 export function initChat() {
   const heroChat = document.getElementById('heroChat')
-  const heroChatDock = document.getElementById('heroChatDock')
   const newSessionPill = heroChat?.querySelector('[data-chat-new-pill]')
   const heroForm = document.getElementById('heroChatForm')
   const heroInput = document.getElementById('heroChatInput')
   const suggestions = document.getElementById('heroChatSuggestions')
+  const headerForm = document.getElementById('headerChatForm')
+  const headerInput = document.getElementById('headerChatInput')
+  const headerIconBtn = document.getElementById('headerChatIconBtn')
 
   const dialog = document.getElementById('chatDialog')
   const backdrop = dialog?.querySelector('.chat-dialog__backdrop')
@@ -82,10 +89,8 @@ export function initChat() {
   const composerSend = composer?.querySelector('.chat-composer__send')
   const statusEl = document.getElementById('chatStatus')
 
-  if (!heroChat || !heroChatDock || !heroForm || !heroInput || !dialog || !messagesEl || !composer || !composerInput || !statusEl) return
-
-  const heroChatHomeParent = heroChat.parentElement
-  const heroChatHomeNextSibling = heroChat.nextSibling
+  if (!heroChat || !heroForm || !heroInput || !headerForm || !headerInput || !headerIconBtn
+    || !dialog || !messagesEl || !composer || !composerInput || !statusEl) return
 
   const endpoint = window.__CHAT_API_URL__ || CHAT_DEFAULT_PATH
   const state = {
@@ -94,51 +99,71 @@ export function initChat() {
     lastFocus: null,
     sessionId: getOrCreateSessionId()
   }
+  const launcherState = {
+    section: 'home',
+    heroVisible: true
+  }
+  let launcherObserver = null
 
   const isOpen = () => !dialog.hidden
 
-  const restoreHeroChatHome = () => {
-    if (!heroChatHomeParent) return
-    if (heroChat.parentElement === heroChatHomeParent) return
-
-    if (heroChatHomeNextSibling && heroChatHomeNextSibling.parentNode === heroChatHomeParent) {
-      heroChatHomeParent.insertBefore(heroChat, heroChatHomeNextSibling)
+  const setHeaderLauncherVisibility = (visible, { immediate = false } = {}) => {
+    headerForm.setAttribute('aria-hidden', visible ? 'false' : 'true')
+    headerIconBtn.setAttribute('aria-hidden', visible ? 'false' : 'true')
+    if (immediate) {
+      headerForm.classList.toggle('header-chatbar--visible', visible)
+      headerIconBtn.classList.toggle('header-chatbar-icon--visible', visible)
       return
     }
-    heroChatHomeParent.appendChild(heroChat)
+    requestAnimationFrame(() => {
+      headerForm.classList.toggle('header-chatbar--visible', visible)
+      headerIconBtn.classList.toggle('header-chatbar-icon--visible', visible)
+    })
   }
 
-  syncHeroChatSurfaceImpl = (section = 'home') => {
-    const nextSection = normalizeSection(section)
-    const shouldRestoreFocus = document.activeElement === heroInput
+  const syncHeaderLauncherPlaceholder = (section = 'home') => {
+    headerInput.placeholder = section === 'home'
+      ? 'Ask anything about my work…'
+      : 'Ask about this project, or anything else…'
+  }
 
-    if (nextSection === 'home') {
-      restoreHeroChatHome()
-      heroChatDock.hidden = true
-      heroChatDock.setAttribute('aria-hidden', 'true')
-      heroChat.classList.add('hero-chat--embedded')
-      heroChat.classList.remove('hero-chat--docked')
-    } else {
-      heroChatDock.hidden = false
-      heroChatDock.setAttribute('aria-hidden', 'false')
-      if (heroChat.parentElement !== heroChatDock) {
-        heroChatDock.appendChild(heroChat)
-      }
-      heroChat.classList.add('hero-chat--docked')
-      heroChat.classList.remove('hero-chat--embedded')
+  const updateLauncherVisibility = ({ immediate = false } = {}) => {
+    const showHeaderLauncher = launcherState.section === 'home'
+      ? !launcherState.heroVisible
+      : true
+    setHeaderLauncherVisibility(showHeaderLauncher, { immediate })
+  }
+
+  const setupLauncherObserver = () => {
+    if (typeof IntersectionObserver !== 'function') {
+      launcherState.heroVisible = false
+      updateLauncherVisibility({ immediate: true })
+      return
     }
-
-    requestAnimationFrame(() => {
-      // Keep a layout pass after moving between embedded/docked surfaces.
-      heroChatDock.getBoundingClientRect()
-      heroChat.getBoundingClientRect()
+    launcherObserver?.disconnect()
+    launcherObserver = new IntersectionObserver((entries) => {
+      const [entry] = entries
+      if (!entry) return
+      launcherState.heroVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35
+      updateLauncherVisibility()
+    }, {
+      root: null,
+      rootMargin: '0px',
+      threshold: [0, 0.2, 0.35, 0.6, 1]
     })
+    launcherObserver.observe(heroChat)
+  }
 
-    if (shouldRestoreFocus) {
-      requestAnimationFrame(() => {
-        heroInput.focus()
-      })
+  syncChatLaunchersImpl = (section = 'home') => {
+    const nextSection = normalizeSection(section)
+    launcherState.section = nextSection
+    if (nextSection === 'home') {
+      const rect = heroChat.getBoundingClientRect()
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0
+      launcherState.heroVisible = rect.bottom > 0 && rect.top < vh
     }
+    syncHeaderLauncherPlaceholder(nextSection)
+    updateLauncherVisibility({ immediate: true })
   }
 
   const setStatus = (text, tone = 'muted') => {
@@ -361,6 +386,8 @@ export function initChat() {
 
     if (source === 'hero') {
       trackEvent('hero_chat_submit', { surface: 'hero' })
+    } else if (source === 'header') {
+      trackEvent('header_chat_submit', { surface: 'header' })
     } else {
       trackEvent('chat_composer_submit', { surface: 'dialog' })
     }
@@ -392,9 +419,9 @@ export function initChat() {
     }
   }
 
-  const openPanelWithMessage = (text) => {
+  const openPanelWithMessage = (text, source = 'hero') => {
     openPanel()
-    void sendMessage(text, 'hero')
+    void sendMessage(text, source)
   }
 
   heroInput.addEventListener('focus', () => {
@@ -412,7 +439,33 @@ export function initChat() {
     const text = String(heroInput.value || '').trim()
     if (!text) return
     heroInput.value = ''
-    openPanelWithMessage(text)
+    openPanelWithMessage(text, 'hero')
+  })
+
+  headerInput.addEventListener('focus', () => {
+    trackEvent('header_chat_focus', { surface: 'header' })
+  })
+
+  headerInput.addEventListener('click', () => {
+    if (state.history.length > 0 && !isOpen()) {
+      openPanel()
+    }
+  })
+
+  headerForm.addEventListener('submit', (event) => {
+    event.preventDefault()
+    const text = String(headerInput.value || '').trim()
+    if (!text) {
+      openPanel()
+      return
+    }
+    headerInput.value = ''
+    openPanelWithMessage(text, 'header')
+  })
+
+  headerIconBtn.addEventListener('click', () => {
+    trackEvent('header_chat_icon_open', { surface: 'header' })
+    openPanel()
   })
 
   suggestions?.addEventListener('click', (event) => {
@@ -421,7 +474,7 @@ export function initChat() {
     const prompt = String(chip.getAttribute('data-prompt') || '').trim()
     if (!prompt) return
     trackEvent('hero_chat_chip', { prompt: chip.textContent || '' })
-    openPanelWithMessage(prompt)
+    openPanelWithMessage(prompt, 'hero')
   })
 
   composer.addEventListener('submit', (event) => {
@@ -476,4 +529,6 @@ export function initChat() {
 
   syncSessionUi()
   autosizeComposer()
+  setupLauncherObserver()
+  syncChatLaunchersImpl('home')
 }

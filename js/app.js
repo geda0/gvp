@@ -17,7 +17,7 @@ import {
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
-import { initChat, collapseChatDialog, syncHeroChatSurface } from './chat.js'
+import { initChat, collapseChatDialog, syncChatLaunchers } from './chat.js'
 
 // Global spaceman reference for navigation hooks
 let spaceman = null
@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (state === 'playground' || state === 'portfolio') {
         collapseChatDialog()
       }
-      syncHeroChatSurface(state)
+      syncChatLaunchers(state)
     }
   })
 

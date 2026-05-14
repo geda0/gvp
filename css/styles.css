@@ -1276,7 +1276,8 @@ body.contact-dialog-open {
 .navbar-right {
     display: flex;
     align-items: center;
-    margin: 0 10px;
+    gap: 0.12rem;
+    margin: 0 0.35rem;
 }
 
 .navbar-center {
@@ -1314,10 +1315,10 @@ body.contact-dialog-open {
     background: transparent;
     border: 1px solid var(--border-subtle);
     color: var(--navbar-link);
-    padding: 0.4rem 0.75rem;
+    padding: 0.35rem 0.52rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 0.8em;
+    font-size: 0.76em;
     font-weight: 500;
     font-family: var(--font-body);
     transition:
@@ -1436,33 +1437,27 @@ h6 {
     }
 
     .navbar a {
-        font-size: 0.8em;
-        padding: 6px 8px;
+        font-size: 0.76em;
+        padding: 6px 7px;
     }
 
-    /* Option 2 + 3: split 3 links across bar, float button to empty space (right) */
     .navbar-left,
     .navbar-right {
-        display: contents;
+        display: flex;
+        align-items: center;
+        margin: 0 0.22rem;
+        gap: 0;
     }
 
     .navbar-center {
-        position: static;
-        left: auto;
-        transform: none;
-        order: 4;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
     }
 
-    .navbar-right a:first-child {
-        order: 1;
-    }
-
-    .navbar-left a {
-        order: 2;
-    }
-
-    .navbar-right a:last-child {
-        order: 3;
+    .theme-toggle {
+        padding: 0.28rem 0.42rem;
+        font-size: 0.72em;
     }
 
     .read-more {

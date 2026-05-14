@@ -57,12 +57,23 @@
                 <a href="./" id="homeNav" class="section-invisible">Home</a>
             </div>
             <div class="navbar-center">
-                <button type="button" id="themeToggle" class="theme-toggle" data-target="garden"
-                    aria-label="Switch to Garden theme"><span class="theme-toggle-icon" aria-hidden="true">🦸</span></button>
+                <form id="headerChatForm" class="header-chatbar" novalidate aria-label="Quick chat launcher">
+                    <label for="headerChatInput" class="visually-hidden">Ask about Marwan's work from header</label>
+                    <span class="header-chatbar__icon" aria-hidden="true">💬</span>
+                    <input type="text" id="headerChatInput" class="header-chatbar__input" inputmode="text" autocomplete="off"
+                        placeholder="Ask anything about my work…" data-track="header_chat_input_focus" />
+                    <button type="submit" id="headerChatSubmit" class="header-chatbar__submit" aria-label="Open chat and send from header"
+                        data-track="header_chat_submit"><span aria-hidden="true">↑</span></button>
+                </form>
+                <button type="button" id="headerChatIconBtn" class="header-chatbar-icon" aria-label="Open chat" title="Open chat">
+                    <span aria-hidden="true">💬</span>
+                </button>
             </div>
             <div class="navbar-right">
                 <a href="#playground" id="playgroundNav">Playground</a>
                 <a href="#portfolio" id="portfolioNav">Portfolio</a>
+                <button type="button" id="themeToggle" class="theme-toggle" data-target="garden"
+                    aria-label="Switch to Garden theme"><span class="theme-toggle-icon" aria-hidden="true">🦸</span></button>
             </div>
         </nav>
     </header>
@@ -155,7 +166,6 @@
                         </div>
                     </div>
                 </section>
-                <div id="heroChatDock" class="hero-chat-dock" hidden aria-hidden="true"></div>
                 <div id="playgroundContent" class="hidden">
                     <section id="projects" class="hidden section-invisible">
                         <h3 class="section-label">Playground</h3>

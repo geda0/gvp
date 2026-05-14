@@ -369,14 +369,15 @@ class SpacemanPosition {
     const { navHeight } = this.options;
     const dockClearance = this._getDockClearance()
     const edgePad = vw < 768 ? 12 : this.options.edgePad;
+    const bubbleSafetyPad = vw < 768 ? 22 : 10;
     const rect = this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;
     const w = baseW * scale;
     const h = baseH * scale;
     return {
-      minX: -vw / 2 + w / 2 + edgePad,
-      maxX: vw / 2 - w / 2 - edgePad,
+      minX: -vw / 2 + w / 2 + edgePad + bubbleSafetyPad,
+      maxX: vw / 2 - w / 2 - edgePad - bubbleSafetyPad,
       minY: -vh / 2 + h / 2 + edgePad + navHeight + dockClearance,
       maxY: vh / 2 - h / 2 - edgePad
     };
