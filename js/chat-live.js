@@ -540,10 +540,28 @@ export function bindChatLiveVoice(opts) {
           : 'Could not start voice session.')
       }
 
-      const { websocketUrl, handshake, apiVersion } = body
+      const { websocketUrl, handshake, apiVersion, model: modelFromBody } = body
       if (!websocketUrl || !handshake) {
         throw new Error('Voice session response was incomplete.')
       }
+
+      const wsUrlStr = String(websocketUrl)
+      const constrainedWs = wsUrlStr.includes('BidiGenerateContentConstrained')
+      const modelResource = typeof modelFromBody === 'string' && modelFromBody.trim()
+        ? modelFromBody.trim()
+        : (modelFromBody != null ? String(modelFromBody) : '')
+      const clientSlimsFirstFrame = Boolean(
+        constrainedWs
+        && modelResource
+        && handshake
+        && typeof handshake === 'object'
+        && handshake.setup
+        && typeof handshake.setup === 'object'
+        && Object.keys(handshake.setup).length > 1
+      )
+      const firstClientSetup = clientSlimsFirstFrame
+        ? { setup: { model: modelResource } }
+        : handshake
 
       // #region agent log
       fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
@@ -561,14 +579,16 @@ export function bindChatLiveVoice(opts) {
             handshakeHasApiVersion: !!(handshake && typeof handshake === 'object' && handshake.apiVersion),
             setupInnerKeys: handshake?.setup && typeof handshake.setup === 'object'
               ? Object.keys(handshake.setup).slice(0, 40)
-              : []
+              : [],
+            clientSlimsFirstFrame,
+            constrainedWs
           },
           timestamp: Date.now()
         })
       }).catch(() => {})
       // #endregion
 
-      if (!String(websocketUrl).startsWith('wss://')) {
+      if (!wsUrlStr.startsWith('wss://')) {
         throw new Error('Invalid voice session URL.')
       }
 
@@ -644,7 +664,11 @@ export function bindChatLiveVoice(opts) {
 
       ws.onopen = () => {
         // #region agent log
-        const firstSendKeys = handshake && typeof handshake === 'object' ? Object.keys(handshake) : []
+        const sendObj = firstClientSetup
+        const firstSendKeys = sendObj && typeof sendObj === 'object' ? Object.keys(sendObj) : []
+        const sentSetupKeys = sendObj?.setup && typeof sendObj.setup === 'object'
+          ? Object.keys(sendObj.setup).slice(0, 40)
+          : []
         fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3789b' },
@@ -655,13 +679,14 @@ export function bindChatLiveVoice(opts) {
             message: 'first ws send key shape',
             data: {
               firstSendKeys,
+              sentSetupKeys,
               includesApiVersionInFrame: firstSendKeys.includes('apiVersion')
             },
             timestamp: Date.now()
           })
         }).catch(() => {})
         // #endregion
-        ws.send(JSON.stringify(handshake))
+        ws.send(JSON.stringify(firstClientSetup))
       }
 
       ws.onmessage = (ev) => {
