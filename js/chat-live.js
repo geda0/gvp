@@ -58,10 +58,8 @@ function voiceEarlyCloseMessageForTransport(code, reason, liveVoiceTransport) {
     const r = String(reason || '').toLowerCase()
     if (code === 1011 || r.includes('internal')) {
       return (
-        'Live voice cannot run on this chat deployment: the API uses serverless HTTP only '
-        + '(no WebSocket relay), and a direct browser connection to Google was rejected. '
-        + 'Use text chat here, or host the chat API where WebSockets work (e.g. ALB → ECS) '
-        + 'and set CHAT_LIVE_RELAY=1.'
+        'Live voice is not available on this chat host (serverless HTTP only). '
+        + 'Use text messages here, or run the chat API where WebSockets are supported to enable voice.'
       )
     }
   }
