@@ -3,28 +3,78 @@ import { chatBus } from './chat-bus.js'
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 const MORPH_LEAVE_DEBOUNCE_MS = 120
-const LOUNGE_MSG_MS = 4000
-const LOUNGE_ASK_MS = 3600
+const PLACEHOLDER_ROTATE_MS = 4500
 const LIFECYCLE_STATES = ['sending', 'thinking', 'streaming', 'tool_call', 'error']
 
 const PLACEHOLDER_POOL = {
   home: [
-    'Ask anything about Marwan\'s work…',
-    'e.g. system design, cloud, or team leadership',
-    'What did you ship most recently?',
-    'Curious about a specific employer or project?'
+    {
+      teaser: 'Walk me through how you design platform boundaries.',
+      deepQuestion: 'How do you approach platform architecture—interfaces, ownership boundaries, and operability—and what trade-offs showed up most clearly at HP Instant Ink or JumpCloud scale?'
+    },
+    {
+      teaser: 'What outcome still feels worth the trade-offs?',
+      deepQuestion: 'Tell me about an accomplishment you are especially proud of: the problem, your role, constraints, measurable impact if you can share it, and what you would refine with hindsight.'
+    },
+    {
+      teaser: 'How do AI tools change your spec-to-ship loop?',
+      deepQuestion: 'How do AI-assisted workflows (planning, documentation, coding in Cursor or similar) change how you deliver without lowering review quality, security, or accountability for production systems?'
+    },
+    {
+      teaser: 'Pick one data-heavy system to unwind end-to-end.',
+      deepQuestion: 'Choose a thread across your work on AWS, Kubernetes, Spark, EMR, or Databricks and walk through one pipeline or service end to end: inputs, failure modes, SLAs, and how you validated correctness under load.'
+    }
   ],
   playground: [
-    'Ask about this experiment…',
-    'What problem were you exploring?',
-    'What would you try differently next time?'
+    {
+      teaser: 'Which experiment should we stress-test for trade-offs?',
+      deepQuestion: 'Which playground project should we dissect first—what hypothesis did it test, what stack did you pick over alternatives, and what would you instrument or simplify on a second iteration?'
+    },
+    {
+      teaser: 'Want problem framing, stack, or what you would try next?',
+      deepQuestion: 'For the experiment you care about most here, restate the problem in one paragraph, summarize the architecture you shipped, and list the top three risks you would mitigate before promoting it beyond a demo.'
+    },
+    {
+      teaser: 'How did you validate the idea without over-building?',
+      deepQuestion: 'How did you validate this experiment quickly—spikes, metrics, user feedback, or operational signals—and where did you consciously defer polish to learn faster?'
+    },
+    {
+      teaser: 'What integration boundary hurt most—and how did you fix it?',
+      deepQuestion: 'What was the hardest integration boundary in this work (APIs, auth, data contracts, deployment), how did you isolate failures, and what pattern would you reuse on a larger team?'
+    }
   ],
   portfolio: [
-    'Ask about a role or impact metric…',
-    'How did you measure success there?',
-    'What was the hardest tradeoff on that project?'
+    {
+      teaser: 'Which role should we go deep on first?',
+      deepQuestion: 'Which portfolio position should we unpack in depth—scope, org context, and the one deliverable or initiative that best shows how you lead execution from design through stable operations?'
+    },
+    {
+      teaser: 'Do you want scope, metrics, or team impact emphasized?',
+      deepQuestion: 'For your strongest role here, separate scope (what you owned), metrics (outcomes you can share), and team impact (mentoring, bar-raising). Which lens matters most for the job you are targeting?'
+    },
+    {
+      teaser: 'Unpack a deliverable you still stand behind years later.',
+      deepQuestion: 'Pick one concrete deliverable from this role—migration, platform cutover, reliability push, or customer-facing launch—and walk through stakeholders, timeline pressure, and how you proved it was done safely.'
+    },
+    {
+      teaser: 'How does this chapter connect to what you optimize for now?',
+      deepQuestion: 'How does this portfolio chapter connect to the problems you optimize for today—identity, data platforms, SaaS scale, or leadership—and what skill from then do you still lean on every week?'
+    }
   ]
 }
+
+function normalizePoolEntry(entry) {
+  if (entry && typeof entry === 'object' && typeof entry.teaser === 'string') {
+    const teaser = entry.teaser.trim()
+    const deepRaw = typeof entry.deepQuestion === 'string' ? entry.deepQuestion.trim() : ''
+    const deepQuestion = deepRaw || teaser
+    return { teaser, deepQuestion }
+  }
+  const s = String(entry || '').trim()
+  return { teaser: s, deepQuestion: s }
+}
+
+let currentDeepQuestion = ''
 
 function normalizeSection(section) {
   return section === 'playground' || section === 'portfolio' ? section : 'home'
@@ -43,15 +93,23 @@ export function initAgentNode(options = {}) {
   const trail = document.getElementById('agentTrail')
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
+  const ambientOverlay = node?.querySelector('.agent-node__ambient-overlay')
 
   if (!node || !heroSlot || !navbarSlot || !form || !input) return null
 
   const {
-    openPanel = () => {},
     openPanelWithMessage = () => {},
+    openPanelWithDraft = () => {},
     isOpen = () => false,
     spacemanPosition = null
   } = options
+
+  const openLauncherDeepIntent = () => {
+    const deep = String(currentDeepQuestion || '').trim()
+    if (!deep) return
+    const source = state.slot === 'navbar' ? 'header' : 'hero'
+    openPanelWithDraft(deep, source, { intentPill: deep })
+  }
 
   const mql = typeof window.matchMedia === 'function'
     ? window.matchMedia(FINE_POINTER_QUERY)
@@ -69,11 +127,10 @@ export function initAgentNode(options = {}) {
 
   let leaveTimer = null
   let unsubscribeChatBus = null
-  let loungeTimer = null
   let launcherObserver = null
   let lastSyncedSection = 'home'
   const placeholderIdx = { home: 0, playground: 0, portfolio: 0 }
-  let barPlaceholderTimer = null
+  let placeholderRotateTimer = null
 
   const prefersReducedMotion = () => Boolean(reducedMql?.matches)
 
@@ -91,7 +148,9 @@ export function initAgentNode(options = {}) {
     const pool = poolForSection(section)
     const n = Number(index) || 0
     const i = ((n % pool.length) + pool.length) % pool.length
-    input.placeholder = pool[i]
+    const entry = normalizePoolEntry(pool[i])
+    input.placeholder = entry.teaser
+    currentDeepQuestion = entry.deepQuestion
   }
 
   const bumpPlaceholderOnSectionChange = (section) => {
@@ -100,35 +159,45 @@ export function initAgentNode(options = {}) {
     applyPlaceholder(section, placeholderIdx[section])
   }
 
-  const clearBarPlaceholderTimer = () => {
-    if (!barPlaceholderTimer) return
-    clearInterval(barPlaceholderTimer)
-    barPlaceholderTimer = null
+  const clearPlaceholderRotateTimer = () => {
+    if (!placeholderRotateTimer) return
+    clearInterval(placeholderRotateTimer)
+    placeholderRotateTimer = null
   }
 
-  const syncBarPlaceholderRotation = () => {
-    clearBarPlaceholderTimer()
+  const syncBubbleLifecycleOverlay = (busy) => {
+    if (!ambientOverlay) return
+    if (busy && state.mode === 'bubble') {
+      ambientOverlay.style.opacity = '1'
+      ambientOverlay.style.pointerEvents = 'none'
+      input.style.setProperty('color', 'transparent')
+      input.style.setProperty('-webkit-text-fill-color', 'transparent')
+      input.style.setProperty('caret-color', 'transparent')
+      return
+    }
+    ambientOverlay.style.removeProperty('opacity')
+    ambientOverlay.style.removeProperty('pointer-events')
+    input.style.removeProperty('color')
+    input.style.removeProperty('-webkit-text-fill-color')
+    input.style.removeProperty('caret-color')
+  }
+
+  const syncPlaceholderRotation = () => {
+    clearPlaceholderRotateTimer()
     if (prefersReducedMotion() || isOpen()) return
     if (!isFinePointer()) return
-    if (state.mode !== 'bar') return
-    barPlaceholderTimer = window.setInterval(() => {
+    if (state.mode === 'modal') return
+    if (isObstructingDialogOpen()) return
+    if (spacemanPosition?.isQuiet) return
+    placeholderRotateTimer = window.setInterval(() => {
       if (isOpen() || node.matches(':focus-within')) return
+      if (isObstructingDialogOpen()) return
+      if (spacemanPosition?.isQuiet) return
+      if (state.mode === 'modal') return
       const sec = state.section
       placeholderIdx[sec] = (placeholderIdx[sec] + 1) % poolForSection(sec).length
       applyPlaceholder(sec, placeholderIdx[sec])
-    }, 4800)
-  }
-
-  const syncDimAskClass = () => {
-    const dim = state.mode === 'bar'
-      || (state.mode === 'bubble' && node.dataset.loungePhase === 'ask')
-    node.classList.toggle('agent-node--dim-ask', dim)
-  }
-
-  const clearLoungeTimer = () => {
-    if (!loungeTimer) return
-    clearTimeout(loungeTimer)
-    loungeTimer = null
+    }, PLACEHOLDER_ROTATE_MS)
   }
 
   const clearLeaveTimer = () => {
@@ -140,75 +209,17 @@ export function initAgentNode(options = {}) {
   const isFinePointer = () => Boolean(mql?.matches)
 
   const syncInputReadOnly = () => {
-    if (isFinePointer() || state.mode === 'modal') {
+    if (isFinePointer() || state.mode === 'modal' || state.mode === 'bar') {
       input.readOnly = false
       return
     }
-    input.readOnly = node.dataset.loungePhase !== 'ask'
+    input.readOnly = true
   }
 
-  const shouldRunCopyAlternate = () => (
-    !prefersReducedMotion()
-    && state.mode === 'bubble'
-    && !isOpen()
-    && !spacemanPosition?.isQuiet
-    && !isObstructingDialogOpen()
-  )
-
-  const scheduleLoungeFlip = () => {
-    clearLoungeTimer()
-    if (!shouldRunCopyAlternate()) return
-    if (node.matches(':focus-within')) {
-      loungeTimer = setTimeout(scheduleLoungeFlip, 640)
-      return
-    }
-    const phase = node.dataset.loungePhase === 'ask' ? 'ask' : 'msg'
-    const delay = phase === 'msg' ? LOUNGE_MSG_MS : LOUNGE_ASK_MS
-    loungeTimer = setTimeout(() => {
-      loungeTimer = null
-      if (!shouldRunCopyAlternate()) return
-      if (node.matches(':focus-within')) {
-        scheduleLoungeFlip()
-        return
-      }
-      const next = phase === 'msg' ? 'ask' : 'msg'
-      node.dataset.loungePhase = next
-      node.classList.add('agent-node--lounge-tick')
-      window.setTimeout(() => node.classList.remove('agent-node--lounge-tick'), 380)
-      if (next === 'ask') {
-        const sec = state.section
-        const pool = poolForSection(sec)
-        applyPlaceholder(sec, placeholderIdx[sec])
-        placeholderIdx[sec] = (placeholderIdx[sec] + 1) % pool.length
-      }
-      syncInputReadOnly()
-      syncDimAskClass()
-      scheduleLoungeFlip()
-    }, delay)
-  }
-
-  const restartLounge = () => {
-    clearLoungeTimer()
+  const refreshPlaceholderUi = () => {
     applyPlaceholder(state.section, placeholderIdx[state.section])
-    if (prefersReducedMotion()) {
-      node.dataset.loungePhase = 'ask'
-      syncInputReadOnly()
-      syncDimAskClass()
-      if (state.mode === 'bar') syncBarPlaceholderRotation()
-      return
-    }
-    if (!shouldRunCopyAlternate()) {
-      node.dataset.loungePhase = 'msg'
-      syncInputReadOnly()
-      syncDimAskClass()
-      if (state.mode === 'bar') syncBarPlaceholderRotation()
-      return
-    }
-    node.dataset.loungePhase = 'msg'
     syncInputReadOnly()
-    syncDimAskClass()
-    scheduleLoungeFlip()
-    if (state.mode === 'bar') syncBarPlaceholderRotation()
+    syncPlaceholderRotation()
   }
 
   const getSlot = () => state.slot
@@ -240,17 +251,17 @@ export function initAgentNode(options = {}) {
     const safe = nextState === 'bar' || nextState === 'modal' ? nextState : 'bubble'
     state.mode = safe
     node.dataset.state = safe
-    if (safe === 'bar' || safe === 'modal') clearLoungeTimer()
-    if (safe !== 'bar') clearBarPlaceholderTimer()
-    syncDimAskClass()
+    if (safe === 'modal') clearPlaceholderRotateTimer()
     syncTrailVisibility()
     syncInputReadOnly()
     options.onStateChange?.(safe)
-    if (safe === 'bar') syncBarPlaceholderRotation()
+    const after = () => {
+      if (safe !== 'modal') syncPlaceholderRotation()
+    }
     if (prev === 'modal' && safe === 'bubble') {
-      requestAnimationFrame(() => restartLounge())
+      requestAnimationFrame(after)
     } else {
-      restartLounge()
+      after()
     }
   }
 
@@ -266,7 +277,7 @@ export function initAgentNode(options = {}) {
     if (!isOpen()) {
       setState('bubble')
     } else {
-      restartLounge()
+      refreshPlaceholderUi()
     }
     spacemanPosition?.updatePosition?.()
   }
@@ -290,6 +301,7 @@ export function initAgentNode(options = {}) {
     } else {
       dockTo('navbar')
     }
+    applyPlaceholder(state.section, placeholderIdx[state.section])
     if (
       isFinePointer()
       && !isOpen()
@@ -298,7 +310,7 @@ export function initAgentNode(options = {}) {
     ) {
       setState('bar')
     } else {
-      syncBarPlaceholderRotation()
+      syncPlaceholderRotation()
     }
   }
 
@@ -321,30 +333,36 @@ export function initAgentNode(options = {}) {
     }, MORPH_LEAVE_DEBOUNCE_MS)
   }
 
-  const openFromNode = () => {
-    setState('modal')
-    openPanel(state.slot)
+  const shouldOpenDeepIntentFromLauncher = () => {
+    if (isOpen()) return false
+    if (state.mode === 'modal') return false
+    if (String(input.value || '').trim()) return false
+    if (node.classList.contains('agent-node--lifecycle-active')) return false
+    if (isObstructingDialogOpen()) return false
+    return state.mode === 'bubble' || state.mode === 'bar'
   }
+
+  form.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 && event.button !== undefined) return
+    if (event.target.closest('.agent-node__send')) return
+    if (!shouldOpenDeepIntentFromLauncher()) return
+    const inLane = event.target.closest('.agent-node__text-lane')
+      || event.target === input
+    if (!inLane) return
+    event.preventDefault()
+    openLauncherDeepIntent()
+  }, true)
 
   form.addEventListener('submit', (event) => {
     event.preventDefault()
     const text = String(input.value || '').trim()
     const source = state.slot === 'navbar' ? 'header' : 'hero'
     if (!text) {
-      openFromNode()
+      openLauncherDeepIntent()
       return
     }
     input.value = ''
-    setState('modal')
     openPanelWithMessage(text, source)
-  })
-
-  input.addEventListener('pointerdown', (event) => {
-    if (isFinePointer()) return
-    if (state.mode === 'modal') return
-    if (!input.readOnly) return
-    event.preventDefault()
-    openFromNode()
   })
 
   input.addEventListener('focus', () => {
@@ -353,43 +371,12 @@ export function initAgentNode(options = {}) {
     }
   })
 
-  const isBubbleAmbientLineTarget = (target) => (
-    Boolean(target?.closest?.('.agent-node__bubble-text'))
-    || Boolean(target?.closest?.('.agent-node__cursor'))
-  )
-
-  node.addEventListener('click', (event) => {
-    if (state.mode !== 'bubble' || isOpen()) return
-    if (!isBubbleAmbientLineTarget(event.target)) return
-    if (spacemanPosition?.isQuiet) return
-    if (prefersReducedMotion()) return
-    if (node.dataset.loungePhase === 'ask') {
-      event.preventDefault()
-      input.focus()
-      return
-    }
-    if (!shouldRunCopyAlternate()) return
-    event.preventDefault()
-    event.stopPropagation()
-    clearLoungeTimer()
-    node.dataset.loungePhase = 'ask'
-    node.classList.add('agent-node--lounge-tick')
-    window.setTimeout(() => node.classList.remove('agent-node--lounge-tick'), 380)
-    const sec = state.section
-    const pool = poolForSection(sec)
-    applyPlaceholder(sec, placeholderIdx[sec])
-    placeholderIdx[sec] = (placeholderIdx[sec] + 1) % pool.length
-    syncInputReadOnly()
-    syncBarPlaceholderRotation()
-    syncDimAskClass()
-    scheduleLoungeFlip()
-  }, true)
-
   node.addEventListener('click', (event) => {
     if (isFinePointer()) return
     if (state.mode !== 'bubble' || isOpen()) return
     if (event.target.closest('.agent-node__form')) return
-    openFromNode()
+    if (String(input.value || '').trim()) return
+    openLauncherDeepIntent()
   })
 
   node.addEventListener('focusin', onPointerEnter)
@@ -411,6 +398,8 @@ export function initAgentNode(options = {}) {
       node.classList.remove(`agent-node--lifecycle-${safe}`)
       trail?.classList.remove(`agent-trail--${safe}`)
     })
+    const busy = Boolean(chatState && chatState !== 'idle')
+    syncBubbleLifecycleOverlay(busy)
     if (!chatState || chatState === 'idle') return
     const safeState = String(chatState).replace(/_/g, '-')
     node.classList.add('agent-node--lifecycle-active', `agent-node--lifecycle-${safeState}`)
@@ -428,15 +417,14 @@ export function initAgentNode(options = {}) {
       setState('bubble')
     } else {
       syncInputReadOnly()
-      restartLounge()
-      syncBarPlaceholderRotation()
+      refreshPlaceholderUi()
     }
   }
   mql?.addEventListener?.('change', onFinePointerMqlChange)
 
   const onReducedMotionMqlChange = () => {
-    clearBarPlaceholderTimer()
-    restartLounge()
+    clearPlaceholderRotateTimer()
+    refreshPlaceholderUi()
   }
   reducedMql?.addEventListener?.('change', onReducedMotionMqlChange)
 
@@ -459,37 +447,15 @@ export function initAgentNode(options = {}) {
     state.heroVisible = false
   }
 
-  let bodyClassObserver = null
-  let bodyRestartRaf = null
-  const scheduleRestartFromBodyClass = () => {
-    if (bodyRestartRaf != null) return
-    bodyRestartRaf = requestAnimationFrame(() => {
-      bodyRestartRaf = null
-      if (state.mode === 'modal') return
-      restartLounge()
-    })
-  }
-
-  if (typeof MutationObserver === 'function' && document.body) {
-    bodyClassObserver = new MutationObserver(scheduleRestartFromBodyClass)
-    bodyClassObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] })
-  }
-
   syncFromNavigation('home')
   syncTrailVisibility()
 
   const destroy = () => {
     clearLeaveTimer()
-    clearLoungeTimer()
-    clearBarPlaceholderTimer()
+    clearPlaceholderRotateTimer()
+    syncBubbleLifecycleOverlay(false)
     launcherObserver?.disconnect()
     launcherObserver = null
-    bodyClassObserver?.disconnect()
-    bodyClassObserver = null
-    if (bodyRestartRaf != null) {
-      cancelAnimationFrame(bodyRestartRaf)
-      bodyRestartRaf = null
-    }
     unsubscribeChatBus?.()
     unsubscribeChatBus = null
     mql?.removeEventListener?.('change', onFinePointerMqlChange)

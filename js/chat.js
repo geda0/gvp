@@ -1,6 +1,7 @@
 import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
 import { bindChatLiveVoice } from './chat-live.js'
+import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
@@ -11,8 +12,6 @@ const SESSION_KEY = 'gvp-chat-session-id'
 const MAX_COMPOSER_HEIGHT = 128
 const SUCCESS_IDLE_DELAY_MS = 700
 const ERROR_IDLE_DELAY_MS = 2300
-const PANEL_ANIM_MS = 280
-const PANEL_ANIM_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 
 let collapseChat = () => {}
@@ -88,6 +87,9 @@ export function syncHeroChatSurface(section = 'home') {
 }
 
 export function initChat() {
+  document.documentElement.style.setProperty('--gvp-chat-panel-anim-ms', `${PANEL_ANIM_MS}ms`)
+  document.documentElement.style.setProperty('--gvp-chat-panel-anim-ease', PANEL_ANIM_EASE)
+
   const agentNode = document.getElementById('agentNode')
   const agentForm = agentNode?.querySelector('.agent-node__form')
   const agentInput = agentNode?.querySelector('.agent-node__input')
@@ -96,6 +98,7 @@ export function initChat() {
 
   const dialog = document.getElementById('chatDialog')
   const panel = dialog?.querySelector('.chat-dialog__panel')
+  const dialogHeader = dialog?.querySelector('.chat-dialog__header')
   const backdrop = dialog?.querySelector('.chat-dialog__backdrop')
   const closeBtn = dialog?.querySelector('.chat-dialog__close')
   const messagesEl = document.getElementById('chatMessages')
@@ -105,6 +108,7 @@ export function initChat() {
   const composerInput = document.getElementById('chatComposerInput')
   const composerSend = composer?.querySelector('.chat-composer__send')
   const composerMic = document.getElementById('chatComposerMic')
+  const composerClear = document.getElementById('chatComposerClear')
   const statusEl = document.getElementById('chatStatus')
 
   if (!agentNode || !agentForm || !agentInput || !heroSlotEl || !dialog || !panel || !messagesEl || !composer || !composerInput || !statusEl) return null
@@ -122,6 +126,7 @@ export function initChat() {
     section: 'home'
   }
   let lifecycleResetTimer = null
+  let intentPillEl = null
   let panelAnim = {
     token: 0,
     raf: null,
@@ -192,6 +197,39 @@ export function initChat() {
     syncAgentLauncherChrome(nextSection)
     state.agentNodeApi?.syncFromNavigation?.(nextSection)
     state.agentNodeApi?.syncTrailVisibility?.()
+  }
+
+  const clearIntentPill = () => {
+    if (!intentPillEl) return
+    intentPillEl.remove()
+    intentPillEl = null
+  }
+
+  const setIntentPill = (rawText) => {
+    clearIntentPill()
+    const text = String(rawText || '').trim()
+    if (!dialogHeader || !text) return
+    const wrap = document.createElement('div')
+    wrap.className = 'chat-dialog__intent-pill'
+
+    const label = document.createElement('span')
+    label.className = 'chat-dialog__intent-pill-text'
+    label.textContent = text
+
+    const dismiss = document.createElement('button')
+    dismiss.type = 'button'
+    dismiss.className = 'chat-dialog__intent-pill-dismiss'
+    dismiss.setAttribute('aria-label', 'Dismiss topic hint')
+    dismiss.textContent = '×'
+
+    dismiss.addEventListener('click', () => {
+      discardComposerDraft()
+    })
+
+    wrap.appendChild(label)
+    wrap.appendChild(dismiss)
+    dialogHeader.insertAdjacentElement('afterend', wrap)
+    intentPillEl = wrap
   }
 
   const setStatus = (text, tone = 'muted') => {
@@ -321,11 +359,22 @@ export function initChat() {
     const voiceBusy = liveUi.active || liveUi.connecting
     composerInput.disabled = textBusy || voiceBusy
     if (composerSend) composerSend.disabled = textBusy || voiceBusy
+    if (composerClear) composerClear.disabled = textBusy || voiceBusy
     if (composerMic) {
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
       composerMic.disabled = micBusy
       composerMic.hidden = false
       composerMic.removeAttribute('inert')
+    }
+  }
+
+  function discardComposerDraft({ focusComposer = true } = {}) {
+    clearIntentPill()
+    composerInput.value = ''
+    autosizeComposer()
+    reconcileComposerControls()
+    if (focusComposer && isOpen() && typeof composerInput.focus === 'function') {
+      composerInput.focus()
     }
   }
 
@@ -349,6 +398,7 @@ export function initChat() {
 
   const snapClose = ({ restoreFocus = true } = {}) => {
     clearPanelAnimation()
+    clearIntentPill()
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -370,6 +420,7 @@ export function initChat() {
 
   const openPanel = () => {
     if (isOpen()) return
+    clearIntentPill()
     state.lastFocus = document.activeElement
     clearPanelAnimation()
     state.agentNodeApi?.setState?.('modal')
@@ -462,6 +513,7 @@ export function initChat() {
   }
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
+    clearIntentPill()
     messagesEl.textContent = ''
     syncEmptyState()
     state.history = []
@@ -527,6 +579,10 @@ export function initChat() {
       return
     }
 
+    if (source === 'composer') {
+      clearIntentPill()
+    }
+
     if (source === 'hero') {
       trackEvent('hero_chat_submit', { surface: 'hero' })
     } else if (source === 'header') {
@@ -573,9 +629,32 @@ export function initChat() {
     }
   }
 
-  const openPanelWithMessage = (text, source = 'hero') => {
+  const openPanelWithMessage = (text, source = 'hero', options = {}) => {
+    const intentPill = typeof options.intentPill === 'string'
+      ? options.intentPill.trim()
+      : (typeof options.suggestedPromptPill === 'string' ? options.suggestedPromptPill.trim() : '')
     openPanel()
+    if (intentPill) setIntentPill(intentPill)
+    else clearIntentPill()
     void sendMessage(text, source)
+  }
+
+  const openPanelWithDraft = (text, _source = 'hero', options = {}) => {
+    const body = String(text || '').trim()
+    if (!body) return
+    const intentPill = typeof options.intentPill === 'string'
+      ? options.intentPill.trim()
+      : (typeof options.suggestedPromptPill === 'string' ? options.suggestedPromptPill.trim() : '')
+    openPanel()
+    composerInput.value = body
+    autosizeComposer()
+    if (intentPill) setIntentPill(intentPill)
+    else clearIntentPill()
+    reconcileComposerControls()
+    requestAnimationFrame(() => {
+      if (!isOpen()) return
+      composerInput.focus()
+    })
   }
 
   agentInput.addEventListener('focus', () => {
@@ -595,6 +674,7 @@ export function initChat() {
 
   document.addEventListener('click', (event) => {
     const chipsRoot = event.target.closest('#heroChatSuggestions')
+      || event.target.closest('#navbarChatSuggestions')
     if (!chipsRoot) return
     const chip = event.target.closest('[data-prompt]')
     if (!chip) return
@@ -606,7 +686,7 @@ export function initChat() {
     } else {
       trackEvent('hero_chat_chip', { prompt: chip.textContent || '' })
     }
-    openPanelWithMessage(prompt, source)
+    openPanelWithDraft(prompt, source, { intentPill: prompt })
   })
 
   dialogSuggestions?.addEventListener('click', (event) => {
@@ -632,6 +712,10 @@ export function initChat() {
 
   composerInput.addEventListener('input', () => {
     autosizeComposer()
+  })
+
+  composerClear?.addEventListener('click', () => {
+    discardComposerDraft()
   })
 
   backdrop?.addEventListener('click', () => closePanel())
@@ -704,7 +788,8 @@ export function initChat() {
     bindAgentNode,
     disposeChatLiveVoice,
     openPanel: () => openPanel(),
-    openPanelWithMessage: (text, source = resolveLauncherSource()) => openPanelWithMessage(text, source),
+    openPanelWithMessage: (text, source = resolveLauncherSource(), options) => openPanelWithMessage(text, source, options),
+    openPanelWithDraft: (text, source = resolveLauncherSource(), options) => openPanelWithDraft(text, source, options),
     closePanelImmediate: ({ restoreFocus = false } = {}) => closePanel({ restoreFocus, immediate: true }),
     isOpen
   }

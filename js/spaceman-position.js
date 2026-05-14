@@ -1,6 +1,8 @@
 // spaceman-position.js - Simplified positioning controller
 // Anchors spaceman near dialog TOP-RIGHT, clamps to viewport, respects nav
 
+import { PANEL_ANIM_MS } from './chat-panel-anim.js'
+
 class SpacemanPosition {
   constructor(spacemanElement, options = {}) {
     this.spaceman = spacemanElement;
@@ -613,7 +615,15 @@ class SpacemanPosition {
     this._onEnd = onEnd;
     this.movable.addEventListener('transitionend', onEnd);
 
-    this._cleanupTimer = setTimeout(cleanup, this.options.transitionSpeed * 1000 + 50);
+    const reducedMotion =
+      typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const chatPanelCadence =
+      document.body.classList.contains('chat-dialog-open') && !reducedMotion;
+    const transitionMs = chatPanelCadence
+      ? PANEL_ANIM_MS
+      : this.options.transitionSpeed * 1000;
+    this._cleanupTimer = setTimeout(cleanup, transitionMs + 50);
   }
 
   _startTrailLoop() {
@@ -652,6 +662,18 @@ class SpacemanPosition {
     this._updateTrail()
   }
 
+  /** Theme toggles display between `.helmet` and `.hero-head`; only the painted head has a non-zero box. */
+  _trailHeadBoundingRect() {
+    if (!this.spaceman) return null
+    for (const sel of ['.helmet', '.hero-head']) {
+      const el = this.spaceman.querySelector(sel)
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      if (r.width > 2 && r.height > 2) return r
+    }
+    return null
+  }
+
   _updateTrail() {
     const trail = this.agentTrail || document.getElementById('agentTrail')
     const node = this.agentNode || document.getElementById('agentNode')
@@ -672,21 +694,28 @@ class SpacemanPosition {
       return
     }
 
-    const anchorEl = this.spaceman.querySelector('.helmet') || this.spaceman.querySelector('.hero-head')
-    if (!anchorEl) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    const a = anchorEl.getBoundingClientRect()
+    const headRect = this._trailHeadBoundingRect()
     const b = node.getBoundingClientRect()
-    if (a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0) {
+    if (!headRect || headRect.width <= 0 || headRect.height <= 0 || b.width <= 0 || b.height <= 0) {
       trail.classList.add('agent-trail--hidden')
       return
     }
 
-    const ax = a.left + a.width / 2
-    const ay = a.top + a.height / 2
+    /* Thought starts on the head rim toward the launcher (like .thought-tail), not the head bbox center. */
+    const ahx = headRect.left + headRect.width / 2
+    const ahy = headRect.top + headRect.height / 2
+    const gx = b.left + b.width / 2
+    const gy = b.top + b.height / 2
+    const toGx = gx - ahx
+    const toGy = gy - ahy
+    const toGLen = Math.hypot(toGx, toGy)
+    const rim = Math.min(headRect.width, headRect.height) * 0.38
+    let ax = ahx
+    let ay = ahy
+    if (toGLen > 12) {
+      ax = ahx + (toGx / toGLen) * rim
+      ay = ahy + (toGy / toGLen) * rim
+    }
     const bx = Math.max(b.left, Math.min(ax, b.right))
     const by = Math.max(b.top, Math.min(ay, b.bottom))
     const rdx = bx - ax

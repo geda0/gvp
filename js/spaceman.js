@@ -278,11 +278,18 @@ class Spaceman {
   }
 
   _syncChipVisibility() {
-    const chips = document.getElementById('heroChatSuggestions')
-    if (!chips) return
-    const show = (this.state === 'home' || this.state === 'idle') && !this.isQuiet
-    chips.hidden = !show
-    chips.setAttribute('aria-hidden', show ? 'false' : 'true')
+    const heroChips = document.getElementById('heroChatSuggestions')
+    const navChips = document.getElementById('navbarChatSuggestions')
+    const showHero = (this.state === 'home' || this.state === 'idle') && !this.isQuiet
+    const showNav = (this.state === 'playground' || this.state === 'portfolio') && !this.isQuiet
+    if (heroChips) {
+      heroChips.hidden = !showHero
+      heroChips.setAttribute('aria-hidden', showHero ? 'false' : 'true')
+    }
+    if (navChips) {
+      navChips.hidden = !showNav
+      navChips.setAttribute('aria-hidden', showNav ? 'false' : 'true')
+    }
   }
 
   _bindHeroMenu() {
@@ -308,7 +315,7 @@ class Spaceman {
     this._quietMenuOutsideClick = (e) => {
       if (quietMenu.hidden) return;
       if (quietMenu.contains(e.target) || this.elements.spaceman?.contains(e.target)) return;
-      if (e.target.closest('#heroChatSuggestions')) return;
+      if (e.target.closest('#heroChatSuggestions') || e.target.closest('#navbarChatSuggestions')) return;
       this._dismissHeroMenu();
     };
   }
@@ -634,7 +641,13 @@ class Spaceman {
     if (this.isQuiet) return; // Don't start message cycle when quiet
     if (this._chatLifecycleState !== 'idle') return;
     if (this.isDetermined) return; // Freeze message cycle when determined
-    
+    if (this.state === 'home' || this.state === 'idle') {
+      const { text } = this.elements;
+      if (text) text.textContent = '';
+      this._firstMessageShown = true;
+      return;
+    }
+
     const { states } = this._getThemeData();
     const stateData = states?.[this.state];
     const messages = this._getMergedMessages(this.state);
@@ -710,7 +723,8 @@ class Spaceman {
   _react(type) {
     if (this.isQuiet) return; // Don't react when quiet
     if (this._chatLifecycleState !== 'idle') return;
-    
+    if (this.state === 'home' || this.state === 'idle') return;
+
     const { reactions } = this._getThemeData();
     const reaction = reactions?.[type];
     if (!reaction) return;

@@ -78,8 +78,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const chatApi = initChat()
   if (chatApi) {
     const agentNodeApi = initAgentNode({
-      openPanel: () => chatApi.openPanel(),
-      openPanelWithMessage: (text, source) => chatApi.openPanelWithMessage(text, source),
+      openPanelWithMessage: (text, source, options) => chatApi.openPanelWithMessage(text, source, options),
+      openPanelWithDraft: (text, source, options) => chatApi.openPanelWithDraft(text, source, options),
       isOpen: () => chatApi.isOpen(),
       spacemanPosition,
       onStateChange: () => spacemanPosition?.updatePosition?.(),

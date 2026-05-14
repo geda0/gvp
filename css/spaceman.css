@@ -796,7 +796,7 @@ body.contact-dialog-open:not(.chat-dialog-open) #spacemanContainer {
 /* Chat overlay covers the hero — keep mascot under the panel so bubbles never paint on messages */
 body.chat-dialog-open #spacemanContainer {
   z-index: 1040;
-  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--gvp-chat-panel-anim-ms, 280ms) var(--gvp-chat-panel-anim-ease, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 /* Trail hidden while overlays are open (agent-node also syncs via JS). */

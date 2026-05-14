@@ -24,7 +24,7 @@
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYTRKC93DL"></script>
     <!-- Contact API: set meta content to your deployed URL (.../api/contact). CI: scripts/sync-site-api-urls.mjs -->
-    <meta name="gvp:contact-api-url" content="https://lwi0vmdpb5.execute-api.us-east-2.amazonaws.com/api/contact" />
+    <meta name="gvp:contact-api-url" content="https://fvfqpef8kb.execute-api.us-east-2.amazonaws.com/api/contact" />
     <script>
         (function () {
             var m = document.querySelector('meta[name="gvp:contact-api-url"]')
@@ -116,8 +116,14 @@
                                     </div>
                                 </div>
                                 <div class="hero-chat">
+                                    <div class="hero-chat__label-wrap">
+                                        <p class="hero-chat__label">
+                                            <span class="hero-chat__dot" aria-hidden="true"></span>
+                                            Ask anything about my work
+                                        </p>
+                                    </div>
                                 <div id="agentSlotHero" class="agent-slot agent-slot--hero">
-                                    <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero" data-lounge-phase="msg"
+                                    <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero"
                                         aria-label="Ask about Marwan's work">
                                         <form class="agent-node__form" novalidate>
                                             <label for="agentNodeInput" class="visually-hidden">Ask about Marwan's work</label>
@@ -128,7 +134,7 @@
                                                     <span class="agent-node__cursor" aria-hidden="true">|</span>
                                                 </div>
                                                 <input type="text" id="agentNodeInput" class="agent-node__input" inputmode="text" autocomplete="off"
-                                                    placeholder="e.g., What is your most recent project?"
+                                                    placeholder="What would you like to know about my work?"
                                                     data-track="hero_chat_input_focus" />
                                             </div>
                                             <button type="submit" class="agent-node__send" aria-label="Open chat and send message"
@@ -283,7 +289,12 @@
             <form id="chatComposer" class="chat-composer" novalidate>
                 <label for="chatComposerInput" class="visually-hidden">Message to chat assistant</label>
                 <div class="chat-composer__row">
-                    <textarea id="chatComposerInput" rows="1" placeholder="Ask a follow-up…" data-track="chat_composer_focus"></textarea>
+                    <div class="chat-composer__field">
+                        <textarea id="chatComposerInput" rows="1" placeholder="Ask a follow-up…" data-track="chat_composer_focus"></textarea>
+                        <button type="button" id="chatComposerClear" class="chat-composer__clear"
+                            aria-label="Discard draft message" data-track="chat_composer_clear"><span
+                                aria-hidden="true">×</span></button>
+                    </div>
                     <button type="button" id="chatComposerMic" class="chat-composer__mic"
                         aria-label="Start voice mode" aria-pressed="false"
                         data-track="chat_composer_mic">
@@ -292,7 +303,8 @@
                                 d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
                         </svg>
                     </button>
-                    <button type="submit" class="chat-composer__send" data-track="chat_composer_submit">Send</button>
+                    <button type="submit" class="chat-composer__send" aria-label="Send message"
+                        data-track="chat_composer_submit"><span aria-hidden="true">↑</span></button>
                 </div>
             </form>
             <p id="chatStatus" class="chat-status" role="status" aria-live="polite"></p>
