@@ -12,9 +12,20 @@ const bioSourcePath = path.join(repoRoot, 'data', 'chat-knowledge', 'bio.source.
 const outputDir = path.join(repoRoot, 'data', 'chat-knowledge')
 
 const ROLE_TAGS = {
-  'apptio (ibm)': ['aws', 'platform architecture', 'saas', 'subscriptions', 'identity', 'data pipelines', 'finops', 'cloudability'],
-  jumpcloud: ['identity', 'platform architecture', 'saas', 'security', 'apis'],
-  'instant ink (hp)': ['subscriptions', 'saas', 'platform architecture', 'high-scale systems'],
+  'apptio (ibm)': [
+    'aws',
+    'platform architecture',
+    'saas',
+    'subscriptions',
+    'identity',
+    'data pipelines',
+    'finops',
+    'cloudability',
+    'spark',
+    'kubernetes'
+  ],
+  jumpcloud: ['identity', 'platform architecture', 'saas', 'security', 'apis', 'graphql', 'kubernetes', 'mongodb'],
+  'instant ink (hp)': ['subscriptions', 'saas', 'platform architecture', 'high-scale systems', 'kubernetes'],
   'at&t': ['backend', 'data systems', 'query systems'],
   'sunrise resorts & cruises': ['infrastructure', 'operations', 'networks'],
   '5d-agency (swi)': ['frontend', 'games', 'mobile'],
@@ -24,8 +35,8 @@ const ROLE_TAGS = {
 const PROJECT_TAGS = {
   gvp: ['this-site', 'frontend', 'ai', 'platform architecture'],
   'monday-rover': ['python', 'embedded', 'hardware', 'computer vision'],
-  apptio: ['saas', 'data pipelines', 'platform architecture', 'aws'],
-  jumpcloud: ['identity', 'security', 'saas'],
+  apptio: ['saas', 'data pipelines', 'platform architecture', 'aws', 'spark', 'kubernetes'],
+  jumpcloud: ['identity', 'security', 'saas', 'graphql', 'kubernetes', 'mongodb'],
   'instant-ink': ['subscriptions', 'saas', 'backend'],
   att: ['backend', 'query systems'],
   sunrise: ['infrastructure', 'operations'],
@@ -58,6 +69,39 @@ const FAQ = [
   {
     q: ['are you marwan', 'is this marwan', 'am i talking to a person'],
     a: "No. I'm an assistant embedded in Marwan's portfolio site. I can answer questions about his work and route you to him when needed, but I'm not Marwan."
+  },
+  {
+    q: [
+      'most impressive',
+      'biggest accomplishment',
+      'proudest achievement',
+      'signature win',
+      'what is he most proud of'
+    ],
+    a: "He often points to scaling HP's Instant Ink subscription platform from thousands to millions of customers globally: moving from a Ruby on Rails monolith toward cloud-native, event-driven microservices with Domain-Driven Design and strong testing, in months, with four distributed teams, while keeping reliability and availability in focus."
+  },
+  {
+    q: [
+      'hardest technical',
+      'most challenging engineering',
+      'toughest technical problem',
+      'most complex migration',
+      'hardest problem he solved'
+    ],
+    a: 'At Apptio, migrating Java and Kubernetes workloads to EMR Spark with Scala for scale and cost. Financial datasets tolerate essentially no correctness drift. He built a parallel reconciliation pipeline that ran legacy and new processing together, surfaced discrepancies, and allowed incremental cutover with confidence.'
+  },
+  {
+    q: [
+      'why did he leave apptio',
+      'why leave apptio',
+      'why did he leave ibm apptio',
+      'motivation to leave apptio'
+    ],
+    a: 'Apptio was acquired by IBM during his tenure. Over time the organization added more process overhead and company-wide priorities shifted. For what he wants next in a role, the contact form is the best channel.'
+  },
+  {
+    q: ['cursor', 'claude code', 'ai coding tools', 'copilot', 'llm for coding'],
+    a: 'He uses Cursor and Claude Code daily: Claude for large-initiative planning and documentation, Cursor for prototyping and writing code, and multi-model workflows to improve speed and quality, with human review on production and correctness-sensitive work.'
   }
 ]
 
@@ -75,14 +119,19 @@ function stripHtml(html) {
     .trim()
 }
 
-function roleTags(company, role) {
+function roleTags(company, role, highlights) {
   const key = String(company || '').toLowerCase()
   const base = ROLE_TAGS[key] || []
   const dynamic = []
-  const roleText = `${company || ''} ${role || ''}`.toLowerCase()
+  const hl = (Array.isArray(highlights) ? highlights : []).join(' ').toLowerCase()
+  const roleText = `${company || ''} ${role || ''} ${hl}`
   if (roleText.includes('cloud')) dynamic.push('cloud')
   if (roleText.includes('identity') || roleText.includes('directory')) dynamic.push('identity')
   if (roleText.includes('subscription')) dynamic.push('subscriptions')
+  if (roleText.includes('graphql')) dynamic.push('graphql')
+  if (roleText.includes('spark') || roleText.includes('emr')) dynamic.push('spark')
+  if (roleText.includes('kubernetes') || roleText.includes('k8s')) dynamic.push('kubernetes')
+  if (roleText.includes('mongo')) dynamic.push('mongodb')
   return Array.from(new Set([...base, ...dynamic]))
 }
 
@@ -121,7 +170,7 @@ function buildRoles(resume) {
       summary: highlights[0] || `${role} at ${company}.`,
       highlights,
       tech: [],
-      relevance_tags: roleTags(company, role)
+      relevance_tags: roleTags(company, role, highlights)
     }
   })
 }

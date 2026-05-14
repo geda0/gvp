@@ -41,6 +41,10 @@ SYNONYMS: dict[str, set[str]] = {
     'node.js': {'node', 'nodejs', 'node.js'},
     'typescript': {'typescript', 'ts'},
     'operations': {'on-call', 'on call', 'observability', 'alerts', 'runbooks', 'operability'},
+    'spark': {'spark', 'emr', 'apache spark', 'scala spark', 'databricks'},
+    'graphql': {'graphql', 'graph ql', 'apollo'},
+    'kubernetes': {'kubernetes', 'k8s', 'kube'},
+    'mongodb': {'mongodb', 'mongo db', 'mongo'},
 }
 
 
@@ -277,15 +281,23 @@ def _compact_bio(bio: dict[str, Any]) -> dict[str, Any]:
         tech_out = [str(x) for x in tech[:16]]
     else:
         tech_out = []
-    return {
+    speaking = bio.get('speaking_points') or []
+    if isinstance(speaking, list):
+        speaking_out = [_truncate_text(str(x), 280) for x in speaking[:8]]
+    else:
+        speaking_out = []
+    out: dict[str, Any] = {
         'name': bio.get('name'),
         'current_status': _truncate_text(str(bio.get('current_status', '')), 240),
         'based': bio.get('based'),
-        'summary': _truncate_text(str(bio.get('summary', '')), 600),
+        'summary': _truncate_text(str(bio.get('summary', '')), 900),
         'strengths': strengths_out,
         'tech_at_glance': tech_out,
         'contact_preference': _truncate_text(str(bio.get('contact_preference', '')), 200),
     }
+    if speaking_out:
+        out['speaking_points'] = speaking_out
+    return out
 
 
 def _compact_role(role: dict[str, Any]) -> dict[str, Any]:

@@ -75,6 +75,8 @@
       "data pipelines",
       "platform architecture",
       "aws",
+      "spark",
+      "kubernetes",
       "java",
       "portfolio"
     ]
@@ -101,6 +103,9 @@
       "identity",
       "security",
       "saas",
+      "graphql",
+      "kubernetes",
+      "mongodb",
       "portfolio"
     ]
   },

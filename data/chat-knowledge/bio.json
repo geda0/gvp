@@ -1,23 +1,36 @@
 {
   "name": "Marwan Elgendy",
-  "current_status": "Software engineer focused on platform architecture and data-intensive SaaS.",
+  "current_status": "Senior technical engineer with 15+ years building scalable backends, data platforms, and cloud-native systems.",
   "based": "United States",
-  "summary": "Marwan builds production systems with clear boundaries, operable services, and end-to-end delivery. His work spans enterprise SaaS, identity, subscriptions, and data-intensive cloud platforms. He has shipped at IBM (Apptio/Cloudability), HP, JumpCloud, and AT&T.",
+  "summary": "Marwan designs and delivers production systems at enterprise scale: AWS and Kubernetes platforms, distributed microservices, large-scale data processing (Spark, EMR, Databricks), and correctness-critical migrations. He has led end-to-end initiatives across architecture, infrastructure automation, and mentoring, with recent depth at IBM (Apptio), JumpCloud, and HP Instant Ink, plus earlier roles including AT&T.",
   "strengths": [
-    "Platform architecture and service boundary design",
-    "Identity, subscriptions, and billing infrastructure",
-    "Data-intensive pipelines (ingestion, transformation, reporting)",
-    "End-to-end delivery across ship, stabilize, and iterate",
-    "Operability with observability, alerting, and on-call discipline"
+    "Cloud-native and event-driven architecture; Domain-Driven Design for bounded contexts",
+    "High-volume and financial-grade data pipelines with reconciliation-driven cutovers",
+    "Multi-tenant APIs and hybrid data stores (PostgreSQL plus MongoDB) at tens of thousands of tenants",
+    "AWS serverless and workflow automation (Lambda, Step Functions, SQS, SNS, DynamoDB)",
+    "Monolith-to-microservices evolution while protecting availability and reliability",
+    "Cross-functional leadership with distributed teams (engineering, DevOps, QA, product)"
   ],
   "tech_at_glance": [
-    "AWS (Lambda, DynamoDB, SQS, API Gateway, SAM)",
-    "Node.js",
     "Python",
     "Java",
+    "Scala",
+    "Node.js",
     "TypeScript",
+    "Spark / EMR / Databricks",
+    "GraphQL",
     "PostgreSQL",
-    "Kafka"
+    "MongoDB",
+    "AWS (Lambda, Step Functions, SQS, SNS, DynamoDB, API Gateway, SAM)",
+    "Kubernetes",
+    "Kafka",
+    "Ruby on Rails (legacy migration context)"
+  ],
+  "speaking_points": [
+    "At HP Instant Ink he helped scale a printer subscription platform from thousands to millions of customers globally by moving from a Ruby on Rails monolith toward cloud-native, event-driven microservices using DDD and strong automated testing, coordinating four geographically distributed teams without sacrificing stability.",
+    "At Apptio he addressed scaling and cost by migrating Java and Kubernetes workloads to EMR Spark with Scala, including roughly 10x faster processing. The hardest constraint was financial data correctness; he shipped a parallel reconciliation pipeline so both systems ran together, discrepancies were flagged, and cutover could proceed incrementally with zero drift tolerance in mind.",
+    "At JumpCloud he owned end-to-end technical design and delivery of a GraphQL-based Microsoft M365 integration for more than 50,000 tenants: multi-tenant schema and resolvers, API layer, and hybrid Postgres plus MongoDB to balance read-heavy relational access with high write volume.",
+    "He uses Cursor and Claude Code daily: Claude for large-initiative planning and documentation, Cursor for prototyping and implementation, and multi-model workflows to improve speed and quality, with careful human review on production and correctness-sensitive paths."
   ],
   "contact_preference": "The contact form on this site is the preferred channel. Marwan reads every submission."
 }

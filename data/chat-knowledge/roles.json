@@ -5,9 +5,12 @@
     "product": "TBM / IT Financial Management",
     "tenure": "Recent",
     "team": "TBM / IT Financial Management",
-    "summary": "Data-intensive SaaS for IT financial planning and cost transparency",
+    "summary": "Data-intensive SaaS for IT financial planning and cost transparency at enterprise scale.",
     "highlights": [
-      "Data-intensive SaaS for IT financial planning and cost transparency"
+      "Data-intensive SaaS for IT financial planning and cost transparency at enterprise scale.",
+      "Migrated Java and Kubernetes batch workloads to EMR Spark with Scala for scale and cost; roughly an order-of-magnitude faster processing while keeping services available.",
+      "Built a parallel reconciliation pipeline that ran legacy and new systems together, flagged discrepancies, and enabled incremental cutover with no correctness drift on financial datasets.",
+      "Reduced manual operations using Python, AWS Lambda, and Step Functions."
     ],
     "tech": [],
     "relevance_tags": [
@@ -18,7 +21,9 @@
       "identity",
       "data pipelines",
       "finops",
-      "cloudability"
+      "cloudability",
+      "spark",
+      "kubernetes"
     ]
   },
   {
@@ -27,9 +32,11 @@
     "product": "Directory & Device Management",
     "tenure": "Cloud",
     "team": "Directory & Device Management",
-    "summary": "Cloud directory and device management at organizational scale",
+    "summary": "Cloud directory and device management at organizational scale.",
     "highlights": [
-      "Cloud directory and device management at organizational scale"
+      "Cloud directory and device management at organizational scale.",
+      "Owned end-to-end technical design and delivery of a GraphQL-based Microsoft M365 integration serving more than 50,000 tenants.",
+      "Designed a multi-tenant GraphQL schema and production resolvers, the API layer, and a hybrid PostgreSQL plus MongoDB architecture balancing relational query performance with high write volume."
     ],
     "tech": [],
     "relevance_tags": [
@@ -38,6 +45,9 @@
       "saas",
       "security",
       "apis",
+      "graphql",
+      "kubernetes",
+      "mongodb",
       "cloud"
     ]
   },
@@ -47,16 +57,20 @@
     "product": "Subscription & Financial Services",
     "tenure": "SaaS",
     "team": "Subscription & Financial Services",
-    "summary": "Subscription commerce and service delivery for consumer printing",
+    "summary": "Subscription commerce and service delivery for consumer printing at global scale.",
     "highlights": [
-      "Subscription commerce and service delivery for consumer printing"
+      "Subscription commerce and service delivery for consumer printing at global scale.",
+      "Led transformation of a Ruby on Rails monolith into cloud-native, event-driven microservices using Domain-Driven Design and disciplined automated testing, scaling Instant Ink from thousands to millions of customers.",
+      "Coordinated engineering, DevOps, QA, and product across four geographically distributed teams while maintaining stability, availability, and reliability during rapid growth."
     ],
     "tech": [],
     "relevance_tags": [
       "subscriptions",
       "saas",
       "platform architecture",
-      "high-scale systems"
+      "high-scale systems",
+      "kubernetes",
+      "cloud"
     ]
   },
   {
