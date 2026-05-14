@@ -224,7 +224,9 @@ async function getMessage(id) {
 }
 
 function chatTableName() {
-  return tableOrFallback(process.env.CHAT_TRANSCRIPTS_TABLE)
+  // Never fall back to CONTACT_MESSAGES_TABLE — that GSI uses a different listPk
+  // and would make the transcript tab look "empty" with no obvious error.
+  return String(process.env.CHAT_TRANSCRIPTS_TABLE || '').trim()
 }
 
 function hasChatTranscriptTable() {

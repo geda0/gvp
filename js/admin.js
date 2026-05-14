@@ -13,7 +13,13 @@ const contactAdminBaseUrl =
 const apiRoot = contactApiBase.endsWith('/api/contact')
   ? contactApiBase.slice(0, -'/api/contact'.length)
   : ''
-const chatAdminBaseUrl = apiRoot ? `${apiRoot}/api/chat/admin` : '/api/chat/admin'
+// Same API host as contact admin; never use site-relative /api/chat/admin unless we have no absolute base.
+let chatAdminBaseUrl = '/api/chat/admin'
+if (contactAdminBaseUrl && /\/api\/contact\/admin\/?$/.test(contactAdminBaseUrl)) {
+  chatAdminBaseUrl = contactAdminBaseUrl.replace(/\/api\/contact\/admin\/?$/, '/api/chat/admin')
+} else if (apiRoot) {
+  chatAdminBaseUrl = `${apiRoot}/api/chat/admin`
+}
 const isLocalAdminHost =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
