@@ -212,23 +212,23 @@ class Spaceman {
   _render() {
     this.container.innerHTML = `
       <div class="spaceman-outer">
+        <div id="spacemanChips" class="spaceman-chips" aria-label="Suggested prompts" hidden>
+          <button type="button" class="spaceman-chip"
+            data-prompt="How do you approach platform architecture?"
+            data-track="hero_chat_chip_architecture">Platform architecture</button>
+          <button type="button" class="spaceman-chip"
+            data-prompt="Tell me about an accomplishment you're especially proud of."
+            data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
+          <button type="button" class="spaceman-chip"
+            data-prompt="What project challenged you the most, and how did you approach it?"
+            data-track="hero_chat_chip_challenge">Most challenging project</button>
+        </div>
         <div class="spaceman-quiet-menu" id="spacemanQuietMenu" role="menu" aria-label="Hero options" hidden>
           <button type="button" class="spaceman-quiet-menu-btn" data-action="stay" hidden>Stay here</button>
           <button type="button" class="spaceman-quiet-menu-btn" data-action="free" hidden>Free</button>
           <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
         </div>
         <div class="spaceman" id="spaceman">
-        <div class="thought-stack">
-        <div class="thought-bubble" id="thoughtBubble">
-          <span class="thought-text" id="thoughtText"></span>
-          <span class="cursor">|</span>
-        </div>
-        <div class="thought-tail">
-          <span class="bubble-dot dot-1"></span>
-          <span class="bubble-dot dot-2"></span>
-          <span class="bubble-dot dot-3"></span>
-        </div>
-        </div>
         <div class="spaceman-body">
           <div class="jetpack">
             <div class="pack"></div>
@@ -278,13 +278,23 @@ class Spaceman {
 
     this.elements = {
       spaceman: document.getElementById('spaceman'),
-      text: document.getElementById('thoughtText'),
+      text: document.querySelector('#agentNode .agent-node__bubble-text'),
+      cursor: document.querySelector('#agentNode .agent-node__cursor'),
+      chips: document.getElementById('spacemanChips'),
       quietMenu: document.getElementById('spacemanQuietMenu'),
       stayMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="stay"]'),
       freeMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="free"]'),
       quietMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="quiet"]')
     };
+    this._syncChipVisibility()
     this._bindHeroMenu();
+  }
+
+  _syncChipVisibility() {
+    const { chips } = this.elements
+    if (!chips) return
+    chips.hidden = this.state !== 'home' || this.isQuiet
+    chips.setAttribute('aria-hidden', chips.hidden ? 'true' : 'false')
   }
 
   _bindHeroMenu() {
@@ -490,6 +500,7 @@ class Spaceman {
     if (this.isQuiet === quiet) return;
     
     this.isQuiet = quiet;
+    this._syncChipVisibility()
     
     if (quiet) {
       // Stop all messaging and animations
@@ -535,6 +546,7 @@ class Spaceman {
     this.isDetermined = false;
 
     this.state = newState;
+    this._syncChipVisibility()
     this.messageIndex = 0;
     // Do not reset _firstMessageShown — welcome should only show on first load, not on section change
 

@@ -889,7 +889,7 @@ section#portfolioProjects.visible.content-section-reveal {
 }
 
 @media (min-width: 768px) {
-    .hero-copy-block > #heroChat.hero-chat {
+    .hero-copy-block > #agentSlotHero.agent-slot--hero {
         order: -1;
     }
 }
@@ -1442,7 +1442,7 @@ body.contact-dialog-open {
         margin-bottom: 0.55rem;
     }
 
-    .hero-chat {
+    .agent-slot--hero {
         margin-bottom: 0.5rem;
     }
 

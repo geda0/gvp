@@ -51,6 +51,11 @@
 </head>
 
 <body>
+    <div id="agentTrail" aria-hidden="true">
+        <span class="agent-trail__dot"></span>
+        <span class="agent-trail__dot"></span>
+        <span class="agent-trail__dot"></span>
+    </div>
     <header>
         <nav class="navbar">
             <div class="navbar-left">
@@ -59,17 +64,7 @@
                     aria-label="Switch to Garden theme"><span class="theme-toggle-icon" aria-hidden="true">🦸</span></button>
             </div>
             <div class="navbar-center">
-                <form id="headerChatForm" class="header-chatbar" novalidate aria-label="Quick chat launcher">
-                    <label for="headerChatInput" class="visually-hidden">Ask about Marwan's work from header</label>
-                    <span class="header-chatbar__icon" aria-hidden="true">💬</span>
-                    <input type="text" id="headerChatInput" class="header-chatbar__input" inputmode="text" autocomplete="off"
-                        placeholder="Ask anything about my work…" data-track="header_chat_input_focus" />
-                    <button type="submit" id="headerChatSubmit" class="header-chatbar__submit" aria-label="Open chat and send from header"
-                        data-track="header_chat_submit"><span aria-hidden="true">↑</span></button>
-                </form>
-                <button type="button" id="headerChatIconBtn" class="header-chatbar-icon" aria-label="Open chat" title="Open chat">
-                    <span aria-hidden="true">💬</span>
-                </button>
+                <div id="agentSlotNavbar" class="agent-slot agent-slot--navbar"></div>
             </div>
             <div class="navbar-right">
                 <a href="#portfolio" id="portfolioNav">Portfolio</a>
@@ -120,33 +115,21 @@
                                         <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
                                     </div>
                                 </div>
-                                <div id="heroChat" class="hero-chat">
-                                    <div class="hero-chat__label-wrap">
-                                        <p class="hero-chat__label">
-                                            <span class="hero-chat__dot" aria-hidden="true"></span>
-                                             Ask anything about my work
-                                        </p>
-                                    </div>
-                                    <form id="heroChatForm" class="hero-chat__form" novalidate>
-                                        <label for="heroChatInput" class="visually-hidden">Ask about Marwan's work</label>
-                                        <input type="text" id="heroChatInput" class="hero-chat__input" inputmode="text" autocomplete="off"
-                                            placeholder="e.g., What is your most recent project?"
-                                            data-track="hero_chat_input_focus" />
-                                        <button type="submit" id="heroChatSubmit" class="hero-chat__submit" aria-label="Open chat and send message"
-                                            data-track="hero_chat_submit">
-                                            <span aria-hidden="true">↑</span>
-                                        </button>
-                                    </form>
-                                    <div id="heroChatSuggestions" class="hero-chat__suggestions" aria-label="Suggested prompts">
-                                        <button type="button" class="hero-chat__chip"
-                                            data-prompt="How do you approach platform architecture?"
-                                            data-track="hero_chat_chip_architecture">Platform architecture</button>
-                                        <button type="button" class="hero-chat__chip"
-                                            data-prompt="Tell me about an accomplishment you're especially proud of."
-                                            data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
-                                        <button type="button" class="hero-chat__chip"
-                                            data-prompt="What project challenged you the most, and how did you approach it?"
-                                            data-track="hero_chat_chip_challenge">Most challenging project</button>
+                                <div id="agentSlotHero" class="agent-slot agent-slot--hero">
+                                    <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero">
+                                        <div class="agent-node__bubble" aria-hidden="true">
+                                            <span class="agent-node__bubble-text"></span>
+                                            <span class="agent-node__cursor" aria-hidden="true">|</span>
+                                        </div>
+                                        <form id="agentNodeForm" class="agent-node__form" novalidate aria-label="Ask about Marwan's work">
+                                            <label for="agentNodeInput" class="visually-hidden">Ask about Marwan's work</label>
+                                            <input type="text" id="agentNodeInput" class="agent-node__input" inputmode="text" autocomplete="off"
+                                                placeholder="Ask anything about my work…" data-track="hero_chat_input_focus" />
+                                            <button type="submit" id="agentNodeSubmit" class="agent-node__send"
+                                                aria-label="Open chat and send message" data-track="hero_chat_submit">
+                                                <span aria-hidden="true">↑</span>
+                                            </button>
+                                        </form>
                                     </div>
                                 </div>
                                 <div class="hero-highlights">

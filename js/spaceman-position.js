@@ -34,6 +34,10 @@ class SpacemanPosition {
     this._dragReturnTimer = null;
     this._layoutCooldownUntil = 0;
     this._hooks = {};
+    this.agentTrail = document.getElementById('agentTrail')
+    this.agentNode = document.getElementById('agentNode')
+    this._trailVisible = true
+    this._trailLoopRaf = null
 
     this.init();
   }
@@ -71,6 +75,7 @@ class SpacemanPosition {
     // After assets/fonts
     window.addEventListener('load', () => this.updatePosition(), { once: true });
     document.fonts?.ready?.then(() => this.updatePosition());
+    this._updateTrail()
   }
 
   _readDialogPanelRect(dialogId, panelSelector) {
@@ -143,6 +148,7 @@ class SpacemanPosition {
       if (panel) this._resizeObs.observe(panel);
     });
     this._resizeObs.observe(this.container);
+    if (this.agentNode) this._resizeObs.observe(this.agentNode)
     const heroCopy = document.querySelector('.hero-copy')
     if (heroCopy) this._resizeObs.observe(heroCopy)
 
@@ -172,6 +178,14 @@ class SpacemanPosition {
       this._visualViewport.addEventListener('scroll', this._onScrollLike);
       this._visualViewport.addEventListener('resize', this._onScrollLike);
     }
+
+    if (this.agentNode) {
+      this._agentNodeMutationObs = new MutationObserver(() => this._updateTrail())
+      this._agentNodeMutationObs.observe(this.agentNode, {
+        attributes: true,
+        attributeFilter: ['class', 'data-state', 'data-slot']
+      })
+    }
   }
 
   _isLayoutCooldownActive() {
@@ -195,6 +209,7 @@ class SpacemanPosition {
     }
     clearTimeout(this._updateT);
     this._updateT = setTimeout(() => this._update(), 50);
+    this._updateTrail()
   }
 
   _bindDrag() {
@@ -401,6 +416,7 @@ class SpacemanPosition {
     }
 
     this._moveTo(x, y, scale);
+    this._updateTrail()
   }
 
   setQuietPosition(quiet) {
@@ -410,8 +426,10 @@ class SpacemanPosition {
   }
 
   _getDockClearance() {
-    const dock = document.getElementById('heroChatDock')
-    if (!dock || dock.hidden) return 0
+    const node = document.getElementById('agentNode')
+    const heroSlot = document.getElementById('agentSlotHero')
+    if (!node || node.dataset.slot !== 'hero') return 0
+    const dock = heroSlot || node
     const rect = dock.getBoundingClientRect()
     if (rect.height <= 0 || rect.width <= 0) return 0
     return rect.height + 8
@@ -487,6 +505,7 @@ class SpacemanPosition {
   _moveTo(x, y, scale) {
     clearTimeout(this._cleanupTimer);
     this.movable.classList.add('moving', 'thrust');
+    this._startTrailLoop()
 
     // No wobble when content open
     const wobble =
@@ -501,10 +520,13 @@ class SpacemanPosition {
     this.movable.style.setProperty('--sy', `${y + wobble}px`);
     this.movable.style.setProperty('--ss', `${scale}`);
     this.currentScale = scale;
+    this._updateTrail()
 
     const cleanup = () => {
       this.movable.classList.remove('thrust', 'moving');
       this.movable.removeEventListener('transitionend', onEnd);
+      this._stopTrailLoop()
+      this._updateTrail()
     };
 
     const onEnd = (e) => {
@@ -518,14 +540,101 @@ class SpacemanPosition {
     this._cleanupTimer = setTimeout(cleanup, this.options.transitionSpeed * 1000 + 50);
   }
 
+  _startTrailLoop() {
+    if (this._trailLoopRaf) return
+    const tick = () => {
+      this._trailLoopRaf = null
+      if (!this.movable.classList.contains('moving')) return
+      this._updateTrail()
+      this._trailLoopRaf = requestAnimationFrame(tick)
+    }
+    this._trailLoopRaf = requestAnimationFrame(tick)
+  }
+
+  _stopTrailLoop() {
+    if (!this._trailLoopRaf) return
+    cancelAnimationFrame(this._trailLoopRaf)
+    this._trailLoopRaf = null
+  }
+
+  updateTrail() {
+    this._updateTrail()
+  }
+
+  setTrailVisible(visible) {
+    this._trailVisible = Boolean(visible)
+    if (!this.agentTrail) return
+    this.agentTrail.classList.toggle('agent-trail--hidden', !this._trailVisible)
+    this.agentTrail.setAttribute('aria-hidden', this._trailVisible ? 'true' : 'true')
+    if (!this._trailVisible) {
+      this.agentTrail.style.opacity = '0'
+      this.agentTrail.style.pointerEvents = 'none'
+      return
+    }
+    this.agentTrail.style.opacity = ''
+    this.agentTrail.style.pointerEvents = 'none'
+    this._updateTrail()
+  }
+
+  _updateTrail() {
+    const trail = this.agentTrail || document.getElementById('agentTrail')
+    const node = this.agentNode || document.getElementById('agentNode')
+    if (!trail || !node) return
+    const dots = trail.querySelectorAll('.agent-trail__dot')
+    if (!dots.length) return
+
+    if (!this._trailVisible || this.isQuiet) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const dialogOpen = document.body.classList.contains('chat-dialog-open')
+      || document.body.classList.contains('project-dialog-open')
+      || document.body.classList.contains('contact-dialog-open')
+    if (dialogOpen) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const anchorEl = this.spaceman.querySelector('.helmet') || this.spaceman.querySelector('.hero-head')
+    if (!anchorEl) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const a = anchorEl.getBoundingClientRect()
+    const b = node.getBoundingClientRect()
+    if (a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0) {
+      trail.classList.add('agent-trail--hidden')
+      return
+    }
+
+    const ax = a.left + a.width / 2
+    const ay = a.top + a.height / 2
+    const bx = Math.max(b.left, Math.min(ax, b.right))
+    const by = Math.max(b.top, Math.min(ay, b.bottom))
+    const ts = [0.25, 0.55, 0.82]
+
+    dots.forEach((dot, index) => {
+      const t = ts[index] ?? ts[ts.length - 1]
+      const x = ax + (bx - ax) * t
+      const y = ay + (by - ay) * t
+      dot.style.transform = `translate(${x}px, ${y}px)`
+    })
+
+    trail.classList.remove('agent-trail--hidden')
+  }
+
   destroy() {
     clearTimeout(this._updateT);
     clearTimeout(this._cleanupTimer);
     clearTimeout(this._resizeTimer);
     clearTimeout(this._scrollTimer);
     this._clearPostDragCooldown();
+    this._stopTrailLoop()
     if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._mutationObs?.disconnect();
+    this._agentNodeMutationObs?.disconnect()
     this._resizeObs?.disconnect();
     this._contentEls?.forEach(el => el.removeEventListener('transitionend', this._onTransitionEnd));
     if (this._onResize) window.removeEventListener('resize', this._onResize);
