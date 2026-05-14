@@ -11,7 +11,8 @@ class SpacemanPosition {
     this.options = {
       minScale: 0.5,
       padding: 40,
-      navHeight: 60,
+      /* Fixed site header is taller than old in-flow nav; keep bubble clear of bar */
+      navHeight: 72,
       edgePad: 20,
       transitionSpeed: 0.5,
       postDragLayoutCooldownMs: 3500,

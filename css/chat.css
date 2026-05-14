@@ -9,9 +9,9 @@ body.chat-dialog-open {
     align-items: center;
     gap: 0.42rem;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, #7f77dd 42%, var(--border-subtle));
+    border: 1px solid var(--chat-launcher-ring-mix);
     background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
-    box-shadow: 0 0 0 0.2rem color-mix(in srgb, #7f77dd 14%, transparent);
+    box-shadow: 0 0 0 0.2rem var(--chat-launcher-glow-outer);
     padding: 0.16rem 0.22rem 0.16rem 0.58rem;
     margin: 0;
     opacity: 0;
@@ -54,6 +54,11 @@ body.chat-dialog-open {
     outline: none;
 }
 
+.header-chatbar__input:focus-visible {
+    outline: 2px solid var(--chat-launcher-ring);
+    outline-offset: 2px;
+}
+
 .header-chatbar__submit {
     width: 1.52rem;
     height: 1.52rem;
@@ -82,7 +87,7 @@ body.chat-dialog-open {
     width: 2rem;
     height: 2rem;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, #7f77dd 48%, var(--border-subtle));
+    border: 1px solid var(--chat-launcher-ring-mix);
     background: color-mix(in srgb, var(--surface-elevated) 95%, transparent);
     color: var(--text-primary);
     align-items: center;
@@ -103,7 +108,7 @@ body.chat-dialog-open {
 }
 
 .header-chatbar-icon:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--chat-launcher-ring);
     outline-offset: 2px;
 }
 
@@ -125,10 +130,7 @@ body.chat-dialog-open {
 }
 
 .hero-chat__label-wrap {
-    display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
     margin-bottom: 0.45rem;
 }
 
@@ -149,8 +151,8 @@ body.chat-dialog-open {
     width: 0.42rem;
     height: 0.42rem;
     border-radius: 50%;
-    background: #7f77dd;
-    box-shadow: 0 0 0 0.22rem color-mix(in srgb, #7f77dd 28%, transparent);
+    background: var(--chat-launcher-ring);
+    box-shadow: 0 0 0 0.22rem var(--chat-launcher-dot-halo);
     animation: hero-chat-pulse 1.8s ease-in-out infinite;
 }
 
@@ -172,15 +174,15 @@ body.chat-dialog-open {
     align-items: center;
     gap: 0.5rem;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, #7f77dd 42%, var(--border-subtle));
+    border: 1px solid var(--chat-launcher-ring-mix);
     background: color-mix(in srgb, var(--surface-elevated) 78%, transparent);
     padding: 0.28rem 0.32rem 0.28rem 0.88rem;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .hero-chat__form:focus-within {
-    border-color: #7f77dd;
-    box-shadow: 0 0 0 0.25rem color-mix(in srgb, #7f77dd 18%, transparent);
+    border-color: var(--chat-launcher-ring);
+    box-shadow: 0 0 0 0.25rem var(--chat-launcher-glow-focus);
 }
 
 .hero-chat__input {
@@ -229,8 +231,9 @@ body.chat-dialog-open {
 
 .hero-chat__suggestions {
     display: flex;
-    gap: 0.4rem;
     flex-wrap: wrap;
+    gap: 0.4rem;
+    justify-content: center;
     margin-top: 0.65rem;
 }
 
@@ -248,13 +251,13 @@ body.chat-dialog-open {
 }
 
 .hero-chat__chip:hover {
-    border-color: var(--accent);
+    border-color: var(--chat-launcher-ring);
     color: var(--text-primary);
     background: var(--surface);
 }
 
 .hero-chat__chip:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--chat-launcher-ring);
     outline-offset: 2px;
 }
 
@@ -301,7 +304,7 @@ body.chat-dialog-open {
     overflow-wrap: anywhere;
     font-family: var(--font-body);
     font-size: 0.98rem;
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: -0.015em;
     line-height: 1.25;
     color: var(--text-primary);
@@ -338,6 +341,9 @@ body.chat-dialog-open {
     line-height: 1;
     opacity: 0.72;
     background: transparent;
+    border-radius: 7px;
+    border: 1px solid var(--border-subtle);
+    box-sizing: border-box;
 }
 
 .contact-dialog.chat-dialog .chat-dialog__header .contact-dialog__close:hover,
@@ -421,9 +427,9 @@ body.chat-dialog-open {
 }
 
 .chat-msg__action {
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: color-mix(in srgb, var(--accent) 36%, var(--text-primary));
+    border: 1px solid color-mix(in srgb, var(--chat-launcher-ring) 45%, var(--border-subtle));
+    background: color-mix(in srgb, var(--chat-launcher-ring) 18%, transparent);
+    color: color-mix(in srgb, var(--chat-launcher-ring) 38%, var(--text-primary));
     border-radius: 999px;
     font-family: var(--font-body);
     font-size: 0.74rem;
@@ -433,11 +439,11 @@ body.chat-dialog-open {
 }
 
 .chat-msg__action:hover {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    background: color-mix(in srgb, var(--chat-launcher-ring) 26%, transparent);
 }
 
 .chat-msg__action:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--chat-launcher-ring);
     outline-offset: 2px;
 }
 
@@ -470,7 +476,7 @@ body.chat-dialog-open {
     max-height: 8rem;
     resize: none;
     border-radius: var(--radius-md);
-    border: 1px solid var(--border-strong);
+    border: 1px solid color-mix(in srgb, var(--chat-launcher-ring) 38%, var(--border-strong));
     background: var(--surface);
     color: var(--text-primary);
     font-family: var(--font-body);
@@ -485,8 +491,9 @@ body.chat-dialog-open {
 }
 
 #chatComposerInput:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--chat-launcher-ring);
     outline-offset: 2px;
+    border-color: color-mix(in srgb, var(--chat-launcher-ring) 55%, var(--border-strong));
 }
 
 .chat-composer__send {
@@ -552,7 +559,7 @@ body.chat-dialog-open {
 }
 
 .chat-dialog__action:hover {
-    border-color: var(--accent);
+    border-color: var(--chat-launcher-ring);
     color: var(--text-primary);
 }
 
@@ -562,7 +569,7 @@ body.chat-dialog-open {
 }
 
 .chat-dialog__action:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--chat-launcher-ring);
     outline-offset: 2px;
 }
 
@@ -596,7 +603,6 @@ body.chat-dialog-open {
 
     .hero-chat__label-wrap {
         justify-content: center;
-        flex-wrap: wrap;
         text-align: center;
     }
 
@@ -700,6 +706,11 @@ body.chat-dialog-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .header-chatbar,
+    .header-chatbar-icon {
+        transition: none;
+    }
+
     .hero-chat__dot,
     .chat-msg__cursor {
         animation: none;

@@ -110,6 +110,13 @@ export function initChat() {
   const setHeaderLauncherVisibility = (visible, { immediate = false } = {}) => {
     headerForm.setAttribute('aria-hidden', visible ? 'false' : 'true')
     headerIconBtn.setAttribute('aria-hidden', visible ? 'false' : 'true')
+    if (visible) {
+      headerForm.removeAttribute('inert')
+      headerIconBtn.removeAttribute('inert')
+    } else {
+      headerForm.setAttribute('inert', '')
+      headerIconBtn.setAttribute('inert', '')
+    }
     if (immediate) {
       headerForm.classList.toggle('header-chatbar--visible', visible)
       headerIconBtn.classList.toggle('header-chatbar-icon--visible', visible)

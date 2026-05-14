@@ -41,6 +41,16 @@
     --footer-link-hover: var(--accent-hover);
     --overlay-gradient: radial-gradient(ellipse 90% 55% at 50% 15%, rgba(79, 124, 206, 0.07), transparent 58%);
     --heading-shadow: none;
+
+    /* Chat launchers + panel accents (purple ring / blue send in space; garden uses forest tone) */
+    --chat-launcher-ring: #7f77dd;
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-ring) 42%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-ring) 14%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-ring) 18%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-ring) 28%, transparent);
+
+    /* Fixed site header: navbar row + optional notch (see `body > header`, `main` padding) */
+    --site-header-height: calc(3.35rem + env(safe-area-inset-top, 0px));
 }
 
 [data-theme="garden"] {
@@ -73,6 +83,12 @@
     --footer-link-hover: #e4f4ea;
     --overlay-gradient: radial-gradient(ellipse 85% 50% at 50% 12%, rgba(255, 252, 240, 0.45), transparent 60%);
     --heading-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+    --chat-launcher-ring: #3d6b52;
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-ring) 45%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-ring) 18%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-ring) 22%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-ring) 32%, transparent);
 }
 
 /* Garden scene: trees (only visible in garden theme) */
@@ -239,13 +255,30 @@ body {
     pointer-events: auto;
 }
 
-header {
-    background-color: var(--nav-bg);
+/* Site chrome only — do not match <header>/<footer> inside dialogs (e.g. chat panel). */
+body > header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
     width: 100%;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    background-color: var(--nav-bg);
     border-bottom: 1px solid var(--border-subtle);
+    /* Avoid rare horizontal page scroll from slim chatbar + links */
+    overflow-x: hidden;
     /* Above main content (including transformed project sections); matches nav layering in CLAUDE.md */
     z-index: 1000;
     transition: background-color 0.4s ease, border-color 0.4s ease;
+}
+
+html {
+    scroll-padding-top: var(--site-header-height);
+}
+
+main {
+    padding-top: var(--site-header-height);
 }
 
 nav ul {
@@ -557,7 +590,7 @@ body.project-dialog-open {
     }
 }
 
-footer {
+body > footer {
     background-color: var(--footer-bg);
     color: var(--text-muted);
     padding: 0.85rem 1rem 1rem;
@@ -572,29 +605,29 @@ footer {
     font-size: 0.88rem;
 }
 
-footer p {
+body > footer p {
     margin: 0;
 }
 
-footer p:first-child {
+body > footer p:first-child {
     font-size: 0.8rem;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     opacity: 0.85;
 }
 
-footer a {
+body > footer a {
     color: var(--footer-link-color);
     text-decoration: none;
     font-weight: 500;
     transition: color 0.2s ease;
 }
 
-footer a:visited {
+body > footer a:visited {
     color: var(--footer-link-visited);
 }
 
-footer a:hover {
+body > footer a:hover {
     color: var(--footer-link-hover);
     text-decoration: underline;
     text-underline-offset: 3px;
@@ -831,6 +864,7 @@ section#portfolioProjects.visible.content-section-reveal {
     gap: 12px;
     justify-content: center;
     margin-bottom: 40px;
+    margin-top: 40px;
 }
 
 .cta-primary,
@@ -1212,6 +1246,7 @@ body.contact-dialog-open {
 
     .hero-cta {
         margin-bottom: 28px;
+        margin-top: 28px;
         flex-wrap: wrap;
         justify-content: center;
     }
@@ -1270,6 +1305,9 @@ body.contact-dialog-open {
     background-color: var(--navbar-bg);
     padding: 0.55rem 0.25rem;
     position: relative;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 .navbar-left,
