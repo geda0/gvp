@@ -35,6 +35,18 @@
             window.__CONTACT_API_URL__ = base
         })()
     </script>
+    <meta name="gvp:chat-api-url" content="" />
+    <script>
+        (function () {
+            var m = document.querySelector('meta[name="gvp:chat-api-url"]')
+            var raw = (m && m.getAttribute('content') || '').trim()
+            var cleaned = raw.replace(/\/+$/, '')
+            var host = (window.location && window.location.hostname) || ''
+            var isLocal = host === 'localhost' || host === '127.0.0.1'
+            var base = cleaned || (isLocal ? '/api/chat' : '')
+            window.__CHAT_API_URL__ = base
+        })()
+    </script>
 </head>
 
 <body>
@@ -82,28 +94,57 @@
             <div id="load">
                 <section id="home" class="scale-in">
                     <div class="hero">
-                        <div class="hero-copy">
-                        <p class="hero-eyebrow"></p>
-                        <h1>Marwan Elgendy</h1>
-                        <p class="hero-subtitle">Software Engineer — Architecture &amp; Platforms</p>
-                        <p class="hero-tagline">I build systems that hold up in production: clear boundaries, operable services, and end-to-end delivery across data-intensive SaaS and cloud platforms.</p>
-                        <div class="hero-cta">
-                            <a href="resume/Marwan_Elgendy_Resume_public.pdf" target="_blank" rel="noopener noreferrer" class="cta-primary" data-track="resume_click">Resume (PDF)</a>
-                            <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
-                        </div>
-                        </div>
-                        <div class="hero-highlights">
-                            <div class="highlight">
-                                <h4>Platform Architecture</h4>
-                                <p>Interfaces, boundaries, and operable systems that scale with teams.</p>
+                        <div class="hero-layout">
+                            <div class="hero-chat hero-chat--enter" id="heroChatPanel" aria-labelledby="heroChatHeading" aria-busy="false">
+                                <h2 class="hero-chat__title" id="heroChatHeading">Ground control</h2>
+                                <p class="hero-chat__lede">Ask about this site, stack, or Marwan’s work.</p>
+                                <div class="hero-chat__transcript-wrap" tabindex="0" role="region"
+                                    aria-label="Chat transcript">
+                                    <div id="heroChatTranscript" class="hero-chat__transcript" aria-live="polite"
+                                        aria-relevant="additions text"></div>
+                                    <p id="heroChatPlaceholder" class="hero-chat__placeholder">Try: “What stack is this
+                                        site built with?”</p>
+                                </div>
+                                <p id="heroChatError" class="hero-chat__error" role="alert" hidden></p>
+                                <p id="heroChatStatus" class="hero-chat__status" hidden></p>
+                                <div class="hero-chat__composer">
+                                    <label for="heroChatInput" class="visually-hidden">Message to assistant</label>
+                                    <textarea id="heroChatInput" class="hero-chat__input" rows="3"
+                                        placeholder="Message…"></textarea>
+                                    <div class="hero-chat__actions">
+                                        <button type="button" id="heroChatSend"
+                                            class="hero-chat__send cta-primary">Send</button>
+                                        <button type="button" id="heroChatRetry"
+                                            class="hero-chat__retry cta-secondary" hidden>Retry</button>
+                                    </div>
+                                </div>
+                                <p class="hero-chat__hint">Enter sends · Shift+Enter for a new line</p>
                             </div>
-                            <div class="highlight">
-                                <h4>End-to-End Delivery</h4>
-                                <p>Own the whole loop: ship, stabilize, and iterate with feedback.</p>
-                            </div>
-                            <div class="highlight">
-                                <h4>Data-Intensive SaaS</h4>
-                                <p>Reliability, correctness, and throughput in customer-critical platforms.</p>
+                            <div class="hero-copy-block">
+                                <div class="hero-copy">
+                                    <p class="hero-eyebrow"></p>
+                                    <h1>Marwan Elgendy</h1>
+                                    <p class="hero-subtitle">Software Engineer — Architecture &amp; Platforms</p>
+                                    <p class="hero-tagline">I build systems that hold up in production: clear boundaries, operable services, and end-to-end delivery across data-intensive SaaS and cloud platforms.</p>
+                                    <div class="hero-cta">
+                                        <a href="resume/Marwan_Elgendy_Resume_public.pdf" target="_blank" rel="noopener noreferrer" class="cta-primary" data-track="resume_click">Resume (PDF)</a>
+                                        <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
+                                    </div>
+                                </div>
+                                <div class="hero-highlights">
+                                    <div class="highlight">
+                                        <h4>Platform Architecture</h4>
+                                        <p>Interfaces, boundaries, and operable systems that scale with teams.</p>
+                                    </div>
+                                    <div class="highlight">
+                                        <h4>End-to-End Delivery</h4>
+                                        <p>Own the whole loop: ship, stabilize, and iterate with feedback.</p>
+                                    </div>
+                                    <div class="highlight">
+                                        <h4>Data-Intensive SaaS</h4>
+                                        <p>Reliability, correctness, and throughput in customer-critical platforms.</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

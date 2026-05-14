@@ -1,5 +1,38 @@
 # gvp
 
+## Local Docker
+
+Run the static site plus mock APIs on a single origin (`http://localhost:8080`).
+
+```bash
+docker compose up --build
+```
+
+Open [http://localhost:8080](http://localhost:8080). The nginx proxy serves the repo root read-only and forwards `POST /api/contact` to the mock ingress and `POST /api/chat` to the stub chat service.
+
+Stop and remove containers:
+
+```bash
+docker compose down
+```
+
+Smoke checks (requires stack up):
+
+```bash
+./scripts/docker-smoke.sh
+```
+
+Override the base URL: `DOCKER_SMOKE_URL=http://127.0.0.1:8080 ./scripts/docker-smoke.sh`.
+
+**Chat tests (no Docker required):** from repo root, create a venv under `docker/chat` and run pytest (uses `CHAT_PROVIDER=mock`):
+
+```bash
+cd docker/chat && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+PYTHONPATH=. .venv/bin/python -m pytest tests -v
+```
+
+**Environment:** The local stack does not require secrets. Optional compose overrides can live in a gitignored `.env` at the repo root; see [`docker/.env.example`](docker/.env.example) for a placeholder. Production and SAM variable names live in [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example).
+
 ## Contact form (Amplify + AWS durable pipeline)
 
 This repo is a static site hosted on Amplify, with an AWS-native durable contact pipeline used to receive and deliver contact messages.

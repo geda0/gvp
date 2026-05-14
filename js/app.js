@@ -17,6 +17,7 @@ import {
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
+import { initChatbot } from './chatbot.js'
 
 // Global spaceman reference for navigation hooks
 let spaceman = null
@@ -29,6 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme()
   initStarfield('canvas', { getTheme })
   initContactForm()
+  initChatbot()
 
   // Theme toggle — emoji; data-target + CSS set button background to the theme you switch *to*
   const themeToggle = document.getElementById('themeToggle')
