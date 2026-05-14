@@ -25,6 +25,29 @@ function detachWebSocketHandlers(socket) {
   socket.onclose = null
 }
 
+// #region agent log
+function debugVoiceLog(payload) {
+  fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '2f3831' },
+    body: JSON.stringify({
+      sessionId: '2f3831',
+      timestamp: Date.now(),
+      ...payload
+    })
+  }).catch(() => {})
+}
+
+function safeWsUrlMeta(urlStr) {
+  try {
+    const u = new URL(String(urlStr))
+    return { scheme: u.protocol, host: u.hostname, path: u.pathname }
+  } catch (_) {
+    return { scheme: '', host: 'parse_error', path: '' }
+  }
+}
+// #endregion
+
 /** Inline AudioWorklet (addModule via blob URL) — avoids deprecated ScriptProcessorNode when supported. */
 const MIC_CAPTURE_WORKLET_SOURCE = `
 class GvpMicPcmSenderProcessor extends AudioWorkletProcessor {
@@ -495,6 +518,14 @@ export function bindChatLiveVoice(opts) {
     if (setupPayload) {
       setupDone = true
       voiceUnavailableOnHost = false
+      // #region agent log
+      debugVoiceLog({
+        hypothesisId: 'H-D',
+        location: 'chat-live.js:handlePayload',
+        message: 'live_setup_complete',
+        data: { hadSetupPayload: true }
+      })
+      // #endregion
       chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
     }
 
@@ -554,6 +585,14 @@ export function bindChatLiveVoice(opts) {
     }
 
     if (voiceUnavailableOnHost) {
+      // #region agent log
+      debugVoiceLog({
+        hypothesisId: 'H-B',
+        location: 'chat-live.js:startVoice',
+        message: 'blocked_voice_unavailable_on_host_flag',
+        data: { lastTransport: lastLiveVoiceTransport }
+      })
+      // #endregion
       setStatus(VOICE_UNAVAILABLE_ON_HOST_MSG, 'error')
       trackEvent('chat_live_blocked', { reason: 'voice_host_endpoint' })
       return
@@ -622,6 +661,35 @@ export function bindChatLiveVoice(opts) {
       if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
         throw new Error('Invalid voice session URL.')
       }
+
+      // #region agent log
+      {
+        let postHost = ''
+        try {
+          postHost = /^https?:\/\//i.test(postUrl)
+            ? new URL(postUrl).hostname
+            : (typeof window !== 'undefined' && window.location
+              ? `${window.location.hostname}:${window.location.port || ''}`
+              : 'no_window')
+        } catch (_) {
+          postHost = 'parse_error'
+        }
+        debugVoiceLog({
+          hypothesisId: 'H-C',
+          location: 'chat-live.js:startVoice',
+          message: 'live_session_post_ok',
+          data: {
+            liveVoiceTransport: lastLiveVoiceTransport,
+            postHost,
+            postUrlIsAbsolute: /^https?:\/\//i.test(postUrl),
+            wsMeta: safeWsUrlMeta(wsUrlStr),
+            constrainedWs,
+            clientSlimsFirstFrame,
+            modelFromBodyLen: modelResource.length
+          }
+        })
+      }
+      // #endregion
 
       voiceSessionOpen = true
 
@@ -693,6 +761,14 @@ export function bindChatLiveVoice(opts) {
       ws = new WebSocket(websocketUrl)
 
       ws.onopen = () => {
+        // #region agent log
+        debugVoiceLog({
+          hypothesisId: 'H-D',
+          location: 'chat-live.js:ws.onopen',
+          message: 'live_ws_open',
+          data: { transport: lastLiveVoiceTransport }
+        })
+        // #endregion
         bumpVoiceWsIdleTimer()
         ws.send(JSON.stringify(firstClientSetup))
       }
@@ -703,6 +779,14 @@ export function bindChatLiveVoice(opts) {
       }
 
       ws.onerror = () => {
+        // #region agent log
+        debugVoiceLog({
+          hypothesisId: 'H-E',
+          location: 'chat-live.js:ws.onerror',
+          message: 'live_ws_error_event',
+          data: { transport: lastLiveVoiceTransport, setupDone }
+        })
+        // #endregion
         setStatus('Voice connection error.', 'error')
         trackEvent('chat_live_error', { phase: 'websocket' })
         chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
@@ -717,6 +801,22 @@ export function bindChatLiveVoice(opts) {
         const markHostBlocked = !ready
           && transportForCloseMsg === 'direct_google'
           && (code === 1011 || String(reason || '').toLowerCase().includes('internal'))
+        // #region agent log
+        debugVoiceLog({
+          hypothesisId: 'H-A',
+          location: 'chat-live.js:ws.onclose',
+          message: 'live_ws_close',
+          data: {
+            code,
+            reasonLen: String(reason || '').length,
+            reasonLowerHasInternal: String(reason || '').toLowerCase().includes('internal'),
+            transport: transportForCloseMsg,
+            setupDone: ready,
+            markHostBlocked,
+            wasClean: ev.wasClean
+          }
+        })
+        // #endregion
         if (markHostBlocked) voiceUnavailableOnHost = true
         stopVoiceInternal({ silent: true })
         if (!ready) {
