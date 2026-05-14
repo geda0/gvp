@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
@@ -33,6 +34,13 @@ MAX_CONTENT_LEN = int(os.environ.get("CHAT_MAX_CONTENT_LEN", "8000"))
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _cors_allow_origins() -> list[str]:
+    raw = os.environ.get('CHAT_CORS_ORIGINS', '').strip()
+    if not raw:
+        return []
+    return [o.strip() for o in raw.split(',') if o.strip()]
 
 
 def _corpus_paths() -> tuple[Path, Path]:
@@ -125,6 +133,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="GVP Chat", version="0.1.0", lifespan=lifespan)
+_cors = _cors_allow_origins()
+if _cors:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors,
+        allow_credentials=False,
+        allow_methods=['GET', 'POST', 'OPTIONS'],
+        allow_headers=['*'],
+    )
 app.state.corpus_index: CorpusIndex | None = None
 app.state.corpus_summary: str = ""
 app.state.chain: Any = None

@@ -1,6 +1,6 @@
 # Local secrets layout (example)
 
-Copy this folder to **`.secrets/`** at the repo root (gitignored). **`deploy.env.example` is the single canonical list** of deploy-time variable names for both local SAM deploy and GitHub Actions secrets (same names, no `export` prefix in GitHub).
+Copy this folder to **`.secrets/`** at the repo root (gitignored). **`deploy.env.example` is the single canonical list** of deploy-time variable names for both local SAM deploy and GitHub Actions secrets (same names, no `export` prefix in GitHub). Optional chat container/ECR settings are in **`chat-deploy.env.example`** — copy to **`.secrets/chat-deploy.env`** if you use them; **`scripts/integrate-and-deploy.sh`** sources it after `deploy.env`.
 
 ```bash
 cp -R secrets.example .secrets

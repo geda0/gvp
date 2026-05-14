@@ -22,4 +22,5 @@ config.local.js
 # Local CI/CD + secrets (never commit): copy from secrets.example/
 .secrets/
 docker/chat/.venv/
+docker/chat/.venv-ci/
 **/__pycache__/

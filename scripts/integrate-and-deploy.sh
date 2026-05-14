@@ -1,15 +1,40 @@
 #!/usr/bin/env bash
-# One-shot: SAM build + deploy for the contact stack; optional patch of contact API meta in HTML.
-# Prefer: scripts/orchestrate-deploy.sh (seeds config, pushes file secrets to SM, then runs this script).
+# SAM build + deploy (contact stack), optional chat image push + ECS roll, optional HTML meta sync.
+# Usage: bash scripts/integrate-and-deploy.sh [prod|stage]
+#   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta only if CHAT_PROD_CHAT_API_URL is set.
+#   stage — separate AWS stack: SAM_STACK_NAME_STAGE (default page-staging). Chat meta defaults to https://chat.marwanelgendy.link/api/chat
 #
-# Env var names and optional flags are documented in secrets.example/deploy.env.example
-# (copy to .secrets/deploy.env). CI sets the same names as GitHub Actions secrets.
+# Prefer: scripts/orchestrate-deploy.sh [prod|stage] (same trailing args forwarded).
+#
+# Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
+# (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AWS_DIR="${ROOT}/aws"
+CHAT_DIR="${ROOT}/docker/chat"
 SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
+
+usage() {
+  echo "usage: bash scripts/integrate-and-deploy.sh [prod|stage]" >&2
+  echo "  prod  — production contact stack (SAM_STACK_NAME, default page)" >&2
+  echo "  stage — staging stack (SAM_STACK_NAME_STAGE, default page-staging); chat URL meta defaults to chat.marwanelgendy.link" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+fi
+if [[ $# -gt 1 ]]; then
+  usage
+fi
+
+DEPLOY_ENV="${1:-prod}"
+DEPLOY_ENV="$(printf '%s' "${DEPLOY_ENV}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${DEPLOY_ENV}" != "prod" && "${DEPLOY_ENV}" != "stage" ]]; then
+  usage
+fi
 
 # When not already exported (e.g. GitHub Actions exports secrets), load local .secrets/deploy.env
 if [[ -z "${RESEND_API_KEY:-}" && -f "$SECRETS_DIR/deploy.env" ]]; then
@@ -28,8 +53,23 @@ if [[ -z "${RESEND_API_KEY:-}" && -f "$SECRETS_DIR/deploy.env" ]]; then
   set +a
 fi
 
-STACK_NAME="${SAM_STACK_NAME:-page}"
+if [[ -f "${SECRETS_DIR}/chat-deploy.env" ]]; then
+  echo "Loading ${SECRETS_DIR}/chat-deploy.env…"
+  set -a
+  # shellcheck source=/dev/null
+  source "${SECRETS_DIR}/chat-deploy.env"
+  set +a
+fi
+
 REGION="${AWS_REGION:-us-east-2}"
+if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+  STACK_NAME="${SAM_STACK_NAME_STAGE:-page-staging}"
+  CHAT_STAGE_CHAT_API_URL="${CHAT_STAGE_CHAT_API_URL:-https://chat.marwanelgendy.link/api/chat}"
+  CHAT_META_URL="${CHAT_STAGE_CHAT_API_URL}"
+else
+  STACK_NAME="${SAM_STACK_NAME:-page}"
+  CHAT_META_URL="${CHAT_PROD_CHAT_API_URL:-}"
+fi
 
 require() {
   local name="$1"
@@ -60,11 +100,49 @@ if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
   PO+=("ContactReportEmail=${CONTACT_REPORT_EMAIL}")
 fi
 
-echo "sam build (${AWS_DIR})"
-(
-  cd "${AWS_DIR}"
-  sam build --template-file template.yaml
-)
+SHORT_SHA="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
+CHAT_IMAGE_LOCAL="gvp-chat:${DEPLOY_ENV}-${SHORT_SHA}"
+
+run_chat_docker=false
+if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" || "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
+  run_chat_docker=true
+fi
+
+test_pid=""
+if [[ "${CHAT_PARALLEL_TEST:-0}" == "1" && "${SKIP_CHAT_TESTS:-0}" != "1" && "${run_chat_docker}" == "true" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    (
+      cd "${CHAT_DIR}"
+      python3 -m pip install -q -r requirements.txt
+      PYTHONPATH=. python3 -m pytest tests/ -q --tb=no
+    ) &
+    test_pid=$!
+    echo "Parallel pytest (pid ${test_pid}) alongside sam build / docker build…"
+  fi
+fi
+
+echo "sam build (${AWS_DIR}) + deploy env=${DEPLOY_ENV} stack=${STACK_NAME} (parallel chat docker: ${run_chat_docker})"
+sam_pid=""
+( cd "${AWS_DIR}" && sam build --template-file template.yaml ) &
+sam_pid=$!
+
+docker_pid=""
+if [[ "${run_chat_docker}" == "true" ]]; then
+  (
+    DOCKER_BUILDKIT=1 docker build -f "${ROOT}/docker/chat/Dockerfile" -t "${CHAT_IMAGE_LOCAL}" "${ROOT}"
+  ) &
+  docker_pid=$!
+fi
+
+wait "${sam_pid}"
+if [[ -n "${docker_pid}" ]]; then
+  wait "${docker_pid}"
+fi
+
+if [[ -n "${test_pid}" ]]; then
+  echo "Waiting for parallel pytest…"
+  wait "${test_pid}"
+fi
 
 echo "sam deploy stack=${STACK_NAME} region=${REGION}"
 (
@@ -88,9 +166,51 @@ CONTACT_URL="$(aws cloudformation describe-stacks \
 
 echo "ContactApiUrl=${CONTACT_URL}"
 
-if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
-  node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
-  echo "Patched index.html and admin/index.html (gvp:contact-api-url meta)."
+if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; then
+  ECR_HOST="${CHAT_ECR_REPOSITORY_URI%%/*}"
+  echo "Chat image push → ${CHAT_ECR_REPOSITORY_URI} (${DEPLOY_ENV})"
+  aws ecr get-login-password --region "${REGION}" | docker login --username AWS --password-stdin "${ECR_HOST}"
+  TAG_SHA="${DEPLOY_ENV}-${SHORT_SHA}"
+  REMOTE_SHA="${CHAT_ECR_REPOSITORY_URI}:${TAG_SHA}"
+  REMOTE_LATEST="${CHAT_ECR_REPOSITORY_URI}:${DEPLOY_ENV}-latest"
+  docker tag "${CHAT_IMAGE_LOCAL}" "${REMOTE_SHA}"
+  docker tag "${CHAT_IMAGE_LOCAL}" "${REMOTE_LATEST}"
+  docker push "${REMOTE_SHA}"
+  docker push "${REMOTE_LATEST}"
+
+  CLUSTER=""
+  SERVICE=""
+  if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+    CLUSTER="${CHAT_ECS_CLUSTER_STAGE:-${CHAT_ECS_CLUSTER:-}}"
+    SERVICE="${CHAT_ECS_SERVICE_STAGE:-${CHAT_ECS_SERVICE:-}}"
+  else
+    CLUSTER="${CHAT_ECS_CLUSTER_PROD:-${CHAT_ECS_CLUSTER:-}}"
+    SERVICE="${CHAT_ECS_SERVICE_PROD:-}"
+  fi
+
+  if [[ -n "${CLUSTER}" && -n "${SERVICE}" ]]; then
+    echo "ECS force deploy cluster=${CLUSTER} service=${SERVICE}"
+    aws ecs update-service \
+      --cluster "${CLUSTER}" \
+      --service "${SERVICE}" \
+      --force-new-deployment \
+      --region "${REGION}" \
+      --no-cli-pager
+  else
+    echo "CHAT_ECS_CLUSTER_* / CHAT_ECS_SERVICE_* unset — skip ECS roll (image pushed)."
+  fi
+elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
+  echo "CHAT_ECR_REPOSITORY_URI unset — chat image built locally as ${CHAT_IMAGE_LOCAL} only."
 fi
 
-echo "Done."
+if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
+  if [[ -n "${CHAT_META_URL}" ]]; then
+    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_META_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url + gvp:chat-api-url)."
+  else
+    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url meta)."
+  fi
+fi
+
+echo "Done (deploy env=${DEPLOY_ENV})."

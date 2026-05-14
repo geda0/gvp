@@ -7,7 +7,7 @@
 #   - config.manifest.json (optional non-secret config exports)
 # See secrets.example/README.md
 #
-# Optional: SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh
+# Optional: SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh [prod|stage]
 
 set -euo pipefail
 
@@ -53,5 +53,5 @@ if [[ -f "$SECRETS_DIR/deploy.generated.env" ]]; then
 fi
 set +a
 
-echo "Running SAM integrate + deploy…"
-bash "$ROOT/scripts/integrate-and-deploy.sh"
+echo "Running integrate + deploy…"
+bash "$ROOT/scripts/integrate-and-deploy.sh" "$@"

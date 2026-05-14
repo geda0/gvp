@@ -40,13 +40,13 @@ This repo is a static site hosted on Amplify, with an AWS-native durable contact
 ### Secrets and deploy configuration (single source of truth)
 
 - **Canonical template**: [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) lists every **name** used for SAM deploy (`export …` in the file body). Copy to **`.secrets/deploy.env`** (gitignored), fill real values, `chmod 600`. See [`secrets.example/README.md`](secrets.example/README.md).
-- **Local full pipeline**: [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) — seeds `config.manifest.json`, pushes optional file secrets from `manifest.json` to AWS Secrets Manager, sources `.secrets/deploy.env` + generated files, then runs [`scripts/integrate-and-deploy.sh`](scripts/integrate-and-deploy.sh).
-- **Deploy script only**: `bash scripts/integrate-and-deploy.sh` — if `RESEND_API_KEY` is not already in the environment, it automatically loads **`.secrets/deploy.env`** (and `config.generated.env` / `deploy.generated.env` when present). Same script runs in CI with variables injected from GitHub.
-- **GitHub Actions**: create repository **secrets** with the **same names** as in `deploy.env.example` (no `export` prefix). Optional **variables**: `AWS_REGION`, `SAM_STACK_NAME` (defaults match the example file).
+- **Local full pipeline**: [`scripts/orchestrate-deploy.sh`](scripts/orchestrate-deploy.sh) — seeds `config.manifest.json`, pushes optional file secrets from `manifest.json` to AWS Secrets Manager, sources `.secrets/deploy.env` + generated files, then runs [`scripts/integrate-and-deploy.sh`](scripts/integrate-and-deploy.sh) with the same optional trailing **`prod`** or **`stage`** argument.
+- **Deploy script only**: `bash scripts/integrate-and-deploy.sh` or `bash scripts/integrate-and-deploy.sh stage` — separate AWS contact stack (`SAM_STACK_NAME_STAGE`, default `page-staging`) and, when **HTML sync** is enabled, default chat meta **`https://chat.marwanelgendy.link/api/chat`**. Omitted first argument defaults to **prod**. If `RESEND_API_KEY` is not already in the environment, the script loads **`.secrets/deploy.env`** (and optional **`.secrets/chat-deploy.env`** for ECR/ECS; see [`secrets.example/chat-deploy.env.example`](secrets.example/chat-deploy.env.example)) plus generated env files when present. Same script runs in CI with variables injected from GitHub. **Actions → Integrate and deploy** includes a **deploy_environment** input (`prod` / `stage`).
+- **GitHub Actions**: create repository **secrets** with the **same names** as in `deploy.env.example` (no `export` prefix). Optional **variables**: `AWS_REGION`, `SAM_STACK_NAME`, `SAM_STACK_NAME_STAGE`, and chat/ECR/ECS names from `chat-deploy.env.example` when you use that path.
 - **Never commit** real keys, `ADMIN_API_KEY`, or production-only values. **`.gitignore`** excludes **`.secrets/`**, `.env*`, credential JSON patterns, and `aws/.env`. Keep [`aws/samconfig.toml`](aws/samconfig.toml) free of secrets; pass parameters via env / `--parameter-overrides` as the scripts do.
 - **Public site analytics**: events go to **Google Analytics** from the browser (`js/analytics.js` + gtag in `index.html`). The private **admin** page is contact-only.
 - **Contact API URL** is in HTML **`<meta name="gvp:contact-api-url">`**. After deploy, run [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) (or the workflow with **sync_api_urls**) to patch that meta from stack output `ContactApiUrl`.
-- Optional chat URL sync uses the same script: `node scripts/sync-site-api-urls.mjs <contactApiUrl> <chatApiUrl>`. The second argument patches **`<meta name="gvp:chat-api-url">`** where present (`index.html`, and `admin/index.html` if that meta exists).
+- Optional chat URL sync uses the same script: `node scripts/sync-site-api-urls.mjs <contactApiUrl> <chatApiUrl>`. The second argument patches **`<meta name="gvp:chat-api-url">`** where present (`index.html`, and `admin/index.html` if that meta exists). Staging chat is expected at **`https://chat.marwanelgendy.link/api/chat`** when you deploy with **`bash scripts/integrate-and-deploy.sh stage`** and sync is on (or set `CHAT_STAGE_CHAT_API_URL`).
 
 ### What “success” means
 
@@ -56,9 +56,9 @@ This repo is a static site hosted on Amplify, with an AWS-native durable contact
 
 ### One-step integrate and deploy (GitHub Actions)
 
-Use **Actions → Integrate and deploy → Run workflow** (`sam build` / `sam deploy`, optional HTML sync).
+Use **Actions → Integrate and deploy → Run workflow** (`sam build` / `sam deploy`, optional chat image, optional HTML sync). Choose **deploy_environment** `prod` or `stage` (separate SAM stack; stage defaults chat meta to `https://chat.marwanelgendy.link/api/chat` when sync is on).
 
-1. **Repository variables** (optional): `AWS_REGION` (default `us-east-2`), `SAM_STACK_NAME` (default `page`).
+1. **Repository variables** (optional): `AWS_REGION` (default `us-east-2`), `SAM_STACK_NAME` (default `page`), `SAM_STACK_NAME_STAGE` (default `page-staging`), plus optional chat/ECR/ECS vars (see `secrets.example/chat-deploy.env.example`).
 2. **Repository secrets** (required for deploy): same names as [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) — `RESEND_API_KEY`, `CONTACT_TO_EMAIL`, `CONTACT_FROM_EMAIL`, `ALARM_EMAIL`, `ADMIN_API_KEY`; optional `CONTACT_REPORT_EMAIL`.
 3. **AWS auth** (workflow input): **OIDC** — `AWS_DEPLOY_ROLE_ARN`; or **keys** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
 4. **Workflow input** **sync_api_urls**: patches `index.html` and `admin/index.html` and uploads artifact **`site-html-api-urls`**.
@@ -73,7 +73,7 @@ chmod 600 .secrets/deploy.env .secrets/files/* 2>/dev/null || true
 bash scripts/orchestrate-deploy.sh
 ```
 
-Override directory: `SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh`.
+Override directory: `SECRETS_DIR=/path/to/.secrets bash scripts/orchestrate-deploy.sh stage`.
 
 **IAM** (caller): `secretsmanager:CreateSecret`, `DescribeSecret`, `PutSecretValue` for manifest secret IDs, plus `sam deploy` / CloudFormation permissions.
 

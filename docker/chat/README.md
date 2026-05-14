@@ -35,6 +35,18 @@ CHAT_PROVIDER=mock \
 | `OPENAI_TIMEOUT_SECONDS` | Optional OpenAI-specific timeout override |
 | `CORPUS_RESUME_PATH` / `CORPUS_PROJECTS_PATH` | JSON files (defaults under repo root when unset) |
 | `CORPUS_RESUME` / `CORPUS_PROJECTS` | Legacy aliases for the same paths |
+| `CHAT_CORS_ORIGINS` | Optional comma-separated list of browser origins allowed to call the API (e.g. `https://marwanelgendy.link`). Required when the static site and chat run on different hosts. |
+
+## Deploy (stage / prod)
+
+Single entry point: **`scripts/integrate-and-deploy.sh`** from the repo root (see [`secrets.example/deploy.env.example`](../secrets.example/deploy.env.example) and optional [`secrets.example/chat-deploy.env.example`](../secrets.example/chat-deploy.env.example)).
+
+```bash
+bash scripts/integrate-and-deploy.sh        # prod — stack SAM_STACK_NAME (default page)
+bash scripts/integrate-and-deploy.sh stage  # staging stack SAM_STACK_NAME_STAGE (default page-staging); HTML sync uses https://chat.marwanelgendy.link/api/chat by default
+```
+
+Chat Docker build runs **in parallel with `sam build`** when `CHAT_ECR_REPOSITORY_URI` or `CHAT_ALWAYS_BUILD=1` is set. ECR push and ECS use the same env vars as before. **GitHub Actions → Integrate and deploy** passes **deploy_environment** (`prod` / `stage`).
 
 ## API
 

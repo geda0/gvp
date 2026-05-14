@@ -3,6 +3,14 @@ name: Integrate and deploy
 on:
   workflow_dispatch:
     inputs:
+      deploy_environment:
+        description: 'AWS target — stage uses a separate contact stack + default chat.marwanelgendy.link meta when syncing'
+        required: true
+        default: prod
+        type: choice
+        options:
+          - prod
+          - stage
       aws_auth:
         description: 'How to authenticate to AWS'
         required: true
@@ -32,6 +40,14 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
       SAM_STACK_NAME: ${{ vars.SAM_STACK_NAME || 'page' }}
+      SAM_STACK_NAME_STAGE: ${{ vars.SAM_STACK_NAME_STAGE || 'page-staging' }}
+      CHAT_STAGE_CHAT_API_URL: ${{ vars.CHAT_STAGE_CHAT_API_URL }}
+      CHAT_PROD_CHAT_API_URL: ${{ vars.CHAT_PROD_CHAT_API_URL }}
+      CHAT_ECR_REPOSITORY_URI: ${{ vars.CHAT_ECR_REPOSITORY_URI }}
+      CHAT_ECS_CLUSTER_STAGE: ${{ vars.CHAT_ECS_CLUSTER_STAGE }}
+      CHAT_ECS_SERVICE_STAGE: ${{ vars.CHAT_ECS_SERVICE_STAGE }}
+      CHAT_ECS_CLUSTER_PROD: ${{ vars.CHAT_ECS_CLUSTER_PROD }}
+      CHAT_ECS_SERVICE_PROD: ${{ vars.CHAT_ECS_SERVICE_PROD }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
       CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}
@@ -69,7 +85,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Integrate and deploy
-        run: bash scripts/integrate-and-deploy.sh
+        run: bash scripts/integrate-and-deploy.sh ${{ inputs.deploy_environment }}
 
       - name: Upload patched HTML (when sync enabled)
         if: inputs.sync_api_urls == true

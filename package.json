@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "test:reduced-motion": "node --test test/starfield-reduced-motion.test.mjs",
-    "sam:build": "cd aws && sam build --template-file template.yaml"
+    "sam:build": "cd aws && sam build --template-file template.yaml",
+    "deploy": "bash scripts/integrate-and-deploy.sh",
+    "deploy:stage": "bash scripts/integrate-and-deploy.sh stage",
+    "deploy:prod": "bash scripts/integrate-and-deploy.sh prod"
   }
 }
