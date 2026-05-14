@@ -1415,21 +1415,21 @@ body.contact-dialog-open {
 
     /* Resume / Contact directly under tagline on small screens */
     .hero-cta {
-        order: 5;
+        order: 7;
         margin-top: 0.35rem;
-        margin-bottom: 0.45rem;
+        margin-bottom: 1.45rem;
         flex-wrap: wrap;
         justify-content: center;
     }
 
     .hero-proof {
-        order: 6;
+        order: 5;
         margin-bottom: 0.35rem;
         padding-top: 0.5rem;
     }
 
     .hero-companies {
-        order: 7;
+        order: 6;
         margin-bottom: 0.55rem;
     }
 
