@@ -99,13 +99,9 @@ const VOICE_UNAVAILABLE_ON_HOST_MSG = (
 )
 
 function voiceEarlyCloseMessageForTransport(code, reason, liveVoiceTransport) {
-  const t = liveVoiceTransport || ''
-  if (t === 'direct_google') {
-    const r = String(reason || '').toLowerCase()
-    if (code === 1011 || r.includes('internal')) {
-      return VOICE_UNAVAILABLE_ON_HOST_MSG
-    }
-  }
+  void liveVoiceTransport
+  // direct_google connects the browser to generativelanguage.googleapis.com; 1011/internal
+  // there is a Google-side or handshake issue, not "enable WebSockets on the chat API".
   return voiceSessionEarlyCloseUserMessage(code, reason)
 }
 
@@ -347,7 +343,7 @@ export function bindChatLiveVoice(opts) {
   let voiceConnectInFlight = false
   /** Last POST /api/live/session `liveVoiceTransport` for close-message context. */
   let lastLiveVoiceTransport = null
-  /** After direct_google + 1011/internal early close, skip new session POST until voice succeeds. */
+  /** After relay + 1011/internal early close, block retries (host may not support WS relay). */
   let voiceUnavailableOnHost = false
   let voiceWsIdleTimer = null
   let voiceMaxSessionTimer = null
@@ -799,7 +795,7 @@ export function bindChatLiveVoice(opts) {
         const reason = ev.reason
         const transportForCloseMsg = lastLiveVoiceTransport
         const markHostBlocked = !ready
-          && transportForCloseMsg === 'direct_google'
+          && transportForCloseMsg === 'relay'
           && (code === 1011 || String(reason || '').toLowerCase().includes('internal'))
         // #region agent log
         debugVoiceLog({
