@@ -23,6 +23,12 @@ Parameters:
     Default: gemini-3.1-flash-live-preview
     Description: >
       Gemini Live API model id for browser voice sessions (Multimodal Live / BidiGenerateContent).
+      Overridable at runtime by CHAT_VOICE_MODEL when that env is non-empty (same container).
+  ChatVoiceModel:
+    Type: String
+    Default: ''
+    Description: >
+      Optional voice-only Live model id (maps to CHAT_VOICE_MODEL). When empty, voice uses GeminiLiveModel / GEMINI_LIVE_MODEL only.
   ChatCorsOrigins:
     Type: String
     Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link'
@@ -80,6 +86,7 @@ Resources:
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
           GEMINI_LIVE_MODEL: !Ref GeminiLiveModel
+          CHAT_VOICE_MODEL: !Ref ChatVoiceModel
           CHAT_LIVE_RELAY: '0'
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName

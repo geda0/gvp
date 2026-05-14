@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.knowledge_context import (
     build_context,
+    build_live_system_instruction,
     compact_history,
     extract_tags,
     load_system_prompt,
@@ -129,3 +131,12 @@ def test_build_context_is_deterministic_for_same_inputs() -> None:
     assert first['faq_match'] is not None
     assert [r['id'] for r in first['roles']] == ['r1']
     assert [p['id'] for p in first['projects']] == ['p2']
+
+
+def test_build_live_system_instruction_appends_voice_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('CHAT_VOICE_SYSTEM_APPEND', 'CUSTOM_APPEND_MARKER')
+    pack = {'bio': {'name': 'X'}, 'roles': [], 'projects': [], 'faq': []}
+    text = '<!-- prompt-version: t1 -->\nBody line for voice'
+    out = build_live_system_instruction(text, pack)
+    assert 'Voice mode' in out
+    assert 'CUSTOM_APPEND_MARKER' in out

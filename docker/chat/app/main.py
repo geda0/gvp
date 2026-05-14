@@ -10,6 +10,7 @@ import secrets
 import time
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -30,7 +31,7 @@ from app.knowledge_context import (
     load_knowledge_pack,
     load_system_prompt,
 )
-from app.live_gemini import google_constrained_browser_ws_url, mint_live_session_async
+from app.live_env import live_model_id
 from app.live_relay import relay_browser_to_google
 from app.providers import (
     build_llm_runnable,
@@ -42,6 +43,20 @@ from app.upstream_errors import upstream_error_body
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+
+async def mint_live_session_async(system_instruction: str) -> Any:
+    """Delegate to live_gemini so importing app.main avoids google-genai unless live is used."""
+    from app import live_gemini as _lg
+
+    return await _lg.mint_live_session_async(system_instruction)
+
+
+def google_constrained_browser_ws_url(token_name: str) -> str:
+    from app import live_gemini as _lg
+
+    return _lg.google_constrained_browser_ws_url(token_name)
+
 
 MAX_MESSAGES = int(os.environ.get("CHAT_MAX_MESSAGES", "32"))
 MAX_CONTENT_LEN = int(os.environ.get("CHAT_MAX_CONTENT_LEN", "8000"))
@@ -336,12 +351,29 @@ async def lifespan(app: FastAPI):
         app.state.knowledge_pack = None
         app.state.system_prompt = ''
         app.state.prompt_version = 'unknown'
+        app.state.voice_system_prompt = None
+        app.state.voice_prompt_version = None
         app.state.corpus_error = str(exc)
         logger.exception("Knowledge init failed")
     else:
         app.state.knowledge_pack = pack
         app.state.system_prompt = prompt_text
         app.state.prompt_version = prompt_version
+        app.state.voice_system_prompt = None
+        app.state.voice_prompt_version = None
+        vpath = (os.environ.get('CHAT_VOICE_SYSTEM_PROMPT_PATH') or '').strip()
+        if vpath:
+            try:
+                v_text, v_ver = load_system_prompt(Path(vpath))
+                app.state.voice_system_prompt = v_text
+                app.state.voice_prompt_version = v_ver
+                logger.info('Loaded voice system prompt from %s (version=%s)', vpath, v_ver)
+            except Exception as exc:
+                logger.warning(
+                    'Voice system prompt unavailable (%s): %s — live voice falls back to text prompt body',
+                    vpath,
+                    exc,
+                )
     provider, _ = get_provider_and_model()
     app.state.provider_name = provider
     app.state.provider_timeout_seconds = get_provider_timeout_seconds(provider)
@@ -401,6 +433,8 @@ app.state.gemini_primary_model: str | None = None
 app.state.gemini_fallback_model: str | None = None
 app.state.transcript_store = None
 app.state.live_relay_bridges: dict[str, Any] = {}
+app.state.voice_system_prompt: str | None = None
+app.state.voice_prompt_version: str | None = None
 
 
 @app.get("/health")
@@ -437,6 +471,11 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
             "fallback_model": app.state.chain.fallback_id,
             "primary_rate_limits_today": primary_rate_limit_hits_today(),
         }
+    payload['live'] = {
+        'voice_model_id': live_model_id(),
+        'voice_prompt_version': getattr(app.state, 'voice_prompt_version', None),
+        'voice_prompt_dedicated': bool(getattr(app.state, 'voice_system_prompt', None)),
+    }
     return ready, payload
 
 
@@ -583,8 +622,9 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         )
 
     try:
+        prompt_src = app.state.voice_system_prompt or app.state.system_prompt
         instruction = build_live_system_instruction(
-            app.state.system_prompt,
+            prompt_src,
             app.state.knowledge_pack,
         )
         session_payload = await mint_live_session_async(instruction)
@@ -599,7 +639,11 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         status, content = upstream_error_body(exc)
         return JSONResponse(status_code=status, content=content)
 
-    logger.info("live session ok model=%s", session_payload.get("model"))
+    logger.info(
+        'live session ok model=%s voice_model_env=%s',
+        session_payload.get('model'),
+        live_model_id(),
+    )
     token_name = session_payload.pop("_authTokenName", None)
     if not token_name or not isinstance(token_name, str):
         logger.error("live session: mint returned no _authTokenName")

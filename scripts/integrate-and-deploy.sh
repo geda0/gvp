@@ -237,6 +237,7 @@ if [[ "${run_chat_sam}" == "true" ]]; then
     "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
     "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
+    "ChatVoiceModel=${CHAT_VOICE_MODEL:-}"
   )
   if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
     CHAT_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")

@@ -619,7 +619,7 @@ export function bindChatLiveVoice(opts) {
 
       lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
 
-      if (!wsUrlStr.startsWith('wss://')) {
+      if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
         throw new Error('Invalid voice session URL.')
       }
 

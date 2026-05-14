@@ -11,12 +11,10 @@ from google.genai import types
 
 from google.genai import _transformers as genai_transformers
 
+from app.live_env import live_model_id
+
 _live_http_options = types.HttpOptions(api_version='v1alpha')
 _live_client: genai.Client | None = None
-
-
-def live_model_id() -> str:
-    return (os.environ.get('GEMINI_LIVE_MODEL') or 'gemini-3.1-flash-live-preview').strip()
 
 
 def _live_client_singleton() -> genai.Client:
