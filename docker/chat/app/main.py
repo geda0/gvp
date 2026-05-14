@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -42,11 +43,53 @@ MAX_MESSAGES = int(os.environ.get("CHAT_MAX_MESSAGES", "32"))
 MAX_CONTENT_LEN = int(os.environ.get("CHAT_MAX_CONTENT_LEN", "8000"))
 
 
+def _cors_expand_apex_www(origins: list[str]) -> list[str]:
+    """Add www <-> apex variants for bare hosts (example.com). Skips deeper subdomains (chat.example.com)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for o in origins:
+        o = o.strip()
+        if not o or o in seen:
+            continue
+        seen.add(o)
+        out.append(o)
+
+    additions: list[str] = []
+    for o in out:
+        try:
+            p = urlparse(o)
+        except ValueError:
+            continue
+        if p.scheme not in ('http', 'https') or not p.hostname:
+            continue
+        host_l = p.hostname.lower()
+        parts = host_l.split('.')
+        if len(parts) == 2 and parts[0] != 'www':
+            www_netloc = f'www.{p.hostname}'
+            alt = f'{p.scheme}://{www_netloc}'
+            if p.port:
+                alt = f'{p.scheme}://{www_netloc}:{p.port}'
+            additions.append(alt)
+        elif len(parts) == 3 and parts[0] == 'www':
+            apex_host = '.'.join(parts[1:])
+            alt = f'{p.scheme}://{apex_host}'
+            if p.port:
+                alt = f'{p.scheme}://{apex_host}:{p.port}'
+            additions.append(alt)
+
+    for a in additions:
+        if a not in seen:
+            seen.add(a)
+            out.append(a)
+    return out
+
+
 def _cors_allow_origins() -> list[str]:
     raw = os.environ.get('CHAT_CORS_ORIGINS', '').strip()
     if not raw:
         return []
-    return [o.strip() for o in raw.split(',') if o.strip()]
+    base = [o.strip() for o in raw.split(',') if o.strip()]
+    return _cors_expand_apex_www(base)
 
 
 class ChatMessageIn(BaseModel):
