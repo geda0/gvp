@@ -296,8 +296,6 @@ export function bindChatLiveVoice(opts) {
   let voiceSessionOpen = false
   /** True while startVoice is past UI gates (blocks overlapping starts that orphan the WebSocket). */
   let voiceConnectInFlight = false
-  /** Debug: inbound WS JSON messages this voice session (debug session f3789b). */
-  let voiceWsMsgCount = 0
   /** Last POST /api/live/session `liveVoiceTransport` for close-message context. */
   let lastLiveVoiceTransport = null
 
@@ -329,7 +327,6 @@ export function bindChatLiveVoice(opts) {
 
     voiceSessionOpen = false
     active = false
-    voiceWsMsgCount = 0
     lastLiveVoiceTransport = null
     syncMicChrome()
 
@@ -439,29 +436,6 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
-    voiceWsMsgCount += 1
-    // #region agent log
-    if (voiceWsMsgCount <= 5) {
-      fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3789b' },
-        body: JSON.stringify({
-          sessionId: 'f3789b',
-          hypothesisId: 'H2-H4',
-          location: 'chat-live.js:handlePayload',
-          message: 'ws inbound json',
-          data: {
-            n: voiceWsMsgCount,
-            msgKeys: Object.keys(msg).slice(0, 24),
-            hasSetupComplete: !!(msg.setupComplete ?? msg.setup_complete),
-            textLen: text.length
-          },
-          timestamp: Date.now()
-        })
-      }).catch(() => {})
-    }
-    // #endregion
-
     const setupPayload = msg.setupComplete ?? msg.setup_complete
     if (setupPayload) {
       setupDone = true
@@ -558,7 +532,7 @@ export function bindChatLiveVoice(opts) {
           : 'Could not start voice session.')
       }
 
-      const { websocketUrl, handshake, apiVersion, model: modelFromBody } = body
+      const { websocketUrl, handshake, model: modelFromBody } = body
       if (!websocketUrl || !handshake) {
         throw new Error('Voice session response was incomplete.')
       }
@@ -583,39 +557,11 @@ export function bindChatLiveVoice(opts) {
 
       lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
 
-      // #region agent log
-      fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3789b' },
-        body: JSON.stringify({
-          sessionId: 'f3789b',
-          hypothesisId: 'H1',
-          location: 'chat-live.js:startVoice:afterSessionJson',
-          message: 'live session response shape (no url)',
-          data: {
-            bodyKeys: Object.keys(body),
-            apiVersionSibling: typeof apiVersion === 'string' ? apiVersion : null,
-            handshakeKeys: handshake && typeof handshake === 'object' ? Object.keys(handshake) : [],
-            handshakeHasApiVersion: !!(handshake && typeof handshake === 'object' && handshake.apiVersion),
-            setupInnerKeys: handshake?.setup && typeof handshake.setup === 'object'
-              ? Object.keys(handshake.setup).slice(0, 40)
-              : [],
-            clientSlimsFirstFrame,
-            constrainedWs,
-            wsUrlHasPct2f: wsUrlStr.includes('%2F'),
-            liveVoiceTransport: body.liveVoiceTransport ?? null
-          },
-          timestamp: Date.now()
-        })
-      }).catch(() => {})
-      // #endregion
-
       if (!wsUrlStr.startsWith('wss://')) {
         throw new Error('Invalid voice session URL.')
       }
 
       voiceSessionOpen = true
-      voiceWsMsgCount = 0
 
       player = new PcmJitterPlayer()
 
@@ -685,29 +631,6 @@ export function bindChatLiveVoice(opts) {
       ws = new WebSocket(websocketUrl)
 
       ws.onopen = () => {
-        // #region agent log
-        const sendObj = firstClientSetup
-        const firstSendKeys = sendObj && typeof sendObj === 'object' ? Object.keys(sendObj) : []
-        const sentSetupKeys = sendObj?.setup && typeof sendObj.setup === 'object'
-          ? Object.keys(sendObj.setup).slice(0, 40)
-          : []
-        fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3789b' },
-          body: JSON.stringify({
-            sessionId: 'f3789b',
-            hypothesisId: 'H1',
-            location: 'chat-live.js:ws.onopen',
-            message: 'first ws send key shape',
-            data: {
-              firstSendKeys,
-              sentSetupKeys,
-              includesApiVersionInFrame: firstSendKeys.includes('apiVersion')
-            },
-            timestamp: Date.now()
-          })
-        }).catch(() => {})
-        // #endregion
         ws.send(JSON.stringify(firstClientSetup))
       }
 
@@ -726,26 +649,6 @@ export function bindChatLiveVoice(opts) {
         const ready = setupDone
         const code = ev.code
         const reason = ev.reason
-        // #region agent log
-        fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3789b' },
-          body: JSON.stringify({
-            sessionId: 'f3789b',
-            hypothesisId: 'H1-H3-H5',
-            location: 'chat-live.js:ws.onclose',
-            message: 'ws closed',
-            data: {
-              code,
-              reason: typeof reason === 'string' ? reason.slice(0, 200) : '',
-              setupDoneBeforeClose: ready,
-              inboundMsgCount: voiceWsMsgCount,
-              lastLiveVoiceTransport
-            },
-            timestamp: Date.now()
-          })
-        }).catch(() => {})
-        // #endregion
         const transportForCloseMsg = lastLiveVoiceTransport
         stopVoiceInternal({ silent: true })
         if (!ready) {
