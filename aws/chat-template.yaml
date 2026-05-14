@@ -10,10 +10,15 @@ Parameters:
     Description: Google AI Studio / Gemini API key (replace placeholder for real traffic).
   GeminiModel:
     Type: String
-    Default: gemini-2.5-flash
+    Default: gemini-3.1-flash-lite
     Description: >
-      Gemini API model id (see https://ai.google.dev/gemini-api/docs/models ).
-      Default is Gemini 2.5 Flash (gemini-2.5-flash).
+      Primary Gemini API model id (see https://ai.google.dev/gemini-api/docs/models ).
+      Default Gemini 3.1 Flash Lite (gemini-3.1-flash-lite).
+  GeminiFallbackModel:
+    Type: String
+    Default: gemma-4-26b-a4b-it
+    Description: >
+      Fallback model when the primary returns rate limits (429 / quota). Default Gemma 4 26B A4B IT.
   ChatCorsOrigins:
     Type: String
     Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link'
@@ -47,6 +52,7 @@ Resources:
           CHAT_PROVIDER: gemini
           GEMINI_API_KEY: !Ref GeminiApiKey
           GEMINI_MODEL: !Ref GeminiModel
+          GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
       Events:
         RootAny:

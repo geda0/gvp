@@ -27,7 +27,8 @@ CHAT_PROVIDER=mock \
 |----------|-------------|
 | `CHAT_PROVIDER` | `mock` (default, no network), `gemini` (`GEMINI_API_KEY`), `openai` (`OPENAI_API_KEY`) |
 | `GEMINI_API_KEY` | Required when `CHAT_PROVIDER=gemini` |
-| `GEMINI_MODEL` | Optional override (default **`gemini-2.5-flash`** — [Gemini 2.5 Flash](https://ai.google.dev/gemini-api/docs/models)) |
+| `GEMINI_MODEL` | Primary model override (default **`gemini-3.1-flash-lite`**) |
+| `GEMINI_FALLBACK_MODEL` | Used when the primary returns rate limits / quota (default **`gemma-4-26b-a4b-it`**). After a primary 429, the service prefers the fallback first until **UTC midnight**, then resets. |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
 | `CHAT_PROVIDER_TIMEOUT_SECONDS` | Global upstream timeout in seconds (default `15`) |
@@ -75,7 +76,7 @@ curl -sS -o /dev/null -w '%{http_code} %{url_effective}\n' -L 'https://YOUR-API-
 ## API
 
 - `GET /health` → `{"ok": true}`
-- `GET /ready` → readiness for corpus + provider chain (`200` when ready, `503` when degraded)
+- `GET /ready` → readiness for corpus + provider chain (`200` when ready, `503` when degraded). With **`CHAT_PROVIDER=gemini`**, `provider.gemini` includes **`primary_model`**, **`fallback_model`**, and **`primary_rate_limits_today`** (count of primary 429/quota events since last **UTC** midnight).
 - `POST /api/chat` → body `{"messages":[{"role":"user|assistant|system","content":"..."}],"stream":false}` → `{"reply":"...","model":"..."}`
 
 Errors: JSON body with `error` and `code` where applicable. Timeout and upstream failures are mapped to stable codes (`upstream_timeout`, `upstream_rate_limited`, `upstream_auth_error`, `model_error`).

@@ -41,11 +41,19 @@ def get_provider_timeout_seconds(provider: str) -> float:
     return _get_timeout_seconds(provider)
 
 
+def _gemini_primary_model_id() -> str:
+    return (os.environ.get('GEMINI_MODEL') or 'gemini-3.1-flash-lite').strip()
+
+
+def _gemini_fallback_model_id() -> str:
+    return (os.environ.get('GEMINI_FALLBACK_MODEL') or 'gemma-4-26b-a4b-it').strip()
+
+
 def _model_id_for_provider(provider: str) -> str:
     if provider == "mock":
         return "mock-portfolio"
     if provider == "gemini":
-        return os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
+        return _gemini_primary_model_id()
     if provider == "openai":
         return os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
     return provider
@@ -120,7 +128,7 @@ def build_llm_runnable(
     provider: str,
     corpus_index: Any,
     corpus_digest: str,
-) -> tuple[Runnable, str]:
+) -> tuple[Any, str]:
     """Return (chain, model_id). Chain input: {\"messages\": list[BaseMessage]}."""
     provider = provider.lower()
     model_id = _model_id_for_provider(provider)
@@ -155,16 +163,21 @@ def build_llm_runnable(
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
 
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from app.gemini_routing import GeminiRoutingChain
 
-        llm = ChatGoogleGenerativeAI(
-            model=model_id,
-            google_api_key=key,
-            temperature=0.2,
-            timeout=timeout_s,
+        primary_id = _gemini_primary_model_id()
+        fallback_id = _gemini_fallback_model_id()
+        if primary_id == fallback_id:
+            raise RuntimeError("GEMINI_MODEL and GEMINI_FALLBACK_MODEL must differ")
+
+        chain = GeminiRoutingChain(
+            inject | prompt,
+            primary_id,
+            fallback_id,
+            key,
+            timeout_s,
         )
-        chain = inject | prompt | llm
-        return chain, model_id
+        return chain, primary_id
 
     if provider == "openai":
         key = os.environ.get("OPENAI_API_KEY")

@@ -106,6 +106,13 @@ def upstream_error_body(exc: BaseException) -> tuple[int, dict[str, Any]]:
     }
 
 
+def is_upstream_rate_limit(exc: BaseException) -> bool:
+    status, body = upstream_error_body(exc)
+    if status == 429:
+        return True
+    return body.get("code") == "upstream_rate_limited"
+
+
 def _extract_status_code_from_chain(exc: BaseException) -> int | None:
     seen: set[int] = set()
     cur: BaseException | None = exc

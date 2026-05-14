@@ -47,6 +47,7 @@ function _appendTurn(transcript, role, text) {
 
 export function initChatbot() {
   const panel = document.getElementById('heroChatPanel')
+  const expandable = document.getElementById('heroChatExpandable')
   const transcript = document.getElementById('heroChatTranscript')
   const placeholder = document.getElementById('heroChatPlaceholder')
   const input = document.getElementById('heroChatInput')
@@ -62,12 +63,36 @@ export function initChatbot() {
   let messages = []
   let inflight = false
 
+  const syncExpand = () => {
+    const hasThread = messages.length > 0
+    const hasDraft = String(input.value || '').trim().length > 0
+    const hasErr = Boolean(errorEl && !errorEl.hidden)
+    const focusInside = panel.contains(document.activeElement)
+    const expanded = hasThread || hasDraft || hasErr || focusInside || inflight
+
+    panel.classList.toggle('hero-chat--expanded', expanded)
+    panel.classList.toggle('hero-chat--collapsed', !expanded)
+    panel.setAttribute('aria-expanded', expanded ? 'true' : 'false')
+
+    const rows = expanded ? 3 : 1
+    if (input.rows !== rows) input.rows = rows
+
+    if (expandable) {
+      expandable.setAttribute('aria-hidden', expanded ? 'false' : 'true')
+    }
+    const transcriptWrap = transcript.parentElement
+    if (transcriptWrap?.classList.contains('hero-chat__transcript-wrap')) {
+      transcriptWrap.tabIndex = expanded ? 0 : -1
+    }
+  }
+
   const setBusy = (busy) => {
     inflight = busy
     panel.setAttribute('aria-busy', busy ? 'true' : 'false')
     input.disabled = busy
     sendBtn.disabled = busy
     if (retryBtn) retryBtn.disabled = busy
+    syncExpand()
   }
 
   const humanizeError = (res, body) => {
@@ -180,6 +205,7 @@ export function initChatbot() {
         msg = `${msg} Use "Retry last message" to try again.`
       }
       _showError(errorEl, retryBtn, msg)
+      syncExpand()
     } finally {
       setBusy(false)
     }
@@ -206,6 +232,7 @@ export function initChatbot() {
         msg = `${msg} Retry last message and try again.`
       }
       _showError(errorEl, retryBtn, msg)
+      syncExpand()
     } finally {
       setBusy(false)
     }
@@ -225,5 +252,20 @@ export function initChatbot() {
     void send()
   })
 
+  input.addEventListener('input', () => {
+    syncExpand()
+  })
+
+  panel.addEventListener('focusin', () => {
+    syncExpand()
+  })
+
+  panel.addEventListener('focusout', () => {
+    requestAnimationFrame(() => {
+      syncExpand()
+    })
+  })
+
   syncPlaceholder()
+  syncExpand()
 }

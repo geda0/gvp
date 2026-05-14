@@ -95,26 +95,34 @@
                 <section id="home" class="scale-in">
                     <div class="hero">
                         <div class="hero-layout">
-                            <div class="hero-chat hero-chat--enter" id="heroChatPanel" aria-labelledby="heroChatHeading" aria-busy="false">
-                                <h2 class="hero-chat__title" id="heroChatHeading">Ground control</h2>
-                                <p class="hero-chat__lede">Ask about this site, the stack, or Marwan’s platform engineering work.</p>
-                                <div class="hero-chat__transcript-wrap" tabindex="0" role="region"
-                                    aria-label="Chat transcript">
-                                    <div id="heroChatTranscript" class="hero-chat__transcript" aria-live="polite"
-                                        aria-relevant="additions text"></div>
-                                    <p id="heroChatPlaceholder" class="hero-chat__placeholder">Try: "What stack powers this site?"</p>
+                            <div class="hero-chat hero-chat--enter hero-chat--collapsed" id="heroChatPanel"
+                                aria-labelledby="heroChatHeading" aria-busy="false" aria-expanded="false">
+                                <div class="hero-chat__expandable" id="heroChatExpandable" aria-hidden="true">
+                                    <div class="hero-chat__expandable-inner">
+                                        <h2 class="hero-chat__title" id="heroChatHeading">Ground control</h2>
+                                        <p class="hero-chat__lede">Ask about this site, the stack, or Marwan’s platform engineering work.</p>
+                                        <div class="hero-chat__transcript-wrap" tabindex="-1" role="region"
+                                            aria-label="Chat transcript">
+                                            <div id="heroChatTranscript" class="hero-chat__transcript" aria-live="polite"
+                                                aria-relevant="additions text"></div>
+                                            <p id="heroChatPlaceholder" class="hero-chat__placeholder">Try: "What stack powers this site?"</p>
+                                        </div>
+                                        <p id="heroChatError" class="hero-chat__error" role="alert" hidden></p>
+                                        <p id="heroChatStatus" class="hero-chat__status" hidden></p>
+                                    </div>
                                 </div>
-                                <p id="heroChatError" class="hero-chat__error" role="alert" hidden></p>
-                                <p id="heroChatStatus" class="hero-chat__status" hidden></p>
                                 <div class="hero-chat__composer">
                                     <label for="heroChatInput" class="visually-hidden">Message to assistant</label>
-                                    <textarea id="heroChatInput" class="hero-chat__input" rows="3"
-                                        placeholder="Type your question…" aria-describedby="heroChatHint heroChatA11yNote"></textarea>
-                                    <div class="hero-chat__actions">
-                                        <button type="button" id="heroChatSend"
-                                            class="hero-chat__send cta-primary">Send</button>
-                                        <button type="button" id="heroChatRetry"
-                                            class="hero-chat__retry cta-secondary" hidden>Retry last message</button>
+                                    <div class="hero-chat__composer-row">
+                                        <textarea id="heroChatInput" class="hero-chat__input" rows="1"
+                                            placeholder="Ask anything about this site or Marwan’s work…"
+                                            aria-describedby="heroChatHint heroChatA11yNote"></textarea>
+                                        <div class="hero-chat__actions">
+                                            <button type="button" id="heroChatSend"
+                                                class="hero-chat__send cta-primary"><span class="hero-chat__send-label">Send</span></button>
+                                            <button type="button" id="heroChatRetry"
+                                                class="hero-chat__retry cta-secondary" hidden>Retry last message</button>
+                                        </div>
                                     </div>
                                 </div>
                                 <p class="hero-chat__hint" id="heroChatHint">Enter sends · Shift+Enter adds a new line</p>

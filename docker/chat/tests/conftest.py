@@ -22,6 +22,15 @@ os.environ.setdefault(
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_gemini_limit_state() -> None:
+    from app import gemini_limit_state as gls
+
+    gls.reset_for_tests()
+    yield
+    gls.reset_for_tests()
+
+
 @pytest.fixture
 async def client() -> AsyncClient:
     from app.main import app

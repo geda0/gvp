@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
 
 from app.context import CorpusIndex, build_chunks, summarized_corpus
+from app.gemini_routing import GeminiRoutingChain
 from app.providers import (
     build_llm_runnable,
     get_provider_and_model,
@@ -124,9 +125,17 @@ async def lifespan(app: FastAPI):
         app.state.chain = chain
         app.state.model_id = model_id
         app.state.provider_error = None
+        if isinstance(chain, GeminiRoutingChain):
+            app.state.gemini_primary_model = chain.primary_id
+            app.state.gemini_fallback_model = chain.fallback_id
+        else:
+            app.state.gemini_primary_model = None
+            app.state.gemini_fallback_model = None
         logger.info("Chat provider=%s model=%s", provider, model_id)
     except (RuntimeError, ValueError) as e:
         app.state.chain = None
+        app.state.gemini_primary_model = None
+        app.state.gemini_fallback_model = None
         app.state.provider_error = str(e)
         logger.error("Provider init failed: %s", e)
     yield
@@ -152,6 +161,8 @@ app.state.provider_timeout_seconds: float = 15.0
 app.state.resume_path: str = ""
 app.state.projects_path: str = ""
 app.state.corpus_error: str | None = None
+app.state.gemini_primary_model: str | None = None
+app.state.gemini_fallback_model: str | None = None
 
 
 @app.get("/health")
@@ -179,6 +190,14 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
             "projects_path": app.state.projects_path,
         },
     }
+    if isinstance(app.state.chain, GeminiRoutingChain):
+        from app.gemini_limit_state import primary_rate_limit_hits_today
+
+        payload["provider"]["gemini"] = {
+            "primary_model": app.state.chain.primary_id,
+            "fallback_model": app.state.chain.fallback_id,
+            "primary_rate_limits_today": primary_rate_limit_hits_today(),
+        }
     return ready, payload
 
 
@@ -245,8 +264,9 @@ async def chat(payload: ChatRequest) -> JSONResponse:
         return JSONResponse(status_code=status, content=content)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = result.content if isinstance(result, AIMessage) else str(result)
-    logger.info("chat ok model=%s latency_ms=%s", app.state.model_id, elapsed_ms)
-    return JSONResponse(content={"reply": reply_text, "model": app.state.model_id})
+    model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
+    logger.info("chat ok model=%s latency_ms=%s", model_used, elapsed_ms)
+    return JSONResponse(content={"reply": reply_text, "model": model_used})
 
 
 @app.exception_handler(RequestValidationError)
