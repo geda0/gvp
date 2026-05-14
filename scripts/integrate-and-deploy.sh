@@ -183,6 +183,7 @@ if [[ "${run_chat_sam}" == "true" ]]; then
   CHAT_PO=(
     "GeminiApiKey=${GEMINI_API_KEY}"
     "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link}"
+    "GeminiModel=${GEMINI_MODEL:-gemini-2.5-flash}"
   )
   echo "sam deploy chat stack=${CHAT_SAM_STACK_NAME} region=${REGION}"
   (

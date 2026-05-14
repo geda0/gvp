@@ -8,6 +8,12 @@ Parameters:
     NoEcho: true
     Default: 'GEMINI-KEY-PLACEHOLDER'
     Description: Google AI Studio / Gemini API key (replace placeholder for real traffic).
+  GeminiModel:
+    Type: String
+    Default: gemini-2.5-flash
+    Description: >
+      Gemini API model id (see https://ai.google.dev/gemini-api/docs/models ).
+      Default is Gemini 2.5 Flash (gemini-2.5-flash).
   ChatCorsOrigins:
     Type: String
     Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link'
@@ -40,6 +46,7 @@ Resources:
         Variables:
           CHAT_PROVIDER: gemini
           GEMINI_API_KEY: !Ref GeminiApiKey
+          GEMINI_MODEL: !Ref GeminiModel
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
       Events:
         RootAny:

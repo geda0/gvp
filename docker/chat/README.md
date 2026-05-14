@@ -27,7 +27,7 @@ CHAT_PROVIDER=mock \
 |----------|-------------|
 | `CHAT_PROVIDER` | `mock` (default, no network), `gemini` (`GEMINI_API_KEY`), `openai` (`OPENAI_API_KEY`) |
 | `GEMINI_API_KEY` | Required when `CHAT_PROVIDER=gemini` |
-| `GEMINI_MODEL` | Optional override (default `gemini-2.0-flash`) |
+| `GEMINI_MODEL` | Optional override (default **`gemini-2.5-flash`** — [Gemini 2.5 Flash](https://ai.google.dev/gemini-api/docs/models)) |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
 | `CHAT_PROVIDER_TIMEOUT_SECONDS` | Global upstream timeout in seconds (default `15`) |

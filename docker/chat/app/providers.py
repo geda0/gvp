@@ -45,7 +45,7 @@ def _model_id_for_provider(provider: str) -> str:
     if provider == "mock":
         return "mock-portfolio"
     if provider == "gemini":
-        return os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash"
+        return os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
     if provider == "openai":
         return os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
     return provider

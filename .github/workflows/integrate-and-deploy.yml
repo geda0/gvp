@@ -49,6 +49,7 @@ jobs:
       CHAT_ECS_CLUSTER_PROD: ${{ vars.CHAT_ECS_CLUSTER_PROD }}
       CHAT_ECS_SERVICE_PROD: ${{ vars.CHAT_ECS_SERVICE_PROD }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
       CHAT_SAM_STACK_NAME: ${{ vars.CHAT_SAM_STACK_NAME }}
       CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
