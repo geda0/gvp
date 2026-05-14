@@ -31,13 +31,20 @@ def _get_timeout_seconds(provider: str) -> float:
     if val is None:
         val = os.environ.get("CHAT_PROVIDER_TIMEOUT_SECONDS")
     if val is None:
+        # Gemini: portfolio chats ship a large knowledge_pack; 15s often trips on
+        # multi-turn + tool calls. Stay under typical API Gateway ~30s integration
+        # ceiling while leaving headroom vs Lambda 60s.
+        if provider == "gemini":
+            return 28.0
         return 15.0
     try:
         parsed = float(val)
     except ValueError:
         logger.warning("Invalid timeout value %r; using default 15s", val)
         return 15.0
-    return max(parsed, 0.1)
+    # Cap Gemini waits below common API Gateway integration limits.
+    ceiling = 55.0 if provider == "gemini" else 120.0
+    return max(min(parsed, ceiling), 0.1)
 
 
 def get_provider_timeout_seconds(provider: str) -> float:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -53,12 +54,18 @@ class GeminiRoutingChain:
 
         order = self._model_order()
         last_exc: BaseException | None = None
+        try:
+            max_out = int((os.environ.get('GEMINI_MAX_OUTPUT_TOKENS') or '896').strip())
+        except ValueError:
+            max_out = 896
+        max_out = max(256, min(max_out, 2048))
         for idx, model_id in enumerate(order):
             llm = ChatGoogleGenerativeAI(
                 model=model_id,
                 google_api_key=self.key,
                 temperature=0.2,
                 timeout=self.timeout,
+                max_output_tokens=max_out,
             )
             if self.tools:
                 llm = llm.bind_tools(self.tools)

@@ -259,10 +259,84 @@ def _xml_safe(value: Any) -> str:
     return html.escape(str(value or ''), quote=True)
 
 
+def _truncate_text(text: str, max_len: int) -> str:
+    s = str(text or '')
+    if len(s) <= max_len:
+        return s
+    return f'{s[: max_len - 24].rstrip()}…[truncated]'
+
+
+def _compact_bio(bio: dict[str, Any]) -> dict[str, Any]:
+    strengths = bio.get('strengths') or []
+    if isinstance(strengths, list):
+        strengths_out = [_truncate_text(str(x), 120) for x in strengths[:8]]
+    else:
+        strengths_out = []
+    tech = bio.get('tech_at_glance') or bio.get('tech') or []
+    if isinstance(tech, list):
+        tech_out = [str(x) for x in tech[:16]]
+    else:
+        tech_out = []
+    return {
+        'name': bio.get('name'),
+        'current_status': _truncate_text(str(bio.get('current_status', '')), 240),
+        'based': bio.get('based'),
+        'summary': _truncate_text(str(bio.get('summary', '')), 600),
+        'strengths': strengths_out,
+        'tech_at_glance': tech_out,
+        'contact_preference': _truncate_text(str(bio.get('contact_preference', '')), 200),
+    }
+
+
+def _compact_role(role: dict[str, Any]) -> dict[str, Any]:
+    highlights = role.get('highlights') or []
+    if isinstance(highlights, list):
+        hl = [_truncate_text(str(h), 220) for h in highlights[:6]]
+    else:
+        hl = []
+    tech = role.get('tech') or []
+    if isinstance(tech, list):
+        tech_s = [str(t) for t in tech[:12]]
+    else:
+        tech_s = []
+    return {
+        'id': role.get('id'),
+        'company': role.get('company'),
+        'product': _truncate_text(str(role.get('product', '')), 160),
+        'tenure': role.get('tenure'),
+        'summary': _truncate_text(str(role.get('summary', '')), 400),
+        'highlights': hl,
+        'tech': tech_s,
+        'relevance_tags': role.get('relevance_tags') or [],
+    }
+
+
+def _compact_project(project: dict[str, Any]) -> dict[str, Any]:
+    tech = project.get('tech') or []
+    if isinstance(tech, list):
+        tech_s = [str(t) for t in tech[:14]]
+    else:
+        tech_s = []
+    links = project.get('links') or []
+    if isinstance(links, list):
+        links_out = links[:3]
+    else:
+        links_out = []
+    return {
+        'id': project.get('id'),
+        'name': _truncate_text(str(project.get('name', '')), 120),
+        'summary': _truncate_text(str(project.get('summary', '')), 900),
+        'why_it_matters': _truncate_text(str(project.get('why_it_matters', '')), 400),
+        'tech': tech_s,
+        'links': links_out,
+        'relevance_tags': project.get('relevance_tags') or [],
+    }
+
+
 def serialize_context_xml(context: dict[str, Any]) -> str:
-    bio = context.get('bio') or {}
-    roles = context.get('roles') or []
-    projects = context.get('projects') or []
+    bio = _compact_bio(context.get('bio') or {})
+    roles = [_compact_role(r) for r in (context.get('roles') or [])]
+    projects = [_compact_project(p) for p in (context.get('projects') or [])]
     faq_match = context.get('faq_match')
     tags = context.get('tags') or []
 
@@ -298,4 +372,18 @@ def serialize_context_xml(context: dict[str, Any]) -> str:
             parts.append(f' After answering, call the tool: {_xml_safe(trigger_tool)}.')
         parts.append('</suggested_response>')
     parts.append('</knowledge_pack>')
-    return ''.join(parts)
+    xml = ''.join(parts)
+    try:
+        max_chars = int((os.environ.get('CHAT_KNOWLEDGE_PACK_MAX_CHARS') or '14000').strip())
+    except ValueError:
+        max_chars = 14000
+    max_chars = max(4000, min(max_chars, 50000))
+    if len(xml) > max_chars:
+        logger.warning(
+            'Serialized knowledge_pack length %s exceeds max %s; truncating',
+            len(xml),
+            max_chars,
+        )
+        marker = '\n<!-- truncated_for_latency -->'
+        xml = xml[: max_chars - len(marker)] + marker
+    return xml

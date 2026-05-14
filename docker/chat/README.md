@@ -31,8 +31,10 @@ CHAT_PROVIDER=mock \
 | `GEMINI_FALLBACK_MODEL` | Used when the primary returns rate limits / quota (default **`gemma-4-26b-a4b-it`**). After a primary 429, the service prefers the fallback first until **UTC midnight**, then resets. |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
-| `CHAT_PROVIDER_TIMEOUT_SECONDS` | Global upstream timeout in seconds (default `15`) |
-| `GEMINI_TIMEOUT_SECONDS` | Optional Gemini-specific timeout override |
+| `CHAT_PROVIDER_TIMEOUT_SECONDS` | Global upstream timeout in seconds (default `15` for mock/OpenAI; ignored for Gemini when unset in favor of Gemini default below) |
+| `GEMINI_TIMEOUT_SECONDS` | Optional Gemini-specific timeout override (default **28** when unset — large knowledge packs + tools often exceed 15s; capped at 55s) |
+| `GEMINI_MAX_OUTPUT_TOKENS` | Cap Gemini reply length for lower latency (default **896**, clamped 256–2048) |
+| `CHAT_KNOWLEDGE_PACK_MAX_CHARS` | Hard cap on serialized `<knowledge_pack>` size (default **14000**) |
 | `OPENAI_TIMEOUT_SECONDS` | Optional OpenAI-specific timeout override |
 | `CHAT_KNOWLEDGE_DIR` | Directory containing `bio.json`, `roles.json`, `projects.json`, `faq.json` (default `data/chat-knowledge`) |
 | `CHAT_SYSTEM_PROMPT_PATH` | Prompt markdown file with `prompt-version` header (default `docker/chat/prompts/system-prompt.md`) |

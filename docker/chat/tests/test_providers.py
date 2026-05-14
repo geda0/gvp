@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app.providers import _inject_retrieved
+from app.providers import _inject_retrieved, get_provider_timeout_seconds
+
+
+def test_gemini_default_upstream_timeout(monkeypatch) -> None:
+    monkeypatch.delenv('GEMINI_TIMEOUT_SECONDS', raising=False)
+    monkeypatch.delenv('CHAT_PROVIDER_TIMEOUT_SECONDS', raising=False)
+    assert get_provider_timeout_seconds('gemini') == 28.0
 
 
 def test_inject_retrieved_compacts_and_prefixes_knowledge_xml() -> None:
