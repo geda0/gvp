@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from typing import Any
-from urllib.parse import quote
 
 from google import genai
 from google.genai import types
@@ -39,7 +38,7 @@ def _live_connect_config(system_instruction: str) -> types.LiveConnectConfig:
 
 
 async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
-    """Return websocket URL (with access_token), handshake JSON, and model resource."""
+    """Mint auth token + minimal setup. Browser connects via /api/live/relay (Authorization header)."""
     client = _live_client_singleton()
     api_client = client._api_client
     mid = live_model_id()
@@ -60,26 +59,13 @@ async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
 
     transformed_model = genai_transformers.t_model(api_client, mid)
 
-    # BidiGenerateContentConstrained: LiveConnectConstraints on the auth token
-    # already pin model + generation config. Sending the full converted setup again
-    # as the first WebSocket frame can be rejected (1011). Browsers must send a
-    # minimal setup that only names the model; see google.genai live.connect with
-    # ephemeral tokens (same URI + first JSON frame shape).
     handshake: dict[str, Any] = {'setup': {'model': transformed_model}}
 
     version = 'v1alpha'
-    host = 'generativelanguage.googleapis.com'
-    path = (
-        f'/ws/google.ai.generativelanguage.{version}'
-        '.GenerativeService.BidiGenerateContentConstrained'
-    )
-
-    # Keep "/" in auth_tokens/… unescaped; some clients + Google reject %2F-only tokens.
-    ws_url = f'wss://{host}{path}?access_token={quote(token_name, safe="/")}'
 
     return {
-        'websocketUrl': ws_url,
         'handshake': handshake,
         'model': transformed_model,
         'apiVersion': version,
+        '_authTokenName': token_name,
     }

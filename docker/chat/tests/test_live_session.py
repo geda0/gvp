@@ -15,10 +15,10 @@ async def test_live_session_mocked_ok(client: AsyncClient, monkeypatch: pytest.M
     async def fake_mint(instruction: str) -> dict:
         assert 'Voice mode' in instruction
         return {
-            'websocketUrl': 'wss://generativelanguage.googleapis.com/ws/x?access_token=tok',
             'handshake': {'setup': {'model': 'models/gemini-3.1-flash-live-preview'}},
             'model': 'models/gemini-3.1-flash-live-preview',
             'apiVersion': 'v1alpha',
+            '_authTokenName': 'auth_tokens/unit-test-token',
         }
 
     monkeypatch.setattr('app.main.mint_live_session_async', fake_mint)
@@ -26,7 +26,8 @@ async def test_live_session_mocked_ok(client: AsyncClient, monkeypatch: pytest.M
     r = await client.post('/api/live/session', json={'sessionId': 'sess-unit'})
     assert r.status_code == 200
     body = r.json()
-    assert body['websocketUrl'].startswith('wss://')
+    assert '/api/live/relay/' in body['websocketUrl']
+    assert body['websocketUrl'].startswith('ws://') or body['websocketUrl'].startswith('wss://')
     assert body['handshake']['setup']['model']
     assert body['model']
     assert body['apiVersion'] == 'v1alpha'
