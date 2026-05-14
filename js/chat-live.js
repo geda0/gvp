@@ -569,6 +569,10 @@ export function bindChatLiveVoice(opts) {
         throw new Error('Invalid voice session URL.')
       }
 
+      const firstWsFrame = (typeof apiVersion === 'string' && apiVersion.trim())
+        ? { apiVersion: apiVersion.trim(), ...handshake }
+        : handshake
+
       voiceSessionOpen = true
       voiceWsMsgCount = 0
 
@@ -641,7 +645,7 @@ export function bindChatLiveVoice(opts) {
 
       ws.onopen = () => {
         // #region agent log
-        const firstSendKeys = handshake && typeof handshake === 'object' ? Object.keys(handshake) : []
+        const firstSendKeys = firstWsFrame && typeof firstWsFrame === 'object' ? Object.keys(firstWsFrame) : []
         fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f3789b' },
@@ -658,7 +662,7 @@ export function bindChatLiveVoice(opts) {
           })
         }).catch(() => {})
         // #endregion
-        ws.send(JSON.stringify(handshake))
+        ws.send(JSON.stringify(firstWsFrame))
       }
 
       ws.onmessage = (ev) => {
