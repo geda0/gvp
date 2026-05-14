@@ -367,7 +367,10 @@ export function initChat() {
         composerMic.hidden = false
         composerMic.removeAttribute('inert')
       }
-      if (agentNodeMic) agentNodeMic.disabled = micBusy
+      if (agentNodeMic) {
+        agentNodeMic.disabled = micBusy
+        agentNodeMic.removeAttribute('inert')
+      }
     }
   }
 

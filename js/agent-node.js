@@ -91,6 +91,8 @@ export function initAgentNode(options = {}) {
   const heroSlot = document.getElementById('agentSlotHero')
   const navbarSlot = document.getElementById('agentSlotNavbar')
   const trail = document.getElementById('agentTrail')
+  const mic = document.getElementById('agentNodeMic')
+  const heroChatLabelWrap = heroSlot?.closest('.hero-chat')?.querySelector('.hero-chat__label-wrap')
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
   const ambientOverlay = node?.querySelector('.agent-node__ambient-overlay')
@@ -270,6 +272,13 @@ export function initAgentNode(options = {}) {
     const parent = safe === 'navbar' ? navbarSlot : heroSlot
     if (node.parentElement !== parent) {
       parent.appendChild(node)
+    }
+    if (mic) {
+      if (safe === 'hero' && heroChatLabelWrap) {
+        heroChatLabelWrap.appendChild(mic)
+      } else {
+        node.appendChild(mic)
+      }
     }
     state.slot = safe
     node.dataset.slot = safe

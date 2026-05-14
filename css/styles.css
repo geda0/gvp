@@ -268,8 +268,8 @@ body > header {
     border-bottom: 1px solid var(--border-subtle);
     /* Avoid rare horizontal page scroll from slim chatbar + links */
     overflow-x: hidden;
-    /* Above main content (including transformed project sections); matches nav layering in CLAUDE.md */
-    z-index: 1000;
+    /* Above #spacemanContainer (1001) so fixed nav + docked agent mic stay clickable; below chat (1095) / project (1100) */
+    z-index: 1010;
     transition: background-color 0.4s ease, border-color 0.4s ease;
 }
 

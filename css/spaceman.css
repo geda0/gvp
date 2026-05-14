@@ -723,7 +723,7 @@
 
 /* ===== SPACEMAN POSITIONING & MOVEMENT ===== */
 
-/* Above header (styles.css z-index: 1000) so the thought bubble isn’t hidden under the nav; below project dialog (1100+). */
+/* Below fixed site header (styles.css z-index: 1010) so nav chrome wins hit-testing; above main content; below project dialog (1100+). */
 #spacemanContainer {
   position: fixed;
   top: 50%;

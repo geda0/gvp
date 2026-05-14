@@ -92,7 +92,7 @@ body.chat-dialog-open {
     margin-bottom: 0.45rem;
 }
 
-/* Tighter band under Ask line now that hero mic sits beside it (see `.agent-slot--hero > .agent-node`). */
+/* Tighter band under Ask row (label + mic); launcher pill is below in `#agentSlotHero`. */
 #home .hero-chat__label-wrap {
     margin-bottom: 0.22rem;
 }
@@ -218,24 +218,6 @@ body.chat-dialog-open {
 
 .agent-slot--hero .agent-node {
     max-width: 36rem;
-}
-
-/* Hero dock only: mic sits on the Ask line; pill stays below. Navbar keeps a single row (mic after form). */
-.agent-slot--hero > .agent-node[data-state='bubble'] {
-    flex-direction: column-reverse;
-    align-items: stretch;
-    gap: 0.42rem;
-}
-
-.agent-slot--hero > .agent-node[data-state='bubble'] .agent-node__mic {
-    align-self: flex-end;
-}
-
-.agent-slot--hero > .agent-node[data-state='bar'],
-.agent-slot--hero > .agent-node[data-state='modal'] {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
 }
 
 .agent-node[data-state='bubble'] {
@@ -435,6 +417,12 @@ body.chat-dialog-open {
     box-shadow: 0 0 0 0.2rem var(--chat-launcher-dot-halo);
 }
 
+.hero-chat:has(.agent-node--lifecycle-active.agent-node--lifecycle-sending) .hero-chat__label-wrap .agent-node__mic,
+.hero-chat:has(.agent-node--lifecycle-active.agent-node--lifecycle-thinking) .hero-chat__label-wrap .agent-node__mic,
+.hero-chat:has(.agent-node--lifecycle-active.agent-node--lifecycle-streaming) .hero-chat__label-wrap .agent-node__mic {
+    box-shadow: 0 0 0 0.2rem var(--chat-launcher-dot-halo);
+}
+
 @keyframes agent-node-lounge-flash {
     0% { box-shadow: 0 0 0 0.14rem var(--chat-launcher-glow-outer); }
     45% { box-shadow: 0 0 0 0.24rem var(--chat-launcher-glow-focus); }
@@ -496,11 +484,13 @@ body.chat-dialog-open {
     box-shadow: 0 0 0 0.25rem var(--chat-launcher-glow-focus);
 }
 
-.agent-slot--hero .agent-node[data-state='bubble']:not(:focus-within) .agent-node__form {
+.agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
     opacity: 0.92;
 }
 
-.agent-slot--hero .agent-node[data-state='bubble']:focus-within .agent-node__form {
+.agent-slot--hero .agent-node[data-state='bubble']:focus-within .agent-node__form,
+.agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form:focus-within,
+.hero-chat:has(#agentNodeMic:focus) .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
     opacity: 1;
 }
 
@@ -519,12 +509,12 @@ body.chat-dialog-open {
     padding: 0.36rem 0;
 }
 
-.agent-slot--hero .agent-node__mic {
+.hero-chat__label-wrap .agent-node__mic {
     font-size: 0.98rem;
     transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.18s ease;
 }
 
-.agent-slot--hero .agent-node__mic:hover {
+.hero-chat__label-wrap .agent-node__mic:hover {
     transform: translateY(-1px);
 }
 
@@ -555,6 +545,8 @@ body.chat-dialog-open {
 }
 
 .agent-slot--navbar .agent-node__mic {
+    position: relative;
+    z-index: 2;
     width: 1.38rem;
     height: 1.38rem;
     font-size: 0.82rem;
@@ -707,6 +699,21 @@ body.chat-dialog-open {
     color: var(--text-muted);
     max-width: 100%;
     overflow-wrap: anywhere;
+}
+
+.chat-dialog__header-actions {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.contact-dialog.chat-dialog .chat-dialog__header .chat-dialog__header-mic.chat-composer__mic {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 7px;
+    align-self: center;
 }
 
 .chat-dialog__intent-pill {
@@ -955,11 +962,41 @@ body.chat-dialog-open {
     gap: 0.55rem;
 }
 
+.chat-composer__row--stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+}
+
+.chat-composer__row--stacked .chat-composer__field {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    align-self: stretch;
+}
+
 .chat-composer__field {
     position: relative;
     flex: 1 1 0;
     min-width: 0;
     align-self: flex-end;
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--chat-launcher-ring) 38%, var(--border-strong));
+    background: var(--surface);
+    box-sizing: border-box;
+}
+
+.chat-composer__field:focus-within {
+    outline: 2px solid var(--chat-launcher-ring);
+    outline-offset: 2px;
+    border-color: color-mix(in srgb, var(--chat-launcher-ring) 55%, var(--border-strong));
+}
+
+#chatComposerInput {
+    width: 100%;
+    min-height: 2.1rem;
+    max-height: 8rem;
+    resize: none;
     border-radius: var(--radius-md);
     border: 1px solid color-mix(in srgb, var(--chat-launcher-ring) 38%, var(--border-strong));
     background: var(--surface);
@@ -1029,6 +1066,30 @@ body.chat-dialog-open {
 .chat-composer__send:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+}
+
+.chat-composer__send--wide {
+    width: 100%;
+    min-height: 2.45rem;
+    height: auto;
+    border-radius: var(--radius-md);
+    padding: 0.48rem 1rem;
+    gap: 0.42rem;
+    align-self: stretch;
+    flex-shrink: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.chat-composer__send-icon {
+    font-size: 1.05rem;
+    line-height: 1;
+    font-weight: 700;
+}
+
+.chat-composer__send-label {
+    line-height: 1.2;
 }
 
 .chat-composer__clear {
@@ -1109,7 +1170,8 @@ body.chat-dialog-open {
 
 @media (prefers-reduced-motion: reduce) {
     .chat-composer__mic,
-    .chat-composer__send {
+    .chat-composer__send,
+    .chat-composer__send--wide {
         transition: none;
     }
 }
@@ -1298,7 +1360,7 @@ body.chat-dialog-open {
         animation: none !important;
     }
 
-    .agent-slot--hero .agent-node__mic:hover {
+    .hero-chat__label-wrap .agent-node__mic:hover {
         transform: none;
     }
 
