@@ -30,7 +30,7 @@ from app.knowledge_context import (
     load_knowledge_pack,
     load_system_prompt,
 )
-from app.live_gemini import mint_live_session_async
+from app.live_gemini import google_constrained_browser_ws_url, mint_live_session_async
 from app.live_relay import relay_browser_to_google
 from app.providers import (
     build_llm_runnable,
@@ -607,16 +607,21 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             status_code=500,
             content={"error": "Live session misconfigured", "code": "live_internal"},
         )
-    bridges: dict[str, Any] = app.state.live_relay_bridges
-    _cleanup_expired_live_relays(bridges)
-    bridge_id = secrets.token_urlsafe(32)
-    bridges[bridge_id] = {
-        "token_name": token_name,
-        "handshake": dict(session_payload.get("handshake") or {}),
-        "expires": time.monotonic() + 120.0,
-    }
-    session_payload["websocketUrl"] = _live_relay_ws_url(request, bridge_id)
-    # Response websocketUrl targets this app; ephemeral token stays server-side.
+    relay = os.environ.get("CHAT_LIVE_RELAY", "1").strip().lower() not in ("0", "false", "no", "")
+    if relay:
+        bridges: dict[str, Any] = app.state.live_relay_bridges
+        _cleanup_expired_live_relays(bridges)
+        bridge_id = secrets.token_urlsafe(32)
+        bridges[bridge_id] = {
+            "token_name": token_name,
+            "handshake": dict(session_payload.get("handshake") or {}),
+            "expires": time.monotonic() + 120.0,
+        }
+        session_payload["websocketUrl"] = _live_relay_ws_url(request, bridge_id)
+        session_payload["liveVoiceTransport"] = "relay"
+    else:
+        session_payload["websocketUrl"] = google_constrained_browser_ws_url(token_name)
+        session_payload["liveVoiceTransport"] = "direct_google"
     return JSONResponse(content=session_payload)
 
 

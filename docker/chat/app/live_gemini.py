@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import quote
 
 from google import genai
 from google.genai import types
@@ -37,8 +38,19 @@ def _live_connect_config(system_instruction: str) -> types.LiveConnectConfig:
     )
 
 
+def google_constrained_browser_ws_url(token_name: str) -> str:
+    """Direct Google wss URL (access_token query). Use when the chat origin cannot host WebSocket relay."""
+    version = 'v1alpha'
+    host = 'generativelanguage.googleapis.com'
+    path = (
+        f'/ws/google.ai.generativelanguage.{version}'
+        '.GenerativeService.BidiGenerateContentConstrained'
+    )
+    return f'wss://{host}{path}?access_token={quote(token_name, safe="/")}'
+
+
 async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
-    """Mint auth token + minimal setup. Browser connects via /api/live/relay (Authorization header)."""
+    """Mint auth token + minimal setup. Caller chooses relay vs direct Google wss (see CHAT_LIVE_RELAY)."""
     client = _live_client_singleton()
     api_client = client._api_client
     mid = live_model_id()

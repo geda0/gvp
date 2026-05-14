@@ -11,6 +11,7 @@ from app.main import app
 @pytest.mark.asyncio
 async def test_live_session_mocked_ok(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
+    monkeypatch.setenv('CHAT_LIVE_RELAY', '1')
 
     async def fake_mint(instruction: str) -> dict:
         assert 'Voice mode' in instruction

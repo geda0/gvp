@@ -582,7 +582,8 @@ export function bindChatLiveVoice(opts) {
               : [],
             clientSlimsFirstFrame,
             constrainedWs,
-            wsUrlHasPct2f: wsUrlStr.includes('%2F')
+            wsUrlHasPct2f: wsUrlStr.includes('%2F'),
+            liveVoiceTransport: body.liveVoiceTransport ?? null
           },
           timestamp: Date.now()
         })

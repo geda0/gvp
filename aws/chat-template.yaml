@@ -74,6 +74,7 @@ Resources:
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
           GEMINI_LIVE_MODEL: !Ref GeminiLiveModel
+          CHAT_LIVE_RELAY: '0'
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
       Events:
@@ -122,6 +123,7 @@ Outputs:
     Description: >
       Full URL for POST /api/chat (hero text) — use in gvp:chat-api-url meta.
       Same API origin also serves POST /api/live/session, GET /health, GET /ready.
+      Voice: set CHAT_LIVE_RELAY=0 on API Gateway HTTP API (Lambda); use relay (CHAT_LIVE_RELAY=1) on WebSocket-capable origins.
     Value: !Sub https://${ChatHttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/chat
   ChatHttpApiId:
     Value: !Ref ChatHttpApi
