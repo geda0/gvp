@@ -1,4 +1,6 @@
 export function initContactForm() {
+  const CONTACT_HELPER_TEXT = ''
+  const CONTACT_SUCCESS_TEXT = 'Got it — your message is on its way. I\'ll be in touch.'
   const openBtn = document.getElementById('openContactBtn')
   const dialog = document.getElementById('contactDialog')
   const closeBtn = dialog?.querySelector('.contact-dialog__close')
@@ -24,8 +26,20 @@ export function initContactForm() {
     showFormView(false)
   }
 
+  const setStatus = (text, tone = 'muted') => {
+    status.textContent = text
+    status.dataset.tone = tone
+  }
+
+  const setBusy = (busy) => {
+    form.querySelectorAll('input, textarea, button').forEach((el) => {
+      el.disabled = busy
+    })
+  }
+
   // Defensive reset in case browser/cache restored prior DOM state.
   showFormView(true)
+  setStatus(CONTACT_HELPER_TEXT, 'muted')
 
   const openDialog = () => {
     lastFocus = document.activeElement
@@ -52,7 +66,7 @@ export function initContactForm() {
   backdrop?.addEventListener('click', closeDialog)
   sendAnotherBtn.addEventListener('click', () => {
     form.reset()
-    setStatus('', 'muted')
+    setStatus(CONTACT_HELPER_TEXT, 'muted')
     showFormView(true)
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
   })
@@ -62,17 +76,6 @@ export function initContactForm() {
     e.preventDefault()
     closeDialog()
   })
-
-  const setStatus = (text, tone = 'muted') => {
-    status.textContent = text
-    status.dataset.tone = tone
-  }
-
-  const setBusy = (busy) => {
-    form.querySelectorAll('input, textarea, button').forEach((el) => {
-      el.disabled = busy
-    })
-  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault()
@@ -109,8 +112,8 @@ export function initContactForm() {
       }
 
       // Success only means persisted server-side. Delivery may be immediate or queued.
-      setStatus('Message received successfully.', 'success')
-      setSuccessView('Message received successfully.')
+      setStatus(CONTACT_SUCCESS_TEXT, 'success')
+      setSuccessView(CONTACT_SUCCESS_TEXT)
 
       form.reset()
     } catch (_) {

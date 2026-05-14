@@ -4,14 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Marwan Elgendy — software engineer focused on architecture and platforms. Enterprise SaaS, identity, subscriptions, and data-intensive systems across IBM (Apptio), HP, JumpCloud, and AT&T.">
-    <meta property="og:title" content="Marwan Elgendy — Software Engineer | Architecture & Platforms" />
-    <meta property="og:description" content="Marwan Elgendy — software engineer focused on architecture and platforms. Enterprise SaaS, identity, subscriptions, and data-intensive systems across IBM (Apptio), HP, JumpCloud, and AT&T." />
+    <meta name="description" content="Marwan Elgendy — Senior Software Engineer (15+ years). Architecture and cloud-native platforms at scale across IBM (Apptio), JumpCloud, HP, and AT&T. Explore portfolio case studies, experiments, and ask grounded questions about his work.">
+    <meta property="og:title" content="Marwan Elgendy — Senior Software Engineer | Architecture & Platforms" />
+    <meta property="og:description" content="Marwan Elgendy — Senior Software Engineer (15+ years). Architecture and cloud-native platforms at scale across IBM (Apptio), JumpCloud, HP, and AT&T. Explore portfolio case studies, experiments, and ask grounded questions about his work." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Marwan Elgendy — Software Engineer | Architecture & Platforms" />
-    <meta name="twitter:description" content="Marwan Elgendy — software engineer focused on architecture and platforms. Enterprise SaaS, identity, subscriptions, and data-intensive systems across IBM (Apptio), HP, JumpCloud, and AT&T." />
-    <title>Marwan Elgendy — Software Engineer | Architecture & Platforms</title>
+    <meta name="twitter:title" content="Marwan Elgendy — Senior Software Engineer | Architecture & Platforms" />
+    <meta name="twitter:description" content="Marwan Elgendy — Senior Software Engineer (15+ years). Architecture and cloud-native platforms at scale across IBM (Apptio), JumpCloud, HP, and AT&T. Explore portfolio case studies, experiments, and ask grounded questions about his work." />
+    <title>Marwan Elgendy — Senior Software Engineer | Architecture & Platforms</title>
     <link rel="icon" type="image/svg+xml"
         href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-size='52'%3E%F0%9F%A6%B8%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -55,6 +55,8 @@
         <nav class="navbar">
             <div class="navbar-left">
                 <a href="./" id="homeNav" class="section-invisible">Home</a>
+                <button type="button" id="themeToggle" class="theme-toggle" data-target="garden"
+                    aria-label="Switch to Garden theme"><span class="theme-toggle-icon" aria-hidden="true">🦸</span></button>
             </div>
             <div class="navbar-center">
                 <form id="headerChatForm" class="header-chatbar" novalidate aria-label="Quick chat launcher">
@@ -70,10 +72,8 @@
                 </button>
             </div>
             <div class="navbar-right">
-                <a href="#playground" id="playgroundNav">Playground</a>
                 <a href="#portfolio" id="portfolioNav">Portfolio</a>
-                <button type="button" id="themeToggle" class="theme-toggle" data-target="garden"
-                    aria-label="Switch to Garden theme"><span class="theme-toggle-icon" aria-hidden="true">🦸</span></button>
+                <a href="#playground" id="playgroundNav">Experiments</a>
             </div>
         </nav>
     </header>
@@ -105,6 +105,35 @@
         <div id="contentWrapper">
             <div id="load">
                 <section id="home" class="scale-in">
+                    <div id="heroChat" class="hero-chat">
+                        <div class="hero-chat__label-wrap">
+                            <p class="hero-chat__label">
+                                <span class="hero-chat__dot" aria-hidden="true"></span>
+                                 Ask anything about my work
+                            </p>
+                        </div>
+                        <form id="heroChatForm" class="hero-chat__form" novalidate>
+                            <label for="heroChatInput" class="visually-hidden">Ask about Marwan's work</label>
+                            <input type="text" id="heroChatInput" class="hero-chat__input" inputmode="text" autocomplete="off"
+                                placeholder="e.g., What is your most recent project?"
+                                data-track="hero_chat_input_focus" />
+                            <button type="submit" id="heroChatSubmit" class="hero-chat__submit" aria-label="Open chat and send message"
+                                data-track="hero_chat_submit">
+                                <span aria-hidden="true">↑</span>
+                            </button>
+                        </form>
+                        <div id="heroChatSuggestions" class="hero-chat__suggestions" aria-label="Suggested prompts">
+                            <button type="button" class="hero-chat__chip"
+                                data-prompt="How do you approach platform architecture?"
+                                data-track="hero_chat_chip_architecture">Platform architecture</button>
+                            <button type="button" class="hero-chat__chip"
+                                data-prompt="Tell me about an accomplishment you're especially proud of."
+                                data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
+                            <button type="button" class="hero-chat__chip"
+                                data-prompt="What project challenged you the most, and how did you approach it?"
+                                data-track="hero_chat_chip_challenge">Most challenging project</button>
+                        </div>
+                    </div>
                     <div class="hero">
                         <div class="hero-layout">
                             <div class="hero-copy-block">
@@ -113,37 +142,8 @@
                                     <h1>Marwan Elgendy</h1>
                                     <p class="hero-subtitle">Architecture &amp; Platforms — cloud-native systems at scale</p>
                                     <p class="hero-tagline">I build systems that hold up in production: clear boundaries, operable services, and end-to-end delivery across data-intensive SaaS and cloud platforms.</p>
-                                    <p class="hero-proof">Scaled HP Instant Ink from thousands to millions of subscribers · Migrated Apptio's financial pipelines with zero correctness drift</p>
+                                    <p class="hero-proof">Scaled HP Instant Ink to millions · Apptio financial pipelines: ~10× faster, zero correctness drift</p>
                                     <p class="hero-companies"><span class="hero-companies__label">Previously</span> IBM (Apptio) · JumpCloud · HP · AT&amp;T</p>
-                                    <div id="heroChat" class="hero-chat">
-                                        <div class="hero-chat__label-wrap">
-                                            <p class="hero-chat__label">
-                                                <span class="hero-chat__dot" aria-hidden="true"></span>
-                                                 Ask anything about my work
-                                            </p>
-                                        </div>
-                                        <form id="heroChatForm" class="hero-chat__form" novalidate>
-                                            <label for="heroChatInput" class="visually-hidden">Ask about Marwan's work</label>
-                                            <input type="text" id="heroChatInput" class="hero-chat__input" inputmode="text" autocomplete="off"
-                                                placeholder="e.g., What is your most recent project?"
-                                                data-track="hero_chat_input_focus" />
-                                            <button type="submit" id="heroChatSubmit" class="hero-chat__submit" aria-label="Open chat and send message"
-                                                data-track="hero_chat_submit">
-                                                <span aria-hidden="true">↑</span>
-                                            </button>
-                                        </form>
-                                        <div id="heroChatSuggestions" class="hero-chat__suggestions" aria-label="Suggested prompts">
-                                            <button type="button" class="hero-chat__chip"
-                                                data-prompt="How do you approach platform architecture?"
-                                                data-track="hero_chat_chip_architecture">Platform architecture</button>
-                                            <button type="button" class="hero-chat__chip"
-                                                data-prompt="Tell me about an accomplishment you're especially proud of."
-                                                data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
-                                            <button type="button" class="hero-chat__chip"
-                                                data-prompt="What project challenged you the most, and how did you approach it?"
-                                                data-track="hero_chat_chip_challenge">Most challenging project</button>
-                                        </div>
-                                    </div>
                                     <div class="hero-cta">
                                         <a href="resume/Marwan_Elgendy_Resume_public.pdf" target="_blank" rel="noopener noreferrer" class="cta-primary" data-track="resume_click">Resume (PDF)</a>
                                         <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
@@ -166,15 +166,16 @@
                             </div>
                         </div>
                     </div>
-                    <div class="experience-summary">
-                        <p>15+ years building scalable, cloud-native platforms.</p>
-                        <p>Senior Software Engineer specializing in distributed systems, cloud infrastructure, and data engineering — AWS, Kubernetes, microservices.</p>
-                        <p>Track record leading complex initiatives, setting architectural direction, and mentoring across distributed teams.</p>
+                    <div class="experience-summary" aria-labelledby="aboutLabel">
+                        <p id="aboutLabel" class="section-label experience-summary__label">About</p>
+                        <p class="experience-summary__lead">15+ years building scalable systems and data platforms.</p>
+                        <p>My work spans cloud-native architecture on AWS, Kubernetes-based platforms, large-scale data processing on Spark, EMR, and Databricks, and distributed microservices. I've led complex initiatives end to end — from system design and infrastructure automation through to mentoring engineers and raising the technical bar across teams.</p>
+                        <p>I work with AI-assisted tooling daily: planning large initiatives and generating documentation with Claude, prototyping and writing code in Cursor, and using multi-model workflows to move faster without lowering the bar.</p>
                     </div>
                 </section>
                 <div id="playgroundContent" class="hidden">
                     <section id="projects" class="hidden section-invisible">
-                        <h3 class="section-label">Playground</h3>
+                        <h3 class="section-label">Experiments</h3>
                         <!-- Projects rendered dynamically -->
                     </section>
                 </div>
@@ -183,6 +184,7 @@
                         <h2 class="section-label">Portfolio</h2>
                         <!-- Projects rendered dynamically -->
                     </section>
+                    <p class="portfolio-earlier-career">Earlier: Software Development Manager at Sunrise Resorts, embedded Linux systems at OIG Electronics, and web and game development at 5D Agency — 2011–2016.</p>
                 </div>
 
             </div>
@@ -213,6 +215,7 @@
         <div class="contact-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="contactDialogTitle">
             <button type="button" class="contact-dialog__close" aria-label="Close contact form">&times;</button>
             <h2 id="contactDialogTitle" class="section-label">Contact</h2>
+            <p class="contact-dialog__intro">Hiring, a role, or a project worth talking about — send a note and I'll get back to you. The fastest way to reach me.</p>
             <form id="contactForm" class="contact-form" novalidate>
                 <div class="contact-form__row">
                     <label class="contact-form__field">
@@ -264,7 +267,19 @@
                 <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>
             </header>
             <div class="chat-dialog__scroll">
+                <p id="chatEmptyState" class="chat-empty-state">Questions here focus on Marwan's work — the HP Instant Ink scale-up, the Apptio pipeline migration, the JumpCloud identity platform, or anything across his 15+ years. Grounded in his resume, not a general chatbot.</p>
                 <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
+            </div>
+            <div id="chatDialogSuggestions" class="chat-dialog__suggestions">
+                <button type="button" class="chat-dialog__chip"
+                    data-prompt="How do you approach platform architecture?"
+                    data-track="chat_dialog_chip_architecture">Platform architecture</button>
+                <button type="button" class="chat-dialog__chip"
+                    data-prompt="Tell me about an accomplishment you're especially proud of."
+                    data-track="chat_dialog_chip_accomplishment">Impressive accomplishment</button>
+                <button type="button" class="chat-dialog__chip"
+                    data-prompt="What project challenged you the most, and how did you approach it?"
+                    data-track="chat_dialog_chip_challenge">Most challenging project</button>
             </div>
             <form id="chatComposer" class="chat-composer" novalidate>
                 <label for="chatComposerInput" class="visually-hidden">Message to chat assistant</label>

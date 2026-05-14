@@ -86,6 +86,8 @@ export function initChat() {
   const backdrop = dialog?.querySelector('.chat-dialog__backdrop')
   const closeBtn = dialog?.querySelector('.chat-dialog__close')
   const messagesEl = document.getElementById('chatMessages')
+  const emptyStateEl = document.getElementById('chatEmptyState')
+  const dialogSuggestions = document.getElementById('chatDialogSuggestions')
   const composer = document.getElementById('chatComposer')
   const composerInput = document.getElementById('chatComposerInput')
   const composerSend = composer?.querySelector('.chat-composer__send')
@@ -95,6 +97,7 @@ export function initChat() {
     || !dialog || !messagesEl || !composer || !composerInput || !statusEl) return
 
   const endpoint = window.__CHAT_API_URL__ || CHAT_DEFAULT_PATH
+  const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
   const state = {
     history: [],
     pending: false,
@@ -196,10 +199,23 @@ export function initChat() {
     const prefersReduced = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-    messagesEl.scrollTo({
-      top: messagesEl.scrollHeight,
+    const target = messagesEl.closest('.chat-dialog__scroll') || messagesEl
+    target.scrollTo({
+      top: target.scrollHeight,
       behavior: prefersReduced ? 'auto' : 'smooth'
     })
+  }
+
+  const syncEmptyState = () => {
+    const hasMessages = messagesEl.children.length > 0
+    if (emptyStateEl) {
+      emptyStateEl.hidden = hasMessages
+      emptyStateEl.setAttribute('aria-hidden', hasMessages ? 'true' : 'false')
+    }
+    if (dialogSuggestions) {
+      dialogSuggestions.hidden = hasMessages
+      dialogSuggestions.setAttribute('aria-hidden', hasMessages ? 'true' : 'false')
+    }
   }
 
   const clearLifecycleResetTimer = () => {
@@ -279,6 +295,7 @@ export function initChat() {
     }
 
     messagesEl.appendChild(item)
+    syncEmptyState()
     scrollMessagesToBottom()
     return item
   }
@@ -314,6 +331,7 @@ export function initChat() {
     dialog.setAttribute('aria-hidden', 'false')
     document.body.classList.add('chat-dialog-open')
     requestAnimationFrame(() => {
+      syncEmptyState()
       autosizeComposer()
       composerInput.focus()
     })
@@ -357,6 +375,7 @@ export function initChat() {
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
     messagesEl.textContent = ''
+    syncEmptyState()
     state.history = []
     state.sessionId = renewSessionId()
     setStatus('Started over with a fresh chat session.')
@@ -404,7 +423,9 @@ export function initChat() {
     }
 
     const reply = typeof body?.reply === 'string' ? body.reply : ''
-    const model = typeof body?.model === 'string' ? body.model : ''
+    const model = exposeModelInfo && typeof body?.model === 'string'
+      ? body.model
+      : ''
     const actions = Array.isArray(body?.actions) ? body.actions : []
     return { reply, model, actions }
   }
@@ -449,7 +470,7 @@ export function initChat() {
       const safeReply = String(reply || '').trim() || 'I do not have a response yet. Please try again.'
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
       finalizeAssistantMessage(pendingAssistant, safeReply, actions)
-      setStatus(model ? `Model: ${model}` : '')
+      setStatus('')
       scheduleIdleLifecycle(SUCCESS_IDLE_DELAY_MS, { source, model })
     } catch (error) {
       pendingAssistant.remove()
@@ -520,6 +541,16 @@ export function initChat() {
     openPanelWithMessage(prompt, 'hero')
   })
 
+  dialogSuggestions?.addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-prompt]')
+    if (!chip) return
+    const prompt = String(chip.getAttribute('data-prompt') || '').trim()
+    if (!prompt) return
+    trackEvent('chat_dialog_chip', { prompt: chip.textContent || '' })
+    if (!isOpen()) openPanel()
+    void sendMessage(prompt, 'composer')
+  })
+
   composer.addEventListener('submit', (event) => {
     event.preventDefault()
     void sendMessage(composerInput.value, 'composer')
@@ -568,6 +599,7 @@ export function initChat() {
   })
 
   autosizeComposer()
+  syncEmptyState()
   setupLauncherObserver()
   syncChatLaunchersImpl('home')
   chatBus.emit('idle', { source: 'chat-init' })

@@ -162,7 +162,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: calc(100vw - 20px);
+  max-width: min(
+    calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px),
+    340px
+  );
   min-width: 0;
   padding: 0 10px;
   box-sizing: border-box;
@@ -179,8 +182,8 @@
   min-width: 100px;
   /* Block + explicit width: shrink-to-fit inline-block was growing to one line with flex parents */
   display: block;
-  width: min(clamp(120px, 32vw, 220px), calc(100vw - 64px));
-  max-width: min(clamp(120px, 32vw, 220px), calc(100vw - 64px));
+  width: min(clamp(130px, 42vw, 290px), calc(100vw - 5.5rem));
+  max-width: min(clamp(130px, 42vw, 290px), calc(100vw - 5.5rem));
   box-shadow: var(--spaceman-bubble-shadow);
   position: relative;
   font-family: 'Open Sans', sans-serif;
@@ -886,12 +889,26 @@ body.content-open #spacemanContainer {
   transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Project details modal: hero moves beside the panel and sits above the dimmed backdrop */
+/* Project / contact modals: keep mascot *under* dialog stacking (project 1100, contact 1090) so
+   close button, backdrop, and panel receive clicks. Spaceman .spaceman still uses pointer-events: auto. */
 body.project-dialog-open #spacemanContainer,
-body.chat-dialog-open #spacemanContainer,
-body.contact-dialog-open #spacemanContainer {
-  z-index: 1150;
+body.contact-dialog-open:not(.chat-dialog-open) #spacemanContainer {
+  z-index: 1080;
   transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Chat overlay covers the hero — keep mascot under the panel so bubbles never paint on messages */
+body.chat-dialog-open #spacemanContainer {
+  z-index: 1040;
+  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Keep speech bubbles from colliding with overlay panels. */
+body.chat-dialog-open .thought-stack,
+body.project-dialog-open .thought-stack,
+body.contact-dialog-open .thought-stack {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ===== RESPONSIVE SCALING ===== */
@@ -904,8 +921,8 @@ body.contact-dialog-open #spacemanContainer {
   }
 
   .thought-bubble {
-    width: min(clamp(104px, 40vw, 168px), calc(100vw - 52px));
-    max-width: min(clamp(104px, 40vw, 168px), calc(100vw - 52px));
+    width: min(clamp(112px, 40vw, 260px), calc(100vw - 5.8rem));
+    max-width: min(clamp(112px, 40vw, 260px), calc(100vw - 5.8rem));
     min-width: 92px;
     padding: 8px 11px;
     font-size: 11.5px;
@@ -933,8 +950,8 @@ body.contact-dialog-open #spacemanContainer {
   }
 
   .thought-bubble {
-    width: min(clamp(98px, 44vw, 152px), calc(100vw - 44px));
-    max-width: min(clamp(98px, 44vw, 152px), calc(100vw - 44px));
+    width: min(clamp(104px, 42vw, 240px), calc(100vw - 5rem));
+    max-width: min(clamp(104px, 42vw, 240px), calc(100vw - 5rem));
     min-width: 86px;
     padding: 7px 9px;
     font-size: 11px;
@@ -947,6 +964,13 @@ body.contact-dialog-open #spacemanContainer {
   .dot-1 { width: 10px; height: 10px; }
   .dot-2 { width: 8px; height: 8px; margin-left: 8px; }
   .dot-3 { width: 6px; height: 6px; margin-left: 14px; }
+}
+
+@media (min-width: 768px) {
+  body.chat-dialog-open .thought-bubble {
+    width: min(clamp(130px, 40vw, 280px), calc(100vw - 22rem));
+    max-width: min(clamp(130px, 40vw, 280px), calc(100vw - 22rem));
+  }
 }
 
 /* Touch devices - disable hover effects */

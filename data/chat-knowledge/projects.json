@@ -2,7 +2,7 @@
   {
     "id": "monday-rover",
     "name": "Monday Rover (Raspberry Pi)",
-    "summary": "Raspberry Pi robotics exploration with computer vision. Monday Rover is a robotics exploration project built to iterate quickly on perception + control loops. Computer vision-assisted behaviors (prototype stage) Hardware bring-up, sensor/actuator integration, and debugging on-device Emphasis on tight feedback cycles and observability while experimenting",
+    "summary": "Monday Rover is a Raspberry Pi robotics project focused on fast iteration across perception and control loops. Marwan built computer-vision-assisted behaviors in prototype form, handled hardware bring-up and sensor/actuator integration, and debugged on-device with tight feedback cycles and observability.",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Raspberry Pi",
@@ -28,7 +28,7 @@
   {
     "id": "gvp",
     "name": "Generative Video Platform",
-    "summary": "Exploring generative AI for video workflows, from UX to pipeline shape. Generative Video Platform (GVP) explores how generative systems fit into real video workflows—where latency, repeatability, and UX matter. Product-shaped prototyping: iterate on UI, prompts, and outputs together Pipeline thinking: inputs → generation → review → publish Focus on composability and clear system boundaries as it evolves",
+    "summary": "Generative Video Platform (GVP) explores how generative AI fits real video workflows where latency, repeatability, and UX all matter. Marwan prototypes product UX and pipeline behavior together: inputs, generation, review, and publish with clear boundaries as the system evolves.",
     "why_it_matters": "Demonstrates how Marwan combines product UX with clear service boundaries for AI-enabled workflows.",
     "tech": [
       "Video / streaming",
@@ -53,7 +53,7 @@
   {
     "id": "apptio",
     "name": "Apptio (IBM)",
-    "summary": "Enterprise TBM / IT financial management SaaS — data-intensive, customer-critical. Apptio (IBM) — a platform for financial data pipelines where correctness and traceability were mandatory. Kubernetes/Java workloads were re-architected onto EMR Spark with Scala to improve throughput and cost efficiency A reconciliation layer compared legacy and modernized outputs in parallel before each cutover step Infrastructure and runtime paths were standardized to improve operability, observability, and cost control across data jobs An incremental rollout model preserved planning and cost-reporting accuracy throughout the migration",
+    "summary": "Apptio (IBM) is enterprise TBM and IT financial management SaaS where correctness is non-negotiable. Marwan led a migration to solve scaling and cost: pipelines were running for days on Kubernetes and Java; he moved heavy workloads to EMR Spark with Scala and built a parallel reconciliation pipeline so legacy and new systems ran on the same inputs and flagged discrepancies in real time — roughly 10x faster processing with zero correctness drift and incremental cutover.",
     "why_it_matters": "Shows Marwan's approach to platform modernization in data-intensive SaaS with strong operability guardrails.",
     "tech": [
       "Enterprise SaaS",
@@ -84,7 +84,7 @@
   {
     "id": "jumpcloud",
     "name": "JumpCloud",
-    "summary": "Cloud directory + device management — identity and access at org scale. JumpCloud — identity and device-management platform work for distributed organizations operating at enterprise scale. Core workflows were designed around security, reliability, and predictable behavior under organizational load API and integration surfaces prioritized operational correctness and safe backward-compatible evolution Delivery patterns emphasized guardrails, progressive rollout, and clear failure boundaries",
+    "summary": "JumpCloud is a cloud directory platform. Marwan directed end-to-end technical design of a Microsoft M365 integration exposed through GraphQL for 50,000+ tenants, with a hybrid PostgreSQL plus MongoDB layer so relational identity-graph queries stayed fast while per-tenant custom attributes and hierarchies absorbed high write volume.",
     "why_it_matters": "Reflects Marwan's work in identity-critical systems where reliability and safe rollout matter.",
     "tech": [
       "Cloud directory",
@@ -112,7 +112,7 @@
   {
     "id": "instant-ink",
     "name": "Instant Ink (HP)",
-    "summary": "Subscription commerce + fulfillment systems for high-volume consumer services. Instant Ink (HP) — global scaling efforts that evolved subscription and fulfillment systems from early scale to millions of subscribers. The Ruby on Rails monolith was decomposed into cloud-native services and data pipelines Domain-Driven Design established clearer service boundaries across subscription and fulfillment workflows Cross-team TDD practices helped maintain reliability and service stability during rapid expansion",
+    "summary": "Instant Ink (HP) is HP's printer-ink subscription service. Marwan planned and led transforming a Ruby on Rails monolith into cloud-native microservices and AWS data pipelines using Domain-Driven Design and TDD, scaling from thousands to millions of subscribers globally in months while coordinating four distributed teams and maintaining reliability.",
     "why_it_matters": "Highlights experience evolving subscription systems to larger scale while protecting reliability.",
     "tech": [
       "Subscription commerce",
@@ -136,7 +136,7 @@
   {
     "id": "att",
     "name": "AT&T",
-    "summary": "TQL: a SQL-like query language for ticket search and operational analytics. AT&amp;T — TQL project: a SQL-like domain language for ticket search and operational analytics workflows. The language model balanced expressive queries with predictable semantics and bounded execution behavior Query flows were shaped around real support operations, including filters, search, and drill-down analytics Grammar, validation, and test coverage were structured for maintainability and debuggable execution paths",
+    "summary": "At AT&T, Marwan built full-stack pieces on a service-oriented single-page application for ticket and task management, designed RESTful APIs and async JavaScript modules, and created TQL — a SQL-like query language for ticket search and operational analytics; he mentored new developers and raised code-quality standards.",
     "why_it_matters": "Shows foundational backend work where query semantics and operational usefulness were both central.",
     "tech": [
       "Domain-specific language",
@@ -155,7 +155,7 @@
   {
     "id": "miu",
     "name": "Master's in Computer Science",
-    "summary": "M.S. CS focus: machine learning, data science, and software engineering practice. Master's in Computer Science (MIU) — applied graduate work spanning machine learning, data science, and software engineering delivery discipline. Projects emphasized turning ML/data foundations into production-oriented engineering decisions Algorithmic and systems thinking were applied to solution design under practical constraints SDLC rigor and implementation quality were treated as first-class outcomes, not afterthoughts",
+    "summary": "Marwan's M.S. in Computer Science emphasized machine learning, data science, and software engineering discipline. Graduate projects focused on turning ML and data foundations into production-oriented decisions under practical constraints with strong SDLC rigor.",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Machine learning",
@@ -176,7 +176,7 @@
   {
     "id": "sunrise",
     "name": "Sunrise Resorts & Cruises",
-    "summary": "Infra + ops: datacenters, VPN/networking, and internal tooling. Sunrise Resorts &amp; Cruises — infrastructure and operations initiatives supporting business-critical hospitality systems. Datacenter and VPN/network architecture supported always-on operational workflows across sites Internal tooling improved asset tracking and day-to-day operational visibility Execution favored reliability, security controls, and pragmatic automation over unnecessary complexity",
+    "summary": "At Sunrise Resorts & Cruises, Marwan worked on infrastructure and operations for business-critical hospitality systems. Responsibilities included datacenter and VPN/network architecture plus internal tooling for asset tracking and operational visibility, with emphasis on reliability, security controls, and pragmatic automation.",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Datacenters",

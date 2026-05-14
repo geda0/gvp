@@ -28,9 +28,9 @@ const DEFAULT_DATA = {
 const CHAT_STATUS_COPY = {
   sending: 'Got your question…',
   thinking: 'Thinking…',
-  streaming: 'Answering…',
+  streaming: 'Pulling that together…',
   tool_call: 'Pulling that up…',
-  error: 'Hmm, try again?'
+  error: 'Hmm, let\'s try that again.'
 };
 
 const CHAT_STATE_CLASSES = [

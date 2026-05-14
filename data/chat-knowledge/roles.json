@@ -7,10 +7,11 @@
     "team": "TBM / IT Financial Management",
     "summary": "Data-intensive SaaS for IT financial planning and cost transparency at enterprise scale.",
     "highlights": [
-      "Data-intensive SaaS for IT financial planning and cost transparency at enterprise scale.",
-      "Migrated Java and Kubernetes batch workloads to EMR Spark with Scala for scale and cost; roughly an order-of-magnitude faster processing while keeping services available.",
-      "Built a parallel reconciliation pipeline that ran legacy and new systems together, flagged discrepancies, and enabled incremental cutover with no correctness drift on financial datasets.",
-      "Reduced manual operations using Python, AWS Lambda, and Step Functions."
+      "Marwan led a migration to solve a scaling and cost problem: Kubernetes and Java pipelines were running for days and getting expensive as data volume grew.",
+      "He migrated targeted heavy workloads to EMR Spark with Scala for throughput on large datasets.",
+      "He built a parallel reconciliation pipeline so legacy and new systems ran side by side on the same inputs and flagged discrepancies in real time — enabling incremental cutover with zero correctness drift on financial datasets.",
+      "The migration delivered roughly 10x faster processing while maintaining service availability.",
+      "He reduced manual operations using Python, AWS Lambda, Step Functions, and Terraform-managed AWS infrastructure."
     ],
     "tech": [],
     "relevance_tags": [
@@ -23,7 +24,9 @@
       "finops",
       "cloudability",
       "spark",
-      "kubernetes"
+      "kubernetes",
+      "python",
+      "java"
     ]
   },
   {
@@ -34,9 +37,9 @@
     "team": "Directory & Device Management",
     "summary": "Cloud directory and device management at organizational scale.",
     "highlights": [
-      "Cloud directory and device management at organizational scale.",
-      "Owned end-to-end technical design and delivery of a GraphQL-based Microsoft M365 integration serving more than 50,000 tenants.",
-      "Designed a multi-tenant GraphQL schema and production resolvers, the API layer, and a hybrid PostgreSQL plus MongoDB architecture balancing relational query performance with high write volume."
+      "Marwan directed end-to-end technical design and delivery of a GraphQL-based Microsoft M365 integration serving more than 50,000 tenants.",
+      "He designed a multi-tenant GraphQL schema and production resolvers, the API layer, and a hybrid PostgreSQL plus MongoDB architecture: the core identity graph in Postgres for fast relational queries, per-tenant custom attributes isolated in MongoDB for variability and high write volume.",
+      "He delivered the integration end to end using Docker, Golang, gRPC, JavaScript, and Node.js."
     ],
     "tech": [],
     "relevance_tags": [
@@ -59,18 +62,20 @@
     "team": "Subscription & Financial Services",
     "summary": "Subscription commerce and service delivery for consumer printing at global scale.",
     "highlights": [
-      "Subscription commerce and service delivery for consumer printing at global scale.",
-      "Led transformation of a Ruby on Rails monolith into cloud-native, event-driven microservices using Domain-Driven Design and disciplined automated testing, scaling Instant Ink from thousands to millions of customers.",
-      "Coordinated engineering, DevOps, QA, and product across four geographically distributed teams while maintaining stability, availability, and reliability during rapid growth."
+      "Marwan planned and executed scaling HP's Instant Ink subscription service from thousands of customers to millions, globally.",
+      "He transformed a Ruby on Rails monolith into cloud-native microservices and event-driven data pipelines on AWS using Domain-Driven Design and Test-Driven Development — Lambda, API Gateway, SNS, SQS, DynamoDB, Redshift, CloudFormation — coordinating engineering, DevOps, QA, and product across four geographically distributed teams.",
+      "The program completed in a matter of months with service reliability and stability maintained throughout."
     ],
     "tech": [],
     "relevance_tags": [
       "subscriptions",
       "saas",
       "platform architecture",
-      "high-scale systems",
+      "aws",
       "kubernetes",
-      "cloud"
+      "cloud",
+      "microservices",
+      "mentoring"
     ]
   },
   {
@@ -81,13 +86,16 @@
     "team": "Full-stack Developer",
     "summary": "TQL — SQL-like ticketing query language for operations",
     "highlights": [
-      "TQL — SQL-like ticketing query language for operations"
+      "Built front-end and back-end components on a service-oriented single-page application for ticket and task management.",
+      "Designed RESTful APIs, async JavaScript modules, and custom query languages for unstructured operational data.",
+      "Mentored new developers and helped raise code-quality standards across the team."
     ],
     "tech": [],
     "relevance_tags": [
       "backend",
       "data systems",
-      "query systems"
+      "java",
+      "operations"
     ]
   },
   {

@@ -3,8 +3,9 @@
     "idle": {
       "messages": [
         "Building production systems.",
-        "Architecture and platforms. Operability-first.",
-        "Browse Playground and Portfolio."
+        "Correctness over speed.",
+        "15+ years, still shipping.",
+        "Browse Experiments and Portfolio."
       ],
       "typingSpeed": 50,
       "messageDelay": 9000
@@ -13,7 +14,8 @@
       "messages": [
         "Prototypes with production habits.",
         "Fast loops. Clear constraints.",
-        "Click a card for details."
+        "Click a card for details.",
+        "Correctness over speed."
       ],
       "typingSpeed": 40,
       "messageDelay": 10000
@@ -22,7 +24,8 @@
       "messages": [
         "Systems owned end-to-end.",
         "IBM (Apptio), HP, JumpCloud, AT&T.",
-        "Click a card for details."
+        "Click a card for details.",
+        "15+ years, still shipping."
       ],
       "typingSpeed": 40,
       "messageDelay": 10000
@@ -31,7 +34,8 @@
       "messages": [
         "Building production systems.",
         "Boundaries. Operability. Delivery.",
-        "Browse Playground and Portfolio."
+        "Browse Experiments and Portfolio.",
+        "15+ years, still shipping."
       ],
       "typingSpeed": 50,
       "messageDelay": 9000
@@ -48,8 +52,9 @@
         "idle": {
           "messages": [
             "Building production systems.",
-            "Architecture and platforms. Operability-first.",
-            "Browse Playground and Portfolio."
+            "Correctness over speed.",
+            "15+ years, still shipping.",
+            "Browse Experiments and Portfolio."
           ],
           "typingSpeed": 50,
           "messageDelay": 9000
@@ -58,7 +63,8 @@
           "messages": [
             "Prototypes with production habits.",
             "Fast loops. Clear constraints.",
-            "Click a card for details."
+            "Click a card for details.",
+            "Correctness over speed."
           ],
           "typingSpeed": 40,
           "messageDelay": 10000
@@ -67,7 +73,8 @@
           "messages": [
             "Systems owned end-to-end.",
             "IBM (Apptio), HP, JumpCloud, AT&T.",
-            "Click a card for details."
+            "Click a card for details.",
+            "15+ years, still shipping."
           ],
           "typingSpeed": 40,
           "messageDelay": 10000
@@ -76,7 +83,8 @@
           "messages": [
             "Building production systems.",
             "Boundaries. Operability. Delivery.",
-            "Browse Playground and Portfolio."
+            "Browse Experiments and Portfolio.",
+            "15+ years, still shipping."
           ],
           "typingSpeed": 50,
           "messageDelay": 9000
