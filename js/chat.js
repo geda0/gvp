@@ -1,10 +1,13 @@
 import { trackEvent } from './analytics.js'
+import { chatBus } from './chat-bus.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
 const EV_COLLAPSE = 'gvp:site-chat-collapse'
 const SESSION_KEY = 'gvp-chat-session-id'
 const MAX_COMPOSER_HEIGHT = 128
+const SUCCESS_IDLE_DELAY_MS = 700
+const ERROR_IDLE_DELAY_MS = 2300
 
 let collapseChat = () => {}
 let syncChatLaunchersImpl = () => {}
@@ -103,6 +106,7 @@ export function initChat() {
     heroVisible: true
   }
   let launcherObserver = null
+  let lifecycleResetTimer = null
 
   const isOpen = () => !dialog.hidden
 
@@ -197,6 +201,38 @@ export function initChat() {
       behavior: prefersReduced ? 'auto' : 'smooth'
     })
   }
+
+  const clearLifecycleResetTimer = () => {
+    if (!lifecycleResetTimer) return
+    clearTimeout(lifecycleResetTimer)
+    lifecycleResetTimer = null
+  }
+
+  const scheduleIdleLifecycle = (delayMs = 0, detail = {}) => {
+    clearLifecycleResetTimer()
+    lifecycleResetTimer = setTimeout(() => {
+      chatBus.emit('idle', detail)
+    }, Math.max(0, Number(delayMs) || 0))
+  }
+
+  const applyHeaderLifecycleState = (chatState) => {
+    const targets = [headerForm, headerIconBtn]
+    const states = ['sending', 'thinking', 'streaming', 'tool_call', 'error']
+    targets.forEach((target) => {
+      if (!target) return
+      target.classList.remove('chat-lifecycle-active')
+      states.forEach((stateName) => {
+        target.classList.remove(`chat-lifecycle-${stateName.replace('_', '-')}`)
+      })
+      if (chatState === 'idle') return
+      target.classList.add('chat-lifecycle-active')
+      target.classList.add(`chat-lifecycle-${String(chatState).replace('_', '-')}`)
+    })
+  }
+
+  chatBus.on((chatState) => {
+    applyHeaderLifecycleState(chatState)
+  })
 
   const createActionButton = (action) => {
     const button = document.createElement('button')
@@ -389,6 +425,8 @@ export function initChat() {
     } else {
       trackEvent('chat_composer_submit', { surface: 'dialog' })
     }
+    clearLifecycleResetTimer()
+    chatBus.emit('sending', { source })
 
     setStatus('')
     appendMessage('user', text)
@@ -402,14 +440,22 @@ export function initChat() {
     const pendingAssistant = appendMessage('assistant', '', { streaming: true })
 
     try {
+      chatBus.emit('thinking', { source })
       const { reply, model, actions } = await postChat(state.history)
+      if (actions.length > 0) {
+        chatBus.emit('tool_call', { source, actions })
+      }
+      chatBus.emit('streaming', { source, model })
       const safeReply = String(reply || '').trim() || 'I do not have a response yet. Please try again.'
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
       finalizeAssistantMessage(pendingAssistant, safeReply, actions)
       setStatus(model ? `Model: ${model}` : '')
+      scheduleIdleLifecycle(SUCCESS_IDLE_DELAY_MS, { source, model })
     } catch (error) {
       pendingAssistant.remove()
       setStatus(extractErrorMessage(error), 'error')
+      chatBus.emit('error', { source, message: extractErrorMessage(error) })
+      scheduleIdleLifecycle(ERROR_IDLE_DELAY_MS, { source })
     } finally {
       setComposerBusy(false)
       composerInput.focus()
@@ -516,10 +562,13 @@ export function initChat() {
     }
     if (action === 'start-over') {
       resetConversation()
+      clearLifecycleResetTimer()
+      chatBus.emit('idle', { source: 'chat-footer' })
     }
   })
 
   autosizeComposer()
   setupLauncherObserver()
   syncChatLaunchersImpl('home')
+  chatBus.emit('idle', { source: 'chat-init' })
 }

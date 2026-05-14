@@ -66,6 +66,41 @@
   animation: boost 0.6s ease-out;
 }
 
+.spaceman.chat-state-sending {
+  animation: chatSendNod 0.55s ease-out;
+}
+
+.spaceman.chat-state-thinking {
+  animation: chatThinkingFloat 1.15s ease-in-out infinite;
+}
+
+.spaceman.chat-state-streaming {
+  animation: chatStreamingBob 0.9s ease-in-out infinite;
+}
+
+.spaceman.chat-state-tool-call .chest-panel {
+  animation: chatToolPing 0.7s ease-in-out infinite;
+}
+
+.spaceman.chat-state-thinking .bubble-dot,
+.spaceman.chat-state-streaming .bubble-dot {
+  animation: chatBubbleDotPulse 0.95s ease-in-out infinite;
+}
+
+.spaceman.chat-state-thinking .dot-2,
+.spaceman.chat-state-streaming .dot-2 {
+  animation-delay: 0.12s;
+}
+
+.spaceman.chat-state-thinking .dot-3,
+.spaceman.chat-state-streaming .dot-3 {
+  animation-delay: 0.24s;
+}
+
+.spaceman.chat-state-error {
+  animation: chatErrorSlump 0.45s ease-out forwards;
+}
+
 /* ===== QUIET MODE OPTION MENU ===== */
 .spaceman-outer {
   position: relative;
@@ -657,6 +692,37 @@
   100% { transform: translateY(0) scale(1); }
 }
 
+@keyframes chatSendNod {
+  0% { transform: translateY(0) rotate(0deg); }
+  45% { transform: translateY(1px) rotate(4deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes chatThinkingFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes chatStreamingBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes chatToolPing {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes chatBubbleDotPulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes chatErrorSlump {
+  0% { transform: translateY(0) rotate(0deg); }
+  100% { transform: translateY(3px) rotate(-5deg); }
+}
+
 @keyframes bubblePulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.005); }
@@ -899,6 +965,8 @@ body.project-dialog-open #spacemanContainer {
   .arm,
   .leg,
   .flame-inner,
+  .bubble-dot,
+  .chest-panel,
   .thought-bubble,
   .hero-cape .cape-cloth,
   #spacemanContainer {

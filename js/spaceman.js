@@ -1,5 +1,6 @@
 // spaceman.js - Spaceman character controller (theme-aware messages)
 import { getTheme } from './theme.js';
+import { chatBus } from './chat-bus.js';
 
 const DEFAULTS = {
   typingSpeed: 50,
@@ -23,6 +24,22 @@ const DEFAULT_DATA = {
   },
   reactions: { hover: 'Hello.', click: 'Noted.', longIdle: 'Ready when you are.' }
 };
+
+const CHAT_STATUS_COPY = {
+  sending: 'Got your question…',
+  thinking: 'Thinking…',
+  streaming: 'Answering…',
+  tool_call: 'Pulling that up…',
+  error: 'Hmm, try again?'
+};
+
+const CHAT_STATE_CLASSES = [
+  'chat-state-sending',
+  'chat-state-thinking',
+  'chat-state-streaming',
+  'chat-state-tool-call',
+  'chat-state-error'
+];
 
 class Spaceman {
   constructor(containerId, dataUrl) {
@@ -53,6 +70,10 @@ class Spaceman {
       wave: null
     };
     this._clickTimeout = null;
+    this._chatLifecycleState = 'idle';
+    this._chatLifecycleDetail = {};
+    this._chatLifecycleTimer = null;
+    this._chatBusUnsubscribe = null;
 
     /** Resolves when the spaceman has finished loading data and rendering (safe to query #spaceman in DOM). */
     this.ready = this._init(dataUrl);
@@ -72,6 +93,9 @@ class Spaceman {
     this._startMessageCycle();
     this._themeChangeHandler = () => this._onThemeChange();
     window.addEventListener('themechange', this._themeChangeHandler);
+    this._chatBusUnsubscribe = chatBus.on((state, detail) => {
+      this._handleChatLifecycle(state, detail);
+    });
   }
 
   _getThemeData() {
@@ -166,6 +190,7 @@ class Spaceman {
   }
 
   _onThemeChange() {
+    if (this._chatLifecycleState !== 'idle') return;
     this._clearTimer('typing');
     this._clearTimer('message');
     this.messageIndex = 0;
@@ -436,6 +461,7 @@ class Spaceman {
   /** Call after setContext when the project detail modal opens — surfaces the active project in the bubble. */
   announceProjectContext() {
     if (this.isQuiet) return;
+    if (this._chatLifecycleState !== 'idle') return;
     if (this.state !== 'playground' && this.state !== 'portfolio') return;
     const msg = this._getProjectMessage();
     if (!msg) return;
@@ -525,12 +551,83 @@ class Spaceman {
       setTimeout(() => spaceman.classList.remove('state-change'), DEFAULTS.stateChangeDuration);
     }
 
+    if (this._chatLifecycleState === 'idle') {
+      this._startMessageCycle();
+    } else {
+      this._applyChatStatusCopy(this._chatLifecycleState, this._chatLifecycleDetail);
+    }
+  }
+
+  _clearChatLifecycleTimer() {
+    if (this._chatLifecycleTimer) {
+      clearTimeout(this._chatLifecycleTimer);
+      this._chatLifecycleTimer = null;
+    }
+  }
+
+  _setChatLifecycleClass(state) {
+    const { spaceman } = this.elements;
+    if (!spaceman) return;
+    spaceman.classList.remove(...CHAT_STATE_CLASSES);
+    if (!state || state === 'idle') return;
+    const safe = String(state).replace('_', '-');
+    spaceman.classList.add(`chat-state-${safe}`);
+  }
+
+  _applyChatStatusCopy(state, detail) {
+    const { text } = this.elements;
+    if (!text) return;
+    if (state === 'idle') {
+      text.textContent = '';
+      return;
+    }
+    if (state === 'tool_call') {
+      const first = Array.isArray(detail?.actions) ? detail.actions[0] : null;
+      const label = first?.label || first?.id || '';
+      text.textContent = label
+        ? `${CHAT_STATUS_COPY.tool_call} (${label})`
+        : CHAT_STATUS_COPY.tool_call;
+      return;
+    }
+    text.textContent = CHAT_STATUS_COPY[state] || CHAT_STATUS_COPY.thinking;
+  }
+
+  _resumeAmbientAfterChat() {
+    this._clearTimer('typing');
+    this._clearTimer('message');
+    this._chatLifecycleState = 'idle';
+    this._chatLifecycleDetail = {};
+    this._setChatLifecycleClass('idle');
+    if (this.isQuiet || this.isDetermined) return;
     this._startMessageCycle();
+  }
+
+  _handleChatLifecycle(state, detail) {
+    if (!this.elements?.text || this.isQuiet) return;
+    const next = String(state || 'idle');
+    if (next === 'idle' && this._chatLifecycleState === 'idle') return;
+    this._clearChatLifecycleTimer();
+    if (next === 'idle') {
+      const delay = Number(detail?.delayMs);
+      if (Number.isFinite(delay) && delay > 0) {
+        this._chatLifecycleTimer = setTimeout(() => this._resumeAmbientAfterChat(), delay);
+      } else {
+        this._resumeAmbientAfterChat();
+      }
+      return;
+    }
+    this._chatLifecycleState = next;
+    this._chatLifecycleDetail = detail && typeof detail === 'object' ? detail : {};
+    this._clearTimer('typing');
+    this._clearTimer('message');
+    this._setChatLifecycleClass(next);
+    this._applyChatStatusCopy(next, this._chatLifecycleDetail);
   }
 
   // Messaging
   _startMessageCycle() {
     if (this.isQuiet) return; // Don't start message cycle when quiet
+    if (this._chatLifecycleState !== 'idle') return;
     if (this.isDetermined) return; // Freeze message cycle when determined
     
     const { states } = this._getThemeData();
@@ -582,6 +679,7 @@ class Spaceman {
 
   _react(type) {
     if (this.isQuiet) return; // Don't react when quiet
+    if (this._chatLifecycleState !== 'idle') return;
     
     const { reactions } = this._getThemeData();
     const reaction = reactions?.[type];
@@ -680,6 +778,8 @@ class Spaceman {
 
   destroy() {
     this._clearAllTimers();
+    this._clearChatLifecycleTimer();
+    if (this._chatBusUnsubscribe) this._chatBusUnsubscribe();
     this._hideHeroMenuUI();
     window.removeEventListener('themechange', this._themeChangeHandler);
     if (this.container) this.container.innerHTML = '';
