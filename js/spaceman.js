@@ -31,7 +31,16 @@ const CHAT_STATUS_COPY = {
   streaming: 'Pulling that together…',
   tool_call: 'Pulling that up…',
   error: 'Hmm, let\'s try that again.'
-};
+}
+
+/** Emoji-safe typing + delay math (avoid splitting surrogate pairs). */
+const toGraphemes = (str) => {
+  if (typeof str !== 'string' || !str.length) return []
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    return [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(str)].map((s) => s.segment)
+  }
+  return [...str]
+}
 
 const CHAT_STATE_CLASSES = [
   'chat-state-sending',
@@ -485,7 +494,7 @@ class Spaceman {
     const delay = stateData?.messageDelay || DEFAULTS.messageDelay;
     this._timers.message = setTimeout(() => {
       this._startMessageCycle();
-    }, delay + msg.length * speed);
+    }, delay + toGraphemes(msg).length * speed);
   }
 
   setPositionController(controller) {
@@ -665,12 +674,13 @@ class Spaceman {
 
     this._typeMessage(message, speed);
 
+    const typedLen = toGraphemes(message).length
     this._timers.message = setTimeout(() => {
       if (fromMergedArray) {
         this.messageIndex = (this.messageIndex + 1) % Math.max(1, messages.length);
       }
       this._startMessageCycle();
-    }, delay + (message.length * speed));
+    }, delay + typedLen * speed);
   }
 
   _typeMessage(message, speed = DEFAULTS.typingSpeed) {
@@ -681,14 +691,15 @@ class Spaceman {
     this._clearTimer('typing');
     text.textContent = '';
 
-    let i = 0;
+    const segs = toGraphemes(message)
+    let i = 0
     const type = () => {
-      if (i < message.length) {
-        text.textContent += message[i++];
-        this._timers.typing = setTimeout(type, speed);
+      if (i < segs.length) {
+        text.textContent += segs[i++]
+        this._timers.typing = setTimeout(type, speed)
       }
-    };
-    type();
+    }
+    type()
   }
 
   _react(type) {

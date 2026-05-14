@@ -3,42 +3,50 @@
     "idle": {
       "messages": [
         "Building production systems.",
+        "💬 Ask me anything — grounded in my resume.",
         "Correctness over speed.",
-        "15+ years, still shipping.",
-        "Browse Experiments and Portfolio."
+        "⌨️ Type or tap the bubble to chat.",
+        "Browse Experiments and Portfolio.",
+        "💬 Questions welcome — try a prompt."
       ],
-      "typingSpeed": 50,
-      "messageDelay": 9000
+      "typingSpeed": 48,
+      "messageDelay": 8200
     },
     "playground": {
       "messages": [
         "Prototypes with production habits.",
+        "💬 Ask about an experiment.",
         "Fast loops. Clear constraints.",
+        "⌨️ Type here — I'll pull context from the card.",
         "Click a card for details.",
-        "Correctness over speed."
+        "💬 Curious about a build? Ask."
       ],
-      "typingSpeed": 40,
-      "messageDelay": 10000
+      "typingSpeed": 42,
+      "messageDelay": 9000
     },
     "portfolio": {
       "messages": [
         "Systems owned end-to-end.",
+        "💬 Ask about a role or project.",
         "IBM (Apptio), HP, JumpCloud, AT&T.",
+        "⌨️ Invite a question — I'm listening.",
         "Click a card for details.",
-        "15+ years, still shipping."
+        "💬 Try “what did you ship at HP?”"
       ],
-      "typingSpeed": 40,
-      "messageDelay": 10000
+      "typingSpeed": 42,
+      "messageDelay": 9000
     },
     "home": {
       "messages": [
         "Building production systems.",
+        "💬 Ask me anything — resume-grounded answers.",
         "Boundaries. Operability. Delivery.",
+        "⌨️ Hover or focus here to type.",
         "Browse Experiments and Portfolio.",
-        "15+ years, still shipping."
+        "💬 Your question steers the reply."
       ],
-      "typingSpeed": 50,
-      "messageDelay": 9000
+      "typingSpeed": 48,
+      "messageDelay": 8200
     }
   },
   "reactions": {
@@ -52,42 +60,50 @@
         "idle": {
           "messages": [
             "Building production systems.",
+            "💬 Ask me anything — grounded in my resume.",
             "Correctness over speed.",
-            "15+ years, still shipping.",
-            "Browse Experiments and Portfolio."
+            "⌨️ Type or tap the bubble to chat.",
+            "Browse Experiments and Portfolio.",
+            "💬 Questions welcome — try a prompt."
           ],
-          "typingSpeed": 50,
-          "messageDelay": 9000
+          "typingSpeed": 48,
+          "messageDelay": 8200
         },
         "playground": {
           "messages": [
             "Prototypes with production habits.",
+            "💬 Ask about an experiment.",
             "Fast loops. Clear constraints.",
+            "⌨️ Type here — I'll pull context from the card.",
             "Click a card for details.",
-            "Correctness over speed."
+            "💬 Curious about a build? Ask."
           ],
-          "typingSpeed": 40,
-          "messageDelay": 10000
+          "typingSpeed": 42,
+          "messageDelay": 9000
         },
         "portfolio": {
           "messages": [
             "Systems owned end-to-end.",
+            "💬 Ask about a role or project.",
             "IBM (Apptio), HP, JumpCloud, AT&T.",
+            "⌨️ Invite a question — I'm listening.",
             "Click a card for details.",
-            "15+ years, still shipping."
+            "💬 Try “what did you ship at HP?”"
           ],
-          "typingSpeed": 40,
-          "messageDelay": 10000
+          "typingSpeed": 42,
+          "messageDelay": 9000
         },
         "home": {
           "messages": [
             "Building production systems.",
+            "💬 Ask me anything — resume-grounded answers.",
             "Boundaries. Operability. Delivery.",
+            "⌨️ Hover or focus here to type.",
             "Browse Experiments and Portfolio.",
-            "15+ years, still shipping."
+            "💬 Your question steers the reply."
           ],
-          "typingSpeed": 50,
-          "messageDelay": 9000
+          "typingSpeed": 48,
+          "messageDelay": 8200
         }
       },
       "reactions": {

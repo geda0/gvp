@@ -10,7 +10,8 @@ body.chat-dialog-open {
     display: flex;
     justify-content: center;
     width: 100%;
-    margin-bottom: 2.5rem;
+    margin-bottom: clamp(1.35rem, 3.2vw, 2.1rem);
+    margin-top: 0.15rem;
 }
 
 .agent-slot--navbar {
@@ -22,57 +23,122 @@ body.chat-dialog-open {
 .agent-node {
     --agent-node-morph-ms: 280ms;
     --agent-node-morph-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
     width: 100%;
-    max-width: min(36rem, 100%);
+    max-width: min(34rem, 100%);
     min-width: 0;
     position: relative;
     border-radius: 999px;
     border: 1px solid var(--chat-launcher-ring-mix);
     background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
-    box-shadow: 0 0 0 0.16rem var(--chat-launcher-glow-outer);
+    box-shadow: 0 0 0 0.12rem var(--chat-launcher-glow-outer);
     transition:
         border-color var(--agent-node-morph-ms) ease,
         box-shadow var(--agent-node-morph-ms) ease,
-        background-color var(--agent-node-morph-ms) ease;
+        background-color var(--agent-node-morph-ms) ease,
+        max-width var(--agent-node-morph-ms) var(--agent-node-morph-ease),
+        width var(--agent-node-morph-ms) var(--agent-node-morph-ease);
 }
 
 .agent-node[data-state='bubble'] {
-    max-width: min(20rem, 100%);
-    padding: 0.4rem 0.9rem;
+    width: fit-content;
+    max-width: min(calc(100vw - 1.5rem), 19rem);
+    margin-inline: auto;
+    padding: 0.28rem 0.72rem;
+    background: color-mix(in srgb, var(--spaceman-bubble-bg) 90%, rgba(12, 18, 28, 0.08));
+    border-color: color-mix(in srgb, var(--spaceman-bubble-bg) 55%, var(--chat-launcher-ring-mix));
+    box-shadow:
+        0 2px 12px rgba(0, 0, 0, 0.26),
+        inset 0 1px 0 rgba(255, 255, 255, 0.78),
+        0 0 0 0.1rem var(--chat-launcher-glow-outer);
+}
+
+.agent-node[data-state='bubble'] .agent-node__bubble-text {
+    color: var(--spaceman-bubble-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+}
+
+.agent-node[data-state='bubble'] .agent-node__cursor {
+    color: var(--spaceman-cursor-color);
 }
 
 .agent-node[data-state='bar'] {
-    max-width: min(36rem, 100%);
-    padding: 0.24rem 0.3rem 0.24rem 0.72rem;
+    width: 100%;
+    max-width: min(34rem, 100%);
+    margin-inline: 0;
+    padding: 0.14rem 0.22rem 0.14rem 0.56rem;
 }
 
 .agent-node[data-state='modal'] {
-    max-width: min(36rem, 100%);
-    padding: 0.24rem 0.3rem 0.24rem 0.72rem;
+    width: 100%;
+    max-width: min(34rem, 100%);
+    margin-inline: 0;
+    padding: 0.14rem 0.22rem 0.14rem 0.56rem;
 }
 
 .agent-node:focus-within {
     border-color: var(--chat-launcher-ring);
-    box-shadow: 0 0 0 0.25rem var(--chat-launcher-glow-focus);
+    box-shadow: 0 0 0 0.2rem var(--chat-launcher-glow-focus);
+}
+
+.agent-node__bubble,
+.agent-node__form {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+    justify-self: stretch;
 }
 
 .agent-node__bubble {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 1.52rem;
+    min-height: 0;
     text-align: center;
-    gap: 0.2rem;
+    gap: 0.12rem;
     transition:
         opacity calc(var(--agent-node-morph-ms) * 0.7) ease,
         transform var(--agent-node-morph-ms) var(--agent-node-morph-ease);
 }
 
+.agent-node[data-state='bubble'] .agent-node__form {
+    visibility: hidden;
+    height: 0;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    transition-delay: 0s;
+}
+
+.agent-node[data-state='bar'] .agent-node__bubble,
+.agent-node[data-state='modal'] .agent-node__bubble {
+    visibility: hidden;
+    height: 0;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    margin: 0;
+    padding: 0;
+    transform: translateY(-2px);
+    transition-delay: 0s;
+}
+
 .agent-node__bubble-text {
     color: var(--text-primary);
     font-family: var(--font-body);
-    font-size: 0.86rem;
-    line-height: 1.3;
+    font-size: 0.8rem;
+    line-height: 1.22;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -80,15 +146,18 @@ body.chat-dialog-open {
 
 .agent-node__cursor {
     display: inline-block;
+    flex-shrink: 0;
     color: var(--chat-launcher-ring);
     font-weight: 700;
+    font-size: 0.78rem;
+    line-height: 1;
     animation: chat-cursor-blink 0.9s steps(2) infinite;
 }
 
 .agent-node__form {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.35rem;
     min-width: 0;
     opacity: 0;
     transform: translateY(2px);
@@ -100,17 +169,14 @@ body.chat-dialog-open {
 
 .agent-node[data-state='bar'] .agent-node__form,
 .agent-node[data-state='modal'] .agent-node__form {
+    visibility: visible;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
     opacity: 1;
     transform: translateY(0px);
     pointer-events: auto;
     transition-delay: 140ms;
-}
-
-.agent-node[data-state='bar'] .agent-node__bubble,
-.agent-node[data-state='modal'] .agent-node__bubble {
-    opacity: 0;
-    transform: translateY(-2px);
-    transition-delay: 0s;
 }
 
 .agent-node__input {
@@ -120,9 +186,9 @@ body.chat-dialog-open {
     background: transparent;
     color: var(--text-primary);
     font-family: var(--font-body);
-    font-size: 0.86rem;
-    line-height: 1.25;
-    padding: 0.26rem 0;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    padding: 0.18rem 0;
 }
 
 .agent-node__input::placeholder {
@@ -135,14 +201,14 @@ body.chat-dialog-open {
 }
 
 .agent-node__send {
-    width: 1.95rem;
-    height: 1.95rem;
+    width: 1.56rem;
+    height: 1.56rem;
     border-radius: 999px;
     border: none;
     background: var(--accent);
     color: var(--on-accent);
     font-family: var(--font-body);
-    font-size: 0.92rem;
+    font-size: 0.78rem;
     font-weight: 700;
     cursor: pointer;
     flex-shrink: 0;
@@ -372,14 +438,14 @@ body.chat-dialog-open {
 }
 
 .chat-empty-state {
-    margin: auto;
-    padding: 1rem 1rem 0.3rem;
+    margin: 0 auto;
+    padding: clamp(1rem, 3.5vh, 2rem) 1.1rem 0.85rem;
     max-width: 28rem;
     text-align: center;
     color: var(--text-muted);
     font-family: var(--font-body);
-    font-size: 0.86rem;
-    line-height: 1.5;
+    font-size: 0.88rem;
+    line-height: 1.55;
     flex-shrink: 0;
 }
 
@@ -387,29 +453,33 @@ body.chat-dialog-open {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 0.4rem;
-    padding: 0 1rem 0.75rem;
+    gap: 0.45rem;
+    padding: 0.65rem 1rem 0.85rem;
     flex-shrink: 0;
+    border-top: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
 }
 
 .chat-dialog__chip {
-    border: 1px solid var(--border-subtle);
-    background: color-mix(in srgb, var(--chat-launcher-ring) 12%, transparent);
-    color: var(--text-muted);
+    border: 1px solid color-mix(in srgb, var(--spaceman-bubble-text) 18%, var(--border-subtle));
+    background: color-mix(in srgb, var(--spaceman-bubble-bg) 88%, rgba(0, 0, 0, 0.12));
+    color: var(--spaceman-bubble-text);
     border-radius: 999px;
     font-family: var(--font-body);
-    font-size: 0.74rem;
+    font-size: 0.78rem;
     font-weight: 600;
-    line-height: 1.2;
-    padding: 0.34rem 0.64rem;
+    line-height: 1.25;
+    padding: 0.38rem 0.72rem;
     cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset, 0 1px 6px rgba(0, 0, 0, 0.18);
+    transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .chat-dialog__chip:hover {
     border-color: var(--chat-launcher-ring);
-    color: var(--text-primary);
-    background: var(--surface);
+    color: var(--spaceman-bubble-text);
+    background: var(--spaceman-bubble-bg);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--chat-launcher-ring) 32%, transparent), 0 2px 10px rgba(0, 0, 0, 0.22);
 }
 
 .chat-dialog__chip:focus-visible {
