@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -54,9 +55,17 @@ async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
     mid = live_model_id()
     cfg = _live_connect_config(system_instruction)
 
+    now = datetime.now(timezone.utc)
+    # Ephemeral token: leave time to open a Live session after mint (mic permission, WS handshake).
+    # See https://ai.google.dev/api/live (AuthToken.new_session_expire_time).
+    new_session_expire_time = now + timedelta(seconds=180)
+    expire_time = now + timedelta(seconds=600)
+
     auth = await client.aio.auth_tokens.create(
         config=types.CreateAuthTokenConfig(
-            uses=4,
+            uses=8,
+            expire_time=expire_time,
+            new_session_expire_time=new_session_expire_time,
             live_connect_constraints=types.LiveConnectConstraints(
                 model=mid,
                 config=cfg,

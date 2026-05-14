@@ -16,6 +16,8 @@ const PCM_JITTER_MAX_AHEAD_SEC = 4.5
 const VOICE_WS_IDLE_MS = 3 * 60 * 1000
 /** Hard cap on continuous voice session length (ms). */
 const VOICE_MAX_SESSION_MS = 25 * 60 * 1000
+/** Max wait for Google's setupComplete after opening the Live WebSocket (ms). */
+const LIVE_SETUP_WAIT_MS = 45 * 1000
 
 function detachWebSocketHandlers(socket) {
   if (!socket) return
@@ -24,29 +26,6 @@ function detachWebSocketHandlers(socket) {
   socket.onerror = null
   socket.onclose = null
 }
-
-// #region agent log
-function debugVoiceLog(payload) {
-  fetch('http://127.0.0.1:7301/ingest/88d5fa1d-95ae-4b3e-9e2d-4e79fa483fbf', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '2f3831' },
-    body: JSON.stringify({
-      sessionId: '2f3831',
-      timestamp: Date.now(),
-      ...payload
-    })
-  }).catch(() => {})
-}
-
-function safeWsUrlMeta(urlStr) {
-  try {
-    const u = new URL(String(urlStr))
-    return { scheme: u.protocol, host: u.hostname, path: u.pathname }
-  } catch (_) {
-    return { scheme: '', host: 'parse_error', path: '' }
-  }
-}
-// #endregion
 
 /** Inline AudioWorklet (addModule via blob URL) — avoids deprecated ScriptProcessorNode when supported. */
 const MIC_CAPTURE_WORKLET_SOURCE = `
@@ -97,13 +76,6 @@ function voiceSessionEarlyCloseUserMessage(code, reason) {
 const VOICE_UNAVAILABLE_ON_HOST_MSG = (
   'Voice is not available on this chat endpoint. Use text, or enable WebSockets on the chat API for voice.'
 )
-
-function voiceEarlyCloseMessageForTransport(code, reason, liveVoiceTransport) {
-  void liveVoiceTransport
-  // direct_google connects the browser to generativelanguage.googleapis.com; 1011/internal
-  // there is a Google-side or handshake issue, not "enable WebSockets on the chat API".
-  return voiceSessionEarlyCloseUserMessage(code, reason)
-}
 
 function prefersReducedMotion() {
   return typeof window.matchMedia === 'function'
@@ -347,6 +319,8 @@ export function bindChatLiveVoice(opts) {
   let voiceUnavailableOnHost = false
   let voiceWsIdleTimer = null
   let voiceMaxSessionTimer = null
+  /** Resolves when Live setupComplete arrives; cleared after await or on stop. */
+  let pendingSetupLatch = null
 
   const clearVoiceTimers = () => {
     if (voiceWsIdleTimer) {
@@ -451,6 +425,19 @@ export function bindChatLiveVoice(opts) {
     player = null
     setupDone = false
 
+    if (pendingSetupLatch) {
+      if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
+      const rj = pendingSetupLatch.reject
+      pendingSetupLatch = null
+      if (typeof rj === 'function') {
+        try {
+          const err = new Error('Voice stopped')
+          err.name = 'LiveSetupAbort'
+          rj(err)
+        } catch (_) {}
+      }
+    }
+
     patchLiveUi({ active: false, connecting: false })
 
     if (!silent) {
@@ -514,14 +501,12 @@ export function bindChatLiveVoice(opts) {
     if (setupPayload) {
       setupDone = true
       voiceUnavailableOnHost = false
-      // #region agent log
-      debugVoiceLog({
-        hypothesisId: 'H-D',
-        location: 'chat-live.js:handlePayload',
-        message: 'live_setup_complete',
-        data: { hadSetupPayload: true }
-      })
-      // #endregion
+      if (pendingSetupLatch) {
+        if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
+        const res = pendingSetupLatch.resolve
+        pendingSetupLatch = null
+        if (typeof res === 'function') res()
+      }
       chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
     }
 
@@ -581,14 +566,6 @@ export function bindChatLiveVoice(opts) {
     }
 
     if (voiceUnavailableOnHost) {
-      // #region agent log
-      debugVoiceLog({
-        hypothesisId: 'H-B',
-        location: 'chat-live.js:startVoice',
-        message: 'blocked_voice_unavailable_on_host_flag',
-        data: { lastTransport: lastLiveVoiceTransport }
-      })
-      // #endregion
       setStatus(VOICE_UNAVAILABLE_ON_HOST_MSG, 'error')
       trackEvent('chat_live_blocked', { reason: 'voice_host_endpoint' })
       return
@@ -658,38 +635,73 @@ export function bindChatLiveVoice(opts) {
         throw new Error('Invalid voice session URL.')
       }
 
-      // #region agent log
-      {
-        let postHost = ''
-        try {
-          postHost = /^https?:\/\//i.test(postUrl)
-            ? new URL(postUrl).hostname
-            : (typeof window !== 'undefined' && window.location
-              ? `${window.location.hostname}:${window.location.port || ''}`
-              : 'no_window')
-        } catch (_) {
-          postHost = 'parse_error'
-        }
-        debugVoiceLog({
-          hypothesisId: 'H-C',
-          location: 'chat-live.js:startVoice',
-          message: 'live_session_post_ok',
-          data: {
-            liveVoiceTransport: lastLiveVoiceTransport,
-            postHost,
-            postUrlIsAbsolute: /^https?:\/\//i.test(postUrl),
-            wsMeta: safeWsUrlMeta(wsUrlStr),
-            constrainedWs,
-            clientSlimsFirstFrame,
-            modelFromBodyLen: modelResource.length
-          }
-        })
-      }
-      // #endregion
-
       voiceSessionOpen = true
-
+      setupDone = false
       player = new PcmJitterPlayer()
+
+      const setupReadyPromise = new Promise((resolve, reject) => {
+        pendingSetupLatch = { resolve, reject, timeoutId: null }
+        pendingSetupLatch.timeoutId = setTimeout(() => {
+          const latch = pendingSetupLatch
+          if (!latch) return
+          pendingSetupLatch = null
+          const tid = latch.timeoutId
+          if (tid != null) clearTimeout(tid)
+          const err = new Error('Voice session timed out waiting for ready.')
+          err.name = 'LiveSetupFailed'
+          if (typeof latch.reject === 'function') latch.reject(err)
+        }, LIVE_SETUP_WAIT_MS)
+      })
+
+      ws = new WebSocket(websocketUrl)
+
+      ws.onopen = () => {
+        bumpVoiceWsIdleTimer()
+        ws.send(JSON.stringify(firstClientSetup))
+      }
+
+      ws.onmessage = (ev) => {
+        bumpVoiceWsIdleTimer()
+        void handlePayload(ev.data)
+      }
+
+      ws.onerror = () => {
+        setStatus('Voice connection error.', 'error')
+        trackEvent('chat_live_error', { phase: 'websocket' })
+        chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
+      }
+
+      ws.onclose = (ev) => {
+        if (!voiceSessionOpen) return
+        const ready = setupDone
+        const code = ev.code
+        const reason = ev.reason
+        const transportForCloseMsg = lastLiveVoiceTransport
+        const markHostBlocked = !ready
+          && transportForCloseMsg === 'relay'
+          && (code === 1011 || String(reason || '').toLowerCase().includes('internal'))
+        let latchRejected = false
+        if (!ready && pendingSetupLatch && typeof pendingSetupLatch.reject === 'function') {
+          latchRejected = true
+          if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
+          const rj = pendingSetupLatch.reject
+          pendingSetupLatch = null
+          const err = new Error(voiceSessionEarlyCloseUserMessage(code, reason))
+          err.name = 'LiveSetupFailed'
+          try {
+            rj(err)
+          } catch (_) {}
+        }
+        if (markHostBlocked) voiceUnavailableOnHost = true
+        stopVoiceInternal({ silent: true })
+        if (!ready && !latchRejected) {
+          setStatus(voiceSessionEarlyCloseUserMessage(code, reason), 'error')
+          trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
+          chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
+        }
+      }
+
+      await setupReadyPromise
 
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -754,74 +766,6 @@ export function bindChatLiveVoice(opts) {
         processor.connect(mute)
       }
 
-      ws = new WebSocket(websocketUrl)
-
-      ws.onopen = () => {
-        // #region agent log
-        debugVoiceLog({
-          hypothesisId: 'H-D',
-          location: 'chat-live.js:ws.onopen',
-          message: 'live_ws_open',
-          data: { transport: lastLiveVoiceTransport }
-        })
-        // #endregion
-        bumpVoiceWsIdleTimer()
-        ws.send(JSON.stringify(firstClientSetup))
-      }
-
-      ws.onmessage = (ev) => {
-        bumpVoiceWsIdleTimer()
-        void handlePayload(ev.data)
-      }
-
-      ws.onerror = () => {
-        // #region agent log
-        debugVoiceLog({
-          hypothesisId: 'H-E',
-          location: 'chat-live.js:ws.onerror',
-          message: 'live_ws_error_event',
-          data: { transport: lastLiveVoiceTransport, setupDone }
-        })
-        // #endregion
-        setStatus('Voice connection error.', 'error')
-        trackEvent('chat_live_error', { phase: 'websocket' })
-        chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
-      }
-
-      ws.onclose = (ev) => {
-        if (!voiceSessionOpen) return
-        const ready = setupDone
-        const code = ev.code
-        const reason = ev.reason
-        const transportForCloseMsg = lastLiveVoiceTransport
-        const markHostBlocked = !ready
-          && transportForCloseMsg === 'relay'
-          && (code === 1011 || String(reason || '').toLowerCase().includes('internal'))
-        // #region agent log
-        debugVoiceLog({
-          hypothesisId: 'H-A',
-          location: 'chat-live.js:ws.onclose',
-          message: 'live_ws_close',
-          data: {
-            code,
-            reasonLen: String(reason || '').length,
-            reasonLowerHasInternal: String(reason || '').toLowerCase().includes('internal'),
-            transport: transportForCloseMsg,
-            setupDone: ready,
-            markHostBlocked,
-            wasClean: ev.wasClean
-          }
-        })
-        // #endregion
-        if (markHostBlocked) voiceUnavailableOnHost = true
-        stopVoiceInternal({ silent: true })
-        if (!ready) {
-          setStatus(voiceEarlyCloseMessageForTransport(code, reason, transportForCloseMsg), 'error')
-          trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
-          chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
-        }
-      }
-
       active = true
       syncMicChrome()
       patchLiveUi({ active: true, connecting: false })
@@ -841,7 +785,13 @@ export function bindChatLiveVoice(opts) {
       mediaSource.connect(processor)
     } catch (error) {
       stopVoiceInternal({ silent: true })
-      const msg = micAccessUserMessage(error)
+      const ename = error instanceof Error ? error.name : ''
+      if (ename === 'LiveSetupAbort') {
+        return
+      }
+      const msg = ename === 'LiveSetupFailed' && error instanceof Error
+        ? error.message
+        : micAccessUserMessage(error)
       setStatus(msg, 'error')
       trackEvent('chat_live_error', { phase: 'start', message: msg })
       chatBus.emit('error', { source: 'chat-live', message: msg })

@@ -60,8 +60,13 @@ async def relay_browser_to_google(
                             await browser_ws.send_text(packet)
                         else:
                             await browser_ws.send_bytes(packet)
-                except ConnectionClosed:
-                    pass
+                except ConnectionClosed as exc:
+                    reason = (getattr(exc, 'reason', None) or '')[:240]
+                    logger.warning(
+                        'live relay upstream closed code=%s reason=%s',
+                        getattr(exc, 'code', None),
+                        reason,
+                    )
                 except Exception as exc:
                     logger.debug('relay upstream_to_browser end: %s', exc)
 

@@ -29,6 +29,7 @@ CHAT_PROVIDER=mock \
 | `GEMINI_API_KEY` | Required when `CHAT_PROVIDER=gemini` |
 | `GEMINI_MODEL` | Primary model override (default **`gemini-3.1-flash-lite`**) |
 | `GEMINI_LIVE_MODEL` | Multimodal **Live** model id for browser voice (default **`gemini-3.1-flash-live-preview`**) |
+| `CHAT_LIVE_RELAY` | **`1`**: browser WebSocket to **`/api/live/relay/…`** on this app (needs WS-capable hosting). **`0`**: browser opens Google **`BidiGenerateContentConstrained`** directly (typical with API Gateway HTTP + Lambda). SAM chat template sets **`0`**. |
 | `CHAT_LIVE_SYSTEM_MAX_CHARS` | Max characters for combined voice system instruction + knowledge XML (default **14000**) |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
@@ -42,6 +43,14 @@ CHAT_PROVIDER=mock \
 | `CHAT_CORS_ORIGINS` | Optional comma-separated list of browser origins allowed to call the API (e.g. `https://marwanelgendy.link`). Required when the static site and chat run on different hosts. |
 | `CHAT_READY_VERBOSE` | Set to **`1`** so **`GET /ready`** returns the full diagnostics JSON (default is **`{"ok": …}`** only). |
 | `CHAT_READY_VERBOSE_SECRET` | With **`CHAT_READY_VERBOSE` unset**, full **`/ready`** body is available only as **`GET /ready?verbose=1&token=<secret>`** (token and secret must be the same length for comparison). |
+
+## Gemini Multimodal Live (browser voice)
+
+Voice uses the **Gemini Live** WebSocket protocol (preview). Official overview: [Multimodal Live API](https://ai.google.dev/gemini-api/docs/multimodal-live). Message shapes and auth tokens: [Live API reference](https://ai.google.dev/api/live). Browser tokens: [Ephemeral tokens](https://ai.google.dev/gemini-api/docs/ephemeral-tokens). WebSocket walkthrough: [Get started with Live API (WebSockets)](https://ai.google.dev/gemini-api/docs/live-api/get-started-websocket).
+
+**Audio:** input **16-bit PCM, 16 kHz**; model output is typically **24 kHz** (see Google’s multimodal-live doc). The static site opens the Live WebSocket and completes the **`setup` / `setupComplete`** handshake **before** requesting the microphone, so the ephemeral token’s **new-session** window is not spent during the permission prompt. Mic PCM is sent only after **`setupComplete`** ([`js/chat-live.js`](../js/chat-live.js)).
+
+**Backend:** [`app/live_gemini.py`](app/live_gemini.py) mints tokens with **`v1alpha`**, explicit **`new_session_expire_time`** / **`expire_time`**, and **`LiveConnectConstraints`**. Optional relay: [`app/live_relay.py`](app/live_relay.py).
 
 ## Deploy (stage / prod)
 
