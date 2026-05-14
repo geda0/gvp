@@ -598,6 +598,7 @@ class Spaceman {
     this._chatLifecycleState = 'idle';
     this._chatLifecycleDetail = {};
     this._setChatLifecycleClass('idle');
+    this.positionController?.updatePosition();
     if (this.isQuiet || this.isDetermined) return;
     this._startMessageCycle();
   }
@@ -622,6 +623,7 @@ class Spaceman {
     this._clearTimer('message');
     this._setChatLifecycleClass(next);
     this._applyChatStatusCopy(next, this._chatLifecycleDetail);
+    this.positionController?.updatePosition();
   }
 
   // Messaging

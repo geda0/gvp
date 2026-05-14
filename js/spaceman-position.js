@@ -23,6 +23,11 @@ class SpacemanPosition {
     this._updateT = null;
     this._cleanupTimer = null;
     this._onEnd = null;
+    this._resizeTimer = null;
+    this._scrollTimer = null;
+    this._onResize = null;
+    this._onScrollLike = null;
+    this._visualViewport = null;
     this.isQuiet = false;
     this.isStaying = false;
     this._isDragging = false;
@@ -68,20 +73,49 @@ class SpacemanPosition {
     document.fonts?.ready?.then(() => this.updatePosition());
   }
 
-  _getProjectDialogPanelRect() {
-    if (!document.body.classList.contains('project-dialog-open')) return null;
-    const dialog = document.getElementById('projectDialog');
+  _readDialogPanelRect(dialogId, panelSelector) {
+    const dialog = document.getElementById(dialogId);
     if (!dialog || dialog.hidden) return null;
-    const panel = dialog.querySelector('.project-dialog__panel');
+    const panel = dialog.querySelector(panelSelector);
     if (!panel) return null;
     const rect = panel.getBoundingClientRect();
     if (rect.width < 8 || rect.height < 8) return null;
     return rect;
   }
 
+  _getActiveDialogPanelRect() {
+    const checks = [
+      {
+        bodyClass: 'project-dialog-open',
+        dialogId: 'projectDialog',
+        panelSelector: '.project-dialog__panel'
+      },
+      {
+        bodyClass: 'chat-dialog-open',
+        dialogId: 'chatDialog',
+        panelSelector: '.chat-dialog__panel'
+      },
+      {
+        bodyClass: 'contact-dialog-open',
+        dialogId: 'contactDialog',
+        panelSelector: '.contact-dialog__panel'
+      }
+    ];
+
+    for (const check of checks) {
+      if (!document.body.classList.contains(check.bodyClass)) continue;
+      const rect = this._readDialogPanelRect(check.dialogId, check.panelSelector);
+      if (rect) return rect;
+    }
+    return null;
+  }
+
   _bindObservers() {
-    const projectDialog = document.getElementById('projectDialog');
-    const dialogPanel = projectDialog?.querySelector('.project-dialog__panel');
+    const dialogs = [
+      { id: 'projectDialog', panelSelector: '.project-dialog__panel' },
+      { id: 'chatDialog', panelSelector: '.chat-dialog__panel' },
+      { id: 'contactDialog', panelSelector: '.contact-dialog__panel' }
+    ];
     const contentEls = [
       document.getElementById('playgroundContent'),
       document.getElementById('portfolioContent'),
@@ -94,14 +128,20 @@ class SpacemanPosition {
     contentEls.slice(0, 2).forEach(el => {
       this._mutationObs.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
-    if (projectDialog) {
-      this._mutationObs.observe(projectDialog, { attributes: true, attributeFilter: ['hidden'] });
-    }
+    dialogs
+      .map(({ id }) => document.getElementById(id))
+      .filter(Boolean)
+      .forEach((dialog) => {
+        this._mutationObs.observe(dialog, { attributes: true, attributeFilter: ['hidden'] });
+      });
 
     // Size changes -> reposition
     this._resizeObs = new ResizeObserver(() => this.updatePosition());
     contentEls.forEach(el => this._resizeObs.observe(el));
-    if (dialogPanel) this._resizeObs.observe(dialogPanel);
+    dialogs.forEach(({ id, panelSelector }) => {
+      const panel = document.getElementById(id)?.querySelector(panelSelector);
+      if (panel) this._resizeObs.observe(panel);
+    });
     this._resizeObs.observe(this.container);
     const heroCopy = document.querySelector('.hero-copy')
     if (heroCopy) this._resizeObs.observe(heroCopy)
@@ -115,12 +155,23 @@ class SpacemanPosition {
     contentEls.forEach(el => el.addEventListener('transitionend', this._onTransitionEnd));
     this._contentEls = contentEls;
 
-    // Window resize
-    let resizeT;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeT);
-      resizeT = setTimeout(() => this.updatePosition(), 100);
-    });
+    this._onResize = () => {
+      clearTimeout(this._resizeTimer);
+      this._resizeTimer = setTimeout(() => this.updatePosition(), 100);
+    };
+    window.addEventListener('resize', this._onResize);
+
+    this._onScrollLike = () => {
+      clearTimeout(this._scrollTimer);
+      this._scrollTimer = setTimeout(() => this.updatePosition(), 45);
+    };
+    window.addEventListener('scroll', this._onScrollLike, { passive: true });
+
+    this._visualViewport = window.visualViewport || null;
+    if (this._visualViewport) {
+      this._visualViewport.addEventListener('scroll', this._onScrollLike);
+      this._visualViewport.addEventListener('resize', this._onScrollLike);
+    }
   }
 
   _isLayoutCooldownActive() {
@@ -298,7 +349,7 @@ class SpacemanPosition {
       x = bounds.maxX - edgePad;
       y = bounds.maxY - edgePad;
     } else {
-      const dialogContent = this._getProjectDialogPanelRect();
+      const dialogContent = this._getActiveDialogPanelRect();
       const content = dialogContent || this._getVisibleContent();
 
       if (content) {
@@ -440,7 +491,9 @@ class SpacemanPosition {
     // No wobble when content open
     const wobble =
       document.body.classList.contains('content-open') ||
-      document.body.classList.contains('project-dialog-open')
+      document.body.classList.contains('project-dialog-open') ||
+      document.body.classList.contains('chat-dialog-open') ||
+      document.body.classList.contains('contact-dialog-open')
         ? 0
         : (Math.random() - 0.5) * 5;
 
@@ -468,11 +521,19 @@ class SpacemanPosition {
   destroy() {
     clearTimeout(this._updateT);
     clearTimeout(this._cleanupTimer);
+    clearTimeout(this._resizeTimer);
+    clearTimeout(this._scrollTimer);
     this._clearPostDragCooldown();
     if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._mutationObs?.disconnect();
     this._resizeObs?.disconnect();
     this._contentEls?.forEach(el => el.removeEventListener('transitionend', this._onTransitionEnd));
+    if (this._onResize) window.removeEventListener('resize', this._onResize);
+    if (this._onScrollLike) window.removeEventListener('scroll', this._onScrollLike);
+    if (this._visualViewport && this._onScrollLike) {
+      this._visualViewport.removeEventListener('scroll', this._onScrollLike);
+      this._visualViewport.removeEventListener('resize', this._onScrollLike);
+    }
     this._dragCleanup?.();
   }
 }
