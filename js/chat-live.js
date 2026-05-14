@@ -52,15 +52,17 @@ function voiceSessionEarlyCloseUserMessage(code, reason) {
   return 'Voice session ended before it was ready. Try again or check your connection.'
 }
 
+/** Shown when direct browser→Google live voice fails on serverless chat (no WS relay). */
+const VOICE_UNAVAILABLE_ON_HOST_MSG = (
+  'Voice is not available on this chat endpoint. Use text, or enable WebSockets on the chat API for voice.'
+)
+
 function voiceEarlyCloseMessageForTransport(code, reason, liveVoiceTransport) {
   const t = liveVoiceTransport || ''
   if (t === 'direct_google') {
     const r = String(reason || '').toLowerCase()
     if (code === 1011 || r.includes('internal')) {
-      return (
-        'Live voice is not available on this chat host (serverless HTTP only). '
-        + 'Use text messages here, or run the chat API where WebSockets are supported to enable voice.'
-      )
+      return VOICE_UNAVAILABLE_ON_HOST_MSG
     }
   }
   return voiceSessionEarlyCloseUserMessage(code, reason)
@@ -298,6 +300,8 @@ export function bindChatLiveVoice(opts) {
   let voiceConnectInFlight = false
   /** Last POST /api/live/session `liveVoiceTransport` for close-message context. */
   let lastLiveVoiceTransport = null
+  /** After direct_google + 1011/internal early close, skip new session POST until voice succeeds. */
+  let voiceUnavailableOnHost = false
 
   let userBubble = null
   let assistantBubble = null
@@ -439,6 +443,7 @@ export function bindChatLiveVoice(opts) {
     const setupPayload = msg.setupComplete ?? msg.setup_complete
     if (setupPayload) {
       setupDone = true
+      voiceUnavailableOnHost = false
       chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
     }
 
@@ -494,6 +499,12 @@ export function bindChatLiveVoice(opts) {
     if (gateMsg) {
       setStatus(gateMsg, 'error')
       trackEvent('chat_live_blocked', { reason: 'insecure_or_no_mediadevices' })
+      return
+    }
+
+    if (voiceUnavailableOnHost) {
+      setStatus(VOICE_UNAVAILABLE_ON_HOST_MSG, 'error')
+      trackEvent('chat_live_blocked', { reason: 'voice_host_endpoint' })
       return
     }
 
@@ -650,6 +661,10 @@ export function bindChatLiveVoice(opts) {
         const code = ev.code
         const reason = ev.reason
         const transportForCloseMsg = lastLiveVoiceTransport
+        const markHostBlocked = !ready
+          && transportForCloseMsg === 'direct_google'
+          && (code === 1011 || String(reason || '').toLowerCase().includes('internal'))
+        if (markHostBlocked) voiceUnavailableOnHost = true
         stopVoiceInternal({ silent: true })
         if (!ready) {
           setStatus(voiceEarlyCloseMessageForTransport(code, reason, transportForCloseMsg), 'error')
