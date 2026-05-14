@@ -1,3 +1,6 @@
+import { contactApiUrl } from './site-config.js'
+import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
+
 export function initContactForm() {
   const CONTACT_HELPER_TEXT = ''
   const CONTACT_SUCCESS_TEXT = 'Got it — your message is on its way. I\'ll be in touch.'
@@ -14,7 +17,7 @@ export function initContactForm() {
   if (!dialog || !form || !status || !successView || !successText || !sendAnotherBtn || !closeAfterSendBtn) return
 
   let lastFocus = null
-  const contactEndpoint = window.__CONTACT_API_URL__ || '/api/contact'
+  const contactEndpoint = contactApiUrl || '/api/contact'
 
   const showFormView = (visible) => {
     form.hidden = !visible
@@ -43,8 +46,7 @@ export function initContactForm() {
 
   const openDialog = () => {
     lastFocus = document.activeElement
-    dialog.hidden = false
-    dialog.setAttribute('aria-hidden', 'false')
+    setDialogVisibility(dialog, true)
     document.body.classList.add('contact-dialog-open')
     window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'))
     showFormView(true)
@@ -52,8 +54,7 @@ export function initContactForm() {
   }
 
   const closeDialog = () => {
-    dialog.hidden = true
-    dialog.setAttribute('aria-hidden', 'true')
+    setDialogVisibility(dialog, false)
     document.body.classList.remove('contact-dialog-open')
     if (lastFocus && typeof lastFocus.focus === 'function') {
       lastFocus.focus()
@@ -71,11 +72,7 @@ export function initContactForm() {
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
   })
   closeAfterSendBtn.addEventListener('click', closeDialog)
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || dialog.hidden) return
-    e.preventDefault()
-    closeDialog()
-  })
+  bindEscapeClosesDialogWhenOpen(dialog, closeDialog)
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault()
@@ -105,24 +102,39 @@ export function initContactForm() {
       })
 
       // Backend may return HTML (e.g. a gateway/proxy error page) instead of JSON.
-      // Tolerate that: only parse JSON when the response advertises it.
+      // Only parse JSON when the response advertises it; avoid surfacing non-JSON bodies.
       const contentType = res.headers.get('content-type') || ''
-      const body = contentType.includes('application/json')
-        ? await res.json().catch(() => ({}))
-        : {}
+      const wantsJson = contentType.includes('application/json')
+      let body = {}
+      if (wantsJson) {
+        try {
+          body = await res.json()
+        } catch (_) {
+          body = null
+        }
+      }
 
       if (!res.ok) {
-        let msg = body?.error
-        if (!msg) {
-          if (res.status >= 400 && res.status < 500) {
-            // Validation / bad request — surface the server message if any, else a generic hint.
+        let msg = body && typeof body === 'object' ? body.error : undefined
+        if (typeof msg !== 'string' || !msg.trim()) {
+          if (body === null) {
+            msg = 'The contact service returned an unexpected reply. Try again in a moment.'
+          } else if (res.status >= 400 && res.status < 500) {
             msg = 'Please check your details and try again.'
           } else {
-            // 5xx or unexpected — server-side failure.
             msg = 'The server had a problem. Try again in a moment.'
           }
         }
         setStatus(msg, 'error')
+        return
+      }
+
+      if (body === null || typeof body !== 'object') {
+        setStatus('The contact service returned an unexpected reply. Try again.', 'error')
+        return
+      }
+      if (!wantsJson) {
+        setStatus('The contact service returned an unexpected reply. Try again.', 'error')
         return
       }
 

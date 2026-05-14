@@ -4,8 +4,26 @@
 
 import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
+import { chatApiUrl } from './site-config.js'
 
 const INPUT_RATE = 16000
+
+/** Cap queued PCM chunks so playback scheduling cannot grow without bound. */
+const PCM_JITTER_MAX_QUEUED_CHUNKS = 48
+/** Drop scheduled playback and reset if this far ahead of the clock (seconds). */
+const PCM_JITTER_MAX_AHEAD_SEC = 4.5
+/** Close voice if the WebSocket sends nothing for this long (ms). */
+const VOICE_WS_IDLE_MS = 3 * 60 * 1000
+/** Hard cap on continuous voice session length (ms). */
+const VOICE_MAX_SESSION_MS = 25 * 60 * 1000
+
+function detachWebSocketHandlers(socket) {
+  if (!socket) return
+  socket.onopen = null
+  socket.onmessage = null
+  socket.onerror = null
+  socket.onclose = null
+}
 
 /** Inline AudioWorklet (addModule via blob URL) — avoids deprecated ScriptProcessorNode when supported. */
 const MIC_CAPTURE_WORKLET_SOURCE = `
@@ -74,7 +92,7 @@ function prefersReducedMotion() {
 }
 
 function resolveChatApiBase() {
-  const raw = window.__CHAT_API_URL__ || ''
+  const raw = chatApiUrl || ''
   const trimmed = raw.replace(/\/+$/, '')
   if (trimmed.endsWith('/api/chat')) return trimmed.slice(0, -'/api/chat'.length)
   const stripped = trimmed.replace(/\/api\/chat\/?$/i, '')
@@ -233,13 +251,19 @@ class PcmJitterPlayer {
   async enqueue(floats, sampleRate) {
     const ctx = await this.ensure(sampleRate)
     const sr = ctx.sampleRate
+    const now = ctx.currentTime
+    if (
+      this.sources.length >= PCM_JITTER_MAX_QUEUED_CHUNKS
+      || (this.sources.length > 0 && this.scheduledEnd - now > PCM_JITTER_MAX_AHEAD_SEC)
+    ) {
+      this.interrupt()
+    }
     const adjusted = sampleRate === sr ? floats : resampleLinear(floats, sampleRate, sr)
     const buffer = ctx.createBuffer(1, adjusted.length, sr)
     buffer.copyToChannel(adjusted, 0)
     const src = ctx.createBufferSource()
     src.buffer = buffer
     src.connect(ctx.destination)
-    const now = ctx.currentTime
     const startAt = Math.max(this.scheduledEnd, now + 0.02)
     src.start(startAt)
     this.sources.push(src)
@@ -302,6 +326,31 @@ export function bindChatLiveVoice(opts) {
   let lastLiveVoiceTransport = null
   /** After direct_google + 1011/internal early close, skip new session POST until voice succeeds. */
   let voiceUnavailableOnHost = false
+  let voiceWsIdleTimer = null
+  let voiceMaxSessionTimer = null
+
+  const clearVoiceTimers = () => {
+    if (voiceWsIdleTimer) {
+      clearTimeout(voiceWsIdleTimer)
+      voiceWsIdleTimer = null
+    }
+    if (voiceMaxSessionTimer) {
+      clearTimeout(voiceMaxSessionTimer)
+      voiceMaxSessionTimer = null
+    }
+  }
+
+  const bumpVoiceWsIdleTimer = () => {
+    if (!voiceSessionOpen || !ws) return
+    if (voiceWsIdleTimer) clearTimeout(voiceWsIdleTimer)
+    voiceWsIdleTimer = setTimeout(() => {
+      voiceWsIdleTimer = null
+      if (!voiceSessionOpen) return
+      setStatus('Voice closed after a long quiet period. Tap the mic to try again.', 'error')
+      trackEvent('chat_live_stop', { reason: 'ws_idle' })
+      stopVoiceInternal({ silent: false })
+    }, VOICE_WS_IDLE_MS)
+  }
 
   let userBubble = null
   let assistantBubble = null
@@ -329,6 +378,7 @@ export function bindChatLiveVoice(opts) {
   const stopVoiceInternal = ({ silent } = {}) => {
     if (userBubble || assistantBubble) finalizeTurn()
 
+    clearVoiceTimers()
     voiceSessionOpen = false
     active = false
     lastLiveVoiceTransport = null
@@ -362,15 +412,16 @@ export function bindChatLiveVoice(opts) {
 
     if (ws) {
       const w = ws
+      detachWebSocketHandlers(w)
       ws = null
-      w.onopen = null
-      w.onmessage = null
-      w.onerror = null
-      w.onclose = null
       if (w.readyState === WebSocket.OPEN) {
         try {
           w.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }))
         } catch (_) {}
+        try {
+          w.close()
+        } catch (_) {}
+      } else if (w.readyState === WebSocket.CONNECTING) {
         try {
           w.close()
         } catch (_) {}
@@ -642,10 +693,12 @@ export function bindChatLiveVoice(opts) {
       ws = new WebSocket(websocketUrl)
 
       ws.onopen = () => {
+        bumpVoiceWsIdleTimer()
         ws.send(JSON.stringify(firstClientSetup))
       }
 
       ws.onmessage = (ev) => {
+        bumpVoiceWsIdleTimer()
         void handlePayload(ev.data)
       }
 
@@ -678,6 +731,15 @@ export function bindChatLiveVoice(opts) {
       patchLiveUi({ active: true, connecting: false })
       setStatus('Listening… speak about Marwan\'s work.')
       trackEvent('chat_live_start', {})
+
+      bumpVoiceWsIdleTimer()
+      voiceMaxSessionTimer = setTimeout(() => {
+        voiceMaxSessionTimer = null
+        if (!voiceSessionOpen) return
+        setStatus('Voice session time limit reached. Tap the mic to start again.', 'error')
+        trackEvent('chat_live_stop', { reason: 'max_session' })
+        stopVoiceInternal({ silent: false })
+      }, VOICE_MAX_SESSION_MS)
 
       mediaSource = audioCtx.createMediaStreamSource(stream)
       mediaSource.connect(processor)

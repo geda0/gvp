@@ -18,7 +18,7 @@ const DEFAULTS = {
 const DEFAULT_DATA = {
   states: {
     idle: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 },
-    playground: { messages: ['Experimental projects and technical explorations.'], typingSpeed: 40, messageDelay: 4000 },
+    playground: { messages: ['Playground builds with production habits.'], typingSpeed: 40, messageDelay: 4000 },
     portfolio: { messages: ['Professional experience and career journey.'], typingSpeed: 40, messageDelay: 4000 },
     home: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 }
   },

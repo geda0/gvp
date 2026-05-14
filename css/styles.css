@@ -53,6 +53,7 @@
 
     /* Fixed site header: single compact row + optional notch */
     --site-header-height: calc(2.65rem + env(safe-area-inset-top, 0px));
+    --home-hero-pad-bottom: clamp(1.2rem, 3.2vh, 1.85rem);
 }
 
 [data-theme="garden"] {
@@ -430,6 +431,17 @@ h3 {
     margin: 0.75rem 0 0;
     max-width: 36rem;
     font-family: var(--font-body);
+}
+
+.projects-load-error--site {
+    position: relative;
+    z-index: 102;
+    margin: 0.5rem auto 0;
+    padding: 0.65rem 1rem;
+    max-width: 42rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-elevated);
 }
 
 .project:hover {
@@ -927,7 +939,7 @@ section#portfolioProjects.visible.content-section-reveal {
     max-width: min(1120px, calc(100vw - 2rem));
     margin: 0 auto;
     padding-top: 28px;
-    padding-bottom: clamp(2rem, 5vh, 3.25rem);
+    padding-bottom: var(--home-hero-pad-bottom, clamp(1.2rem, 3.2vh, 1.85rem));
     text-align: center;
     position: relative;
     z-index: 10;

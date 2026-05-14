@@ -81,6 +81,7 @@ jobs:
       CONTACT_REPORT_EMAIL: ${{ secrets.CONTACT_REPORT_EMAIL }}
       ALARM_EMAIL: ${{ secrets.ALARM_EMAIL }}
       ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+      CONTACT_CORS_ORIGINS: ${{ vars.CONTACT_CORS_ORIGINS }}
       SYNC_API_URLS: ${{ inputs.sync_api_urls == true && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4

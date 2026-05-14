@@ -20,8 +20,8 @@ Parameters:
     NoEcho: true
   ContactCorsOrigins:
     Type: String
-    Default: 'https://marwanelgendy.link,https://www.marwanelgendy.link'
-    Description: Comma-separated browser origins allowed by the contact Lambdas (CORS allowlist). First entry is the primary fallback origin.
+    Default: 'https://marwanelgendy.link,https://www.marwanelgendy.link,http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173'
+    Description: Comma-separated browser origins (no spaces) for contact HTTP API CORS and Lambda allowlist. First entry is the primary fallback when Origin is absent or not listed. Includes common local static-server ports in the default.
 
 Globals:
   Function:
@@ -46,12 +46,13 @@ Resources:
       CorsConfiguration:
         AllowMethods: [OPTIONS, GET, POST]
         AllowHeaders: [Content-Type, x-admin-key]
-        AllowOrigins: ['*']
+        AllowOrigins: !Split [',', !Ref ContactCorsOrigins]
       # Conservative stage-level throttling for a personal portfolio.
       DefaultRouteSettings:
         ThrottlingBurstLimit: 10
         ThrottlingRateLimit: 5
-      # Tighter limits on admin routes (low-traffic, sensitive).
+      # Tighter limits on admin routes (low-traffic, sensitive; slows brute-force
+      # attempts against x-admin-key without affecting public POST /api/contact).
       RouteSettings:
         'GET /api/contact/admin/summary':
           ThrottlingBurstLimit: 5
@@ -256,10 +257,8 @@ Resources:
                 - !GetAtt ContactDeliveryDlq.Arn
             - Effect: Allow
               Action:
-                # cloudwatch:DescribeAlarms does not support resource-level
-                # permissions, so this action must use Resource: '*'.
                 - cloudwatch:DescribeAlarms
-              Resource: '*'
+              Resource: !GetAtt ContactDlqAlarm.Arn
       Events:
         ContactAdminSummary:
           Type: HttpApi

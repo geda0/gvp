@@ -135,6 +135,10 @@ if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
   PO+=("ContactReportEmail=${CONTACT_REPORT_EMAIL}")
 fi
 
+if [[ -n "${CONTACT_CORS_ORIGINS:-}" ]]; then
+  PO+=("ContactCorsOrigins=${CONTACT_CORS_ORIGINS}")
+fi
+
 SHORT_SHA="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
 CHAT_IMAGE_LOCAL="gvp-chat:${DEPLOY_ENV}-${SHORT_SHA}"
 

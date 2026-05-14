@@ -1,8 +1,8 @@
 // app.js - Main initialization
+import './site-config.js'
 import {
   initAnalytics,
   bindOutboundTracking,
-  trackProjectInteraction,
   trackThemeChange
 } from './analytics.js'
 import { initNavigation } from './navigation.js'
@@ -12,12 +12,13 @@ import {
   loadProjects,
   renderProjects,
   renderProjectsSectionError,
+  showProjectsLoadSiteBanner,
   initProjectDetailDialog
 } from './projects.js'
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
-import { initProjectObserver } from './project-observer.js'
+import { initSpacemanProjectContext } from './spaceman-project-context.js'
 import { initChat, collapseChatDialog, syncChatLaunchers } from './chat.js'
 import { initAgentNode } from './agent-node.js'
 
@@ -112,6 +113,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load and render project data
   const data = await loadProjects('/data/projects.json')
   if (data.loadFailed) {
+    showProjectsLoadSiteBanner()
     renderProjectsSectionError('playgroundContent')
     renderProjectsSectionError('portfolioContent')
   } else {
@@ -120,44 +122,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   initProjectDetailDialog()
 
-  // Intersection Observer: set spaceman context to the project card most in view
-  const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project')
-  const projectObserver = initProjectObserver(projectCards, {
+  initSpacemanProjectContext({
     getCurrentSection: () => currentSection,
-    onVisibleChange: (card) => {
-      if (!spaceman) return
-      if (!card) {
-        spaceman.setContext(null)
-        return
-      }
-      spaceman.setContext({
-        projectId: card.getAttribute('data-project-id') || '',
-        projectTitle: card.getAttribute('data-project-title') || '',
-        projectDescription: card.getAttribute('data-project-description') || ''
-      })
-    }
-  })
-
-  window.addEventListener('projectdialogopen', (e) => {
-    const d = e.detail
-    trackProjectInteraction('open_dialog', d?.projectId || '', currentSection)
-    if (spaceman && d) {
-      spaceman.setDetermined(true)
-      spaceman.setContext({
-        projectId: d.projectId || '',
-        projectTitle: d.title || '',
-        projectDescription: d.projectDescription || ''
-      })
-      spaceman.announceProjectContext()
-    }
-    spacemanPosition?.updatePosition()
-  })
-  window.addEventListener('projectdialogclose', () => {
-    trackProjectInteraction('close_dialog', '', currentSection)
-    spacemanPosition?.updatePosition()
-    projectObserver.recompute()
-    // Resume hero messaging only after context is refreshed (so messages match section/home).
-    spaceman?.setDetermined(false)
+    spaceman,
+    spacemanPosition
   })
 
   // On mobile, pin garden scene to visual viewport so it doesn't shift when URL bar hides after first scroll

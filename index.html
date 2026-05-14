@@ -23,11 +23,9 @@
     <link rel="stylesheet" href="css/spaceman.css" />
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYTRKC93DL"></script>
-    <!-- API base URLs: set meta content to your deployed URLs. CI: scripts/sync-site-api-urls.mjs -->
+    <!-- API base URLs: set meta content to your deployed URLs. CI: scripts/sync-site-api-urls.mjs. Runtime: js/site-config.js (imported first from js/app.js). -->
     <meta name="gvp:contact-api-url" content="https://fvfqpef8kb.execute-api.us-east-2.amazonaws.com/api/contact" />
     <meta name="gvp:chat-api-url" content="https://m7qmz78kb6.execute-api.us-east-2.amazonaws.com/api/chat" />
-    <!-- Classic (non-module) script: sets window.__CONTACT_API_URL__ / window.__CHAT_API_URL__ before the deferred app module runs -->
-    <script src="js/config-bootstrap.js"></script>
 </head>
 
 <body>
@@ -48,7 +46,7 @@
             </div>
             <div class="navbar-right">
                 <a href="#portfolio" id="portfolioNav">Portfolio</a>
-                <a href="#playground" id="playgroundNav">Experiments</a>
+                <a href="#playground" id="playgroundNav">Playground</a>
             </div>
         </nav>
     </header>
@@ -110,9 +108,10 @@
                                             </svg>
                                         </button>
                                     </div>
+                                    <p class="hero-chat__hint">Grounded in this site's resume and project pages — not a general chatbot.</p>
                                     <div id="agentSlotHero" class="agent-slot agent-slot--hero">
                                     <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero"
-                                        aria-label="Ask about Marwan's work">
+                                        aria-label="Ask about Marwan's work — answers use this site's resume and project pages">
                                         <form id="agentNodeForm" class="agent-node__form" novalidate>
                                             <label for="agentNodeInput" class="visually-hidden">Ask about Marwan's work</label>
                                             <span class="agent-node__form-icon" aria-hidden="true">💬</span>
@@ -166,7 +165,7 @@
                 </section>
                 <div id="playgroundContent" class="hidden">
                     <section id="projects" class="hidden section-invisible">
-                        <h3 class="section-label">Experiments</h3>
+                        <h3 class="section-label">Playground</h3>
                         <!-- Projects rendered dynamically -->
                     </section>
                 </div>

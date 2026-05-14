@@ -2,10 +2,10 @@
 // so the spaceman can surface contextual messaging.
 
 // Minimum intersection ratio before a card is considered "in view".
-const VISIBLE_RATIO_THRESHOLD = 0.1
+export const PROJECT_CARD_MIN_VISIBLE_INTERSECTION_RATIO = 0.1
 // Threshold steps the IntersectionObserver fires on; finer steps near the
 // low end so small visibility changes still update the tracked card.
-const OBSERVER_THRESHOLDS = [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1]
+export const PROJECT_CARD_INTERSECTION_THRESHOLD_STEPS = [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1]
 
 /**
  * Observe project cards and report the one most in view via onVisibleChange.
@@ -32,7 +32,7 @@ export function initProjectObserver(cards, { getCurrentSection, onVisibleChange 
         if (section === getCurrentSection()) best = { ratio, card }
       }
     })
-    if (best.ratio < VISIBLE_RATIO_THRESHOLD || !best.card) {
+    if (best.ratio < PROJECT_CARD_MIN_VISIBLE_INTERSECTION_RATIO || !best.card) {
       onVisibleChange(null)
       return
     }
@@ -55,7 +55,7 @@ export function initProjectObserver(cards, { getCurrentSection, onVisibleChange 
         })
       }
     },
-    { root: null, rootMargin: '0px', threshold: OBSERVER_THRESHOLDS }
+    { root: null, rootMargin: '0px', threshold: PROJECT_CARD_INTERSECTION_THRESHOLD_STEPS }
   )
 
   cards.forEach((card) => observer.observe(card))

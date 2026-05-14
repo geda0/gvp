@@ -1,4 +1,5 @@
-import { chatBus, normalizeSection } from './chat-bus.js'
+import { chatBus } from './chat-bus.js'
+import { normalizeSection } from './section-names.js'
 
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
@@ -11,6 +12,14 @@ const PLACEHOLDER_POOL = {
     {
       teaser: 'Ask about my Apptio work',
       deepQuestion: 'What did you work on at Apptio (IBM)? Walk me through the financial data pipelines, the problems you solved, and the impact you had.'
+    },
+    {
+      teaser: 'What did a normal week look like at JumpCloud?',
+      deepQuestion: 'What did a normal week look like at JumpCloud—systems you owned, stakeholders, metrics you watched, and how you prioritized when incidents stacked up?'
+    },
+    {
+      teaser: 'How did you prove the pipeline migration was correct?',
+      deepQuestion: 'When you sped up or migrated data pipelines at Apptio (IBM), how did you prove correctness under load—tests, reconciliation, shadow traffic—and what broke first when scale showed up?'
     },
     {
       teaser: "What's your AWS experience?",
@@ -35,6 +44,10 @@ const PLACEHOLDER_POOL = {
       deepQuestion: 'What is this playground project, what problem or idea does it explore, and what did you set out to learn by building it?'
     },
     {
+      teaser: 'In one sentence, what does this build do?',
+      deepQuestion: 'In plain language: what does this playground build do for a user or team, what problem it solves, and what is intentionally out of scope?'
+    },
+    {
       teaser: 'What tech stack did you use here?',
       deepQuestion: 'What tech stack did you pick for this experiment, what alternatives did you consider, and why did you choose this one?'
     },
@@ -51,6 +64,10 @@ const PLACEHOLDER_POOL = {
     {
       teaser: 'Tell me about this role',
       deepQuestion: 'Tell me about this role: what you owned, the org context, and the work that best shows how you operate.'
+    },
+    {
+      teaser: 'Who did you work with most in this job?',
+      deepQuestion: 'In this role, who did you work with day to day—engineering leadership, product, customers—and how did decisions get made when priorities conflicted?'
     },
     {
       teaser: 'What did you ship here?',
@@ -110,7 +127,7 @@ export function initAgentNode(options = {}) {
     const deep = String(currentDeepQuestion || '').trim()
     if (!deep) return
     const source = state.slot === 'navbar' ? 'header' : 'hero'
-    openPanelWithDraft(deep, source, { intentPill: deep })
+    openPanelWithDraft(deep, source)
   }
 
   const mql = typeof window.matchMedia === 'function'

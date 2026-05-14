@@ -1,5 +1,7 @@
 import { trackEvent } from './analytics.js'
-import { chatBus, normalizeSection } from './chat-bus.js'
+import { chatBus } from './chat-bus.js'
+import { chatApiUrl } from './site-config.js'
+import { normalizeSection } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 
@@ -94,7 +96,6 @@ export function initChat() {
 
   const dialog = document.getElementById('chatDialog')
   const panel = dialog?.querySelector('.chat-dialog__panel')
-  const dialogHeader = dialog?.querySelector('.chat-dialog__header')
   const backdrop = dialog?.querySelector('.chat-dialog__backdrop')
   const closeBtn = dialog?.querySelector('.chat-dialog__close')
   const messagesEl = document.getElementById('chatMessages')
@@ -109,7 +110,7 @@ export function initChat() {
 
   if (!agentNode || !agentForm || !agentInput || !heroSlotEl || !dialog || !panel || !messagesEl || !composer || !composerInput || !statusEl) return null
 
-  const endpoint = window.__CHAT_API_URL__ || CHAT_DEFAULT_PATH
+  const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
   const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
   const state = {
     history: [],
@@ -122,7 +123,6 @@ export function initChat() {
     section: 'home'
   }
   let lifecycleResetTimer = null
-  let intentPillEl = null
   let panelAnim = {
     token: 0,
     raf: null,
@@ -193,39 +193,6 @@ export function initChat() {
     syncAgentLauncherChrome(nextSection)
     state.agentNodeApi?.syncFromNavigation?.(nextSection)
     state.agentNodeApi?.syncTrailVisibility?.()
-  }
-
-  const clearIntentPill = () => {
-    if (!intentPillEl) return
-    intentPillEl.remove()
-    intentPillEl = null
-  }
-
-  const setIntentPill = (rawText) => {
-    clearIntentPill()
-    const text = String(rawText || '').trim()
-    if (!dialogHeader || !text) return
-    const wrap = document.createElement('div')
-    wrap.className = 'chat-dialog__intent-pill'
-
-    const label = document.createElement('span')
-    label.className = 'chat-dialog__intent-pill-text'
-    label.textContent = text
-
-    const dismiss = document.createElement('button')
-    dismiss.type = 'button'
-    dismiss.className = 'chat-dialog__intent-pill-dismiss'
-    dismiss.setAttribute('aria-label', 'Dismiss topic hint')
-    dismiss.textContent = '×'
-
-    dismiss.addEventListener('click', () => {
-      discardComposerDraft()
-    })
-
-    wrap.appendChild(label)
-    wrap.appendChild(dismiss)
-    dialogHeader.insertAdjacentElement('afterend', wrap)
-    intentPillEl = wrap
   }
 
   const setStatus = (text, tone = 'muted') => {
@@ -389,7 +356,6 @@ export function initChat() {
   }
 
   function discardComposerDraft({ focusComposer = true } = {}) {
-    clearIntentPill()
     composerInput.value = ''
     autosizeComposer()
     reconcileComposerControls()
@@ -418,7 +384,6 @@ export function initChat() {
 
   const snapClose = ({ restoreFocus = true } = {}) => {
     clearPanelAnimation()
-    clearIntentPill()
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -440,7 +405,6 @@ export function initChat() {
 
   const openPanel = () => {
     if (isOpen()) return
-    clearIntentPill()
     state.lastFocus = document.activeElement
     clearPanelAnimation()
     state.agentNodeApi?.setState?.('modal')
@@ -533,7 +497,6 @@ export function initChat() {
   }
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
-    clearIntentPill()
     messagesEl.textContent = ''
     syncEmptyState()
     state.history = []
@@ -583,17 +546,25 @@ export function initChat() {
       throw makeRetryableError('Could not reach the chat service. Check your connection and try again.')
     }
 
+    const contentType = response.headers.get('content-type') || ''
     const text = await response.text()
+    const wantsJson = contentType.includes('application/json')
+    const unexpectedReply = () => new Error(
+      'The chat service returned an unexpected reply. Try again.'
+    )
     let body = {}
-    if (text) {
+    if (wantsJson && text.trim()) {
       try {
         body = JSON.parse(text)
       } catch (_) {
-        body = {}
+        body = null
       }
     }
 
     if (!response.ok) {
+      if (body === null) {
+        throw unexpectedReply()
+      }
       const detail = body?.detail || body?.error
       if (response.status === 429) {
         throw makeRetryableError('Service is busy. Try again in a moment.')
@@ -607,6 +578,13 @@ export function initChat() {
         throw new Error(detail.trim())
       }
       throw new Error('Chat request failed. Try again.')
+    }
+
+    if (body === null || typeof body !== 'object') {
+      throw unexpectedReply()
+    }
+    if (!wantsJson && text.trim()) {
+      throw unexpectedReply()
     }
 
     const reply = typeof body?.reply === 'string' ? body.reply : ''
@@ -640,10 +618,6 @@ export function initChat() {
     if (state.pending) {
       setStatus('Assistant is still replying. Please wait.')
       return
-    }
-
-    if (source === 'composer') {
-      clearIntentPill()
     }
 
     if (source === 'hero') {
@@ -692,25 +666,17 @@ export function initChat() {
     }
   }
 
-  const openPanelWithMessage = (text, source = 'hero', options = {}) => {
-    const intentPill = typeof options.intentPill === 'string'
-      ? options.intentPill.trim()
-      : (typeof options.suggestedPromptPill === 'string' ? options.suggestedPromptPill.trim() : '')
+  const openPanelWithMessage = (text, source = 'hero', _options = {}) => {
     openPanel()
-    if (intentPill) setIntentPill(intentPill)
-    else clearIntentPill()
     void sendMessage(text, source)
   }
 
-  const openPanelWithDraft = (text, _source = 'hero', options = {}) => {
+  const openPanelWithDraft = (text, _source = 'hero', _options = {}) => {
     const body = String(text || '').trim()
     if (!body) return
     openPanel()
     composerInput.value = body
     autosizeComposer()
-    // The draft already lives (editable) in the composer; an intent pill here
-    // would echo the same question a second time, so keep just the composer.
-    clearIntentPill()
     reconcileComposerControls()
     requestAnimationFrame(() => {
       if (!isOpen()) return
@@ -747,7 +713,7 @@ export function initChat() {
     } else {
       trackEvent('hero_chat_chip', { prompt: chip.textContent || '' })
     }
-    openPanelWithDraft(prompt, source, { intentPill: prompt })
+    openPanelWithDraft(prompt, source)
   })
 
   dialogSuggestions?.addEventListener('click', (event) => {

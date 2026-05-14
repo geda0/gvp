@@ -117,6 +117,20 @@ body.chat-dialog-open {
     text-align: center;
 }
 
+.hero-chat__hint {
+    margin: 0.15rem auto 0.35rem;
+    max-width: 36rem;
+    padding: 0 0.35rem;
+    box-sizing: border-box;
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--text-subtle);
+    text-align: center;
+}
+
 .hero-chat__dot {
     width: 0.42rem;
     height: 0.42rem;
@@ -579,15 +593,19 @@ body.chat-dialog-open {
 }
 
 .contact-dialog.chat-dialog .contact-dialog__backdrop.chat-dialog__backdrop {
-    background: rgba(2, 4, 10, 0.92);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background:
+        radial-gradient(120% 85% at 50% 0%, rgba(79, 124, 206, 0.12), transparent 55%),
+        linear-gradient(180deg, rgba(2, 4, 10, 0.52) 0%, rgba(2, 4, 10, 0.82) 100%);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
 }
 
 [data-theme='garden'] .contact-dialog.chat-dialog .contact-dialog__backdrop.chat-dialog__backdrop {
-    background: rgba(6, 18, 10, 0.9);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    background:
+        radial-gradient(120% 85% at 50% 0%, rgba(30, 92, 58, 0.14), transparent 52%),
+        linear-gradient(180deg, rgba(6, 18, 10, 0.48) 0%, rgba(6, 18, 10, 0.8) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 
 .contact-dialog.chat-dialog .contact-dialog__panel.chat-dialog__panel {
@@ -1104,12 +1122,30 @@ body.chat-dialog-open {
     font-size: 0.92rem;
     font-weight: 600;
     letter-spacing: 0.02em;
+    background: color-mix(in srgb, var(--accent) 22%, var(--surface-elevated));
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border-strong));
+}
+
+.chat-composer__send--wide .chat-composer__send-icon {
+    color: var(--accent);
+}
+
+.chat-composer__send--wide:hover {
+    background: color-mix(in srgb, var(--accent-hover) 30%, var(--surface-elevated));
+    color: var(--accent-hover);
+    border-color: color-mix(in srgb, var(--accent-hover) 52%, var(--border-strong));
+}
+
+.chat-composer__send--wide:hover .chat-composer__send-icon {
+    color: var(--accent-hover);
 }
 
 @media (max-width: 767px) {
     .chat-composer__send--wide {
-        align-self: stretch;
-        width: 100%;
+        align-self: flex-end;
+        width: auto;
+        max-width: min(11.5rem, 100%);
     }
 }
 

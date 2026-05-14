@@ -114,28 +114,36 @@ export function formatText(record) {
   ].join('\n')
 }
 
-function allowedOrigins() {
-  return String(process.env.CONTACT_CORS_ORIGINS || '')
+const DEFAULT_DEV_ORIGINS =
+  'http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000'
+
+function parseOriginList(raw) {
+  return String(raw || '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean)
 }
 
-// Echo back the request Origin when it's on the allowlist, otherwise fall back
-// to the primary (first) configured origin. If no allowlist is configured,
-// fall back to '*' to preserve previous behavior.
+function effectiveAllowedOrigins() {
+  const fromEnv = parseOriginList(process.env.CONTACT_CORS_ORIGINS)
+  if (fromEnv.length) return fromEnv
+  return parseOriginList(DEFAULT_DEV_ORIGINS)
+}
+
+// Echo the request Origin when it is on the allowlist; otherwise the primary
+// (first) configured origin. Never uses '*'.
 export function resolveCorsOrigin(event) {
-  const list = allowedOrigins()
-  if (!list.length) return '*'
+  const list = effectiveAllowedOrigins()
   const headers = event?.headers || {}
   const requestOrigin = safeTrim(headers.origin || headers.Origin)
   if (requestOrigin && list.includes(requestOrigin)) return requestOrigin
   return list[0]
 }
 
-function corsHeaders(origin) {
+function corsHeaders(resolvedOrigin) {
+  const origin = resolvedOrigin || effectiveAllowedOrigins()[0]
   return {
-    'Access-Control-Allow-Origin': origin || resolveCorsOrigin(),
+    'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
     'Access-Control-Allow-Methods': 'OPTIONS,GET,POST',
     Vary: 'Origin'
