@@ -7,6 +7,51 @@ import { chatBus } from './chat-bus.js'
 
 const INPUT_RATE = 16000
 
+/** Inline AudioWorklet (addModule via blob URL) — avoids deprecated ScriptProcessorNode when supported. */
+const MIC_CAPTURE_WORKLET_SOURCE = `
+class GvpMicPcmSenderProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch0 = inputs[0] && inputs[0][0]
+    if (!ch0 || !ch0.length) return true
+    const copy = new Float32Array(ch0.length)
+    copy.set(ch0)
+    this.port.postMessage(copy, [copy.buffer])
+    return true
+  }
+}
+registerProcessor('gvp-mic-pcm-sender', GvpMicPcmSenderProcessor)
+`
+
+async function decodeWebSocketJsonPayload(raw) {
+  let text = ''
+  if (typeof raw === 'string') {
+    text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw
+  } else if (raw instanceof Blob) {
+    text = await raw.text()
+  } else if (raw instanceof ArrayBuffer) {
+    text = new TextDecoder('utf-8').decode(raw)
+  } else if (raw && typeof raw.arrayBuffer === 'function') {
+    const ab = await raw.arrayBuffer()
+    text = new TextDecoder('utf-8').decode(ab)
+  }
+  return text
+}
+
+function voiceSessionEarlyCloseUserMessage(code, reason) {
+  const r = (reason || '').trim()
+  if (r) return `Voice session ended before it was ready (${r}). Try again.`
+  if (code === 1006) {
+    return 'Voice session dropped (network). Check your connection and try again.'
+  }
+  if (code === 1008 || code === 1011) {
+    return 'Voice session was rejected by the service. Try again in a moment.'
+  }
+  if (code && code !== 1000) {
+    return `Voice session ended before it was ready (code ${code}). Try again.`
+  }
+  return 'Voice session ended before it was ready. Try again or check your connection.'
+}
+
 function prefersReducedMotion() {
   return typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -196,9 +241,15 @@ class PcmJitterPlayer {
   }
 }
 
+function normalizeMicButtons(opts) {
+  if (Array.isArray(opts.micButtons) && opts.micButtons.length) {
+    return opts.micButtons.filter(Boolean)
+  }
+  return opts.micButton ? [opts.micButton] : []
+}
+
 export function bindChatLiveVoice(opts) {
   const {
-    micButton,
     messagesEl,
     statusEl,
     syncEmptyState,
@@ -211,10 +262,13 @@ export function bindChatLiveVoice(opts) {
     patchLiveUi
   } = opts
 
-  if (!micButton || !messagesEl) return () => {}
+  const micButtons = normalizeMicButtons(opts)
+  if (!micButtons.length || !messagesEl) return () => {}
   if (typeof patchLiveUi !== 'function') return () => {}
-  if (micButton.dataset.gvpChatLiveVoice === '1') return () => {}
-  micButton.dataset.gvpChatLiveVoice = '1'
+  if (micButtons.some((b) => b.dataset.gvpChatLiveVoice === '1')) return () => {}
+  micButtons.forEach((b) => {
+    b.dataset.gvpChatLiveVoice = '1'
+  })
 
   let ws = null
   let stream = null
@@ -226,6 +280,8 @@ export function bindChatLiveVoice(opts) {
   let active = false
   /** True after POST /api/live/session succeeds; ensures ws.onclose cleans partial setup. */
   let voiceSessionOpen = false
+  /** True while startVoice is past UI gates (blocks overlapping starts that orphan the WebSocket). */
+  let voiceConnectInFlight = false
 
   let userBubble = null
   let assistantBubble = null
@@ -240,12 +296,14 @@ export function bindChatLiveVoice(opts) {
   }
 
   const syncMicChrome = () => {
-    micButton.setAttribute('aria-pressed', active ? 'true' : 'false')
-    micButton.classList.toggle('chat-composer__mic--live', active)
-    micButton.setAttribute(
-      'aria-label',
-      active ? 'Stop voice mode' : 'Start voice mode'
-    )
+    for (const btn of micButtons) {
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false')
+      btn.classList.toggle('chat-composer__mic--live', active)
+      btn.setAttribute(
+        'aria-label',
+        active ? 'Stop voice mode' : 'Start voice mode'
+      )
+    }
   }
 
   const stopVoiceInternal = ({ silent } = {}) => {
@@ -267,6 +325,7 @@ export function bindChatLiveVoice(opts) {
         processor.disconnect()
       } catch (_) {}
       processor.onaudioprocess = null
+      if (processor.port) processor.port.onmessage = null
     }
     processor = null
 
@@ -350,8 +409,8 @@ export function bindChatLiveVoice(opts) {
   }
 
   const handlePayload = async (raw) => {
-    let text = raw
-    if (text instanceof Blob) text = await text.text()
+    const text = await decodeWebSocketJsonPayload(raw)
+    if (!text) return
 
     let msg = {}
     try {
@@ -360,7 +419,8 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
-    if (msg.setupComplete) {
+    const setupPayload = msg.setupComplete ?? msg.setup_complete
+    if (setupPayload) {
       setupDone = true
       chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
     }
@@ -370,7 +430,7 @@ export function bindChatLiveVoice(opts) {
     if (rootIn) patchUserText(rootIn)
     if (rootOut) patchAssistantText(rootOut)
 
-    const sc = msg.serverContent
+    const sc = msg.serverContent || msg.server_content
     if (sc) {
       if (sc.interrupted) {
         player?.interrupt()
@@ -393,7 +453,7 @@ export function bindChatLiveVoice(opts) {
         }
       }
 
-      if (sc.turnComplete) {
+      if (sc.turnComplete || sc.turn_complete) {
         finalizeTurn()
       }
     }
@@ -419,6 +479,9 @@ export function bindChatLiveVoice(opts) {
       trackEvent('chat_live_blocked', { reason: 'insecure_or_no_mediadevices' })
       return
     }
+
+    if (voiceConnectInFlight) return
+    voiceConnectInFlight = true
 
     patchLiveUi({ connecting: true, active: false })
     setStatus('Connecting voice…')
@@ -475,12 +538,11 @@ export function bindChatLiveVoice(opts) {
 
       audioCtx = new AudioContext()
       const inRate = audioCtx.sampleRate
+      await audioCtx.resume()
 
-      processor = audioCtx.createScriptProcessor(4096, 1, 1)
-      processor.onaudioprocess = (event) => {
+      const sendMicFrame = (floatChannelData) => {
         if (!active || !setupDone || !ws || ws.readyState !== WebSocket.OPEN) return
-        const input = event.inputBuffer.getChannelData(0)
-        const pcmInput = downsampleFloat32(input, inRate, INPUT_RATE)
+        const pcmInput = downsampleFloat32(floatChannelData, inRate, INPUT_RATE)
         const bytes = floatTo16BitPCM(pcmInput)
         try {
           ws.send(JSON.stringify({
@@ -496,8 +558,37 @@ export function bindChatLiveVoice(opts) {
 
       const mute = audioCtx.createGain()
       mute.gain.value = 0
-      processor.connect(mute)
       mute.connect(audioCtx.destination)
+
+      let micTapOk = false
+      if (audioCtx.audioWorklet && typeof audioCtx.audioWorklet.addModule === 'function') {
+        try {
+          const blob = new Blob([MIC_CAPTURE_WORKLET_SOURCE], { type: 'application/javascript' })
+          const modUrl = URL.createObjectURL(blob)
+          await audioCtx.audioWorklet.addModule(modUrl)
+          URL.revokeObjectURL(modUrl)
+          processor = new AudioWorkletNode(audioCtx, 'gvp-mic-pcm-sender', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1
+          })
+          processor.port.onmessage = (ev) => {
+            const buf = ev.data
+            if (!(buf instanceof Float32Array)) return
+            sendMicFrame(buf)
+          }
+          processor.connect(mute)
+          micTapOk = true
+        } catch (_) {
+          processor = null
+        }
+      }
+      if (!micTapOk) {
+        processor = audioCtx.createScriptProcessor(4096, 1, 1)
+        processor.onaudioprocess = (event) => {
+          sendMicFrame(event.inputBuffer.getChannelData(0))
+        }
+        processor.connect(mute)
+      }
 
       ws = new WebSocket(websocketUrl)
 
@@ -515,13 +606,15 @@ export function bindChatLiveVoice(opts) {
         chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
       }
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         if (!voiceSessionOpen) return
         const ready = setupDone
+        const code = ev.code
+        const reason = ev.reason
         stopVoiceInternal({ silent: true })
         if (!ready) {
-          setStatus('Voice session could not start. Check microphone permission and try again.', 'error')
-          trackEvent('chat_live_error', { phase: 'ws_closed_before_ready' })
+          setStatus(voiceSessionEarlyCloseUserMessage(code, reason), 'error')
+          trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
           chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
         }
       }
@@ -532,7 +625,6 @@ export function bindChatLiveVoice(opts) {
       setStatus('Listening… speak about Marwan\'s work.')
       trackEvent('chat_live_start', {})
 
-      await audioCtx.resume()
       mediaSource = audioCtx.createMediaStreamSource(stream)
       mediaSource.connect(processor)
     } catch (error) {
@@ -541,11 +633,13 @@ export function bindChatLiveVoice(opts) {
       setStatus(msg, 'error')
       trackEvent('chat_live_error', { phase: 'start', message: msg })
       chatBus.emit('error', { source: 'chat-live', message: msg })
+    } finally {
+      voiceConnectInFlight = false
     }
   }
 
   const onMicClick = () => {
-    if (micButton.disabled && !active) return
+    if (!active && micButtons.every((b) => b.disabled)) return
 
     if (active) {
       trackEvent('chat_live_stop', {})
@@ -554,16 +648,22 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
+    if (voiceConnectInFlight) return
+
     void startVoice()
   }
 
-  micButton.addEventListener('click', onMicClick)
+  for (const btn of micButtons) {
+    btn.addEventListener('click', onMicClick)
+  }
 
   syncMicChrome()
 
   return () => {
-    delete micButton.dataset.gvpChatLiveVoice
-    micButton.removeEventListener('click', onMicClick)
+    for (const btn of micButtons) {
+      delete btn.dataset.gvpChatLiveVoice
+      btn.removeEventListener('click', onMicClick)
+    }
     stopVoiceInternal({ silent: true })
   }
 }

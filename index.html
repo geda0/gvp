@@ -125,7 +125,7 @@
                                 <div id="agentSlotHero" class="agent-slot agent-slot--hero">
                                     <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero"
                                         aria-label="Ask about Marwan's work">
-                                        <form class="agent-node__form" novalidate>
+                                        <form id="agentNodeForm" class="agent-node__form" novalidate>
                                             <label for="agentNodeInput" class="visually-hidden">Ask about Marwan's work</label>
                                             <span class="agent-node__form-icon" aria-hidden="true">💬</span>
                                             <div class="agent-node__text-lane">
@@ -137,9 +137,15 @@
                                                     placeholder="What would you like to know about my work?"
                                                     data-track="hero_chat_input_focus" />
                                             </div>
-                                            <button type="submit" class="agent-node__send" aria-label="Open chat and send message"
-                                                data-track="hero_chat_submit"><span aria-hidden="true">↑</span></button>
                                         </form>
+                                        <button type="button" id="agentNodeMic" form="agentNodeForm"
+                                            class="agent-node__mic chat-composer__mic" aria-label="Start voice mode"
+                                            aria-pressed="false" data-track="hero_agent_node_mic">
+                                            <svg class="chat-composer__mic-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                                <path fill="currentColor"
+                                                    d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
+                                            </svg>
+                                        </button>
                                     </div>
                                 </div>
                                 <div id="heroChatSuggestions" class="hero-chat__suggestions" hidden aria-hidden="true" aria-label="Suggested prompts">

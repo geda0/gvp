@@ -92,6 +92,11 @@ body.chat-dialog-open {
     margin-bottom: 0.45rem;
 }
 
+/* Tighter band under Ask line now that hero mic sits beside it (see `.agent-slot--hero > .agent-node`). */
+#home .hero-chat__label-wrap {
+    margin-bottom: 0.22rem;
+}
+
 .hero-chat__label {
     margin: 0;
     font-family: var(--font-body);
@@ -213,6 +218,24 @@ body.chat-dialog-open {
 
 .agent-slot--hero .agent-node {
     max-width: 36rem;
+}
+
+/* Hero dock only: mic sits on the Ask line; pill stays below. Navbar keeps a single row (mic after form). */
+.agent-slot--hero > .agent-node[data-state='bubble'] {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 0.42rem;
+}
+
+.agent-slot--hero > .agent-node[data-state='bubble'] .agent-node__mic {
+    align-self: flex-end;
+}
+
+.agent-slot--hero > .agent-node[data-state='bar'],
+.agent-slot--hero > .agent-node[data-state='modal'] {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .agent-node[data-state='bubble'] {
@@ -357,7 +380,7 @@ body.chat-dialog-open {
     outline: none;
 }
 
-.agent-node__send {
+.agent-node__mic {
     width: 2rem;
     height: 2rem;
     border-radius: 999px;
@@ -377,23 +400,38 @@ body.chat-dialog-open {
         background-color 0.2s ease;
 }
 
-.agent-node[data-state='bar'] .agent-node__send,
-.agent-node[data-state='modal'] .agent-node__send {
+.agent-node[data-state='bar'] .agent-node__mic,
+.agent-node[data-state='modal'] .agent-node__mic {
     transition-delay: 70ms;
 }
 
-.agent-node__send:hover {
+.agent-node__mic:hover {
     background: var(--accent-hover);
 }
 
-.agent-node__send:focus-visible {
+.agent-node__mic:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
-.agent-node--lifecycle-active.agent-node--lifecycle-sending .agent-node__send,
-.agent-node--lifecycle-active.agent-node--lifecycle-thinking .agent-node__send,
-.agent-node--lifecycle-active.agent-node--lifecycle-streaming .agent-node__send {
+/* Shares `.chat-composer__mic--live` with modal mic; override composer bar dimensions for launcher slot. */
+.agent-node__mic.chat-composer__mic {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    box-sizing: border-box;
+    font-size: unset;
+    font-weight: unset;
+}
+
+.agent-node--lifecycle-active.agent-node--lifecycle-sending .agent-node__mic,
+.agent-node--lifecycle-active.agent-node--lifecycle-thinking .agent-node__mic,
+.agent-node--lifecycle-active.agent-node--lifecycle-streaming .agent-node__mic {
     box-shadow: 0 0 0 0.2rem var(--chat-launcher-dot-halo);
 }
 
@@ -481,18 +519,18 @@ body.chat-dialog-open {
     padding: 0.36rem 0;
 }
 
-.agent-slot--hero .agent-node__send {
+.agent-slot--hero .agent-node__mic {
     font-size: 0.98rem;
     transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.18s ease;
 }
 
-.agent-slot--hero .agent-node__send:hover {
+.agent-slot--hero .agent-node__mic:hover {
     transform: translateY(-1px);
 }
 
 .agent-slot--navbar .agent-node {
     --agent-text-lane-height: 2.4rem;
-    gap: 0;
+    gap: 0.34rem;
     padding: 0.14rem 0.2rem 0.14rem 0.5rem;
     background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
 }
@@ -516,7 +554,7 @@ body.chat-dialog-open {
     padding: 0.24rem 0;
 }
 
-.agent-slot--navbar .agent-node__send {
+.agent-slot--navbar .agent-node__mic {
     width: 1.38rem;
     height: 1.38rem;
     font-size: 0.82rem;
@@ -1167,13 +1205,13 @@ body.chat-dialog-open {
         font-size: 0.85rem;
     }
 
-    .agent-node__send {
+    .agent-node__mic {
         width: 1.85rem;
         height: 1.85rem;
         font-size: 0.9rem;
     }
 
-    .agent-slot--navbar .agent-node__send {
+    .agent-slot--navbar .agent-node__mic {
         width: 1.38rem;
         height: 1.38rem;
         font-size: 0.82rem;
@@ -1243,7 +1281,7 @@ body.chat-dialog-open {
     .agent-node,
     .agent-node__bubble-text,
     .agent-node__form,
-    .agent-node__send {
+    .agent-node__mic {
         transition-duration: 0s !important;
         transition-delay: 0s !important;
     }
@@ -1260,7 +1298,7 @@ body.chat-dialog-open {
         animation: none !important;
     }
 
-    .agent-slot--hero .agent-node__send:hover {
+    .agent-slot--hero .agent-node__mic:hover {
         transform: none;
     }
 
