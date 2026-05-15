@@ -11,6 +11,7 @@
     "sam:build:chat": "cd aws && sam build --template-file chat-template.yaml --build-dir .aws-sam/build-chat",
     "deploy": "bash scripts/integrate-and-deploy.sh",
     "deploy:stage": "bash scripts/integrate-and-deploy.sh stage",
-    "deploy:prod": "bash scripts/integrate-and-deploy.sh prod"
+    "deploy:prod": "bash scripts/integrate-and-deploy.sh prod",
+    "chat:discover-env": "bash scripts/chat-ecs-discover-env.sh"
   }
 }

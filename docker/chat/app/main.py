@@ -482,7 +482,7 @@ app.state.voice_prompt_version: str | None = None
 
 @app.get("/health")
 def health() -> dict[str, bool]:
-    return {"ok": True}
+    return {"ok": True, "liveRelay": _live_relay_enabled()}
 
 
 def _readiness_payload() -> tuple[bool, dict[str, Any]]:

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_environment:
-        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY deploys Lambda chat. Optional repo vars for HTML/API: GVP_CHAT_VOICE (mic meta), CHAT_ECS_AUTO_SYNC_CHAT_URL, CHAT_LIVE_VOICE_STRICT (503 live session when Lambda relay off).'
+        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY deploys Lambda chat. SAM ECS (voice): CHAT_ECS_SAM_STACK_NAME_* + VPC/subnets + GEMINI; GVP_CHAT_VOICE=1 can auto-fill default VPC, ECR, stack names (see chat-deploy.env.example). Optional repo vars: CHAT_ECS_AUTO_SYNC_CHAT_URL, CHAT_LIVE_VOICE_STRICT (503 when Lambda relay off).'
         required: true
         default: prod
         type: choice
@@ -63,6 +63,12 @@ jobs:
       CHAT_STAGE_CHAT_API_URL: ${{ vars.CHAT_STAGE_CHAT_API_URL }}
       CHAT_PROD_CHAT_API_URL: ${{ vars.CHAT_PROD_CHAT_API_URL }}
       CHAT_ECR_REPOSITORY_URI: ${{ vars.CHAT_ECR_REPOSITORY_URI }}
+      CHAT_ECS_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_ECS_SAM_STACK_NAME_STAGE }}
+      CHAT_ECS_SAM_STACK_NAME_PROD: ${{ vars.CHAT_ECS_SAM_STACK_NAME_PROD }}
+      CHAT_ECS_VPC_ID: ${{ vars.CHAT_ECS_VPC_ID }}
+      CHAT_ECS_SUBNET_IDS: ${{ vars.CHAT_ECS_SUBNET_IDS }}
+      CHAT_ECR_REPO_NAME: ${{ vars.CHAT_ECR_REPO_NAME }}
+      CHAT_ECS_CREATE_DEFAULT_VPC: ${{ vars.CHAT_ECS_CREATE_DEFAULT_VPC }}
       CHAT_ECS_CLUSTER_STAGE: ${{ vars.CHAT_ECS_CLUSTER_STAGE }}
       CHAT_ECS_SERVICE_STAGE: ${{ vars.CHAT_ECS_SERVICE_STAGE }}
       CHAT_ECS_CLUSTER_PROD: ${{ vars.CHAT_ECS_CLUSTER_PROD }}

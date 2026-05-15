@@ -99,7 +99,7 @@ curl -sS -o /dev/null -w '%{http_code} %{url_effective}\n' -L 'https://YOUR-API-
 
 ## API
 
-- `GET /health` → `{"ok": true}`
+- `GET /health` → `{"ok": true, "liveRelay": true|false}` mirrors **`CHAT_LIVE_RELAY`** (use for quick voice wiring checks; `integrate-and-deploy.sh` may GET this after deploy).
 - `GET /ready` → **`{"ok": true|false}`** by default (HTTP **200** when ready, **503** when degraded). Set **`CHAT_READY_VERBOSE=1`** or **`GET /ready?verbose=1&token=…`** matching **`CHAT_READY_VERBOSE_SECRET`** for the full diagnostics payload (paths, provider errors). Tests set **`CHAT_READY_VERBOSE=1`** automatically.
 - `POST /api/chat` → body `{"messages":[{"role":"user|assistant|system","content":"..."}],"stream":false,"sessionId?":"..."}` → `{"reply":"...","model":"...","actions":[...]}` where `actions` may include `open-resume` or `open-contact` buttons with optional prefill fields.
 - `POST /api/live/session` → optional body `{"sessionId?":"..."}` → includes `websocketUrl`, `handshake`, `model`, `apiVersion`, `liveVoiceTransport`, `voiceBrowserExperience` (`relay_recommended` \| `direct_google_only`), `voiceHint` (`ok` \| `relay_required_for_voice`). **`relay`**: browser opens **`wss://…/api/live/relay/{id}`**. **`direct_google`**: query-token Google URL (browser client blocks unless `localStorage gvp_chat_voice_allow_direct=1`). With **`CHAT_LIVE_VOICE_STRICT=1`** and relay off: **503** `live_voice_requires_relay` (no mint). Local dev: proxy **`/api/chat`**, **`/api/live/session`**, **`/api/live/relay/`** when using relay.

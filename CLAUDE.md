@@ -67,13 +67,13 @@ Then open `http://localhost:8000` in a browser.
 
 ### npm (root)
 
-- **`package.json`** at repo root: `npm run test:reduced-motion` (node:test), `npm run sam:build` (contact SAM), `npm run sam:build:chat` (chat Lambda image SAM build).
+- **`package.json`** at repo root: `npm run test:reduced-motion` (node:test), `npm run sam:build` (contact SAM), `npm run sam:build:chat` (chat Lambda image SAM build), `npm run chat:discover-env` (prints `CHAT_ECS_*` + ECR URI for `chat-deploy.env`).
 - **Lambda dependencies** live only in **`aws/src/package.json`** (`@aws-sdk/*`). `sam build` runs `npm install` there and ships `node_modules` with each function.
 
 ### SAM / deploy
 
 - **Canonical env names**: [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example) → copy to `.secrets/deploy.env`.
-- **Deploy**: `bash scripts/integrate-and-deploy.sh [prod|stage]` — default `prod`; `stage` uses `SAM_STACK_NAME_STAGE` (default `page-staging`). When `.secrets/manifest.json` + `config.manifest.json` exist, runs Secrets Manager seed/push first (skip with `SKIP_SECRETS_MANAGER=1`). Loads `.secrets/deploy.env` when `RESEND_API_KEY` is unset; optional `.secrets/chat-deploy.env` for chat ECR/ECS.
+- **Deploy**: `bash scripts/integrate-and-deploy.sh [prod|stage]` — default `prod`; `stage` uses `SAM_STACK_NAME_STAGE` (default `page-staging`). When `.secrets/manifest.json` + `config.manifest.json` exist, runs Secrets Manager seed/push first (skip with `SKIP_SECRETS_MANAGER=1`). Loads `.secrets/deploy.env` when `RESEND_API_KEY` is unset; optional `.secrets/chat-deploy.env` for chat ECR/ECS. SAM ECS (`CHAT_ECS_SAM_STACK_NAME_*`): unset VPC/subnet IDs are filled via EC2 describe; with **`CHAT_ECS_CREATE_DEFAULT_VPC=1`** the same run can call **`aws ec2 create-default-vpc`** if nothing qualifies (IAM **`ec2:CreateDefaultVpc`**). **`GVP_CHAT_VOICE=1`** defaults **`CHAT_ECS_CREATE_DEFAULT_VPC=1`** during voice bootstrap. Opt out with **`CHAT_ECS_CREATE_DEFAULT_VPC=0`** or **`CHAT_VOICE_ECS_BOOTSTRAP=0`** (manual IDs only).
 - **CI**: GitHub Actions workflow **Integrate and deploy** — same secret names as `deploy.env.example`; workflow input **deploy_environment** (`prod` / `stage`).
 
 ### Tests

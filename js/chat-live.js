@@ -684,6 +684,8 @@ export function bindChatLiveVoice(opts) {
       }
 
       const wsUrlStr = String(websocketUrl)
+      // Relay URLs always use this path on our API host; trust it even if legacy JSON omits transport fields.
+      const isRelayWsPath = wsUrlStr.includes('/api/live/relay/')
       const constrainedWs = wsUrlStr.includes('BidiGenerateContentConstrained')
       const modelResource = typeof modelFromBody === 'string' && modelFromBody.trim()
         ? modelFromBody.trim()
@@ -707,7 +709,8 @@ export function bindChatLiveVoice(opts) {
       const voiceBrowserExperience = typeof body.voiceBrowserExperience === 'string'
         ? body.voiceBrowserExperience
         : ''
-      const blockDirectGoogle = (transport === 'direct_google' || voiceBrowserExperience === 'direct_google_only')
+      const blockDirectGoogle = !isRelayWsPath
+        && (transport === 'direct_google' || voiceBrowserExperience === 'direct_google_only')
         && !voiceAllowDirectGoogleDevOverride()
       if (blockDirectGoogle) {
         patchLiveUi({ connecting: false, active: false })
