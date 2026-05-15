@@ -53,6 +53,9 @@
 
     /* Fixed site header: single compact row + optional notch */
     --site-header-height: calc(2.65rem + env(safe-area-inset-top, 0px));
+    /* Fixed site footer: two compact lines (copyright + links) + bottom safe-area. */
+    /* Keep in sync with body > footer paddings + font sizes; body reserves matching padding-bottom. */
+    --site-footer-height: calc(4.5rem + env(safe-area-inset-bottom, 0px));
     --home-hero-pad-bottom: clamp(1.2rem, 3.2vh, 1.85rem);
 }
 
@@ -222,7 +225,9 @@ body {
     font-family: var(--font-body);
     color: var(--text-primary);
     margin: 0;
-    padding: 0;
+    /* Reserve vertical space for the fixed footer so trailing content (e.g. the About
+       paragraph on the home page) is not occluded. */
+    padding: 0 0 var(--site-footer-height) 0;
     transition: color 0.4s ease, background-color 0.4s ease;
     font-size: 16px;
     line-height: 1.6;
@@ -1766,6 +1771,8 @@ h6 {
 
     body {
         font-size: 14px;
+        /* Footer link line can wrap on narrow phones; give it a bit more headroom. */
+        --site-footer-height: calc(5.5rem + env(safe-area-inset-bottom, 0px));
     }
 
     h1 {
