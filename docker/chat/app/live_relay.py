@@ -1,4 +1,10 @@
-"""Relay browser Live WebSocket to Google with Authorization: Token (query param is insufficient)."""
+"""Relay browser Live WebSocket to Google using Authorization: Token.
+
+Google documents ephemeral Live access with either an ``access_token`` query parameter or
+``Authorization: Token`` on the WebSocket. Browsers cannot set custom headers on WebSocket,
+so this relay runs on a WebSocket-capable server: the browser connects here, and this
+module connects upstream with ``Authorization: Token`` for a single controlled path.
+"""
 
 from __future__ import annotations
 

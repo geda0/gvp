@@ -45,6 +45,14 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
+def _live_relay_enabled() -> bool:
+    return os.environ.get("CHAT_LIVE_RELAY", "1").strip().lower() not in ("0", "false", "no", "")
+
+
+def _live_voice_strict_enabled() -> bool:
+    return os.environ.get("CHAT_LIVE_VOICE_STRICT", "0").strip().lower() in ("1", "true", "yes")
+
+
 async def mint_live_session_async(system_instruction: str) -> Any:
     """Delegate to live_gemini so importing app.main avoids google-genai unless live is used."""
     from app import live_gemini as _lg
@@ -647,6 +655,15 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             },
         )
 
+    if _live_voice_strict_enabled() and not _live_relay_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Voice requires WebSocket relay on this host (CHAT_LIVE_RELAY=1).",
+                "code": "live_voice_requires_relay",
+            },
+        )
+
     try:
         prompt_src = app.state.voice_system_prompt or app.state.system_prompt
         instruction = build_live_system_instruction(
@@ -665,11 +682,6 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         status, content = upstream_error_body(exc)
         return JSONResponse(status_code=status, content=content)
 
-    logger.info(
-        'live session ok model=%s voice_model_env=%s',
-        session_payload.get('model'),
-        live_model_id(),
-    )
     token_name = session_payload.pop("_authTokenName", None)
     if not token_name or not isinstance(token_name, str):
         logger.error("live session: mint returned no _authTokenName")
@@ -677,7 +689,7 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             status_code=500,
             content={"error": "Live session misconfigured", "code": "live_internal"},
         )
-    relay = os.environ.get("CHAT_LIVE_RELAY", "1").strip().lower() not in ("0", "false", "no", "")
+    relay = _live_relay_enabled()
     if relay:
         bridges: dict[str, Any] = app.state.live_relay_bridges
         _cleanup_expired_live_relays(bridges)
@@ -689,9 +701,20 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         }
         session_payload["websocketUrl"] = _live_relay_ws_url(request, bridge_id)
         session_payload["liveVoiceTransport"] = "relay"
+        session_payload["voiceBrowserExperience"] = "relay_recommended"
+        session_payload["voiceHint"] = "ok"
     else:
         session_payload["websocketUrl"] = google_constrained_browser_ws_url(token_name)
         session_payload["liveVoiceTransport"] = "direct_google"
+        session_payload["voiceBrowserExperience"] = "direct_google_only"
+        session_payload["voiceHint"] = "relay_required_for_voice"
+    logger.info(
+        "live session response model=%s transport=%s voice_browser_experience=%s voice_model_env=%s",
+        session_payload.get("model"),
+        session_payload.get("liveVoiceTransport"),
+        session_payload.get("voiceBrowserExperience"),
+        live_model_id(),
+    )
     return JSONResponse(content=session_payload)
 
 

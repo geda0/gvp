@@ -103,9 +103,13 @@
                                         <button type="button" id="agentNodeMic" form="agentNodeForm"
                                             class="agent-node__mic chat-composer__mic" aria-label="Start voice mode"
                                             aria-pressed="false" data-track="hero_agent_node_mic">
-                                            <svg class="chat-composer__mic-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                            <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--voice" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                                 <path fill="currentColor"
                                                     d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
+                                            </svg>
+                                            <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden>
+                                                <path fill="currentColor"
+                                                    d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2zm0 14H5.17L4 17.17V4h16v12z" />
                                             </svg>
                                         </button>
                                     </div>
@@ -259,9 +263,13 @@
                     <button type="button" id="chatComposerMic" class="chat-composer__mic chat-dialog__header-mic"
                         aria-label="Start voice mode" aria-pressed="false"
                         data-track="chat_composer_mic">
-                        <svg class="chat-composer__mic-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--voice" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path fill="currentColor"
                                 d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
+                        </svg>
+                        <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden>
+                            <path fill="currentColor"
+                                d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2zm0 14H5.17L4 17.17V4h16v12z" />
                         </svg>
                     </button>
                     <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>

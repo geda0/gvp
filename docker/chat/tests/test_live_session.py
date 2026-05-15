@@ -32,6 +32,9 @@ async def test_live_session_mocked_ok(client: AsyncClient, monkeypatch: pytest.M
     assert body['handshake']['setup']['model']
     assert body['model']
     assert body['apiVersion'] == 'v1alpha'
+    assert body.get('liveVoiceTransport') == 'relay'
+    assert body.get('voiceBrowserExperience') == 'relay_recommended'
+    assert body.get('voiceHint') == 'ok'
 
 
 @pytest.mark.asyncio
@@ -97,6 +100,24 @@ async def test_live_session_direct_google_when_relay_off(client: AsyncClient, mo
     assert 'generativelanguage.googleapis.com' in body['websocketUrl']
     assert 'BidiGenerateContentConstrained' in body['websocketUrl']
     assert body.get('liveVoiceTransport') == 'direct_google'
+    assert body.get('voiceBrowserExperience') == 'direct_google_only'
+    assert body.get('voiceHint') == 'relay_required_for_voice'
+
+
+@pytest.mark.asyncio
+async def test_live_session_voice_strict_without_relay_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
+    monkeypatch.setenv('CHAT_LIVE_RELAY', '0')
+    monkeypatch.setenv('CHAT_LIVE_VOICE_STRICT', '1')
+
+    async def should_not_run(_instruction: str) -> dict:
+        raise AssertionError('mint should not run when strict blocks')
+
+    monkeypatch.setattr('app.main.mint_live_session_async', should_not_run)
+
+    r = await client.post('/api/live/session', json={})
+    assert r.status_code == 503
+    assert r.json().get('code') == 'live_voice_requires_relay'
 
 
 @pytest.mark.asyncio

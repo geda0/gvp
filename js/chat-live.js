@@ -78,6 +78,16 @@ const VOICE_UNAVAILABLE_ON_HOST_MSG = (
   'Voice is not available on this chat endpoint. Use text, or enable WebSockets on the chat API for voice.'
 )
 
+/** Dev-only: set localStorage gvp_chat_voice_allow_direct=1 to attempt Live over direct_google (often fails with 1011). */
+function voiceAllowDirectGoogleDevOverride() {
+  try {
+    return typeof localStorage !== 'undefined'
+      && localStorage.getItem('gvp_chat_voice_allow_direct') === '1'
+  } catch (_) {
+    return false
+  }
+}
+
 function prefersReducedMotion() {
   return typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -632,6 +642,23 @@ export function bindChatLiveVoice(opts) {
         : handshake
 
       lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
+
+      const transport = lastLiveVoiceTransport || ''
+      const voiceBrowserExperience = typeof body.voiceBrowserExperience === 'string'
+        ? body.voiceBrowserExperience
+        : ''
+      const blockDirectGoogle = (transport === 'direct_google' || voiceBrowserExperience === 'direct_google_only')
+        && !voiceAllowDirectGoogleDevOverride()
+      if (blockDirectGoogle) {
+        patchLiveUi({ connecting: false, active: false })
+        setStatus(
+          'Voice needs the chat API on a host with WebSocket relay (not direct browser-to-Google). Text chat still works; deploy chat on ECS/ALB or set localStorage gvp_chat_voice_allow_direct=1 only for debugging.',
+          'error',
+        )
+        trackEvent('chat_live_blocked', { reason: 'direct_google_transport' })
+        chatBus.emit('idle', { source: 'chat-live' })
+        return
+      }
 
       if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
         throw new Error('Invalid voice session URL.')

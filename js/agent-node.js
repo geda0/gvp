@@ -506,6 +506,7 @@ export function initAgentNode(options = {}) {
     dockTo,
     syncFromNavigation,
     syncTrailVisibility,
+    openLauncherDeepIntent,
     destroy
   }
 }

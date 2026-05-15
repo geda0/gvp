@@ -143,14 +143,26 @@ export function initChat() {
   }
 
   const syncAgentLauncherChrome = (_section = 'home') => {
-    const nextSection = normalizeSection(_section)
+    normalizeSection(_section)
     const source = resolveLauncherSource()
+    const agentMicTrack = chatVoiceFeatureEnabled
+      ? 'header_agent_node_mic'
+      : 'header_agent_node_open_chat'
+    const agentHeroTrack = chatVoiceFeatureEnabled
+      ? 'hero_agent_node_mic'
+      : 'hero_agent_node_open_chat'
     if (source === 'header') {
       agentInput.setAttribute('data-track', 'header_chat_input_focus')
-      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'header_agent_node_mic')
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', agentMicTrack)
     } else {
       agentInput.setAttribute('data-track', 'hero_chat_input_focus')
-      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'hero_agent_node_mic')
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', agentHeroTrack)
+    }
+    if (composerMic) {
+      composerMic.setAttribute(
+        'data-track',
+        chatVoiceFeatureEnabled ? 'chat_composer_mic' : 'chat_composer_focus_field'
+      )
     }
   }
 
@@ -335,6 +347,21 @@ export function initChat() {
 
   const liveUi = { active: false, connecting: false }
 
+  const setVoiceLauncherButtonMode = (btn, voiceEnabled) => {
+    if (!btn) return
+    const voiceIcon = btn.querySelector('.chat-composer__launcher-icon--voice')
+    const chatIcon = btn.querySelector('.chat-composer__launcher-icon--chat')
+    if (voiceIcon) voiceIcon.hidden = !voiceEnabled
+    if (chatIcon) chatIcon.hidden = voiceEnabled
+    if (voiceEnabled) {
+      btn.setAttribute('aria-label', 'Start voice mode')
+      return
+    }
+    btn.removeAttribute('aria-pressed')
+    const label = btn.id === 'chatComposerMic' ? 'Focus message field' : 'Open chat'
+    btn.setAttribute('aria-label', label)
+  }
+
   const reconcileComposerControls = () => {
     const textBusy = state.pending
     const voiceBusy =
@@ -343,21 +370,26 @@ export function initChat() {
     if (composerSend) composerSend.disabled = textBusy || voiceBusy
     if (composerClear) composerClear.disabled = textBusy || voiceBusy
     if (!chatVoiceFeatureEnabled) {
+      setVoiceLauncherButtonMode(composerMic, false)
+      setVoiceLauncherButtonMode(agentNodeMic, false)
       if (composerMic) {
-        composerMic.hidden = true
-        composerMic.disabled = true
-        composerMic.setAttribute('inert', '')
-        composerMic.setAttribute('aria-hidden', 'true')
+        composerMic.hidden = false
+        composerMic.disabled = textBusy
+        composerMic.removeAttribute('inert')
+        composerMic.removeAttribute('aria-hidden')
       }
       if (agentNodeMic) {
-        agentNodeMic.hidden = true
-        agentNodeMic.disabled = true
-        agentNodeMic.setAttribute('inert', '')
-        agentNodeMic.setAttribute('aria-hidden', 'true')
+        agentNodeMic.hidden = false
+        agentNodeMic.disabled = textBusy
+        agentNodeMic.removeAttribute('inert')
+        agentNodeMic.removeAttribute('aria-hidden')
       }
+      syncAgentLauncherChrome(launcherState.section)
       return
     }
     if (composerMic || agentNodeMic) {
+      setVoiceLauncherButtonMode(composerMic, true)
+      setVoiceLauncherButtonMode(agentNodeMic, true)
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
       if (composerMic) {
         composerMic.disabled = micBusy
@@ -370,6 +402,7 @@ export function initChat() {
         agentNodeMic.removeAttribute('inert')
         agentNodeMic.removeAttribute('aria-hidden')
       }
+      syncAgentLauncherChrome(launcherState.section)
     }
   }
 
@@ -701,6 +734,27 @@ export function initChat() {
       composerInput.focus()
     })
   }
+
+  const onTextOnlyLauncherClick = (event) => {
+    if (chatVoiceFeatureEnabled) return
+    const btn = event.currentTarget
+    if (!(btn instanceof HTMLButtonElement) || btn.disabled) return
+    if (btn === composerMic) {
+      if (!isOpen()) return
+      event.preventDefault()
+      composerInput.focus()
+      return
+    }
+    if (btn === agentNodeMic) {
+      event.preventDefault()
+      const wasOpen = isOpen()
+      state.agentNodeApi?.openLauncherDeepIntent?.()
+      if (!wasOpen && !isOpen()) openPanel()
+    }
+  }
+
+  agentNodeMic?.addEventListener('click', onTextOnlyLauncherClick)
+  composerMic?.addEventListener('click', onTextOnlyLauncherClick)
 
   agentInput.addEventListener('focus', () => {
     const source = resolveLauncherSource()
