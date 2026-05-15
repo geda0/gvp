@@ -1485,6 +1485,25 @@ body.contact-dialog-open {
     border-color: var(--border-subtle);
 }
 
+/* Garden theme: running text otherwise sits directly over the ocean stripe and tree
+   silhouettes, which kills contrast (most visible on mobile where the ocean band
+   crosses the About paragraph). Give the prose blocks the same translucent panel
+   treatment as `.highlight` so the text reads cleanly without breaking the scene. */
+[data-theme="garden"] .experience-summary,
+[data-theme="garden"] .portfolio-earlier-career {
+    background: rgba(255, 255, 255, 0.42);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.85rem;
+    padding: 1.4rem 1.5rem;
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+[data-theme="garden"] .portfolio-earlier-career {
+    margin-top: 1.5rem;
+    padding-bottom: 1.4rem;
+}
+
 /* Media queries for responsive design */
 @media (max-width: 767px) {
     nav ul {
