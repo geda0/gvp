@@ -598,7 +598,7 @@ async def chat(payload: ChatRequest) -> JSONResponse:
             app.state.chain.ainvoke({"messages": lc_messages}),
             timeout=app.state.provider_timeout_seconds,
         )
-    except TimeoutError:
+    except asyncio.TimeoutError:
         logger.warning("Chat invoke timed out after %ss", app.state.provider_timeout_seconds)
         return JSONResponse(
             status_code=504,
