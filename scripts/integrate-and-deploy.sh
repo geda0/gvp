@@ -505,15 +505,20 @@ elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
 fi
 
 # Build https://<alb-or-nlb-dns><path> from ECS service's first target group's load balancer (for HTML meta sync).
+# Scheme is inferred from what the ALB actually listens on: prefer HTTPS:443
+# when present, fall back to HTTP:80 otherwise. CHAT_ECS_CHAT_API_SCHEME
+# overrides. Defaulting to https blindly burned a stage deploy: meta was
+# https://… but the ALB had no cert, so the browser POST sat hanging on a
+# port-443 TCP connect that nothing was listening on, surfacing as a
+# DevTools "canceled" with no useful console error.
 discover_ecs_chat_sync_url_from_aws() {
   local cluster="$1" service="$2"
-  local tg_arn lb_arn dns path scheme
+  local tg_arn lb_arn dns path scheme listener_count
   path="${CHAT_ECS_CHAT_API_PATH:-/api/chat}"
   case "${path}" in
     /*) ;;
     *) path="/${path}" ;;
   esac
-  scheme="${CHAT_ECS_CHAT_API_SCHEME:-https}"
   tg_arn="$(aws ecs describe-services --cluster "${cluster}" --services "${service}" --region "${REGION}" \
     --query 'services[0].loadBalancers[0].targetGroupArn' --output text 2>/dev/null)" || return 1
   if [[ -z "${tg_arn}" || "${tg_arn}" == "None" ]]; then
@@ -528,6 +533,18 @@ discover_ecs_chat_sync_url_from_aws() {
     --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null)" || return 1
   if [[ -z "${dns}" || "${dns}" == "None" ]]; then
     return 1
+  fi
+  if [[ -n "${CHAT_ECS_CHAT_API_SCHEME:-}" ]]; then
+    scheme="${CHAT_ECS_CHAT_API_SCHEME}"
+  else
+    listener_count="$(aws elbv2 describe-listeners --load-balancer-arn "${lb_arn}" --region "${REGION}" \
+      --query 'length(Listeners[?Port==`443`])' --output text 2>/dev/null || echo 0)"
+    if [[ "${listener_count}" =~ ^[0-9]+$ ]] && (( listener_count > 0 )); then
+      scheme="https"
+    else
+      scheme="http"
+      echo "  note: ALB has no HTTPS:443 listener — using http:// for derived chat URL. Browsers WILL block this URL from HTTPS pages (mixed content). Add CHAT_ECS_CERT_ARN_${DEPLOY_ENV^^} (ACM cert ARN) and redeploy to get HTTPS." >&2
+    fi
   fi
   printf '%s://%s%s' "${scheme}" "${dns}" "${path}"
   return 0
