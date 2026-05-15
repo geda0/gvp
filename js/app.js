@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const spacemanEl = document.getElementById('spaceman')
   if (spacemanEl) {
     spacemanPosition = initSpacemanPosition(spacemanEl)
-    // Connect spaceman to position controller for quiet mode
+    // Connect spaceman to position controller (drag, stay, layout)
     if (spaceman) {
       spaceman.setPositionController(spacemanPosition)
     }

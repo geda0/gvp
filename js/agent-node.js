@@ -237,11 +237,9 @@ export function initAgentNode(options = {}) {
     if (!isFinePointer()) return
     if (state.mode === 'modal') return
     if (isObstructingDialogOpen()) return
-    if (spacemanPosition?.isQuiet) return
     placeholderRotateTimer = window.setInterval(() => {
       if (isOpen() || node.matches(':focus-within')) return
       if (isObstructingDialogOpen()) return
-      if (spacemanPosition?.isQuiet) return
       if (state.mode === 'modal') return
       const sec = state.section
       placeholderIdx[sec] = (placeholderIdx[sec] + 1) % poolForSection(sec).length
@@ -287,11 +285,10 @@ export function initAgentNode(options = {}) {
 
   const syncTrailVisibility = () => {
     if (!spacemanPosition || typeof spacemanPosition.setTrailVisible !== 'function') return
-    const quiet = Boolean(spacemanPosition.isQuiet)
     const dialogOpen = document.body.classList.contains('chat-dialog-open')
       || document.body.classList.contains('project-dialog-open')
       || document.body.classList.contains('contact-dialog-open')
-    const visible = state.mode !== 'modal' && !quiet && !dialogOpen
+    const visible = state.mode !== 'modal' && !dialogOpen
     spacemanPosition.setTrailVisible(visible)
   }
 

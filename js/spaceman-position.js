@@ -30,7 +30,6 @@ class SpacemanPosition {
     this._onResize = null;
     this._onScrollLike = null;
     this._visualViewport = null;
-    this.isQuiet = false;
     this.isStaying = false;
     this._isDragging = false;
     this._dragReturnTimer = null;
@@ -57,6 +56,15 @@ class SpacemanPosition {
   /** Navbar-docked agent: hero scrolled away or playground/portfolio. */
   _agentDockedInNavbar() {
     return document.getElementById('agentNode')?.dataset?.slot === 'navbar'
+  }
+
+  /** Stronger upward glue + relaxed top clamp so the figure reads “in” the top bar beside the chat pill. */
+  _navbarGlueVerticalTuning(ref, vw) {
+    const isMobile = vw < 768
+    const rh = Math.max(12, ref.height)
+    const nudge = -Math.round(rh * 0.44) - (isMobile ? 12 : 8)
+    const relax = isMobile ? 68 : 54
+    return { nudge, relax }
   }
 
   setHooks(hooks = {}) {
@@ -376,18 +384,10 @@ class SpacemanPosition {
 
     let x = 0, y = 0, scale = 1;
 
-    if (this.isQuiet) {
-      // Quiet mode: position in bottom-right corner
-      scale = isMobile ? 0.35 : isTablet ? 0.45 : 0.5;
-      const bounds = this._getBounds(vw, vh, scale);
-      const edgePad = vw < 768 ? 12 : this.options.edgePad;
-      x = bounds.maxX - edgePad;
-      y = bounds.maxY - edgePad;
-    } else {
-      const dialogContent = this._getActiveDialogPanelRect();
-      const content = dialogContent || this._getVisibleContent();
+    const dialogContent = this._getActiveDialogPanelRect();
+    const content = dialogContent || this._getVisibleContent();
 
-      if (content) {
+    if (content) {
         const dialogOpen = !!dialogContent;
         const navDocked =
           document.body.classList.contains('content-open') && this._agentDockedInNavbar()
@@ -403,7 +403,7 @@ class SpacemanPosition {
         const pos = this._calcPosition(vw, vh, content, scale);
         x = pos.x;
         y = pos.y;
-      } else {
+    } else {
         /* Home hero: slightly smaller than legacy full-page scale, closer to docked agent */
         scale = isMobile ? (vw < 480 ? 0.4 : 0.46) : isTablet ? 0.5 : 0.54;
         const bounds = this._getBounds(vw, vh, scale);
@@ -429,7 +429,8 @@ class SpacemanPosition {
           : (vw < 768 ? 8 : 6)
         if (agentNavBar) {
           const nr = dockedAgent.getBoundingClientRect()
-          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue, -6)
+          const { nudge, relax } = this._navbarGlueVerticalTuning(nr, vw)
+          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue, nudge, relax)
           if (g) {
             x = g.x
             y = g.y
@@ -480,24 +481,18 @@ class SpacemanPosition {
           x = clamp(desiredX, bounds.minX, bounds.maxX)
           y = clamp(desiredY, bounds.minY, bounds.maxY)
         }
-      }
     }
 
     this._moveTo(x, y, scale);
     this._updateTrail()
   }
 
-  setQuietPosition(quiet) {
-    this.isQuiet = quiet;
-    this._clearPostDragCooldown();
-    this.updatePosition();
-  }
-
   /**
    * Place spaceman so its right edge sits `glueGap` px left of `ref` (agent or slot rect).
    * Vertical center tracks ref midline; clamps to viewport bounds.
+   * @param {number} relaxMinYPx subtract from bounds.minY clamp only (navbar glue: sit higher).
    */
-  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap, verticalNudgePx = 0) {
+  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap, verticalNudgePx = 0, relaxMinYPx = 0) {
     if (!ref || ref.width < 8 || ref.height < 8) return null
     const bounds = this._getBounds(vw, vh, scale)
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
@@ -508,9 +503,10 @@ class SpacemanPosition {
     const h = baseH * scale
     const cx = ref.left - glueGap - w / 2
     const cy = ref.top + ref.height / 2 + verticalNudgePx
+    const minY = bounds.minY - Math.max(0, relaxMinYPx)
     return {
       x: clamp(cx - vw / 2, bounds.minX, bounds.maxX),
-      y: clamp(cy - vh / 2, bounds.minY, bounds.maxY)
+      y: clamp(cy - vh / 2, minY, bounds.maxY)
     }
   }
 
@@ -578,7 +574,8 @@ class SpacemanPosition {
       const br = dockedAgent.getBoundingClientRect()
       if (br.width >= 8 && br.height >= 8) {
         const navGap = vw < 768 ? 7 : 5
-        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap, -6)
+        const { nudge, relax } = this._navbarGlueVerticalTuning(br, vw)
+        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap, nudge, relax)
         if (glued) return glued
       }
     }
@@ -710,7 +707,7 @@ class SpacemanPosition {
     const dots = trail.querySelectorAll('.agent-trail__dot')
     if (!dots.length) return
 
-    if (!this._trailVisible || this.isQuiet) {
+    if (!this._trailVisible) {
       trail.classList.add('agent-trail--hidden')
       return
     }

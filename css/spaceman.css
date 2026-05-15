@@ -101,13 +101,13 @@
   animation-delay: 0.24s;
 }
 
-/* ===== QUIET MODE OPTION MENU ===== */
+/* ===== HERO CONTEXT MENU (Stay / Free + Chat) ===== */
 .spaceman-outer {
   position: relative;
   display: inline-block;
 }
 
-.spaceman-quiet-menu {
+.spaceman-hero-menu {
   position: absolute;
   bottom: 100%;
   left: 50%;
@@ -121,11 +121,19 @@
   align-items: stretch;
 }
 
-.spaceman-quiet-menu[hidden] {
+/* Navbar dock: head sits high in the bar — open menu below so it stays readable */
+.spaceman-hero-menu.spaceman-hero-menu--below {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 8px;
+}
+
+.spaceman-hero-menu[hidden] {
   display: none !important;
 }
 
-.spaceman-quiet-menu-btn {
+.spaceman-hero-menu-btn {
   display: block;
   width: 100%;
   padding: 10px 18px;
@@ -143,16 +151,16 @@
 }
 
 /* `display: block` above overrides UA [hidden]; force hidden Stay/Free buttons offstage */
-.spaceman-quiet-menu-btn[hidden] {
+.spaceman-hero-menu-btn[hidden] {
   display: none !important;
 }
 
-.spaceman-quiet-menu-btn:hover {
+.spaceman-hero-menu-btn:hover {
   transform: scale(1.03);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
 }
 
-.spaceman-quiet-menu-btn:active {
+.spaceman-hero-menu-btn:active {
   transform: scale(0.98);
 }
 
