@@ -543,7 +543,12 @@ discover_ecs_chat_sync_url_from_aws() {
       scheme="https"
     else
       scheme="http"
-      echo "  note: ALB has no HTTPS:443 listener — using http:// for derived chat URL. Browsers WILL block this URL from HTTPS pages (mixed content). Add CHAT_ECS_CERT_ARN_${DEPLOY_ENV^^} (ACM cert ARN) and redeploy to get HTTPS." >&2
+      # `${DEPLOY_ENV^^}` is bash 4+; macOS ships bash 3.2 and the substitution
+      # error abort-killed this function under `set -e`, then the caller fell
+      # back to the Lambda URL. Use portable `tr` upcase.
+      local _env_upper
+      _env_upper="$(printf '%s' "${DEPLOY_ENV}" | tr '[:lower:]' '[:upper:]')"
+      echo "  note: ALB has no HTTPS:443 listener — using http:// for derived chat URL. Browsers WILL block this URL from HTTPS pages (mixed content). Add CHAT_ECS_CERT_ARN_${_env_upper} (ACM cert ARN) and redeploy to get HTTPS." >&2
     fi
   fi
   printf '%s://%s%s' "${scheme}" "${dns}" "${path}"
