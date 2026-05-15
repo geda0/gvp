@@ -9,40 +9,40 @@ import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
 
-/** Preset prompts per route; home matches original hero + dialog starters. */
+/** Preset prompts per route — Home = services / engagements / capability pitch; Portfolio / Playground = page-native. */
 const SECTION_PROMPT_CHIPS = {
   home: {
     hero: [
       {
-        prompt: 'What can you do?',
-        label: 'What I do',
-        track: 'hero_chat_chip_what_i_do'
-      },
-      {
-        prompt: 'What services do you offer?',
+        prompt: 'What services or engagements do you offer teams — architecture leadership, delivery, reviews — and what is usually in scope?',
         label: 'Services',
         track: 'hero_chat_chip_services'
       },
       {
-        prompt: 'Show me a recent project.',
-        label: 'Recent work',
+        prompt: 'What kinds of work do you take on day to day as a software architect — hands-on coding, design, stakeholder alignment?',
+        label: 'Work I do',
+        track: 'hero_chat_chip_what_i_do'
+      },
+      {
+        prompt: 'How should I pitch or introduce what you bring on a short call — headline strengths and where proof lives on this site?',
+        label: 'Presenting you',
         track: 'hero_chat_chip_recent_work'
       }
     ],
     dialog: [
       {
-        prompt: 'How would you scale a SaaS platform?',
-        label: 'Scaling SaaS',
+        prompt: 'How do you typically engage with a new team — discovery, milestones, cadence — and what do you need from stakeholders to move fast?',
+        label: 'Engagement shape',
         track: 'chat_dialog_chip_scaling'
       },
       {
-        prompt: 'How do you ship AI in production?',
-        label: 'Shipping AI',
+        prompt: 'When someone asks what problems you solve best, how do you answer without naming employers yet?',
+        label: 'Problems I solve',
         track: 'chat_dialog_chip_shipping_ai'
       },
       {
-        prompt: 'Show me a recent project.',
-        label: 'Recent work',
+        prompt: 'How do you communicate architecture trade-offs to both engineers and leadership so decisions stick?',
+        label: 'Stakeholder clarity',
         track: 'chat_dialog_chip_recent_work'
       }
     ]
@@ -50,34 +50,34 @@ const SECTION_PROMPT_CHIPS = {
   portfolio: {
     hero: [
       {
-        prompt: 'Walk me through your flagship deliveries across IBM (Apptio), JumpCloud, and HP.',
-        label: 'Career arc',
+        prompt: 'Walk me through your shipped work across IBM (Apptio), JumpCloud, HP, and AT&T — outcomes, not titles.',
+        label: 'Shipped arc',
         track: 'hero_chat_chip_career_arc'
       },
       {
-        prompt: 'What impact did you have on correctness-critical data pipelines at Apptio?',
+        prompt: 'Deep dive Apptio (IBM): correctness-critical pipelines — constraints, migration, how you proved zero drift.',
         label: 'Apptio depth',
         track: 'hero_chat_chip_apptio'
       },
       {
-        prompt: 'Which portfolio role should we unpack first for a hiring loop?',
+        prompt: 'Which card on this Portfolio page should I open first for a hiring loop — and why?',
         label: 'Where to start',
         track: 'hero_chat_chip_where_start'
       }
     ],
     dialog: [
       {
-        prompt: 'What did you ship at JumpCloud — scope, stakeholders, and how you proved it was production-ready?',
+        prompt: 'JumpCloud: hybrid Postgres/Mongo data layer and GraphQL—what did you ship, and how did you verify production readiness?',
         label: 'JumpCloud ship',
         track: 'chat_dialog_chip_jumpcloud'
       },
       {
-        prompt: 'How did you scale HP Instant Ink — migration strategy, boundaries, and outcomes?',
+        prompt: 'HP Instant Ink: how did DDD and cloud migration scale subscribers without killing reliability?',
         label: 'HP scale story',
         track: 'chat_dialog_chip_hp'
       },
       {
-        prompt: 'Pick one résumé role and walk through problem → constraints → what you delivered.',
+        prompt: 'Pick one résumé role and walk problem → architectural boundaries → measurable outcome.',
         label: 'Deep on one role',
         track: 'chat_dialog_chip_one_role'
       }
@@ -86,39 +86,46 @@ const SECTION_PROMPT_CHIPS = {
   playground: {
     hero: [
       {
-        prompt: 'What playground experiments should I look at first — skills they showcase?',
-        label: 'Explorations',
+        prompt: 'On this Playground page, which experiment best shows skills that complement your portfolio — and why?',
+        label: 'Skills spotlight',
         track: 'hero_chat_chip_explorations'
       },
       {
-        prompt: 'How do you balance learning vs production discipline in side projects?',
-        label: 'Skills & habits',
+        prompt: 'How do these builds differ from shipped portfolio work — hypothesis, scope, and honest limits?',
+        label: 'Play vs prod',
         track: 'hero_chat_chip_skills'
       },
       {
-        prompt: 'Walk me through the Generative Video Platform idea and build.',
+        prompt: 'Walk through the Generative Video Platform—idea, orchestration, and what you would harden next.',
         label: 'GVP prototype',
         track: 'hero_chat_chip_gvp'
       }
     ],
     dialog: [
       {
-        prompt: 'What skills do your playground builds demonstrate compared with your portfolio work?',
-        label: 'Skills vs prod',
+        prompt: 'What skills do these experiments sharpen versus your cloud-native portfolio roles?',
+        label: 'Skills vs portfolio',
         track: 'chat_dialog_chip_skills_vs_prod'
       },
       {
-        prompt: 'What did you learn building Monday Rover — constraints, stack, honest limits?',
+        prompt: 'Monday Rover: embedded vision loop—constraints, stack trade-offs, and what broke under motion?',
         label: 'Raspberry Pi rover',
         track: 'chat_dialog_chip_rover'
       },
       {
-        prompt: 'Which experiment tested the hardest integration or product boundary?',
-        label: 'Hardest experiment',
+        prompt: 'Which playground project stressed integration or product boundaries the hardest?',
+        label: 'Hardest boundary',
         track: 'chat_dialog_chip_hard_exp'
       }
     ]
   }
+}
+
+/** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio / Playground). */
+const CHAT_EMPTY_HINT_BY_SECTION = {
+  home: 'Suggestions match Home — services and engagements, how we might work together, and what I take on.',
+  portfolio: 'Suggestions match Portfolio — roles, shipped outcomes, and proof in production.',
+  playground: 'Suggestions match Playground — experiments, skills, and honest limits.'
 }
 
 function replaceSectionPresetChips(container, chips, chipClassName) {
@@ -393,14 +400,6 @@ export function initChat() {
     replaceSectionPresetChips(dialogSuggestions, pack.dialog, 'chat-dialog__chip')
   }
 
-  syncChatLaunchersImpl = (section = 'home') => {
-    const nextSection = normalizeSection(section)
-    launcherState.section = nextSection
-    syncAgentLauncherChrome(nextSection)
-    state.agentNodeApi?.syncFromNavigation?.(nextSection)
-    applySectionPromptChips(nextSection)
-  }
-
   const setStatus = (text, tone = 'muted') => {
     statusEl.textContent = text || ''
     if (!text || tone === 'muted') {
@@ -451,6 +450,10 @@ export function initChat() {
     if (emptyStateEl) {
       emptyStateEl.hidden = hasMessages
       emptyStateEl.setAttribute('aria-hidden', hasMessages ? 'true' : 'false')
+      if (!hasMessages) {
+        const sec = normalizeSection(launcherState.section)
+        emptyStateEl.textContent = CHAT_EMPTY_HINT_BY_SECTION[sec] || CHAT_EMPTY_HINT_BY_SECTION.home
+      }
     }
     if (dialogSuggestions) {
       dialogSuggestions.hidden = hasMessages
@@ -459,6 +462,15 @@ export function initChat() {
         renderDialogPlaceholderChips(state.agentNodeApi.getPlaceholderSuggestion())
       }
     }
+  }
+
+  syncChatLaunchersImpl = (section = 'home') => {
+    const nextSection = normalizeSection(section)
+    launcherState.section = nextSection
+    syncAgentLauncherChrome(nextSection)
+    state.agentNodeApi?.syncFromNavigation?.(nextSection)
+    applySectionPromptChips(nextSection)
+    syncEmptyState()
   }
 
   const clearLifecycleResetTimer = () => {
