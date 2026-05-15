@@ -45,11 +45,11 @@
     /* Chat: accent ring + cool blue chrome (halo, hero bar, dialog) — avoid lavender */
     --chat-launcher-ring: var(--accent);
     --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 40%, #b2cff0 60%);
-    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 46%, var(--border-subtle));
-    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
-    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent);
-    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 20%, transparent);
-    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 16%, transparent);
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 58%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 34%, transparent);
+    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
 
     /* Fixed site header: single compact row + optional notch */
     --site-header-height: calc(2.65rem + env(safe-area-inset-top, 0px));
@@ -89,11 +89,11 @@
 
     --chat-launcher-ring: var(--accent);
     --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 58%, #c5ddd0 42%);
-    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 40%, var(--border-subtle));
-    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
-    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent);
-    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 19%, transparent);
-    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 12%, transparent);
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 52%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 32%, transparent);
+    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 24%, transparent);
 }
 
 /* Garden scene: trees (only visible in garden theme) */

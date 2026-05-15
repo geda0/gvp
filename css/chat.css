@@ -155,8 +155,9 @@ body.chat-dialog-open {
     border: 1px solid var(--chat-launcher-ring-mix);
     background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
     box-shadow:
-        0 0 0 0.12rem var(--chat-launcher-glow-outer),
-        0 0 1.15rem var(--chat-launcher-glow-diffuse);
+        0 0 0 0.17rem var(--chat-launcher-glow-outer),
+        0 0 0.35rem 0.2rem var(--chat-launcher-glow-diffuse),
+        0 0 1.55rem var(--chat-launcher-glow-diffuse);
     padding: 0.28rem 0.75rem;
     transition:
         max-width var(--agent-morph-ms) var(--agent-morph-ease),
@@ -191,10 +192,11 @@ body.chat-dialog-open {
 }
 
 .agent-node:focus-within {
-    border-color: color-mix(in srgb, var(--chat-launcher-ring) 48%, var(--chat-launcher-glow-chrome) 52%);
+    border-color: color-mix(in srgb, var(--chat-launcher-ring) 58%, var(--chat-launcher-glow-chrome) 42%);
     box-shadow:
-        0 0 0 0.18rem var(--chat-launcher-glow-focus),
-        0 0 1.45rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 15%, transparent);
+        0 0 0 0.22rem var(--chat-launcher-glow-focus),
+        0 0 0.45rem 0.28rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent),
+        0 0 1.85rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
 }
 
 .agent-node__form {
@@ -302,7 +304,7 @@ body.chat-dialog-open {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    transition: color 0.2s ease;
+    transition: color 0.2s ease, opacity 0.16s ease;
 }
 
 .agent-node__input::placeholder {
@@ -424,7 +426,7 @@ body.chat-dialog-open {
 .agent-node--lifecycle-active.agent-node--lifecycle-sending .agent-node__submit,
 .agent-node--lifecycle-active.agent-node--lifecycle-thinking .agent-node__submit,
 .agent-node--lifecycle-active.agent-node--lifecycle-streaming .agent-node__submit {
-    box-shadow: 0 0 0 0.2rem var(--chat-launcher-dot-halo);
+    box-shadow: 0 0 0 0.26rem var(--chat-launcher-dot-halo);
 }
 
 .hero-chat:has(.agent-node--lifecycle-active.agent-node--lifecycle-sending) .hero-chat__label-wrap .agent-node__mic,
@@ -433,7 +435,7 @@ body.chat-dialog-open {
 .hero-chat:has(.agent-node--lifecycle-active.agent-node--lifecycle-sending) .agent-slot--hero .agent-node__submit,
 .hero-chat:has(.agent-node--lifecycle-active.agent-node--lifecycle-thinking) .agent-slot--hero .agent-node__submit,
 .hero-chat:has(.agent-node--lifecycle-active.agent-node--lifecycle-streaming) .agent-slot--hero .agent-node__submit {
-    box-shadow: 0 0 0 0.2rem var(--chat-launcher-dot-halo);
+    box-shadow: 0 0 0 0.26rem var(--chat-launcher-dot-halo);
 }
 
 @keyframes agent-node-lounge-flash {
@@ -485,9 +487,12 @@ body.chat-dialog-open {
     background: color-mix(in srgb, var(--surface-elevated) 78%, transparent);
     padding: 0.28rem 0.32rem 0.28rem 0.88rem;
     gap: 0.5rem;
-    /* Match legacy `.hero-chat__form`: no halo at rest; ring only on focus-within */
+    /* Idle glow + brighter focus (tokens drive chrome intensity) */
     min-height: 2.56rem;
-    box-shadow: none;
+    box-shadow:
+        0 0 0 0.14rem var(--chat-launcher-glow-outer),
+        0 0 0.4rem 0.18rem var(--chat-launcher-glow-diffuse),
+        0 0 1.25rem var(--chat-launcher-glow-diffuse);
 }
 
 html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form,
@@ -511,7 +516,10 @@ html[data-gvp-chat-voice='1'] .agent-slot--hero .agent-node__form-icon {
 .agent-slot--hero .agent-node[data-state='bar'] .agent-node__form:focus-within,
 .agent-slot--hero .agent-node[data-state='modal'] .agent-node__form:focus-within {
     border-color: var(--chat-launcher-ring);
-    box-shadow: 0 0 0 0.25rem var(--chat-launcher-glow-focus);
+    box-shadow:
+        0 0 0 0.28rem var(--chat-launcher-glow-focus),
+        0 0 0.5rem 0.32rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 26%, transparent),
+        0 0 1.65rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
 }
 
 .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
@@ -559,12 +567,18 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
     padding: 0.12rem 0.18rem 0.12rem 0.48rem;
     align-items: center;
     background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
-    box-shadow: 0 0 0 0.14rem var(--chat-launcher-glow-outer);
+    box-shadow:
+        0 0 0 0.16rem var(--chat-launcher-glow-outer),
+        0 0 0.5rem 0.22rem var(--chat-launcher-glow-diffuse),
+        0 0 1.2rem var(--chat-launcher-glow-diffuse);
 }
 
 .agent-slot--navbar .agent-node:focus-within {
     border-color: var(--chat-launcher-ring);
-    box-shadow: 0 0 0 0.25rem var(--chat-launcher-glow-focus);
+    box-shadow:
+        0 0 0 0.28rem var(--chat-launcher-glow-focus),
+        0 0 0.55rem 0.3rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 24%, transparent),
+        0 0 1.5rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 20%, transparent);
 }
 
 .agent-slot--navbar .agent-node__form-icon {
@@ -596,7 +610,7 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
 }
 
 .agent-slot--navbar .agent-node__input {
-    font-size: 0.74rem;
+    font-size: 0.84rem;
     line-height: 1.25;
     padding: 0.22rem 0;
     max-width: 100%;
@@ -622,15 +636,17 @@ body.content-open .agent-slot--navbar .agent-node {
     gap: 0.34rem;
     padding: 0.18rem 0.42rem 0.18rem 0.54rem;
     box-shadow:
-        0 0 0 0.12rem var(--chat-launcher-glow-outer),
-        0 0 1.05rem var(--chat-launcher-glow-diffuse);
+        0 0 0 0.16rem var(--chat-launcher-glow-outer),
+        0 0 0.45rem 0.2rem var(--chat-launcher-glow-diffuse),
+        0 0 1.35rem var(--chat-launcher-glow-diffuse);
 }
 
 body.content-open .agent-slot--navbar .agent-node:focus-within {
-    border-color: color-mix(in srgb, var(--chat-launcher-ring) 48%, var(--chat-launcher-glow-chrome) 52%);
+    border-color: color-mix(in srgb, var(--chat-launcher-ring) 58%, var(--chat-launcher-glow-chrome) 42%);
     box-shadow:
-        0 0 0 0.18rem var(--chat-launcher-glow-focus),
-        0 0 1.45rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 15%, transparent);
+        0 0 0 0.22rem var(--chat-launcher-glow-focus),
+        0 0 0.45rem 0.28rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent),
+        0 0 1.85rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
 }
 
 body.content-open .agent-slot--navbar .agent-node__form-icon {
@@ -647,7 +663,7 @@ body.content-open .agent-slot--navbar .agent-node__form {
 }
 
 body.content-open .agent-slot--navbar .agent-node__input {
-    font-size: 0.8rem;
+    font-size: 0.84rem;
     line-height: 1.32;
     padding: 0.26rem 0;
 }
