@@ -2,6 +2,9 @@
 import { getTheme } from './theme.js';
 import { chatBus } from './chat-bus.js';
 
+/** Same string as `EV_OPEN_CHAT` in chat.js — keep in sync; avoid importing the full chat module here. */
+const EV_OPEN_CHAT = 'gvp:open-chat'
+
 const DEFAULTS = {
   typingSpeed: 50,
   reactionSpeed: 30,
@@ -18,7 +21,7 @@ const DEFAULTS = {
 const DEFAULT_DATA = {
   states: {
     idle: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 },
-    playground: { messages: ['Experimental projects and technical explorations.'], typingSpeed: 40, messageDelay: 4000 },
+    playground: { messages: ['Playground builds with production habits.'], typingSpeed: 40, messageDelay: 4000 },
     portfolio: { messages: ['Professional experience and career journey.'], typingSpeed: 40, messageDelay: 4000 },
     home: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 }
   },
@@ -49,7 +52,6 @@ class Spaceman {
     this.state = 'idle';
     this.messageIndex = 0;
     this._firstMessageShown = false;
-    this.isQuiet = false;
     this.isStayingHero = false;
     this._stayPromptActive = false;
     this.isDetermined = false;
@@ -212,10 +214,10 @@ class Spaceman {
   _render() {
     this.container.innerHTML = `
       <div class="spaceman-outer">
-        <div class="spaceman-quiet-menu" id="spacemanQuietMenu" role="menu" aria-label="Hero options" hidden>
-          <button type="button" class="spaceman-quiet-menu-btn" data-action="stay" hidden>Stay here</button>
-          <button type="button" class="spaceman-quiet-menu-btn" data-action="free" hidden>Free</button>
-          <button type="button" class="spaceman-quiet-menu-btn" data-action="quiet">Enter quiet mode</button>
+        <div class="spaceman-hero-menu" id="spacemanHeroMenu" role="menu" aria-label="Hero options" hidden>
+          <button type="button" class="spaceman-hero-menu-btn" data-action="stay" hidden>Stay here</button>
+          <button type="button" class="spaceman-hero-menu-btn" data-action="free" hidden>Free</button>
+          <button type="button" class="spaceman-hero-menu-btn" data-action="chat">Chat</button>
         </div>
         <div class="spaceman" id="spaceman">
           <div class="spaceman-body">
@@ -268,26 +270,27 @@ class Spaceman {
     this.elements = {
       spaceman: document.getElementById('spaceman'),
       text: document.querySelector('#agentNode .agent-node__bubble-text'),
-      quietMenu: document.getElementById('spacemanQuietMenu'),
-      stayMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="stay"]'),
-      freeMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="free"]'),
-      quietMenuBtn: document.querySelector('#spacemanQuietMenu [data-action="quiet"]')
+      heroMenu: document.getElementById('spacemanHeroMenu'),
+      stayMenuBtn: document.querySelector('#spacemanHeroMenu [data-action="stay"]'),
+      freeMenuBtn: document.querySelector('#spacemanHeroMenu [data-action="free"]'),
+      chatMenuBtn: document.querySelector('#spacemanHeroMenu [data-action="chat"]')
     };
     this._bindHeroMenu();
     this._syncChipVisibility();
   }
 
   _syncChipVisibility() {
-    const chips = document.getElementById('heroChatSuggestions')
-    if (!chips) return
-    const show = (this.state === 'home' || this.state === 'idle') && !this.isQuiet
-    chips.hidden = !show
-    chips.setAttribute('aria-hidden', show ? 'false' : 'true')
+    const heroChips = document.getElementById('heroChatSuggestions')
+    const showHero = (this.state === 'home' || this.state === 'idle')
+    if (heroChips) {
+      heroChips.hidden = !showHero
+      heroChips.setAttribute('aria-hidden', showHero ? 'false' : 'true')
+    }
   }
 
   _bindHeroMenu() {
-    const { quietMenu, stayMenuBtn, freeMenuBtn, quietMenuBtn } = this.elements;
-    if (!quietMenu) return;
+    const { heroMenu, stayMenuBtn, freeMenuBtn, chatMenuBtn } = this.elements;
+    if (!heroMenu) return;
 
     const onMenuBtn = (e, fn) => {
       e.stopPropagation();
@@ -296,51 +299,54 @@ class Spaceman {
 
     stayMenuBtn?.addEventListener('click', (e) => onMenuBtn(e, this._confirmStayHere));
     freeMenuBtn?.addEventListener('click', (e) => onMenuBtn(e, this._confirmFreeHero));
-    quietMenuBtn?.addEventListener('click', (e) => {
+    chatMenuBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
       this._stayPromptActive = false;
-      this._clearStayVisual();
-      this.positionController?.setStaying(false);
       this._hideHeroMenuUI();
-      this.setQuietMode(true);
+      window.dispatchEvent(new CustomEvent(EV_OPEN_CHAT, {
+        bubbles: true,
+        detail: { source: 'spaceman-hero-menu' }
+      }));
     });
 
-    this._quietMenuOutsideClick = (e) => {
-      if (quietMenu.hidden) return;
-      if (quietMenu.contains(e.target) || this.elements.spaceman?.contains(e.target)) return;
+    this._heroMenuOutsideClick = (e) => {
+      if (heroMenu.hidden) return;
+      if (heroMenu.contains(e.target) || this.elements.spaceman?.contains(e.target)) return;
       if (e.target.closest('#heroChatSuggestions')) return;
       this._dismissHeroMenu();
     };
   }
 
-  _openHeroMenu(mode) {
-    const { quietMenu, stayMenuBtn, freeMenuBtn } = this.elements;
-    if (!quietMenu || this.isQuiet) return;
+  _openHeroMenu() {
+    const { heroMenu, stayMenuBtn, freeMenuBtn, chatMenuBtn } = this.elements;
+    if (!heroMenu) return;
 
-    if (mode === 'after-drag') {
-      if (stayMenuBtn) stayMenuBtn.hidden = false;
-      if (freeMenuBtn) freeMenuBtn.hidden = true;
-    } else if (mode === 'staying') {
+    if (this.isStayingHero) {
       if (stayMenuBtn) stayMenuBtn.hidden = true;
       if (freeMenuBtn) freeMenuBtn.hidden = false;
     } else {
-      if (stayMenuBtn) stayMenuBtn.hidden = true;
+      if (stayMenuBtn) stayMenuBtn.hidden = false;
       if (freeMenuBtn) freeMenuBtn.hidden = true;
     }
+    if (chatMenuBtn) chatMenuBtn.hidden = false;
 
-    quietMenu.hidden = false;
-    quietMenu.setAttribute('aria-hidden', 'false');
-    document.addEventListener('click', this._quietMenuOutsideClick, true);
-    document.addEventListener('keydown', this._quietMenuEscape);
+    const navDocked = document.getElementById('agentNode')?.dataset?.slot === 'navbar';
+    heroMenu.classList.toggle('spaceman-hero-menu--below', Boolean(navDocked));
+
+    heroMenu.hidden = false;
+    heroMenu.setAttribute('aria-hidden', 'false');
+    document.addEventListener('click', this._heroMenuOutsideClick, true);
+    document.addEventListener('keydown', this._heroMenuEscape);
   }
 
   _hideHeroMenuUI() {
-    const { quietMenu } = this.elements;
-    if (!quietMenu) return;
-    quietMenu.hidden = true;
-    quietMenu.setAttribute('aria-hidden', 'true');
-    document.removeEventListener('click', this._quietMenuOutsideClick, true);
-    document.removeEventListener('keydown', this._quietMenuEscape);
+    const { heroMenu } = this.elements;
+    if (!heroMenu) return;
+    heroMenu.classList.remove('spaceman-hero-menu--below');
+    heroMenu.hidden = true;
+    heroMenu.setAttribute('aria-hidden', 'true');
+    document.removeEventListener('click', this._heroMenuOutsideClick, true);
+    document.removeEventListener('keydown', this._heroMenuEscape);
   }
 
   _dismissHeroMenu() {
@@ -350,7 +356,7 @@ class Spaceman {
     if (hadStayPrompt) this.positionController?.declineStayAfterDrag();
   }
 
-  _quietMenuEscape = (e) => {
+  _heroMenuEscape = (e) => {
     if (e.key === 'Escape') this._dismissHeroMenu();
   };
 
@@ -379,9 +385,9 @@ class Spaceman {
   }
 
   _onPositionDragEnd(moved) {
-    if (!moved || this.isQuiet) return;
+    if (!moved) return;
     this._stayPromptActive = true;
-    this._openHeroMenu('after-drag');
+    this._openHeroMenu();
   }
 
   _bindEvents() {
@@ -389,16 +395,21 @@ class Spaceman {
     if (!spaceman) return;
 
     spaceman.addEventListener('mouseenter', () => {
-      if (!this.isQuiet) this._react('hover');
+      this._react('hover');
     });
-    
-    spaceman.addEventListener('click', () => {
-      if (this.isQuiet) {
-        this.setQuietMode(false);
-        return;
+
+    spaceman.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (this._clickTimeout) {
+        clearTimeout(this._clickTimeout);
+        this._clickTimeout = null;
       }
-      const { quietMenu } = this.elements;
-      const menuOpen = quietMenu && !quietMenu.hidden;
+      this._openHeroMenu();
+    });
+
+    spaceman.addEventListener('click', () => {
+      const { heroMenu } = this.elements;
+      const menuOpen = heroMenu && !heroMenu.hidden;
       if (menuOpen) {
         this._dismissHeroMenu();
         return;
@@ -412,7 +423,7 @@ class Spaceman {
       } else {
         this._clickTimeout = setTimeout(() => {
           this._clickTimeout = null;
-          window.dispatchEvent(new CustomEvent('gvp:open-chat', {
+          window.dispatchEvent(new CustomEvent(EV_OPEN_CHAT, {
             bubbles: true,
             detail: { source: 'spaceman' }
           }));
@@ -461,7 +472,6 @@ class Spaceman {
 
   /** Call after setContext when the project detail modal opens — surfaces the active project in the bubble. */
   announceProjectContext() {
-    if (this.isQuiet) return;
     if (this._chatLifecycleState !== 'idle') return;
     if (this.state !== 'playground' && this.state !== 'portfolio') return;
     const msg = this._getProjectMessage();
@@ -485,48 +495,6 @@ class Spaceman {
       onDragStart: (detail) => this._onPositionDragStart(detail),
       onDragEnd: (moved) => this._onPositionDragEnd(moved)
     });
-  }
-
-  setQuietMode(quiet) {
-    if (this.isQuiet === quiet) return;
-    
-    this.isQuiet = quiet;
-    
-    if (quiet) {
-      // Stop all messaging and animations
-      this._clearAllTimers();
-      const { text } = this.elements;
-      if (text) text.textContent = '';
-      this._stayPromptActive = false;
-      this._hideHeroMenuUI();
-      this._clearStayVisual();
-      if (this.positionController) {
-        this.positionController.setStaying(false);
-      }
-
-      // Position in bottom-right corner
-      if (this.positionController) {
-        this.positionController.setQuietPosition(true);
-      }
-      
-      // Add quiet class for styling if needed
-      const { spaceman } = this.elements;
-      if (spaceman) spaceman.classList.add('quiet-mode');
-    } else {
-      // Reactivate
-      const { spaceman } = this.elements;
-      if (spaceman) spaceman.classList.remove('quiet-mode');
-      
-      // Resume normal positioning
-      if (this.positionController) {
-        this.positionController.setQuietPosition(false);
-      }
-      
-      // Restart messaging and animations
-      this._startIdleAnimations();
-      this._startMessageCycle();
-    }
-    this._syncChipVisibility();
   }
 
   // Public API
@@ -602,12 +570,12 @@ class Spaceman {
     this._chatLifecycleDetail = {};
     this._setChatLifecycleClass('idle');
     this.positionController?.updatePosition();
-    if (this.isQuiet || this.isDetermined) return;
+    if (this.isDetermined) return;
     this._startMessageCycle();
   }
 
   _handleChatLifecycle(state, detail) {
-    if (!this.elements?.text || this.isQuiet) return;
+    if (!this.elements?.text) return;
     const next = String(state || 'idle');
     if (next === 'idle' && this._chatLifecycleState === 'idle') return;
     this._clearChatLifecycleTimer();
@@ -631,10 +599,15 @@ class Spaceman {
 
   // Messaging
   _startMessageCycle() {
-    if (this.isQuiet) return; // Don't start message cycle when quiet
     if (this._chatLifecycleState !== 'idle') return;
     if (this.isDetermined) return; // Freeze message cycle when determined
-    
+    if (this.state === 'home' || this.state === 'idle') {
+      const { text } = this.elements;
+      if (text) text.textContent = '';
+      this._firstMessageShown = true;
+      return;
+    }
+
     const { states } = this._getThemeData();
     const stateData = states?.[this.state];
     const messages = this._getMergedMessages(this.state);
@@ -708,9 +681,9 @@ class Spaceman {
   }
 
   _react(type) {
-    if (this.isQuiet) return; // Don't react when quiet
     if (this._chatLifecycleState !== 'idle') return;
-    
+    if (this.state === 'home' || this.state === 'idle') return;
+
     const { reactions } = this._getThemeData();
     const reaction = reactions?.[type];
     if (!reaction) return;
@@ -734,28 +707,22 @@ class Spaceman {
   }
 
   _scheduleBlink() {
-    if (this.isQuiet) return; // Don't schedule animations when quiet
-    
     const { min, max } = DEFAULTS.blinkInterval;
     const delay = min + Math.random() * (max - min);
 
     this._timers.blink = setTimeout(() => {
-      if (!this.isQuiet) {
-        this._triggerBlink();
-        this._scheduleBlink();
-      }
+      this._triggerBlink();
+      this._scheduleBlink();
     }, delay);
   }
 
   _scheduleWave() {
-    if (this.isQuiet) return; // Don't schedule animations when quiet
-    
     const { min, max } = DEFAULTS.waveInterval;
     const delay = min + Math.random() * (max - min);
 
     this._timers.wave = setTimeout(() => {
-      if (!this.isQuiet && this.state === 'idle') this._triggerWave();
-      if (!this.isQuiet) this._scheduleWave();
+      if (this.state === 'idle') this._triggerWave();
+      this._scheduleWave();
     }, delay);
   }
 

@@ -1,6 +1,8 @@
 // spaceman-position.js - Simplified positioning controller
 // Anchors spaceman near dialog TOP-RIGHT, clamps to viewport, respects nav
 
+import { PANEL_ANIM_MS } from './chat-panel-anim.js'
+
 class SpacemanPosition {
   constructor(spacemanElement, options = {}) {
     this.spaceman = spacemanElement;
@@ -28,18 +30,60 @@ class SpacemanPosition {
     this._onResize = null;
     this._onScrollLike = null;
     this._visualViewport = null;
-    this.isQuiet = false;
     this.isStaying = false;
     this._isDragging = false;
     this._dragReturnTimer = null;
     this._layoutCooldownUntil = 0;
     this._hooks = {};
-    this.agentTrail = document.getElementById('agentTrail')
     this.agentNode = document.getElementById('agentNode')
-    this._trailVisible = true
-    this._trailLoopRaf = null
+    /** Measured `body > header` height for bounds; refreshed each `_update`. */
+    this._navChromeHeight = null
 
     this.init();
+  }
+
+  _readSiteHeaderHeightPx() {
+    const header = document.querySelector('body > header')
+    if (!header) return this.options.navHeight
+    const h = header.getBoundingClientRect().height
+    if (!Number.isFinite(h) || h < 8) return this.options.navHeight
+    return Math.max(56, Math.round(h))
+  }
+
+  /** Navbar-docked agent: hero scrolled away or playground/portfolio. */
+  _agentDockedInNavbar() {
+    return document.getElementById('agentNode')?.dataset?.slot === 'navbar'
+  }
+
+  /**
+   * Width of the home hero copy column when measurable; otherwise a capped “hero-width”
+   * stand-in (~36rem max) for navbar nudges on subpages.
+   */
+  _readHeroContentWidthPx(vw) {
+    const el = document.querySelector('#home .hero-copy') || document.querySelector('.hero-copy')
+    const r = el?.getBoundingClientRect?.()
+    if (r && r.width > 48) return Math.round(r.width)
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    return Math.round(Math.min(Math.max(280, vw - 40), 36 * rem))
+  }
+
+  /** Stronger upward glue + relaxed top clamp so the figure reads “in” the top bar beside the chat pill. */
+  _navbarGlueVerticalTuning(ref, vw) {
+    const isMobile = vw < 768
+    const rh = Math.max(12, ref.height)
+    const nudge = -Math.round(rh * 0.44) - (isMobile ? 12 : 8)
+    const relax = isMobile ? 68 : 54
+    return { nudge, relax }
+  }
+
+  /**
+   * Mobile: nudge toward the centered chat pill by ~10% of hero-column width (px),
+   * keeping a small legacy left bias so the figure still reads beside the strip.
+   */
+  _navbarGlueHorizontalNudgePx(vw) {
+    if (vw >= 768) return 0
+    const hw = this._readHeroContentWidthPx(vw)
+    return Math.round(-6 + hw * 0.1)
   }
 
   setHooks(hooks = {}) {
@@ -75,7 +119,6 @@ class SpacemanPosition {
     // After assets/fonts
     window.addEventListener('load', () => this.updatePosition(), { once: true });
     document.fonts?.ready?.then(() => this.updatePosition());
-    this._updateTrail()
   }
 
   _readDialogPanelRect(dialogId, panelSelector) {
@@ -151,6 +194,8 @@ class SpacemanPosition {
     if (this.agentNode) this._resizeObs.observe(this.agentNode)
     const heroCopy = document.querySelector('.hero-copy')
     if (heroCopy) this._resizeObs.observe(heroCopy)
+    const siteHeader = document.querySelector('body > header')
+    if (siteHeader) this._resizeObs.observe(siteHeader)
 
     // Transition end -> reposition
     this._onTransitionEnd = (e) => {
@@ -180,7 +225,7 @@ class SpacemanPosition {
     }
 
     if (this.agentNode) {
-      this._agentNodeMutationObs = new MutationObserver(() => this._updateTrail())
+      this._agentNodeMutationObs = new MutationObserver(() => this.updatePosition())
       this._agentNodeMutationObs.observe(this.agentNode, {
         attributes: true,
         attributeFilter: ['class', 'data-state', 'data-slot']
@@ -209,7 +254,6 @@ class SpacemanPosition {
     }
     clearTimeout(this._updateT);
     this._updateT = setTimeout(() => this._update(), 50);
-    this._updateTrail()
   }
 
   _bindDrag() {
@@ -345,6 +389,7 @@ class SpacemanPosition {
 
   _update() {
     this._syncBodyContentOpen();
+    this._navChromeHeight = this._readSiteHeaderHeightPx()
     if (this.isStaying) {
       this._clampStayingIfNeeded();
       return;
@@ -356,29 +401,29 @@ class SpacemanPosition {
 
     let x = 0, y = 0, scale = 1;
 
-    if (this.isQuiet) {
-      // Quiet mode: position in bottom-right corner
-      scale = isMobile ? 0.35 : isTablet ? 0.45 : 0.5;
-      const bounds = this._getBounds(vw, vh, scale);
-      const edgePad = vw < 768 ? 12 : this.options.edgePad;
-      x = bounds.maxX - edgePad;
-      y = bounds.maxY - edgePad;
-    } else {
-      const dialogContent = this._getActiveDialogPanelRect();
-      const content = dialogContent || this._getVisibleContent();
+    const dialogContent = this._getActiveDialogPanelRect();
+    const content = dialogContent || this._getVisibleContent();
 
-      if (content) {
+    if (content) {
         const dialogOpen = !!dialogContent;
-        scale = dialogOpen
-          ? (isMobile ? 0.4 : isTablet ? 0.5 : 0.62)
-          : isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
+        const navDocked =
+          document.body.classList.contains('content-open') && this._agentDockedInNavbar()
+        if (navDocked && !dialogOpen) {
+          scale = isMobile
+            ? (vw < 480 ? 0.36 : 0.38)
+            : isTablet ? 0.52 : 0.6
+        } else {
+          scale = dialogOpen
+            ? (isMobile ? 0.4 : isTablet ? 0.5 : 0.62)
+            : isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
+        }
         const pos = this._calcPosition(vw, vh, content, scale);
         x = pos.x;
         y = pos.y;
-      } else {
+    } else {
         /* Home hero: slightly smaller than legacy full-page scale, closer to docked agent */
         scale = isMobile ? (vw < 480 ? 0.4 : 0.46) : isTablet ? 0.5 : 0.54;
-        const bounds = this._getBounds(vw, vh, scale);
+        let bounds = this._getBounds(vw, vh, scale);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
         const heroCopy = document.querySelector('.hero-copy')
         const heroSlot = document.getElementById('agentSlotHero')
@@ -395,10 +440,44 @@ class SpacemanPosition {
         const heroPad = Math.min(pad, vw < 768 ? 26 : 22)
 
         let placedHome = false
-        const navGlue = vw < 768 ? 8 : 6
-        if (dockedAgent?.dataset?.slot === 'navbar') {
+        const agentNavBar = dockedAgent?.dataset?.slot === 'navbar'
+        /**
+         * Mobile + launcher in hero: stack on the chat pill — bbox left flush with pill left,
+         * bottom slightly overlaps pill top so the figure reads “on” the bar (not the generic top band).
+         */
+        if (isMobile && !agentNavBar) {
+          const b = this._getBounds(vw, vh, scale, { looserMobileHeroEdges: true })
+          let ref = null
+          if (slotRect && slotRect.width > 8 && slotRect.height > 8) {
+            const nr = dockedAgent?.getBoundingClientRect?.()
+            ref = (nr && nr.width > 8 && nr.height > 8) ? nr : slotRect
+          }
+          if (ref) {
+            const stackIntoBarPx = vw < 480 ? 10 : 8
+            const cx = ref.left + w / 2
+            const cy = ref.top + stackIntoBarPx - h / 2
+            x = clamp(cx - vw / 2, b.minX, b.maxX)
+            y = clamp(cy - vh / 2, b.minY, b.maxY)
+            placedHome = true
+            bounds = b
+          } else if (heroCopy) {
+            const r = heroCopy.getBoundingClientRect()
+            if (r.width > 0 && r.height > 0) {
+              x = clamp(r.left - vw / 2 + 8, b.minX, b.maxX)
+              y = b.minY
+              placedHome = true
+              bounds = b
+            }
+          }
+        }
+        const navGlue = agentNavBar
+          ? (vw < 768 ? 7 : 5)
+          : (vw < 768 ? 8 : 6)
+        if (agentNavBar) {
           const nr = dockedAgent.getBoundingClientRect()
-          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue)
+          const { nudge, relax } = this._navbarGlueVerticalTuning(nr, vw)
+          const hx = this._navbarGlueHorizontalNudgePx(vw)
+          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue, nudge, relax, hx)
           if (g) {
             x = g.x
             y = g.y
@@ -417,14 +496,23 @@ class SpacemanPosition {
             nodeRect && nodeRect.width > 8 && nodeRect.height > 8 ? nodeRect : slotRect
           /* Tight horizontal glue: right edge of figure ≈ ref.left − heroGlueGap */
           const heroGlueGap = vw < 768 ? 7 : 5
-          const g = this._glueLeftOfAgentRect(vw, vh, scale, ref, heroGlueGap)
+          /* Mobile only: nudge figure upward vs slot/agent midline (feet ~ Grounded hint) */
+          const heroMobileUpNudgePx = vw < 768 ? -36 : 0
+          const g = this._glueLeftOfAgentRect(
+            vw,
+            vh,
+            scale,
+            ref,
+            heroGlueGap,
+            heroMobileUpNudgePx
+          )
           if (g) {
             x = g.x
             y = g.y
             placedHome = true
           }
         }
-        if (!placedHome && heroCopy) {
+        if (!placedHome && heroCopy && !isMobile) {
           const r = heroCopy.getBoundingClientRect()
           if (r.width > 0 && r.height > 0) {
             const edgePad = vw < 768 ? 12 : this.options.edgePad
@@ -441,7 +529,7 @@ class SpacemanPosition {
             }
           } else {
             x = clamp(0, bounds.minX, bounds.maxX)
-            y = clamp(isMobile ? -30 : 0, bounds.minY, bounds.maxY)
+            y = clamp(0, bounds.minY, bounds.maxY)
           }
         } else if (!placedHome) {
           const desiredX = isMobile ? 32 : 0
@@ -449,37 +537,32 @@ class SpacemanPosition {
           x = clamp(desiredX, bounds.minX, bounds.maxX)
           y = clamp(desiredY, bounds.minY, bounds.maxY)
         }
-      }
     }
 
     this._moveTo(x, y, scale);
-    this._updateTrail()
-  }
-
-  setQuietPosition(quiet) {
-    this.isQuiet = quiet;
-    this._clearPostDragCooldown();
-    this.updatePosition();
   }
 
   /**
    * Place spaceman so its right edge sits `glueGap` px left of `ref` (agent or slot rect).
    * Vertical center tracks ref midline; clamps to viewport bounds.
+   * @param {number} relaxMinYPx subtract from bounds.minY clamp only (navbar glue: sit higher).
+   * @param {number} glueHxNudgePx add to launcher-relative cx before clamp (mobile navbar: nudge left).
    */
-  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap) {
+  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap, verticalNudgePx = 0, relaxMinYPx = 0, glueHxNudgePx = 0) {
     if (!ref || ref.width < 8 || ref.height < 8) return null
-    const bounds = this._getBounds(vw, vh, scale)
+    const bounds = this._getBounds(vw, vh, scale, vw < 768 ? { looserMobileHeroEdges: true } : {})
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
     const rect = this.container.getBoundingClientRect()
     const baseW = (rect.width / (this.currentScale || 1)) || 200
     const baseH = (rect.height / (this.currentScale || 1)) || 320
     const w = baseW * scale
     const h = baseH * scale
-    const cx = ref.left - glueGap - w / 2
-    const cy = ref.top + ref.height / 2
+    const cx = ref.left - glueGap - w / 2 + glueHxNudgePx
+    const cy = ref.top + ref.height / 2 + verticalNudgePx
+    const minY = bounds.minY - Math.max(0, relaxMinYPx)
     return {
       x: clamp(cx - vw / 2, bounds.minX, bounds.maxX),
-      y: clamp(cy - vh / 2, bounds.minY, bounds.maxY)
+      y: clamp(cy - vh / 2, minY, bounds.maxY)
     }
   }
 
@@ -501,11 +584,12 @@ class SpacemanPosition {
     return 0
   }
 
-  _getBounds(vw, vh, scale) {
-    const { navHeight } = this.options;
+  _getBounds(vw, vh, scale, opts = {}) {
+    const navHeight = this._navChromeHeight ?? this._readSiteHeaderHeightPx()
     const dockClearance = this._getDockClearance()
-    const edgePad = vw < 768 ? 12 : this.options.edgePad;
-    const bubbleSafetyPad = vw < 768 ? 22 : 10;
+    const loose = Boolean(opts.looserMobileHeroEdges && vw < 768)
+    const edgePad = loose ? 8 : (vw < 768 ? 12 : this.options.edgePad);
+    const bubbleSafetyPad = loose ? 12 : (vw < 768 ? 22 : 10);
     const rect = this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;
@@ -546,8 +630,10 @@ class SpacemanPosition {
     if (dockedAgent?.dataset?.slot === 'navbar') {
       const br = dockedAgent.getBoundingClientRect()
       if (br.width >= 8 && br.height >= 8) {
-        const navGap = vw < 768 ? 8 : 6
-        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap)
+        const navGap = vw < 768 ? 7 : 5
+        const { nudge, relax } = this._navbarGlueVerticalTuning(br, vw)
+        const hx = this._navbarGlueHorizontalNudgePx(vw)
+        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap, nudge, relax, hx)
         if (glued) return glued
       }
     }
@@ -581,7 +667,6 @@ class SpacemanPosition {
   _moveTo(x, y, scale) {
     clearTimeout(this._cleanupTimer);
     this.movable.classList.add('moving', 'thrust');
-    this._startTrailLoop()
 
     // No wobble when content open
     const wobble =
@@ -596,13 +681,10 @@ class SpacemanPosition {
     this.movable.style.setProperty('--sy', `${y + wobble}px`);
     this.movable.style.setProperty('--ss', `${scale}`);
     this.currentScale = scale;
-    this._updateTrail()
 
     const cleanup = () => {
       this.movable.classList.remove('thrust', 'moving');
       this.movable.removeEventListener('transitionend', onEnd);
-      this._stopTrailLoop()
-      this._updateTrail()
     };
 
     const onEnd = (e) => {
@@ -613,116 +695,15 @@ class SpacemanPosition {
     this._onEnd = onEnd;
     this.movable.addEventListener('transitionend', onEnd);
 
-    this._cleanupTimer = setTimeout(cleanup, this.options.transitionSpeed * 1000 + 50);
-  }
-
-  _startTrailLoop() {
-    if (this._trailLoopRaf) return
-    const tick = () => {
-      this._trailLoopRaf = null
-      if (!this.movable.classList.contains('moving')) return
-      this._updateTrail()
-      this._trailLoopRaf = requestAnimationFrame(tick)
-    }
-    this._trailLoopRaf = requestAnimationFrame(tick)
-  }
-
-  _stopTrailLoop() {
-    if (!this._trailLoopRaf) return
-    cancelAnimationFrame(this._trailLoopRaf)
-    this._trailLoopRaf = null
-  }
-
-  updateTrail() {
-    this._updateTrail()
-  }
-
-  setTrailVisible(visible) {
-    this._trailVisible = Boolean(visible)
-    if (!this.agentTrail) return
-    this.agentTrail.classList.toggle('agent-trail--hidden', !this._trailVisible)
-    this.agentTrail.setAttribute('aria-hidden', 'true')
-    if (!this._trailVisible) {
-      this.agentTrail.style.opacity = '0'
-      this.agentTrail.style.pointerEvents = 'none'
-      return
-    }
-    this.agentTrail.style.opacity = ''
-    this.agentTrail.style.pointerEvents = 'none'
-    this._updateTrail()
-  }
-
-  _updateTrail() {
-    const trail = this.agentTrail || document.getElementById('agentTrail')
-    const node = this.agentNode || document.getElementById('agentNode')
-    if (!trail || !node) return
-    const dots = trail.querySelectorAll('.agent-trail__dot')
-    if (!dots.length) return
-
-    if (!this._trailVisible || this.isQuiet) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    const dialogOpen = document.body.classList.contains('chat-dialog-open')
-      || document.body.classList.contains('project-dialog-open')
-      || document.body.classList.contains('contact-dialog-open')
-    if (dialogOpen) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    const anchorEl = this.spaceman.querySelector('.helmet') || this.spaceman.querySelector('.hero-head')
-    if (!anchorEl) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    const a = anchorEl.getBoundingClientRect()
-    const b = node.getBoundingClientRect()
-    if (a.width <= 0 || a.height <= 0 || b.width <= 0 || b.height <= 0) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    const ax = a.left + a.width / 2
-    const ay = a.top + a.height / 2
-    const bx = Math.max(b.left, Math.min(ax, b.right))
-    const by = Math.max(b.top, Math.min(ay, b.bottom))
-    const rdx = bx - ax
-    const rdy = by - ay
-    const rlen = Math.hypot(rdx, rdy) || 1
-    /* Long chords: shallower arc + lower t so dots stay nearer the helmet (less “stretched” line) */
-    const stretch = Math.min(1, Math.max(0, (rlen - 64) / 260))
-    const bulgeMag = Math.max(7, 16 - 9 * stretch)
-    const ts = [
-      0.22 + (0.12 - 0.22) * stretch,
-      0.52 + (0.32 - 0.52) * stretch,
-      0.8 + (0.55 - 0.8) * stretch
-    ]
-    let ox = (-rdy / rlen) * bulgeMag
-    let oy = (rdx / rlen) * bulgeMag
-    if (oy > 0) {
-      ox = -ox
-      oy = -oy
-    }
-    const cx = (ax + bx) / 2 + ox
-    const cy = (ay + by) / 2 + oy
-    const quad = (t) => {
-      const u = 1 - t
-      return {
-        x: u * u * ax + 2 * u * t * cx + t * t * bx,
-        y: u * u * ay + 2 * u * t * cy + t * t * by
-      }
-    }
-
-    dots.forEach((dot, index) => {
-      const t = ts[index] ?? ts[ts.length - 1]
-      const p = quad(t)
-      dot.style.transform = `translate(${p.x}px, ${p.y}px)`
-    })
-
-    trail.classList.remove('agent-trail--hidden')
+    const reducedMotion =
+      typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const chatPanelCadence =
+      document.body.classList.contains('chat-dialog-open') && !reducedMotion;
+    const transitionMs = chatPanelCadence
+      ? PANEL_ANIM_MS
+      : this.options.transitionSpeed * 1000;
+    this._cleanupTimer = setTimeout(cleanup, transitionMs + 50);
   }
 
   destroy() {
@@ -731,7 +712,6 @@ class SpacemanPosition {
     clearTimeout(this._resizeTimer);
     clearTimeout(this._scrollTimer);
     this._clearPostDragCooldown();
-    this._stopTrailLoop()
     if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._mutationObs?.disconnect();
     this._agentNodeMutationObs?.disconnect()

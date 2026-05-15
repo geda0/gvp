@@ -11,14 +11,15 @@ from app.main import app
 @pytest.mark.asyncio
 async def test_live_session_mocked_ok(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
+    monkeypatch.setenv('CHAT_LIVE_RELAY', '1')
 
     async def fake_mint(instruction: str) -> dict:
         assert 'Voice mode' in instruction
         return {
-            'websocketUrl': 'wss://generativelanguage.googleapis.com/ws/x?access_token=tok',
             'handshake': {'setup': {'model': 'models/gemini-3.1-flash-live-preview'}},
             'model': 'models/gemini-3.1-flash-live-preview',
             'apiVersion': 'v1alpha',
+            '_authTokenName': 'auth_tokens/unit-test-token',
         }
 
     monkeypatch.setattr('app.main.mint_live_session_async', fake_mint)
@@ -26,10 +27,14 @@ async def test_live_session_mocked_ok(client: AsyncClient, monkeypatch: pytest.M
     r = await client.post('/api/live/session', json={'sessionId': 'sess-unit'})
     assert r.status_code == 200
     body = r.json()
-    assert body['websocketUrl'].startswith('wss://')
+    assert '/api/live/relay/' in body['websocketUrl']
+    assert body['websocketUrl'].startswith('ws://') or body['websocketUrl'].startswith('wss://')
     assert body['handshake']['setup']['model']
     assert body['model']
     assert body['apiVersion'] == 'v1alpha'
+    assert body.get('liveVoiceTransport') == 'relay'
+    assert body.get('voiceBrowserExperience') == 'relay_recommended'
+    assert body.get('voiceHint') == 'ok'
 
 
 @pytest.mark.asyncio
@@ -70,6 +75,49 @@ async def test_live_session_runtime_error_503(client: AsyncClient, monkeypatch: 
     r = await client.post('/api/live/session', json={})
     assert r.status_code == 503
     assert r.json().get('code') == 'live_unavailable'
+
+
+@pytest.mark.asyncio
+async def test_live_session_direct_google_when_relay_off(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lambda / HTTP API stack: relay disabled; browser gets Google wss (voice often fails there — use ECS + relay)."""
+    monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
+    monkeypatch.setenv('CHAT_LIVE_RELAY', '0')
+
+    async def fake_mint(instruction: str) -> dict:
+        assert 'Voice mode' in instruction
+        return {
+            'handshake': {'setup': {'model': 'models/gemini-3.1-flash-live-preview'}},
+            'model': 'models/gemini-3.1-flash-live-preview',
+            'apiVersion': 'v1alpha',
+            '_authTokenName': 'auth_tokens/unit-test-token',
+        }
+
+    monkeypatch.setattr('app.main.mint_live_session_async', fake_mint)
+
+    r = await client.post('/api/live/session', json={'sessionId': 'sess-unit'})
+    assert r.status_code == 200
+    body = r.json()
+    assert 'generativelanguage.googleapis.com' in body['websocketUrl']
+    assert 'BidiGenerateContentConstrained' in body['websocketUrl']
+    assert body.get('liveVoiceTransport') == 'direct_google'
+    assert body.get('voiceBrowserExperience') == 'direct_google_only'
+    assert body.get('voiceHint') == 'relay_required_for_voice'
+
+
+@pytest.mark.asyncio
+async def test_live_session_voice_strict_without_relay_503(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
+    monkeypatch.setenv('CHAT_LIVE_RELAY', '0')
+    monkeypatch.setenv('CHAT_LIVE_VOICE_STRICT', '1')
+
+    async def should_not_run(_instruction: str) -> dict:
+        raise AssertionError('mint should not run when strict blocks')
+
+    monkeypatch.setattr('app.main.mint_live_session_async', should_not_run)
+
+    r = await client.post('/api/live/session', json={})
+    assert r.status_code == 503
+    assert r.json().get('code') == 'live_voice_requires_relay'
 
 
 @pytest.mark.asyncio

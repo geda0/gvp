@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build + deploy contact SAM stack, optional Lambda chat, optional ECS chat image, optional HTML meta sync.
 # Usage: bash scripts/integrate-and-deploy.sh [prod|stage]
-#   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta: CHAT_PROD_CHAT_API_URL or Chat SAM output.
-#   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ChatPostApiUrl when chat SAM deploy runs (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY).
+#   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta: CHAT_PROD_CHAT_API_URL, else URL derived from ECS (CHAT_ECS_* + ALB DNS), else Chat SAM output.
+#   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ECS-derived URL, else ChatPostApiUrl when chat SAM deploy runs (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY).
 #
 # Secrets Manager (local): when .secrets/manifest.json AND .secrets/config.manifest.json exist, runs
 #   seed_local_configs.py + push_local_secrets_to_sm.py then sources deploy.env (+ generated files).
@@ -10,6 +10,8 @@
 #
 # Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
 # (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
+# HTML chat voice (browser mic): optional GVP_CHAT_VOICE=1|true|yes during meta sync sets
+#   <meta name="gvp:chat-voice-enabled" content="1">; otherwise content=0. Unset defaults to off.
 # Chat on Lambda (Gemini): set CHAT_SAM_STACK_NAME (legacy fallback), or CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD per deploy env, plus GEMINI_API_KEY; template aws/chat-template.yaml
 
 set -euo pipefail
@@ -24,6 +26,8 @@ usage() {
   echo "  prod  — production contact stack (SAM_STACK_NAME, default page)" >&2
   echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
   echo "  Auto-runs Secrets Manager seed/push when .secrets/manifest.json + config.manifest.json exist (SKIP_SECRETS_MANAGER=1 to skip)." >&2
+  echo "  When CHAT_PROD_CHAT_API_URL / CHAT_STAGE_CHAT_API_URL are unset, derives gvp:chat-api-url from ECS ALB DNS (CHAT_ECS_* cluster+service). Opt out: CHAT_ECS_AUTO_SYNC_CHAT_URL=0." >&2
+  echo "  Optional GVP_CHAT_VOICE=1|true|yes: sets HTML meta gvp:chat-voice-enabled=1 (browser mic); default off." >&2
   exit 1
 }
 
@@ -135,6 +139,10 @@ if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
   PO+=("ContactReportEmail=${CONTACT_REPORT_EMAIL}")
 fi
 
+if [[ -n "${CONTACT_CORS_ORIGINS:-}" ]]; then
+  PO+=("ContactCorsOrigins=${CONTACT_CORS_ORIGINS}")
+fi
+
 SHORT_SHA="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
 CHAT_IMAGE_LOCAL="gvp-chat:${DEPLOY_ENV}-${SHORT_SHA}"
 
@@ -147,6 +155,16 @@ run_chat_sam=false
 if [[ -n "${CHAT_STACK_RESOLVED}" ]]; then
   run_chat_sam=true
   require GEMINI_API_KEY
+fi
+
+CHAT_ECS_CLUSTER=""
+CHAT_ECS_SERVICE=""
+if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+  CHAT_ECS_CLUSTER="${CHAT_ECS_CLUSTER_STAGE:-${CHAT_ECS_CLUSTER:-}}"
+  CHAT_ECS_SERVICE="${CHAT_ECS_SERVICE_STAGE:-${CHAT_ECS_SERVICE:-}}"
+else
+  CHAT_ECS_CLUSTER="${CHAT_ECS_CLUSTER_PROD:-${CHAT_ECS_CLUSTER:-}}"
+  CHAT_ECS_SERVICE="${CHAT_ECS_SERVICE_PROD:-}"
 fi
 
 test_pid=""
@@ -233,6 +251,7 @@ if [[ "${run_chat_sam}" == "true" ]]; then
     "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
     "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
+    "ChatVoiceModel=${CHAT_VOICE_MODEL:-gemini-3.1-flash-live-preview}"
   )
   if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
     CHAT_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
@@ -277,15 +296,8 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
   docker push "${REMOTE_SHA}"
   docker push "${REMOTE_LATEST}"
 
-  CLUSTER=""
-  SERVICE=""
-  if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-    CLUSTER="${CHAT_ECS_CLUSTER_STAGE:-${CHAT_ECS_CLUSTER:-}}"
-    SERVICE="${CHAT_ECS_SERVICE_STAGE:-${CHAT_ECS_SERVICE:-}}"
-  else
-    CLUSTER="${CHAT_ECS_CLUSTER_PROD:-${CHAT_ECS_CLUSTER:-}}"
-    SERVICE="${CHAT_ECS_SERVICE_PROD:-}"
-  fi
+  CLUSTER="${CHAT_ECS_CLUSTER}"
+  SERVICE="${CHAT_ECS_SERVICE}"
 
   if [[ -n "${CLUSTER}" && -n "${SERVICE}" ]]; then
     echo "ECS force deploy cluster=${CLUSTER} service=${SERVICE}"
@@ -295,6 +307,7 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
       --force-new-deployment \
       --region "${REGION}" \
       --no-cli-pager
+    echo "note: ECS chat image defaults CHAT_LIVE_RELAY=1 (docker/chat/Dockerfile). gvp:chat-api-url is patched from CHAT_*_CHAT_API_URL when set, else derived from this ECS service’s ALB/NLB DNS when CHAT_ECS_AUTO_SYNC_CHAT_URL is enabled."
   else
     echo "CHAT_ECS_CLUSTER_* / CHAT_ECS_SERVICE_* unset — skip ECS roll (image pushed)."
   fi
@@ -302,22 +315,76 @@ elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
   echo "CHAT_ECR_REPOSITORY_URI unset — chat image built locally as ${CHAT_IMAGE_LOCAL} only."
 fi
 
-if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-  CHAT_SYNC_CHAT_URL="${CHAT_STAGE_CHAT_API_URL:-${CHAT_SAM_CHAT_URL}}"
-else
-  CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-${CHAT_SAM_CHAT_URL}}"
+# Build https://<alb-or-nlb-dns><path> from ECS service's first target group's load balancer (for HTML meta sync).
+discover_ecs_chat_sync_url_from_aws() {
+  local cluster="$1" service="$2"
+  local tg_arn lb_arn dns path scheme
+  path="${CHAT_ECS_CHAT_API_PATH:-/api/chat}"
+  case "${path}" in
+    /*) ;;
+    *) path="/${path}" ;;
+  esac
+  scheme="${CHAT_ECS_CHAT_API_SCHEME:-https}"
+  tg_arn="$(aws ecs describe-services --cluster "${cluster}" --services "${service}" --region "${REGION}" \
+    --query 'services[0].loadBalancers[0].targetGroupArn' --output text 2>/dev/null)" || return 1
+  if [[ -z "${tg_arn}" || "${tg_arn}" == "None" ]]; then
+    return 1
+  fi
+  lb_arn="$(aws elbv2 describe-target-groups --target-group-arns "${tg_arn}" --region "${REGION}" \
+    --query 'TargetGroups[0].LoadBalancerArns[0]' --output text 2>/dev/null)" || return 1
+  if [[ -z "${lb_arn}" || "${lb_arn}" == "None" ]]; then
+    return 1
+  fi
+  dns="$(aws elbv2 describe-load-balancers --load-balancer-arns "${lb_arn}" --region "${REGION}" \
+    --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null)" || return 1
+  if [[ -z "${dns}" || "${dns}" == "None" ]]; then
+    return 1
+  fi
+  printf '%s://%s%s' "${scheme}" "${dns}" "${path}"
+  return 0
+}
+
+CHAT_ECS_DISCOVERED_URL=""
+_auto_ecs_meta="${CHAT_ECS_AUTO_SYNC_CHAT_URL:-1}"
+if [[ "${_auto_ecs_meta}" != "0" && "${_auto_ecs_meta}" != "false" ]]; then
+  _need_ecs_meta=false
+  if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_STAGE_CHAT_API_URL:-}" ]]; then
+    _need_ecs_meta=true
+  fi
+  if [[ "${DEPLOY_ENV}" == "prod" && -z "${CHAT_PROD_CHAT_API_URL:-}" ]]; then
+    _need_ecs_meta=true
+  fi
+  if [[ "${_need_ecs_meta}" == true ]] && [[ -n "${CHAT_ECS_CLUSTER:-}" && -n "${CHAT_ECS_SERVICE:-}" ]]; then
+    if CHAT_ECS_DISCOVERED_URL="$(discover_ecs_chat_sync_url_from_aws "${CHAT_ECS_CLUSTER}" "${CHAT_ECS_SERVICE}")"; then
+      echo "Derived gvp:chat-api-url from ECS (${CHAT_ECS_CLUSTER}/${CHAT_ECS_SERVICE}) → ${CHAT_ECS_DISCOVERED_URL}"
+    else
+      CHAT_ECS_DISCOVERED_URL=""
+      echo "note: CHAT_*_CHAT_API_URL unset — could not derive chat URL from ECS (no load balancer on service, or wrong cluster/service?)." >&2
+    fi
+  fi
 fi
+
+if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+  CHAT_SYNC_CHAT_URL="${CHAT_STAGE_CHAT_API_URL:-${CHAT_ECS_DISCOVERED_URL:-${CHAT_SAM_CHAT_URL}}}"
+else
+  CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-${CHAT_ECS_DISCOVERED_URL:-${CHAT_SAM_CHAT_URL}}}"
+fi
+
+CHAT_VOICE_META=0
+case "${GVP_CHAT_VOICE:-0}" in
+  1|true|TRUE|True|yes|YES|Yes) CHAT_VOICE_META=1 ;;
+esac
 
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
   if [[ -n "${CHAT_SYNC_CHAT_URL}" ]]; then
-    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_SYNC_CHAT_URL}"
-    echo "Patched index.html and admin/index.html (gvp:contact-api-url + gvp:chat-api-url)."
+    env GVP_CHAT_VOICE="${CHAT_VOICE_META}" node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_SYNC_CHAT_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url, gvp:chat-api-url, gvp:chat-voice-enabled=${CHAT_VOICE_META})."
   else
-    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
-    echo "Patched index.html and admin/index.html (gvp:contact-api-url meta)."
+    env GVP_CHAT_VOICE="${CHAT_VOICE_META}" node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url; gvp:chat-voice-enabled=${CHAT_VOICE_META})."
   fi
   if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_SYNC_CHAT_URL}" ]]; then
-    echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL or deploy Lambda chat (CHAT_SAM_STACK_NAME_STAGE or CHAT_SAM_STACK_NAME + GEMINI_API_KEY) to create ChatPostApiUrl."
+    echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL, or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB discovery, or deploy Lambda chat (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY) for ChatPostApiUrl." >&2
   fi
 fi
 

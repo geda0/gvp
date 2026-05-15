@@ -6,6 +6,7 @@ import {
   json,
   optionsResponse,
   parseJsonBody,
+  resolveCorsOrigin,
   validateMessage
 } from './common/contact-shared.js'
 
@@ -13,30 +14,31 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const sqs = new SQSClient({})
 
 export const handler = async (event) => {
+  const origin = resolveCorsOrigin(event)
   const method = event?.requestContext?.http?.method || event?.httpMethod || 'POST'
-  if (method === 'OPTIONS') return optionsResponse()
-  if (method !== 'POST') return json(405, { error: 'Method not allowed' })
+  if (method === 'OPTIONS') return optionsResponse(origin)
+  if (method !== 'POST') return json(405, { error: 'Method not allowed' }, origin)
 
   let payload
   try {
     payload = parseJsonBody(event)
   } catch (_) {
-    return json(400, { error: 'Invalid JSON' })
+    return json(400, { error: 'Invalid JSON' }, origin)
   }
 
   const record = buildMessageRecord(payload, event?.headers || {})
 
   if (record.company) {
-    return json(200, { ok: true, persisted: true, delivery: 'queued' })
+    return json(200, { ok: true, persisted: true, delivery: 'queued' }, origin)
   }
 
   const validationError = validateMessage(record)
   if (validationError) {
-    return json(400, { error: validationError })
+    return json(400, { error: validationError }, origin)
   }
 
   if (!process.env.CONTACT_MESSAGES_TABLE || !process.env.CONTACT_DELIVERY_QUEUE_URL) {
-    return json(500, { error: 'Contact service is not configured.' })
+    return json(500, { error: 'Contact service is not configured.' }, origin)
   }
 
   try {
@@ -63,7 +65,7 @@ export const handler = async (event) => {
       persisted: true,
       delivery: 'queued',
       id: record.id
-    })
+    }, origin)
   } catch (error) {
     console.error('Failed to persist or enqueue contact message', {
       errorMessage: String(error?.message || error),
@@ -71,6 +73,6 @@ export const handler = async (event) => {
     })
     return json(500, {
       error: 'Message could not be queued. Please try again.'
-    })
+    }, origin)
   }
 }

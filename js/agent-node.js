@@ -1,48 +1,118 @@
 import { chatBus } from './chat-bus.js'
+import { normalizeSection } from './section-names.js'
 
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 const MORPH_LEAVE_DEBOUNCE_MS = 120
-const LOUNGE_MSG_MS = 4000
-const LOUNGE_ASK_MS = 3600
+const PLACEHOLDER_ROTATE_MS = 4500
 const LIFECYCLE_STATES = ['sending', 'thinking', 'streaming', 'tool_call', 'error']
 
 const PLACEHOLDER_POOL = {
   home: [
-    'Ask anything about Marwan\'s work…',
-    'e.g. system design, cloud, or team leadership',
-    'What did you ship most recently?',
-    'Curious about a specific employer or project?'
+    {
+      teaser: 'Ask about my Apptio work',
+      deepQuestion: 'What did you work on at Apptio (IBM)? Walk me through the financial data pipelines, the problems you solved, and the impact you had.'
+    },
+    {
+      teaser: 'What did a normal week look like at JumpCloud?',
+      deepQuestion: 'What did a normal week look like at JumpCloud—systems you owned, stakeholders, metrics you watched, and how you prioritized when incidents stacked up?'
+    },
+    {
+      teaser: 'How did you prove the pipeline migration was correct?',
+      deepQuestion: 'When you sped up or migrated data pipelines at Apptio (IBM), how did you prove correctness under load—tests, reconciliation, shadow traffic—and what broke first when scale showed up?'
+    },
+    {
+      teaser: "What's your AWS experience?",
+      deepQuestion: 'Tell me about your hands-on AWS experience: which services you have used in production, the scale you operated at, and a system you are proud of.'
+    },
+    {
+      teaser: 'What was your hardest project?',
+      deepQuestion: 'What is the hardest project you have worked on? Describe the problem, the constraints, your role, and how you got it across the line.'
+    },
+    {
+      teaser: 'Walk me through how you design platform boundaries.',
+      deepQuestion: 'How do you approach platform architecture—interfaces, ownership boundaries, and operability—and what trade-offs showed up most clearly at HP Instant Ink or JumpCloud scale?'
+    },
+    {
+      teaser: 'What outcome still feels worth the trade-offs?',
+      deepQuestion: 'Tell me about an accomplishment you are especially proud of: the problem, your role, constraints, measurable impact if you can share it, and what you would refine with hindsight.'
+    }
   ],
   playground: [
-    'Ask about this experiment…',
-    'What problem were you exploring?',
-    'What would you try differently next time?'
+    {
+      teaser: 'What is this project and why did you build it?',
+      deepQuestion: 'What is this playground project, what problem or idea does it explore, and what did you set out to learn by building it?'
+    },
+    {
+      teaser: 'In one sentence, what does this build do?',
+      deepQuestion: 'In plain language: what does this playground build do for a user or team, what problem it solves, and what is intentionally out of scope?'
+    },
+    {
+      teaser: 'What tech stack did you use here?',
+      deepQuestion: 'What tech stack did you pick for this experiment, what alternatives did you consider, and why did you choose this one?'
+    },
+    {
+      teaser: 'Which experiment should we stress-test for trade-offs?',
+      deepQuestion: 'Which playground project should we dissect first—what hypothesis did it test, what stack did you pick over alternatives, and what would you instrument or simplify on a second iteration?'
+    },
+    {
+      teaser: 'What integration boundary hurt most—and how did you fix it?',
+      deepQuestion: 'What was the hardest integration boundary in this work (APIs, auth, data contracts, deployment), how did you isolate failures, and what pattern would you reuse on a larger team?'
+    }
   ],
   portfolio: [
-    'Ask about a role or impact metric…',
-    'How did you measure success there?',
-    'What was the hardest tradeoff on that project?'
+    {
+      teaser: 'Tell me about this role',
+      deepQuestion: 'Tell me about this role: what you owned, the org context, and the work that best shows how you operate.'
+    },
+    {
+      teaser: 'Who did you work with most in this job?',
+      deepQuestion: 'In this role, who did you work with day to day—engineering leadership, product, customers—and how did decisions get made when priorities conflicted?'
+    },
+    {
+      teaser: 'What did you ship here?',
+      deepQuestion: 'What is one concrete thing you shipped in this role—a migration, launch, or platform change—and how did you make sure it landed safely?'
+    },
+    {
+      teaser: 'Which role should we go deep on first?',
+      deepQuestion: 'Which portfolio position should we unpack in depth—scope, org context, and the one deliverable or initiative that best shows how you lead execution from design through stable operations?'
+    },
+    {
+      teaser: 'Unpack a deliverable you still stand behind years later.',
+      deepQuestion: 'Pick one concrete deliverable from this role—migration, platform cutover, reliability push, or customer-facing launch—and walk through stakeholders, timeline pressure, and how you proved it was done safely.'
+    }
   ]
 }
 
-function normalizeSection(section) {
-  return section === 'playground' || section === 'portfolio' ? section : 'home'
+function normalizePoolEntry(entry) {
+  if (entry && typeof entry === 'object' && typeof entry.teaser === 'string') {
+    const teaser = entry.teaser.trim()
+    const deepRaw = typeof entry.deepQuestion === 'string' ? entry.deepQuestion.trim() : ''
+    const deepQuestion = deepRaw || teaser
+    return { teaser, deepQuestion }
+  }
+  const s = String(entry || '').trim()
+  return { teaser: s, deepQuestion: s }
 }
+
+let currentDeepQuestion = ''
 
 function normalizeSlot(slot) {
   return slot === 'navbar' ? 'navbar' : 'hero'
 }
 
-const HERO_OBSERVER_THRESHOLDS = [0, 0.2, 0.35, 0.6, 1]
+/** Fraction of the measured hero launcher height that must sit below the fixed header and inside the viewport to keep `#agentNode` in `#agentSlotHero` (otherwise dock to navbar). */
+const HERO_LAUNCHER_VISIBLE_FRAC = 0.36
 
 export function initAgentNode(options = {}) {
   const node = document.getElementById('agentNode')
   const heroSlot = document.getElementById('agentSlotHero')
   const navbarSlot = document.getElementById('agentSlotNavbar')
-  const trail = document.getElementById('agentTrail')
+  const mic = document.getElementById('agentNodeMic')
+  const heroChatLabelWrap = heroSlot?.closest('.hero-chat')?.querySelector('.hero-chat__label-wrap')
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
+  const ambientOverlay = node?.querySelector('.agent-node__ambient-overlay')
 
   if (!node || !heroSlot || !navbarSlot || !form || !input) return null
 
@@ -69,11 +139,11 @@ export function initAgentNode(options = {}) {
 
   let leaveTimer = null
   let unsubscribeChatBus = null
-  let loungeTimer = null
   let launcherObserver = null
+  let homeDockScrollRaf = null
   let lastSyncedSection = 'home'
   const placeholderIdx = { home: 0, playground: 0, portfolio: 0 }
-  let barPlaceholderTimer = null
+  let placeholderRotateTimer = null
 
   const prefersReducedMotion = () => Boolean(reducedMql?.matches)
 
@@ -83,6 +153,34 @@ export function initAgentNode(options = {}) {
     || document.body.classList.contains('contact-dialog-open')
   )
 
+  const placeholderSubscribers = new Set()
+
+  const getPlaceholderSuggestion = () => ({
+    teaser: String(input.placeholder || '').trim(),
+    deepQuestion: String(currentDeepQuestion || '').trim(),
+    section: state.section
+  })
+
+  const notifyPlaceholderChange = () => {
+    const payload = getPlaceholderSuggestion()
+    placeholderSubscribers.forEach((fn) => {
+      try {
+        fn(payload)
+      } catch (_) {
+        // Ignore subscriber errors
+      }
+    })
+  }
+
+  const subscribePlaceholder = (fn) => {
+    if (typeof fn !== 'function') return () => {}
+    placeholderSubscribers.add(fn)
+    fn(getPlaceholderSuggestion())
+    return () => {
+      placeholderSubscribers.delete(fn)
+    }
+  }
+
   const poolForSection = (section) => (
     PLACEHOLDER_POOL[section] || PLACEHOLDER_POOL.home
   )
@@ -91,7 +189,10 @@ export function initAgentNode(options = {}) {
     const pool = poolForSection(section)
     const n = Number(index) || 0
     const i = ((n % pool.length) + pool.length) % pool.length
-    input.placeholder = pool[i]
+    const entry = normalizePoolEntry(pool[i])
+    input.placeholder = entry.teaser
+    currentDeepQuestion = entry.deepQuestion
+    notifyPlaceholderChange()
   }
 
   const bumpPlaceholderOnSectionChange = (section) => {
@@ -100,35 +201,43 @@ export function initAgentNode(options = {}) {
     applyPlaceholder(section, placeholderIdx[section])
   }
 
-  const clearBarPlaceholderTimer = () => {
-    if (!barPlaceholderTimer) return
-    clearInterval(barPlaceholderTimer)
-    barPlaceholderTimer = null
+  const clearPlaceholderRotateTimer = () => {
+    if (!placeholderRotateTimer) return
+    clearInterval(placeholderRotateTimer)
+    placeholderRotateTimer = null
   }
 
-  const syncBarPlaceholderRotation = () => {
-    clearBarPlaceholderTimer()
+  const syncBubbleLifecycleOverlay = (busy) => {
+    if (!ambientOverlay) return
+    if (busy && state.mode === 'bubble') {
+      ambientOverlay.style.opacity = '1'
+      ambientOverlay.style.pointerEvents = 'none'
+      input.style.setProperty('color', 'transparent')
+      input.style.setProperty('-webkit-text-fill-color', 'transparent')
+      input.style.setProperty('caret-color', 'transparent')
+      return
+    }
+    ambientOverlay.style.removeProperty('opacity')
+    ambientOverlay.style.removeProperty('pointer-events')
+    input.style.removeProperty('color')
+    input.style.removeProperty('-webkit-text-fill-color')
+    input.style.removeProperty('caret-color')
+  }
+
+  const syncPlaceholderRotation = () => {
+    clearPlaceholderRotateTimer()
     if (prefersReducedMotion() || isOpen()) return
     if (!isFinePointer()) return
-    if (state.mode !== 'bar') return
-    barPlaceholderTimer = window.setInterval(() => {
+    if (state.mode === 'modal') return
+    if (isObstructingDialogOpen()) return
+    placeholderRotateTimer = window.setInterval(() => {
       if (isOpen() || node.matches(':focus-within')) return
+      if (isObstructingDialogOpen()) return
+      if (state.mode === 'modal') return
       const sec = state.section
       placeholderIdx[sec] = (placeholderIdx[sec] + 1) % poolForSection(sec).length
       applyPlaceholder(sec, placeholderIdx[sec])
-    }, 4800)
-  }
-
-  const syncDimAskClass = () => {
-    const dim = state.mode === 'bar'
-      || (state.mode === 'bubble' && node.dataset.loungePhase === 'ask')
-    node.classList.toggle('agent-node--dim-ask', dim)
-  }
-
-  const clearLoungeTimer = () => {
-    if (!loungeTimer) return
-    clearTimeout(loungeTimer)
-    loungeTimer = null
+    }, PLACEHOLDER_ROTATE_MS)
   }
 
   const clearLeaveTimer = () => {
@@ -140,75 +249,17 @@ export function initAgentNode(options = {}) {
   const isFinePointer = () => Boolean(mql?.matches)
 
   const syncInputReadOnly = () => {
-    if (isFinePointer() || state.mode === 'modal') {
+    if (isFinePointer() || state.mode === 'modal' || state.mode === 'bar') {
       input.readOnly = false
       return
     }
-    input.readOnly = node.dataset.loungePhase !== 'ask'
+    input.readOnly = true
   }
 
-  const shouldRunCopyAlternate = () => (
-    !prefersReducedMotion()
-    && state.mode === 'bubble'
-    && !isOpen()
-    && !spacemanPosition?.isQuiet
-    && !isObstructingDialogOpen()
-  )
-
-  const scheduleLoungeFlip = () => {
-    clearLoungeTimer()
-    if (!shouldRunCopyAlternate()) return
-    if (node.matches(':focus-within')) {
-      loungeTimer = setTimeout(scheduleLoungeFlip, 640)
-      return
-    }
-    const phase = node.dataset.loungePhase === 'ask' ? 'ask' : 'msg'
-    const delay = phase === 'msg' ? LOUNGE_MSG_MS : LOUNGE_ASK_MS
-    loungeTimer = setTimeout(() => {
-      loungeTimer = null
-      if (!shouldRunCopyAlternate()) return
-      if (node.matches(':focus-within')) {
-        scheduleLoungeFlip()
-        return
-      }
-      const next = phase === 'msg' ? 'ask' : 'msg'
-      node.dataset.loungePhase = next
-      node.classList.add('agent-node--lounge-tick')
-      window.setTimeout(() => node.classList.remove('agent-node--lounge-tick'), 380)
-      if (next === 'ask') {
-        const sec = state.section
-        const pool = poolForSection(sec)
-        applyPlaceholder(sec, placeholderIdx[sec])
-        placeholderIdx[sec] = (placeholderIdx[sec] + 1) % pool.length
-      }
-      syncInputReadOnly()
-      syncDimAskClass()
-      scheduleLoungeFlip()
-    }, delay)
-  }
-
-  const restartLounge = () => {
-    clearLoungeTimer()
+  const refreshPlaceholderUi = () => {
     applyPlaceholder(state.section, placeholderIdx[state.section])
-    if (prefersReducedMotion()) {
-      node.dataset.loungePhase = 'ask'
-      syncInputReadOnly()
-      syncDimAskClass()
-      if (state.mode === 'bar') syncBarPlaceholderRotation()
-      return
-    }
-    if (!shouldRunCopyAlternate()) {
-      node.dataset.loungePhase = 'msg'
-      syncInputReadOnly()
-      syncDimAskClass()
-      if (state.mode === 'bar') syncBarPlaceholderRotation()
-      return
-    }
-    node.dataset.loungePhase = 'msg'
     syncInputReadOnly()
-    syncDimAskClass()
-    scheduleLoungeFlip()
-    if (state.mode === 'bar') syncBarPlaceholderRotation()
+    syncPlaceholderRotation()
   }
 
   const getSlot = () => state.slot
@@ -225,32 +276,21 @@ export function initAgentNode(options = {}) {
     }
   }
 
-  const syncTrailVisibility = () => {
-    if (!spacemanPosition || typeof spacemanPosition.setTrailVisible !== 'function') return
-    const quiet = Boolean(spacemanPosition.isQuiet)
-    const dialogOpen = document.body.classList.contains('chat-dialog-open')
-      || document.body.classList.contains('project-dialog-open')
-      || document.body.classList.contains('contact-dialog-open')
-    const visible = state.mode !== 'modal' && !quiet && !dialogOpen
-    spacemanPosition.setTrailVisible(visible)
-  }
-
   const setState = (nextState = 'bubble') => {
     const prev = state.mode
     const safe = nextState === 'bar' || nextState === 'modal' ? nextState : 'bubble'
     state.mode = safe
     node.dataset.state = safe
-    if (safe === 'bar' || safe === 'modal') clearLoungeTimer()
-    if (safe !== 'bar') clearBarPlaceholderTimer()
-    syncDimAskClass()
-    syncTrailVisibility()
+    if (safe === 'modal') clearPlaceholderRotateTimer()
     syncInputReadOnly()
     options.onStateChange?.(safe)
-    if (safe === 'bar') syncBarPlaceholderRotation()
+    const after = () => {
+      if (safe !== 'modal') syncPlaceholderRotation()
+    }
     if (prev === 'modal' && safe === 'bubble') {
-      requestAnimationFrame(() => restartLounge())
+      requestAnimationFrame(after)
     } else {
-      restartLounge()
+      after()
     }
   }
 
@@ -260,21 +300,75 @@ export function initAgentNode(options = {}) {
     if (node.parentElement !== parent) {
       parent.appendChild(node)
     }
+    if (mic) {
+      if (safe === 'hero' && heroChatLabelWrap) {
+        heroChatLabelWrap.appendChild(mic)
+      } else {
+        node.appendChild(mic)
+      }
+    }
     state.slot = safe
     node.dataset.slot = safe
     options.onDockChange?.(safe)
     if (!isOpen()) {
       setState('bubble')
     } else {
-      restartLounge()
+      refreshPlaceholderUi()
     }
     spacemanPosition?.updatePosition?.()
   }
 
-  const syncHeroVisibleFromRect = () => {
-    const r = heroSlot.getBoundingClientRect()
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0
-    state.heroVisible = r.bottom > 0 && r.top < vh
+  const applyHomeDockFromHeroVisibility = () => {
+    if (state.section !== 'home') return
+    const want = state.heroVisible ? 'hero' : 'navbar'
+    if (state.slot === want && node.parentElement === (want === 'navbar' ? navbarSlot : heroSlot)) {
+      return
+    }
+    dockTo(want)
+  }
+
+  const readViewportYExtents = () => {
+    const vv = window.visualViewport
+    if (vv && Number.isFinite(vv.height) && vv.height > 0) {
+      const top = Math.max(0, Number(vv.offsetTop) || 0)
+      return { top, bottom: top + vv.height }
+    }
+    const bottom = window.innerHeight || document.documentElement.clientHeight || 0
+    return { top: 0, bottom }
+  }
+
+  const readFixedHeaderBottom = () => {
+    const header = document.body.querySelector('header')
+    if (!header) return 0
+    const br = header.getBoundingClientRect()
+    return Number.isFinite(br.bottom) ? br.bottom : 0
+  }
+
+  /** Hero copy is “usable” only if enough of the pill (or reserved slot when docked away) sits in the visual viewport below the fixed header. */
+  const readHeroLauncherAccessible = () => {
+    if (!heroSlot) return true
+    const inHeroSlot = node.parentElement === heroSlot
+    const el = inHeroSlot ? node : heroSlot
+    const r = el.getBoundingClientRect()
+    const { top: vpTop, bottom: vpBottom } = readViewportYExtents()
+    const usableTop = Math.min(Math.max(vpTop, readFixedHeaderBottom()), vpBottom)
+    if (!Number.isFinite(r.height) || r.height < 4) return false
+    const overlap = Math.max(0, Math.min(r.bottom, vpBottom) - Math.max(r.top, usableTop))
+    return overlap / r.height >= HERO_LAUNCHER_VISIBLE_FRAC
+  }
+
+  const syncHeroVisibilityForDock = () => {
+    state.heroVisible = readHeroLauncherAccessible()
+  }
+
+  const scheduleHomeDockFromScroll = () => {
+    if (state.section !== 'home') return
+    if (homeDockScrollRaf != null) return
+    homeDockScrollRaf = requestAnimationFrame(() => {
+      homeDockScrollRaf = null
+      syncHeroVisibilityForDock()
+      applyHomeDockFromHeroVisibility()
+    })
   }
 
   const syncFromNavigation = (section = 'home') => {
@@ -285,11 +379,16 @@ export function initAgentNode(options = {}) {
     }
     state.section = next
     if (next === 'home') {
-      syncHeroVisibleFromRect()
+      syncHeroVisibilityForDock()
       dockTo(state.heroVisible ? 'hero' : 'navbar')
+      requestAnimationFrame(() => {
+        syncHeroVisibilityForDock()
+        applyHomeDockFromHeroVisibility()
+      })
     } else {
       dockTo('navbar')
     }
+    applyPlaceholder(state.section, placeholderIdx[state.section])
     if (
       isFinePointer()
       && !isOpen()
@@ -298,7 +397,7 @@ export function initAgentNode(options = {}) {
     ) {
       setState('bar')
     } else {
-      syncBarPlaceholderRotation()
+      syncPlaceholderRotation()
     }
   }
 
@@ -321,30 +420,51 @@ export function initAgentNode(options = {}) {
     }, MORPH_LEAVE_DEBOUNCE_MS)
   }
 
-  const openFromNode = () => {
-    setState('modal')
-    openPanel(state.slot)
+  const shouldOpenPanelFromLauncher = () => {
+    if (isOpen()) return false
+    if (state.mode === 'modal') return false
+    if (String(input.value || '').trim()) return false
+    if (isObstructingDialogOpen()) return false
+    return state.mode === 'bubble' || state.mode === 'bar'
+  }
+
+  const isLauncherPanelPointerTarget = (target) => {
+    if (!target || !form.contains(target)) return false
+    if (target.closest('.agent-node__mic')) return false
+    if (target.closest('.agent-node__submit')) return false
+    return true
+  }
+
+  form.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 && event.button !== undefined) return
+    if (event.target.closest('.agent-node__mic')) return
+    if (event.target.closest('.agent-node__submit')) return
+    if (!shouldOpenPanelFromLauncher()) return
+    if (!isLauncherPanelPointerTarget(event.target)) return
+    event.preventDefault()
+    openPanel()
+  }, true)
+
+  const submitLauncher = () => {
+    const text = String(input.value || '').trim()
+    const source = state.slot === 'navbar' ? 'header' : 'hero'
+    if (!text) {
+      openPanel()
+      return
+    }
+    input.value = ''
+    openPanelWithMessage(text, source)
   }
 
   form.addEventListener('submit', (event) => {
     event.preventDefault()
-    const text = String(input.value || '').trim()
-    const source = state.slot === 'navbar' ? 'header' : 'hero'
-    if (!text) {
-      openFromNode()
-      return
-    }
-    input.value = ''
-    setState('modal')
-    openPanelWithMessage(text, source)
+    submitLauncher()
   })
 
-  input.addEventListener('pointerdown', (event) => {
-    if (isFinePointer()) return
-    if (state.mode === 'modal') return
-    if (!input.readOnly) return
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return
     event.preventDefault()
-    openFromNode()
+    submitLauncher()
   })
 
   input.addEventListener('focus', () => {
@@ -353,43 +473,14 @@ export function initAgentNode(options = {}) {
     }
   })
 
-  const isBubbleAmbientLineTarget = (target) => (
-    Boolean(target?.closest?.('.agent-node__bubble-text'))
-    || Boolean(target?.closest?.('.agent-node__cursor'))
-  )
-
-  node.addEventListener('click', (event) => {
-    if (state.mode !== 'bubble' || isOpen()) return
-    if (!isBubbleAmbientLineTarget(event.target)) return
-    if (spacemanPosition?.isQuiet) return
-    if (prefersReducedMotion()) return
-    if (node.dataset.loungePhase === 'ask') {
-      event.preventDefault()
-      input.focus()
-      return
-    }
-    if (!shouldRunCopyAlternate()) return
-    event.preventDefault()
-    event.stopPropagation()
-    clearLoungeTimer()
-    node.dataset.loungePhase = 'ask'
-    node.classList.add('agent-node--lounge-tick')
-    window.setTimeout(() => node.classList.remove('agent-node--lounge-tick'), 380)
-    const sec = state.section
-    const pool = poolForSection(sec)
-    applyPlaceholder(sec, placeholderIdx[sec])
-    placeholderIdx[sec] = (placeholderIdx[sec] + 1) % pool.length
-    syncInputReadOnly()
-    syncBarPlaceholderRotation()
-    syncDimAskClass()
-    scheduleLoungeFlip()
-  }, true)
-
   node.addEventListener('click', (event) => {
     if (isFinePointer()) return
     if (state.mode !== 'bubble' || isOpen()) return
+    if (event.target.closest('.agent-node__mic')) return
+    if (event.target.closest('.agent-node__submit')) return
     if (event.target.closest('.agent-node__form')) return
-    openFromNode()
+    if (String(input.value || '').trim()) return
+    openPanel()
   })
 
   node.addEventListener('focusin', onPointerEnter)
@@ -405,16 +496,15 @@ export function initAgentNode(options = {}) {
 
   const applyLifecycleClass = (chatState) => {
     node.classList.remove('agent-node--lifecycle-active')
-    trail?.classList.remove('agent-trail--lifecycle-active')
     LIFECYCLE_STATES.forEach((status) => {
       const safe = status.replace(/_/g, '-')
       node.classList.remove(`agent-node--lifecycle-${safe}`)
-      trail?.classList.remove(`agent-trail--${safe}`)
     })
+    const busy = Boolean(chatState && chatState !== 'idle')
+    syncBubbleLifecycleOverlay(busy)
     if (!chatState || chatState === 'idle') return
     const safeState = String(chatState).replace(/_/g, '-')
     node.classList.add('agent-node--lifecycle-active', `agent-node--lifecycle-${safeState}`)
-    trail?.classList.add('agent-trail--lifecycle-active', `agent-trail--${safeState}`)
   }
 
   unsubscribeChatBus = chatBus.on((chatState) => {
@@ -422,76 +512,65 @@ export function initAgentNode(options = {}) {
   })
 
   const onFinePointerMqlChange = () => {
-    syncTrailVisibility()
     if (!isFinePointer() && state.mode !== 'modal') {
       clearLeaveTimer()
       setState('bubble')
     } else {
       syncInputReadOnly()
-      restartLounge()
-      syncBarPlaceholderRotation()
+      refreshPlaceholderUi()
     }
   }
   mql?.addEventListener?.('change', onFinePointerMqlChange)
 
   const onReducedMotionMqlChange = () => {
-    clearBarPlaceholderTimer()
-    restartLounge()
+    clearPlaceholderRotateTimer()
+    refreshPlaceholderUi()
   }
   reducedMql?.addEventListener?.('change', onReducedMotionMqlChange)
 
-  if (typeof IntersectionObserver === 'function') {
+  const onScrollLikeForHomeDock = () => {
+    scheduleHomeDockFromScroll()
+  }
+
+  if (typeof IntersectionObserver === 'function' && heroSlot) {
     launcherObserver?.disconnect()
-    launcherObserver = new IntersectionObserver((entries) => {
-      const entry = entries[0]
-      if (!entry) return
-      state.heroVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35
-      if (state.section === 'home') {
-        dockTo(state.heroVisible ? 'hero' : 'navbar')
-      }
+    launcherObserver = new IntersectionObserver(() => {
+      syncHeroVisibilityForDock()
+      applyHomeDockFromHeroVisibility()
     }, {
       root: null,
       rootMargin: '0px',
-      threshold: HERO_OBSERVER_THRESHOLDS
+      threshold: [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.65, 0.8, 1]
     })
     launcherObserver.observe(heroSlot)
   } else {
-    state.heroVisible = false
+    syncHeroVisibilityForDock()
   }
 
-  let bodyClassObserver = null
-  let bodyRestartRaf = null
-  const scheduleRestartFromBodyClass = () => {
-    if (bodyRestartRaf != null) return
-    bodyRestartRaf = requestAnimationFrame(() => {
-      bodyRestartRaf = null
-      if (state.mode === 'modal') return
-      restartLounge()
-    })
-  }
-
-  if (typeof MutationObserver === 'function' && document.body) {
-    bodyClassObserver = new MutationObserver(scheduleRestartFromBodyClass)
-    bodyClassObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] })
-  }
+  window.addEventListener('scroll', onScrollLikeForHomeDock, { passive: true })
+  window.addEventListener('scrollend', onScrollLikeForHomeDock)
+  window.visualViewport?.addEventListener?.('scroll', onScrollLikeForHomeDock)
+  window.visualViewport?.addEventListener?.('resize', onScrollLikeForHomeDock)
 
   syncFromNavigation('home')
-  syncTrailVisibility()
 
   const destroy = () => {
     clearLeaveTimer()
-    clearLoungeTimer()
-    clearBarPlaceholderTimer()
+    clearPlaceholderRotateTimer()
+    syncBubbleLifecycleOverlay(false)
+    if (homeDockScrollRaf != null) {
+      cancelAnimationFrame(homeDockScrollRaf)
+      homeDockScrollRaf = null
+    }
+    window.removeEventListener('scroll', onScrollLikeForHomeDock)
+    window.removeEventListener('scrollend', onScrollLikeForHomeDock)
+    window.visualViewport?.removeEventListener?.('scroll', onScrollLikeForHomeDock)
+    window.visualViewport?.removeEventListener?.('resize', onScrollLikeForHomeDock)
     launcherObserver?.disconnect()
     launcherObserver = null
-    bodyClassObserver?.disconnect()
-    bodyClassObserver = null
-    if (bodyRestartRaf != null) {
-      cancelAnimationFrame(bodyRestartRaf)
-      bodyRestartRaf = null
-    }
     unsubscribeChatBus?.()
     unsubscribeChatBus = null
+    placeholderSubscribers.clear()
     mql?.removeEventListener?.('change', onFinePointerMqlChange)
     reducedMql?.removeEventListener?.('change', onReducedMotionMqlChange)
   }
@@ -502,7 +581,8 @@ export function initAgentNode(options = {}) {
     setState,
     dockTo,
     syncFromNavigation,
-    syncTrailVisibility,
+    getPlaceholderSuggestion,
+    subscribePlaceholder,
     destroy
   }
 }

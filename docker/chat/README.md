@@ -29,6 +29,8 @@ CHAT_PROVIDER=mock \
 | `GEMINI_API_KEY` | Required when `CHAT_PROVIDER=gemini` |
 | `GEMINI_MODEL` | Primary model override (default **`gemini-3.1-flash-lite`**) |
 | `GEMINI_LIVE_MODEL` | Multimodal **Live** model id for browser voice (default **`gemini-3.1-flash-live-preview`**) |
+| `CHAT_LIVE_RELAY` | **`1`** (default in [`Dockerfile`](Dockerfile) for ECS images): browser WebSocket to **`/api/live/relay/…`** on this app; upstream Google uses **`Authorization: Token`**. **`0`**: browser opens Google with **`access_token`** query only (Lambda HTTP API stack; **voice from the browser typically fails** with Google close 1011). SAM [`chat-template.yaml`](../aws/chat-template.yaml) sets **`0`**. |
+| `CHAT_LIVE_VOICE_STRICT` | **`1`**: when **`CHAT_LIVE_RELAY=0`**, **`POST /api/live/session`** returns **503** `live_voice_requires_relay` and does **not** mint an ephemeral token. Default **off** (Lambda keeps returning `direct_google` JSON for backward compatibility). |
 | `CHAT_LIVE_SYSTEM_MAX_CHARS` | Max characters for combined voice system instruction + knowledge XML (default **14000**) |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |
 | `OPENAI_MODEL` | Optional override (default `gpt-4o-mini`) |
@@ -43,9 +45,26 @@ CHAT_PROVIDER=mock \
 | `CHAT_READY_VERBOSE` | Set to **`1`** so **`GET /ready`** returns the full diagnostics JSON (default is **`{"ok": …}`** only). |
 | `CHAT_READY_VERBOSE_SECRET` | With **`CHAT_READY_VERBOSE` unset**, full **`/ready`** body is available only as **`GET /ready?verbose=1&token=<secret>`** (token and secret must be the same length for comparison). |
 
+## Gemini Multimodal Live (browser voice)
+
+Voice uses the **Gemini Live** WebSocket protocol (preview). Official overview: [Multimodal Live API](https://ai.google.dev/gemini-api/docs/multimodal-live). Message shapes and auth tokens: [Live API reference](https://ai.google.dev/api/live). Browser tokens: [Ephemeral tokens](https://ai.google.dev/gemini-api/docs/ephemeral-tokens). WebSocket walkthrough: [Get started with Live API (WebSockets)](https://ai.google.dev/gemini-api/docs/live-api/get-started-websocket).
+
+**Audio:** input **16-bit PCM, 16 kHz**; model output is typically **24 kHz** (see Google’s multimodal-live doc). The static site opens the Live WebSocket and completes the **`setup` / `setupComplete`** handshake **before** requesting the microphone, so the ephemeral token’s **new-session** window is not spent during the permission prompt. Mic PCM is sent only after **`setupComplete`** ([`js/chat-live.js`](../js/chat-live.js)).
+
+**Backend:** [`app/live_gemini.py`](app/live_gemini.py) mints tokens with **`v1alpha`**, explicit **`new_session_expire_time`** / **`expire_time`**, and **`LiveConnectConstraints`**. Relay: [`app/live_relay.py`](app/live_relay.py) (required for working voice in practice).
+
+**Verify voice after deploy:** `POST /api/live/session` on the **same host** as `gvp:chat-api-url` should return **`liveVoiceTransport":"relay"`**, **`voiceBrowserExperience":"relay_recommended"`**, **`voiceHint":"ok"`**, and a **`websocketUrl`** containing **`/api/live/relay/`**. In DevTools Network, the voice socket should hit your API host (not `generativelanguage.googleapis.com`). First inbound JSON should include **`setupComplete`**. If you see **`direct_google`** / **`direct_google_only`**, the browser client skips opening that socket unless `localStorage gvp_chat_voice_allow_direct=1` (debug only); use ECS + relay for real voice.
+
+| Deploy shape | `CHAT_LIVE_RELAY` | Mic meta (`GVP_CHAT_VOICE`) | Voice outcome |
+|--------------|-------------------|-------------------------------|---------------|
+| Lambda HTTP API (SAM) | `0` | off | Text chat; mic hidden. |
+| Lambda + mic meta on | `0` | on | Mic visible; client blocks **`direct_google`** (clear error, no 1011 loop). |
+| ECS/ALB + relay | `1` | on | **`relay`** path; voice can work. |
+| Lambda + strict | `0` + **`CHAT_LIVE_VOICE_STRICT=1`** | n/a | **503** on live session; no token mint. |
+
 ## Deploy (stage / prod)
 
-Single entry point: **`scripts/integrate-and-deploy.sh`** from the repo root (see [`secrets.example/deploy.env.example`](../secrets.example/deploy.env.example) and optional [`secrets.example/chat-deploy.env.example`](../secrets.example/chat-deploy.env.example)).
+Single entry point: **`scripts/integrate-and-deploy.sh`** from the repo root (see [`secrets.example/deploy.env.example`](../secrets.example/deploy.env.example) and optional [`secrets.example/chat-deploy.env.example`](../secrets.example/chat-deploy.env.example)). **`GVP_CHAT_VOICE=1`** (or **`true`** / **`yes`**) turns on the static site’s mic UI via **`gvp:chat-voice-enabled`** during the same script’s HTML meta sync; omit for a text-only chat surface in the browser.
 
 ```bash
 bash scripts/integrate-and-deploy.sh        # prod — stack SAM_STACK_NAME (default page)
@@ -83,7 +102,7 @@ curl -sS -o /dev/null -w '%{http_code} %{url_effective}\n' -L 'https://YOUR-API-
 - `GET /health` → `{"ok": true}`
 - `GET /ready` → **`{"ok": true|false}`** by default (HTTP **200** when ready, **503** when degraded). Set **`CHAT_READY_VERBOSE=1`** or **`GET /ready?verbose=1&token=…`** matching **`CHAT_READY_VERBOSE_SECRET`** for the full diagnostics payload (paths, provider errors). Tests set **`CHAT_READY_VERBOSE=1`** automatically.
 - `POST /api/chat` → body `{"messages":[{"role":"user|assistant|system","content":"..."}],"stream":false,"sessionId?":"..."}` → `{"reply":"...","model":"...","actions":[...]}` where `actions` may include `open-resume` or `open-contact` buttons with optional prefill fields.
-- `POST /api/live/session` → optional body `{"sessionId?":"..."}` → `{ "websocketUrl", "handshake", "model", "apiVersion" }` mints a short-lived Gemini Live token and returns the JSON to send as the **first WebSocket frame** plus a `wss://…?access_token=…` URL for the browser. Requires **`GEMINI_API_KEY`** and a loaded knowledge pack. Local dev: if the static site proxies `/api/chat` to uvicorn, add the same proxy for **`/api/live/session`**.
+- `POST /api/live/session` → optional body `{"sessionId?":"..."}` → includes `websocketUrl`, `handshake`, `model`, `apiVersion`, `liveVoiceTransport`, `voiceBrowserExperience` (`relay_recommended` \| `direct_google_only`), `voiceHint` (`ok` \| `relay_required_for_voice`). **`relay`**: browser opens **`wss://…/api/live/relay/{id}`**. **`direct_google`**: query-token Google URL (browser client blocks unless `localStorage gvp_chat_voice_allow_direct=1`). With **`CHAT_LIVE_VOICE_STRICT=1`** and relay off: **503** `live_voice_requires_relay` (no mint). Local dev: proxy **`/api/chat`**, **`/api/live/session`**, **`/api/live/relay/`** when using relay.
 
 Errors: JSON body with `error` and `code` where applicable. Timeout and upstream failures are mapped to stable codes (`upstream_timeout`, `upstream_rate_limited`, `upstream_auth_error`, `model_error`).
 

@@ -1,7 +1,45 @@
 // projects.js - Project data loading and rendering
 import { trackProjectInteraction } from './analytics.js'
+import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
+// Detail cache keyed by project id. Bounded in practice by the project count
+// in data/projects.json (populated once per render, small N) — no eviction needed.
 const projectDetailsById = new Map();
 let dialogBootstrapped = false;
+// How long to wait for a dialog image before giving up and revealing the
+// dialog anyway, so a hung image request never leaves it stuck loading.
+const DIALOG_IMAGE_TIMEOUT_MS = 8000;
+
+/**
+ * Strip HTML to plain text robustly via a detached element's textContent,
+ * instead of a regex that mishandles edge cases (entities, malformed tags).
+ */
+function htmlToPlainText(html) {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return (tmp.textContent || '').trim();
+}
+
+const PROJECTS_LOAD_FAILURE_TEXT =
+  'Projects could not be loaded. Check your connection and refresh the page.';
+
+/**
+ * Visible on any section: banner above main content when project JSON failed.
+ */
+export function showProjectsLoadSiteBanner() {
+  const wrap = document.getElementById('contentWrapper');
+  if (!wrap) return;
+  let el = document.getElementById('gvpProjectsLoadBanner');
+  if (!el) {
+    el = document.createElement('p');
+    el.id = 'gvpProjectsLoadBanner';
+    el.className = 'projects-load-error projects-load-error--site';
+    el.setAttribute('role', 'alert');
+    wrap.insertBefore(el, wrap.firstChild);
+  }
+  el.textContent = PROJECTS_LOAD_FAILURE_TEXT;
+  el.hidden = false;
+}
 
 export async function loadProjects(url) {
   try {
@@ -9,7 +47,12 @@ export async function loadProjects(url) {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
-    const data = await response.json()
+    const contentType = response.headers.get('content-type') || '';
+    const raw = await response.text();
+    if (!contentType.includes('application/json')) {
+      throw new Error('Projects response was not JSON')
+    }
+    const data = raw ? JSON.parse(raw) : {}
     return {
       playground: Array.isArray(data.playground) ? data.playground : [],
       portfolio: Array.isArray(data.portfolio) ? data.portfolio : [],
@@ -39,8 +82,7 @@ export function renderProjectsSectionError(containerId) {
   const p = document.createElement('p');
   p.className = 'projects-load-error';
   p.setAttribute('role', 'alert');
-  p.textContent =
-    'Projects could not be loaded. Check your connection and refresh the page.';
+  p.textContent = PROJECTS_LOAD_FAILURE_TEXT;
   section.appendChild(p);
 }
 
@@ -90,8 +132,7 @@ export function initProjectDetailDialog() {
       imageEl.classList.remove('project-dialog__image--loading');
     }
     if (mediaWrap) mediaWrap.hidden = true;
-    dialog.hidden = true;
-    dialog.setAttribute('aria-hidden', 'true');
+    setDialogVisibility(dialog, false);
     dialog.removeAttribute('data-project-id')
     document.body.classList.remove('project-dialog-open');
     window.dispatchEvent(new CustomEvent('projectdialogclose'));
@@ -162,8 +203,7 @@ export function initProjectDetailDialog() {
       linkEl.removeAttribute('href');
     }
 
-    dialog.hidden = false;
-    dialog.setAttribute('aria-hidden', 'false');
+    setDialogVisibility(dialog, true);
     document.body.classList.add('project-dialog-open');
     window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'));
     window.dispatchEvent(
@@ -212,11 +252,7 @@ export function initProjectDetailDialog() {
     trackProjectInteraction('open_link', id, section)
   })
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || dialog.hidden) return;
-    e.preventDefault();
-    closeDialog();
-  });
+  bindEscapeClosesDialogWhenOpen(dialog, closeDialog);
 }
 
 function createProjectCard(project) {

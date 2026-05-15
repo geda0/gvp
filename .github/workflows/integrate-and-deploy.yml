@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_environment:
-        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY deploys Lambda chat (aws/chat-template.yaml) and can fill chat meta'
+        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY deploys Lambda chat. Optional repo vars for HTML/API: GVP_CHAT_VOICE (mic meta), CHAT_ECS_AUTO_SYNC_CHAT_URL, CHAT_LIVE_VOICE_STRICT (503 live session when Lambda relay off).'
         required: true
         default: prod
         type: choice
@@ -71,16 +71,21 @@ jobs:
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
       GEMINI_FALLBACK_MODEL: ${{ vars.GEMINI_FALLBACK_MODEL }}
       GEMINI_LIVE_MODEL: ${{ vars.GEMINI_LIVE_MODEL }}
+      CHAT_VOICE_MODEL: ${{ vars.CHAT_VOICE_MODEL }}
       CHAT_SAM_STACK_NAME: ${{ vars.CHAT_SAM_STACK_NAME }}
       CHAT_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_SAM_STACK_NAME_STAGE }}
       CHAT_SAM_STACK_NAME_PROD: ${{ vars.CHAT_SAM_STACK_NAME_PROD }}
       CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
+      GVP_CHAT_VOICE: ${{ vars.GVP_CHAT_VOICE }}
+      CHAT_ECS_AUTO_SYNC_CHAT_URL: ${{ vars.CHAT_ECS_AUTO_SYNC_CHAT_URL }}
+      CHAT_LIVE_VOICE_STRICT: ${{ vars.CHAT_LIVE_VOICE_STRICT }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
       CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}
       CONTACT_REPORT_EMAIL: ${{ secrets.CONTACT_REPORT_EMAIL }}
       ALARM_EMAIL: ${{ secrets.ALARM_EMAIL }}
       ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+      CONTACT_CORS_ORIGINS: ${{ vars.CONTACT_CORS_ORIGINS }}
       SYNC_API_URLS: ${{ inputs.sync_api_urls == true && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4

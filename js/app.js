@@ -1,8 +1,8 @@
 // app.js - Main initialization
+import './site-config.js'
 import {
   initAnalytics,
   bindOutboundTracking,
-  trackProjectInteraction,
   trackThemeChange
 } from './analytics.js'
 import { initNavigation } from './navigation.js'
@@ -12,12 +12,14 @@ import {
   loadProjects,
   renderProjects,
   renderProjectsSectionError,
+  showProjectsLoadSiteBanner,
   initProjectDetailDialog
 } from './projects.js'
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
-import { initChat, collapseChatDialog, syncChatLaunchers } from './chat.js'
+import { initSpacemanProjectContext } from './spaceman-project-context.js'
+import { initChat, collapseChatDialog, syncChatLaunchers, EV_OPEN_CHAT } from './chat.js'
 import { initAgentNode } from './agent-node.js'
 
 // Global spaceman reference for navigation hooks
@@ -69,7 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const spacemanEl = document.getElementById('spaceman')
   if (spacemanEl) {
     spacemanPosition = initSpacemanPosition(spacemanEl)
-    // Connect spaceman to position controller for quiet mode
+    // Connect spaceman to position controller (drag, stay, layout)
     if (spaceman) {
       spaceman.setPositionController(spacemanPosition)
     }
@@ -79,7 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (chatApi) {
     const agentNodeApi = initAgentNode({
       openPanel: () => chatApi.openPanel(),
-      openPanelWithMessage: (text, source) => chatApi.openPanelWithMessage(text, source),
+      openPanelWithMessage: (text, source, options) => chatApi.openPanelWithMessage(text, source, options),
       isOpen: () => chatApi.isOpen(),
       spacemanPosition,
       onStateChange: () => spacemanPosition?.updatePosition?.(),
@@ -87,6 +89,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     })
     chatApi.bindAgentNode(agentNodeApi)
   }
+
+  document.getElementById('footerOpenChatBtn')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent(EV_OPEN_CHAT))
+  })
 
   // Initialize navigation with spaceman hook (after chat so first navigateByHash sync runs real impl)
   initNavigation({
@@ -111,6 +117,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load and render project data
   const data = await loadProjects('/data/projects.json')
   if (data.loadFailed) {
+    showProjectsLoadSiteBanner()
     renderProjectsSectionError('playgroundContent')
     renderProjectsSectionError('portfolioContent')
   } else {
@@ -119,69 +126,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   initProjectDetailDialog()
 
-  // Intersection Observer: set spaceman context to the project card most in view
-  const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project')
-  const ratios = new Map()
-  const THRESHOLD = 0.1
-  let visibleProjectRaf = 0
-
-  function updateVisibleProject() {
-    if (!spaceman) return;
-    let best = { ratio: 0, card: null };
-    ratios.forEach((ratio, card) => {
-      if (ratio > best.ratio) {
-        const section = card.closest('#playgroundContent') ? 'playground' : card.closest('#portfolioContent') ? 'portfolio' : null;
-        if (section === currentSection) best = { ratio, card };
-      }
-    });
-    if (best.ratio < THRESHOLD || !best.card) {
-      spaceman.setContext(null);
-      return;
-    }
-    const c = best.card;
-    spaceman.setContext({
-      projectId: c.getAttribute('data-project-id') || '',
-      projectTitle: c.getAttribute('data-project-title') || '',
-      projectDescription: c.getAttribute('data-project-description') || ''
-    });
-  }
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        ratios.set(entry.target, entry.intersectionRatio);
-      });
-      if (!visibleProjectRaf) {
-        visibleProjectRaf = requestAnimationFrame(() => {
-          visibleProjectRaf = 0;
-          updateVisibleProject();
-        });
-      }
-    },
-    { root: null, rootMargin: '0px', threshold: [0, 0.05, 0.1, 0.25, 0.5, 0.75, 1] }
-  );
-  projectCards.forEach((card) => observer.observe(card));
-
-  window.addEventListener('projectdialogopen', (e) => {
-    const d = e.detail
-    trackProjectInteraction('open_dialog', d?.projectId || '', currentSection)
-    if (spaceman && d) {
-      spaceman.setDetermined(true)
-      spaceman.setContext({
-        projectId: d.projectId || '',
-        projectTitle: d.title || '',
-        projectDescription: d.projectDescription || ''
-      })
-      spaceman.announceProjectContext()
-    }
-    spacemanPosition?.updatePosition()
-  })
-  window.addEventListener('projectdialogclose', () => {
-    trackProjectInteraction('close_dialog', '', currentSection)
-    spacemanPosition?.updatePosition()
-    updateVisibleProject()
-    // Resume hero messaging only after context is refreshed (so messages match section/home).
-    spaceman?.setDetermined(false)
+  initSpacemanProjectContext({
+    getCurrentSection: () => currentSection,
+    spaceman,
+    spacemanPosition
   })
 
   // On mobile, pin garden scene to visual viewport so it doesn't shift when URL bar hides after first scroll

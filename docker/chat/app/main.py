@@ -10,10 +10,11 @@ import secrets
 import time
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -30,7 +31,8 @@ from app.knowledge_context import (
     load_knowledge_pack,
     load_system_prompt,
 )
-from app.live_gemini import mint_live_session_async
+from app.live_env import live_model_id
+from app.live_relay import relay_browser_to_google
 from app.providers import (
     build_llm_runnable,
     get_provider_and_model,
@@ -42,12 +44,38 @@ from app.upstream_errors import upstream_error_body
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
+def _live_relay_enabled() -> bool:
+    return os.environ.get("CHAT_LIVE_RELAY", "1").strip().lower() not in ("0", "false", "no", "")
+
+
+def _live_voice_strict_enabled() -> bool:
+    return os.environ.get("CHAT_LIVE_VOICE_STRICT", "0").strip().lower() in ("1", "true", "yes")
+
+
+async def mint_live_session_async(system_instruction: str) -> Any:
+    """Delegate to live_gemini so importing app.main avoids google-genai unless live is used."""
+    from app import live_gemini as _lg
+
+    return await _lg.mint_live_session_async(system_instruction)
+
+
+def google_constrained_browser_ws_url(token_name: str) -> str:
+    from app import live_gemini as _lg
+
+    return _lg.google_constrained_browser_ws_url(token_name)
+
+
 MAX_MESSAGES = int(os.environ.get("CHAT_MAX_MESSAGES", "32"))
 MAX_CONTENT_LEN = int(os.environ.get("CHAT_MAX_CONTENT_LEN", "8000"))
 
 
 def _cors_expand_apex_www(origins: list[str]) -> list[str]:
-    """Add www <-> apex variants for bare hosts (example.com). Skips deeper subdomains (chat.example.com)."""
+    """Add www <-> apex variants for bare hosts (example.com).
+
+    Also adds https://chat.apex for each two-label https apex (e.g. marwanelgendy.link) so
+    WebSocket relay Origin checks match the chat UI subdomain without duplicating every URL in env.
+    """
     seen: set[str] = set()
     out: list[str] = []
     for o in origins:
@@ -81,6 +109,28 @@ def _cors_expand_apex_www(origins: list[str]) -> list[str]:
             additions.append(alt)
 
     for a in additions:
+        if a not in seen:
+            seen.add(a)
+            out.append(a)
+
+    chat_additions: list[str] = []
+    for o in list(out):
+        try:
+            p = urlparse(o)
+        except ValueError:
+            continue
+        if p.scheme != 'https' or not p.hostname:
+            continue
+        host_l = p.hostname.lower()
+        parts = host_l.split('.')
+        if len(parts) == 2 and parts[0] != 'www' and parts[0] != 'chat':
+            chat_host = f'chat.{host_l}'
+            alt = f'https://{chat_host}'
+            if p.port:
+                alt = f'https://{chat_host}:{p.port}'
+            chat_additions.append(alt)
+
+    for a in chat_additions:
         if a not in seen:
             seen.add(a)
             out.append(a)
@@ -123,6 +173,32 @@ class ChatRequest(BaseModel):
 
 class LiveSessionRequest(BaseModel):
     sessionId: str | None = Field(default=None, max_length=128)
+
+
+def _cleanup_expired_live_relays(bridges: dict[str, Any]) -> None:
+    now = time.monotonic()
+    dead = [k for k, v in bridges.items() if float(v.get('expires', 0)) < now]
+    for k in dead:
+        bridges.pop(k, None)
+
+
+def _live_relay_ws_url(request: Request, bridge_id: str) -> str:
+    proto = (request.headers.get('x-forwarded-proto') or request.url.scheme or 'http').split(',')[0].strip()
+    scheme = 'wss' if proto == 'https' else 'ws'
+    host = (request.headers.get('x-forwarded-host') or request.headers.get('host') or '').split(',')[0].strip()
+    if not host:
+        host = request.url.netloc or request.url.hostname or ''
+    return f'{scheme}://{host}/api/live/relay/{bridge_id}'
+
+
+def _live_relay_origin_allowed(websocket: WebSocket) -> bool:
+    allowed = _cors_allow_origins()
+    if not allowed:
+        return True
+    origin = (websocket.headers.get('origin') or '').strip()
+    if not origin:
+        return True
+    return origin in allowed
 
 
 def _to_lc_messages(rows: list[ChatMessageIn]) -> list[HumanMessage | AIMessage | SystemMessage]:
@@ -301,6 +377,7 @@ async def lifespan(app: FastAPI):
     app.state.prompt_path = str(prompt_path)
     app.state.corpus_error = None
     app.state.transcript_store = build_transcript_store()
+    app.state.live_relay_bridges = {}
     try:
         pack = load_knowledge_pack(pack_dir)
         prompt_text, prompt_version = load_system_prompt(prompt_path)
@@ -308,12 +385,29 @@ async def lifespan(app: FastAPI):
         app.state.knowledge_pack = None
         app.state.system_prompt = ''
         app.state.prompt_version = 'unknown'
+        app.state.voice_system_prompt = None
+        app.state.voice_prompt_version = None
         app.state.corpus_error = str(exc)
         logger.exception("Knowledge init failed")
     else:
         app.state.knowledge_pack = pack
         app.state.system_prompt = prompt_text
         app.state.prompt_version = prompt_version
+        app.state.voice_system_prompt = None
+        app.state.voice_prompt_version = None
+        vpath = (os.environ.get('CHAT_VOICE_SYSTEM_PROMPT_PATH') or '').strip()
+        if vpath:
+            try:
+                v_text, v_ver = load_system_prompt(Path(vpath))
+                app.state.voice_system_prompt = v_text
+                app.state.voice_prompt_version = v_ver
+                logger.info('Loaded voice system prompt from %s (version=%s)', vpath, v_ver)
+            except Exception as exc:
+                logger.warning(
+                    'Voice system prompt unavailable (%s): %s — live voice falls back to text prompt body',
+                    vpath,
+                    exc,
+                )
     provider, _ = get_provider_and_model()
     app.state.provider_name = provider
     app.state.provider_timeout_seconds = get_provider_timeout_seconds(provider)
@@ -372,6 +466,9 @@ app.state.corpus_error: str | None = None
 app.state.gemini_primary_model: str | None = None
 app.state.gemini_fallback_model: str | None = None
 app.state.transcript_store = None
+app.state.live_relay_bridges: dict[str, Any] = {}
+app.state.voice_system_prompt: str | None = None
+app.state.voice_prompt_version: str | None = None
 
 
 @app.get("/health")
@@ -408,6 +505,11 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
             "fallback_model": app.state.chain.fallback_id,
             "primary_rate_limits_today": primary_rate_limit_hits_today(),
         }
+    payload['live'] = {
+        'voice_model_id': live_model_id(),
+        'voice_prompt_version': getattr(app.state, 'voice_prompt_version', None),
+        'voice_prompt_dedicated': bool(getattr(app.state, 'voice_system_prompt', None)),
+    }
     return ready, payload
 
 
@@ -529,7 +631,7 @@ async def chat(payload: ChatRequest) -> JSONResponse:
 
 
 @app.post("/api/live/session")
-async def live_session(payload: LiveSessionRequest) -> JSONResponse:
+async def live_session(request: Request, payload: LiveSessionRequest) -> JSONResponse:
     if payload.sessionId:
         logger.info("live session request session=%s", payload.sessionId[:48])
 
@@ -553,9 +655,19 @@ async def live_session(payload: LiveSessionRequest) -> JSONResponse:
             },
         )
 
+    if _live_voice_strict_enabled() and not _live_relay_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Voice requires WebSocket relay on this host (CHAT_LIVE_RELAY=1).",
+                "code": "live_voice_requires_relay",
+            },
+        )
+
     try:
+        prompt_src = app.state.voice_system_prompt or app.state.system_prompt
         instruction = build_live_system_instruction(
-            app.state.system_prompt,
+            prompt_src,
             app.state.knowledge_pack,
         )
         session_payload = await mint_live_session_async(instruction)
@@ -570,9 +682,59 @@ async def live_session(payload: LiveSessionRequest) -> JSONResponse:
         status, content = upstream_error_body(exc)
         return JSONResponse(status_code=status, content=content)
 
-    logger.info("live session ok model=%s", session_payload.get("model"))
-    # Response may include websocketUrl with access_token; do not log response body or URL.
+    token_name = session_payload.pop("_authTokenName", None)
+    if not token_name or not isinstance(token_name, str):
+        logger.error("live session: mint returned no _authTokenName")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Live session misconfigured", "code": "live_internal"},
+        )
+    relay = _live_relay_enabled()
+    if relay:
+        bridges: dict[str, Any] = app.state.live_relay_bridges
+        _cleanup_expired_live_relays(bridges)
+        bridge_id = secrets.token_urlsafe(32)
+        bridges[bridge_id] = {
+            "token_name": token_name,
+            "handshake": dict(session_payload.get("handshake") or {}),
+            "expires": time.monotonic() + 120.0,
+        }
+        session_payload["websocketUrl"] = _live_relay_ws_url(request, bridge_id)
+        session_payload["liveVoiceTransport"] = "relay"
+        session_payload["voiceBrowserExperience"] = "relay_recommended"
+        session_payload["voiceHint"] = "ok"
+    else:
+        session_payload["websocketUrl"] = google_constrained_browser_ws_url(token_name)
+        session_payload["liveVoiceTransport"] = "direct_google"
+        session_payload["voiceBrowserExperience"] = "direct_google_only"
+        session_payload["voiceHint"] = "relay_required_for_voice"
+    logger.info(
+        "live session response model=%s transport=%s voice_browser_experience=%s voice_model_env=%s",
+        session_payload.get("model"),
+        session_payload.get("liveVoiceTransport"),
+        session_payload.get("voiceBrowserExperience"),
+        live_model_id(),
+    )
     return JSONResponse(content=session_payload)
+
+
+@app.websocket("/api/live/relay/{bridge_id}")
+async def live_relay_ws(websocket: WebSocket, bridge_id: str) -> None:
+    if not _live_relay_origin_allowed(websocket):
+        await websocket.close(code=4403, reason="origin not allowed")
+        return
+    bridges: dict[str, Any] = app.state.live_relay_bridges
+    entry = bridges.pop(bridge_id, None)
+    if entry is None or float(entry.get("expires", 0)) < time.monotonic():
+        await websocket.close(code=4404, reason="invalid or expired relay")
+        return
+    await websocket.accept()
+    handshake_json = json.dumps(entry["handshake"])
+    await relay_browser_to_google(
+        websocket,
+        token_name=str(entry["token_name"]),
+        handshake_json=handshake_json,
+    )
 
 
 @app.exception_handler(RequestValidationError)

@@ -348,7 +348,16 @@ def _compact_project(project: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> str:
-    """Compact portfolio grounding + voice instructions for Gemini Live setup."""
+    """Compact portfolio grounding + voice instructions for Gemini Live setup.
+
+    ``system_prompt`` uses the same markdown shape as text chat (including a
+    ``prompt-version`` first line): either the main ``CHAT_SYSTEM_PROMPT_PATH``
+    file body or optional ``CHAT_VOICE_SYSTEM_PROMPT_PATH`` loaded at app startup.
+
+    Optional ``CHAT_VOICE_SYSTEM_APPEND`` appends a short block after the
+    portfolio XML (truncated in code); use for small posture tweaks without a
+    dedicated voice prompt file.
+    """
     lines = [ln for ln in (system_prompt or '').splitlines() if ln.strip()]
     body_lines = lines[1:] if len(lines) > 1 else lines
     prompt_body = '\n'.join(body_lines).strip() or str(system_prompt or '').strip()
@@ -372,6 +381,9 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
         "Marwan Elgendy's work.\n\n"
     )
     combined = f'{voice_rules}{prompt_body}\n\n--- Portfolio context (XML) ---\n{blob}'
+    append = (os.environ.get('CHAT_VOICE_SYSTEM_APPEND') or '').strip()
+    if append:
+        combined = f'{combined}\n\n{_truncate_text(append, 1200)}'
     if len(combined) > max_total:
         combined = _truncate_text(combined, max_total)
     return combined

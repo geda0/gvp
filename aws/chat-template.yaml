@@ -23,6 +23,12 @@ Parameters:
     Default: gemini-3.1-flash-live-preview
     Description: >
       Gemini Live API model id for browser voice sessions (Multimodal Live / BidiGenerateContent).
+      Overridable at runtime by CHAT_VOICE_MODEL when that env is non-empty (same container).
+  ChatVoiceModel:
+    Type: String
+    Default: ''
+    Description: >
+      Optional voice-only Live model id (maps to CHAT_VOICE_MODEL). When empty, voice uses GeminiLiveModel / GEMINI_LIVE_MODEL only.
   ChatCorsOrigins:
     Type: String
     Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link'
@@ -50,6 +56,12 @@ Globals:
 Resources:
   ChatHttpApi:
     Type: AWS::Serverless::HttpApi
+    Properties:
+      # Conservative stage-level throttling — protects the Gemini API key from
+      # cost abuse on a personal portfolio chat endpoint.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
   ChatFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -74,6 +86,9 @@ Resources:
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
           GEMINI_LIVE_MODEL: !Ref GeminiLiveModel
+          CHAT_VOICE_MODEL: !Ref ChatVoiceModel
+          CHAT_LIVE_RELAY: '0'
+          CHAT_LIVE_VOICE_STRICT: '0'
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
       Events:
@@ -122,6 +137,7 @@ Outputs:
     Description: >
       Full URL for POST /api/chat (hero text) — use in gvp:chat-api-url meta.
       Same API origin also serves POST /api/live/session, GET /health, GET /ready.
+      Voice: CHAT_LIVE_RELAY=0 (browser direct_google); set CHAT_LIVE_VOICE_STRICT=1 to return 503 on POST /api/live/session without minting. ECS: CHAT_LIVE_RELAY=1 for relay. Session JSON includes voiceBrowserExperience and voiceHint.
     Value: !Sub https://${ChatHttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/chat
   ChatHttpApiId:
     Value: !Ref ChatHttpApi

@@ -1,6 +1,10 @@
 import { trackEvent } from './analytics.js'
+import { openContactDialog } from './contact.js'
 import { chatBus } from './chat-bus.js'
+import { chatApiUrl, chatVoiceFeatureEnabled } from './site-config.js'
+import { normalizeSection } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
+import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
@@ -11,9 +15,15 @@ const SESSION_KEY = 'gvp-chat-session-id'
 const MAX_COMPOSER_HEIGHT = 128
 const SUCCESS_IDLE_DELAY_MS = 700
 const ERROR_IDLE_DELAY_MS = 2300
-const PANEL_ANIM_MS = 280
-const PANEL_ANIM_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
+
+function readChipLabel(el) {
+  const explicit = typeof el?.getAttribute === 'function'
+    ? el.getAttribute('data-chip-label')?.trim()
+    : ''
+  if (explicit) return explicit
+  return String(el?.textContent || '').trim()
+}
 
 let collapseChat = () => {}
 let syncChatLaunchersImpl = () => {}
@@ -75,10 +85,6 @@ export function collapseChatDialog() {
   collapseChat()
 }
 
-function normalizeSection(section) {
-  return section === 'playground' || section === 'portfolio' ? section : 'home'
-}
-
 export function syncChatLaunchers(section = 'home') {
   syncChatLaunchersImpl(section)
 }
@@ -88,10 +94,14 @@ export function syncHeroChatSurface(section = 'home') {
 }
 
 export function initChat() {
+  document.documentElement.style.setProperty('--gvp-chat-panel-anim-ms', `${PANEL_ANIM_MS}ms`)
+  document.documentElement.style.setProperty('--gvp-chat-panel-anim-ease', PANEL_ANIM_EASE)
+
   const agentNode = document.getElementById('agentNode')
   const agentForm = agentNode?.querySelector('.agent-node__form')
   const agentInput = agentNode?.querySelector('.agent-node__input')
-  const agentSend = agentNode?.querySelector('.agent-node__send')
+  const agentNodeMic = document.getElementById('agentNodeMic')
+  const agentNodeSubmit = document.getElementById('agentNodeSubmit')
   const heroSlotEl = document.getElementById('agentSlotHero')
 
   const dialog = document.getElementById('chatDialog')
@@ -109,14 +119,59 @@ export function initChat() {
 
   if (!agentNode || !agentForm || !agentInput || !heroSlotEl || !dialog || !panel || !messagesEl || !composer || !composerInput || !statusEl) return null
 
-  const endpoint = window.__CHAT_API_URL__ || CHAT_DEFAULT_PATH
+  const PLACEHOLDER_DIALOG_CHIP_ATTR = 'data-gvp-dialog-placeholder'
+  const PLACEHOLDER_HIGHLIGHT_MS = 2800
+  let placeholderHighlightTimer = null
+
+  const clearPlaceholderHighlightTimer = () => {
+    if (placeholderHighlightTimer == null) return
+    clearTimeout(placeholderHighlightTimer)
+    placeholderHighlightTimer = null
+  }
+
+  const flashPlaceholderSuggestionHighlight = () => {
+    if (!dialogSuggestions || dialog.hidden) return
+    const chip = dialogSuggestions.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)
+    if (!chip) return
+    clearPlaceholderHighlightTimer()
+    chip.classList.remove('chat-dialog__chip--new-highlight')
+    void chip.offsetWidth
+    chip.classList.add('chat-dialog__chip--new-highlight')
+    placeholderHighlightTimer = setTimeout(() => {
+      chip.classList.remove('chat-dialog__chip--new-highlight')
+      placeholderHighlightTimer = null
+    }, PLACEHOLDER_HIGHLIGHT_MS)
+  }
+
+  const renderDialogPlaceholderChips = (detail) => {
+    if (!dialogSuggestions) return
+    if (messagesEl.children.length > 0) return
+    const teaser = String(detail?.teaser || '').trim()
+    const deep = String(detail?.deepQuestion || '').trim()
+    dialogSuggestions.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)?.remove()
+    if (!teaser || !deep) return
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'chat-dialog__chip chat-dialog__chip--from-placeholder'
+    btn.setAttribute(PLACEHOLDER_DIALOG_CHIP_ATTR, '1')
+    btn.setAttribute('data-prompt', deep)
+    btn.setAttribute('data-chip-label', teaser)
+    btn.textContent = teaser
+    btn.title = deep
+    btn.setAttribute('data-track', 'chat_dialog_chip_placeholder')
+    dialogSuggestions.appendChild(btn)
+    flashPlaceholderSuggestionHighlight()
+  }
+
+  const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
   const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
   const state = {
     history: [],
     pending: false,
     lastFocus: null,
     sessionId: getOrCreateSessionId(),
-    agentNodeApi: null
+    agentNodeApi: null,
+    placeholderUnsub: null
   }
   const launcherState = {
     section: 'home'
@@ -142,15 +197,27 @@ export function initChat() {
   }
 
   const syncAgentLauncherChrome = (_section = 'home') => {
-    const nextSection = normalizeSection(_section)
+    normalizeSection(_section)
     const source = resolveLauncherSource()
     if (source === 'header') {
       agentInput.setAttribute('data-track', 'header_chat_input_focus')
-      if (agentSend) agentSend.setAttribute('data-track', 'header_chat_submit')
     } else {
       agentInput.setAttribute('data-track', 'hero_chat_input_focus')
-      if (agentSend) agentSend.setAttribute('data-track', 'hero_chat_submit')
     }
+    if (agentNodeSubmit) {
+      if (source === 'header') {
+        agentNodeSubmit.setAttribute('data-track', 'header_chat_submit')
+      } else {
+        agentNodeSubmit.setAttribute('data-track', 'hero_chat_submit')
+      }
+    }
+    if (!chatVoiceFeatureEnabled) return
+    if (source === 'header') {
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'header_agent_node_mic')
+    } else {
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'hero_agent_node_mic')
+    }
+    if (composerMic) composerMic.setAttribute('data-track', 'chat_composer_mic')
   }
 
   const clearPanelAnimation = () => {
@@ -191,7 +258,6 @@ export function initChat() {
     launcherState.section = nextSection
     syncAgentLauncherChrome(nextSection)
     state.agentNodeApi?.syncFromNavigation?.(nextSection)
-    state.agentNodeApi?.syncTrailVisibility?.()
   }
 
   const setStatus = (text, tone = 'muted') => {
@@ -210,14 +276,32 @@ export function initChat() {
     composerInput.style.overflowY = composerInput.scrollHeight > MAX_COMPOSER_HEIGHT ? 'auto' : 'hidden'
   }
 
-  const scrollMessagesToBottom = () => {
-    const prefersReduced = typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const NEAR_BOTTOM_THRESHOLD_PX = 120
+  let scrollCoalesceRaf = null
 
+  const scrollMessagesToBottom = (force = false) => {
     const target = messagesEl.closest('.chat-dialog__scroll') || messagesEl
-    target.scrollTo({
-      top: target.scrollHeight,
-      behavior: prefersReduced ? 'auto' : 'smooth'
+    // Only auto-smooth-scroll when the user is already near the bottom; if they
+    // scrolled up to read history, leave them be. Coalesce rapid calls so long
+    // transcripts (streaming/voice) do not jank with one scrollTo per fragment.
+    // `force` is used for user-initiated sends, which should always land at the bottom.
+    if (!force) {
+      const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+      const nearBottom = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD_PX
+      if (!nearBottom) return
+    }
+
+    if (scrollCoalesceRaf) cancelAnimationFrame(scrollCoalesceRaf)
+    scrollCoalesceRaf = requestAnimationFrame(() => {
+      scrollCoalesceRaf = null
+      const prefersReduced = typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      // Smooth only for short lists; instant jump avoids jank on long transcripts.
+      const longTranscript = messagesEl.children.length > 30
+      target.scrollTo({
+        top: target.scrollHeight,
+        behavior: (prefersReduced || longTranscript) ? 'auto' : 'smooth'
+      })
     })
   }
 
@@ -230,6 +314,9 @@ export function initChat() {
     if (dialogSuggestions) {
       dialogSuggestions.hidden = hasMessages
       dialogSuggestions.setAttribute('aria-hidden', hasMessages ? 'true' : 'false')
+      if (!hasMessages && state.agentNodeApi?.getPlaceholderSuggestion) {
+        renderDialogPlaceholderChips(state.agentNodeApi.getPlaceholderSuggestion())
+      }
     }
   }
 
@@ -292,7 +379,7 @@ export function initChat() {
 
     messagesEl.appendChild(item)
     syncEmptyState()
-    scrollMessagesToBottom()
+    scrollMessagesToBottom(Boolean(options.forceScroll))
     return item
   }
 
@@ -316,16 +403,58 @@ export function initChat() {
 
   const liveUi = { active: false, connecting: false }
 
+  const prepareVoiceLauncherButtons = (btn) => {
+    if (!btn) return
+    btn.setAttribute('data-gvp-launcher', 'voice')
+    const voiceIcon = btn.querySelector('.chat-composer__launcher-icon--voice')
+    const chatIcon = btn.querySelector('.chat-composer__launcher-icon--chat')
+    if (voiceIcon) voiceIcon.hidden = false
+    if (chatIcon) chatIcon.hidden = true
+    btn.setAttribute('aria-label', 'Start voice mode')
+  }
+
   const reconcileComposerControls = () => {
     const textBusy = state.pending
-    const voiceBusy = liveUi.active || liveUi.connecting
+    const voiceBusy =
+      chatVoiceFeatureEnabled && (liveUi.active || liveUi.connecting)
     composerInput.disabled = textBusy || voiceBusy
     if (composerSend) composerSend.disabled = textBusy || voiceBusy
-    if (composerMic) {
+    if (!chatVoiceFeatureEnabled) {
+      if (composerMic) {
+        composerMic.hidden = true
+        composerMic.disabled = true
+        composerMic.setAttribute('inert', '')
+        composerMic.setAttribute('aria-hidden', 'true')
+        composerMic.removeAttribute('aria-pressed')
+        composerMic.removeAttribute('data-gvp-launcher')
+      }
+      if (agentNodeMic) {
+        agentNodeMic.hidden = true
+        agentNodeMic.disabled = true
+        agentNodeMic.setAttribute('inert', '')
+        agentNodeMic.setAttribute('aria-hidden', 'true')
+        agentNodeMic.removeAttribute('aria-pressed')
+        agentNodeMic.removeAttribute('data-gvp-launcher')
+      }
+      syncAgentLauncherChrome(launcherState.section)
+      return
+    }
+    if (composerMic || agentNodeMic) {
+      prepareVoiceLauncherButtons(composerMic)
+      prepareVoiceLauncherButtons(agentNodeMic)
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
-      composerMic.disabled = micBusy
-      composerMic.hidden = false
-      composerMic.removeAttribute('inert')
+      if (composerMic) {
+        composerMic.disabled = micBusy
+        composerMic.hidden = false
+        composerMic.removeAttribute('inert')
+        composerMic.removeAttribute('aria-hidden')
+      }
+      if (agentNodeMic) {
+        agentNodeMic.disabled = micBusy
+        agentNodeMic.removeAttribute('inert')
+        agentNodeMic.removeAttribute('aria-hidden')
+      }
+      syncAgentLauncherChrome(launcherState.section)
     }
   }
 
@@ -344,11 +473,13 @@ export function initChat() {
     dialog.hidden = !visible
     dialog.setAttribute('aria-hidden', visible ? 'false' : 'true')
     document.body.classList.toggle('chat-dialog-open', visible)
-    state.agentNodeApi?.syncTrailVisibility?.()
   }
 
   const snapClose = ({ restoreFocus = true } = {}) => {
     clearPanelAnimation()
+    clearPlaceholderHighlightTimer()
+    dialogSuggestions?.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)
+      ?.classList.remove('chat-dialog__chip--new-highlight')
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -370,6 +501,8 @@ export function initChat() {
 
   const openPanel = () => {
     if (isOpen()) return
+    composerInput.value = ''
+    autosizeComposer()
     state.lastFocus = document.activeElement
     clearPanelAnimation()
     state.agentNodeApi?.setState?.('modal')
@@ -441,7 +574,7 @@ export function initChat() {
 
   const openContactFromChat = (prefill) => {
     closePanel({ restoreFocus: false, immediate: true })
-    document.getElementById('openContactBtn')?.click()
+    openContactDialog()
     if (!prefill || typeof prefill !== 'object') return
 
     requestAnimationFrame(() => {
@@ -478,36 +611,78 @@ export function initChat() {
     }
   }
 
-  const postChat = async (history) => {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: history,
-        stream: false,
-        sessionId: state.sessionId
-      })
-    })
+  const CHAT_MAX_RETRIES = 2
+  const CHAT_RETRY_BACKOFF_MS = [400, 900]
 
+  // Marker error: thrown for transient failures (429 / network) so the retry
+  // loop knows it may try again; the `.message` is already user-facing.
+  const makeRetryableError = (message) => {
+    const err = new Error(message)
+    err.retryable = true
+    return err
+  }
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const postChatOnce = async (history) => {
+    let response
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: history,
+          stream: false,
+          sessionId: state.sessionId
+        })
+      })
+    } catch (_) {
+      // fetch() rejects on offline / DNS / connection reset — all transient.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw makeRetryableError('You appear to be offline. Check your connection and try again.')
+      }
+      throw makeRetryableError('Could not reach the chat service. Check your connection and try again.')
+    }
+
+    const contentType = response.headers.get('content-type') || ''
     const text = await response.text()
+    const wantsJson = contentType.includes('application/json')
+    const unexpectedReply = () => new Error(
+      'The chat service returned an unexpected reply. Try again.'
+    )
     let body = {}
-    if (text) {
+    if (wantsJson && text.trim()) {
       try {
         body = JSON.parse(text)
       } catch (_) {
-        body = {}
+        body = null
       }
     }
 
     if (!response.ok) {
+      if (body === null) {
+        throw unexpectedReply()
+      }
       const detail = body?.detail || body?.error
       if (response.status === 429) {
-        throw new Error('Service is busy. Try again in a moment.')
+        throw makeRetryableError('Service is busy. Try again in a moment.')
+      }
+      if (response.status >= 500) {
+        // Server errors are not retried here (could be a hard failure), but
+        // surface them specifically rather than as a generic message.
+        throw new Error('The chat service hit an error. Try again shortly.')
       }
       if (typeof detail === 'string' && detail.trim()) {
         throw new Error(detail.trim())
       }
       throw new Error('Chat request failed. Try again.')
+    }
+
+    if (body === null || typeof body !== 'object') {
+      throw unexpectedReply()
+    }
+    if (!wantsJson && text.trim()) {
+      throw unexpectedReply()
     }
 
     const reply = typeof body?.reply === 'string' ? body.reply : ''
@@ -516,6 +691,22 @@ export function initChat() {
       : ''
     const actions = Array.isArray(body?.actions) ? body.actions : []
     return { reply, model, actions }
+  }
+
+  const postChat = async (history) => {
+    let lastError = null
+    for (let attempt = 0; attempt <= CHAT_MAX_RETRIES; attempt++) {
+      try {
+        return await postChatOnce(history)
+      } catch (error) {
+        lastError = error
+        if (!error || !error.retryable || attempt === CHAT_MAX_RETRIES) {
+          throw error
+        }
+        await sleep(CHAT_RETRY_BACKOFF_MS[attempt] || 900)
+      }
+    }
+    throw lastError || new Error('Chat request failed. Try again.')
   }
 
   const sendMessage = async (rawText, source = 'composer') => {
@@ -538,7 +729,7 @@ export function initChat() {
     chatBus.emit('sending', { source })
 
     setStatus('')
-    appendMessage('user', text)
+    appendMessage('user', text, { forceScroll: true })
     state.history = state.history.concat({ role: 'user', content: text })
     if (source === 'composer') {
       composerInput.value = ''
@@ -546,7 +737,7 @@ export function initChat() {
     }
 
     setComposerBusy(true)
-    const pendingAssistant = appendMessage('assistant', '', { streaming: true })
+    const pendingAssistant = appendMessage('assistant', '', { streaming: true, forceScroll: true })
 
     try {
       chatBus.emit('thinking', { source })
@@ -573,9 +764,22 @@ export function initChat() {
     }
   }
 
-  const openPanelWithMessage = (text, source = 'hero') => {
+  const openPanelWithMessage = (text, source = 'hero', _options = {}) => {
     openPanel()
     void sendMessage(text, source)
+  }
+
+  const openPanelWithDraft = (text, _source = 'hero', _options = {}) => {
+    const body = String(text || '').trim()
+    if (!body) return
+    openPanel()
+    composerInput.value = body
+    autosizeComposer()
+    reconcileComposerControls()
+    requestAnimationFrame(() => {
+      if (!isOpen()) return
+      composerInput.focus()
+    })
   }
 
   agentInput.addEventListener('focus', () => {
@@ -601,10 +805,11 @@ export function initChat() {
     const prompt = String(chip.getAttribute('data-prompt') || '').trim()
     if (!prompt) return
     const source = resolveLauncherSource()
+    const label = readChipLabel(chip) || prompt
     if (source === 'header') {
-      trackEvent('header_chat_chip', { prompt: chip.textContent || '' })
+      trackEvent('header_chat_chip', { prompt: label })
     } else {
-      trackEvent('hero_chat_chip', { prompt: chip.textContent || '' })
+      trackEvent('hero_chat_chip', { prompt: label })
     }
     openPanelWithMessage(prompt, source)
   })
@@ -614,9 +819,9 @@ export function initChat() {
     if (!chip) return
     const prompt = String(chip.getAttribute('data-prompt') || '').trim()
     if (!prompt) return
-    trackEvent('chat_dialog_chip', { prompt: chip.textContent || '' })
-    if (!isOpen()) openPanel()
-    void sendMessage(prompt, 'composer')
+    const label = readChipLabel(chip) || prompt
+    trackEvent('chat_dialog_chip', { prompt: label })
+    openPanelWithMessage(prompt, 'composer')
   })
 
   composer.addEventListener('submit', (event) => {
@@ -680,7 +885,7 @@ export function initChat() {
   window.addEventListener(EV_OPEN_CHAT, onOpenChatEvent)
 
   const disposeChatLiveVoice = bindChatLiveVoice({
-    micButton: composerMic,
+    micButtons: chatVoiceFeatureEnabled ? [composerMic, agentNodeMic].filter(Boolean) : [],
     messagesEl,
     statusEl,
     syncEmptyState,
@@ -696,7 +901,14 @@ export function initChat() {
   reconcileComposerControls()
 
   const bindAgentNode = (agentNodeApi) => {
+    state.placeholderUnsub?.()
+    state.placeholderUnsub = null
     state.agentNodeApi = agentNodeApi || null
+    if (agentNodeApi?.subscribePlaceholder) {
+      state.placeholderUnsub = agentNodeApi.subscribePlaceholder((detail) => {
+        renderDialogPlaceholderChips(detail)
+      })
+    }
     syncChatLaunchersImpl(launcherState.section || 'home')
   }
 
@@ -704,7 +916,8 @@ export function initChat() {
     bindAgentNode,
     disposeChatLiveVoice,
     openPanel: () => openPanel(),
-    openPanelWithMessage: (text, source = resolveLauncherSource()) => openPanelWithMessage(text, source),
+    openPanelWithMessage: (text, source = resolveLauncherSource(), options) => openPanelWithMessage(text, source, options),
+    openPanelWithDraft: (text, source = resolveLauncherSource(), options) => openPanelWithDraft(text, source, options),
     closePanelImmediate: ({ restoreFocus = false } = {}) => closePanel({ restoreFocus, immediate: true }),
     isOpen
   }

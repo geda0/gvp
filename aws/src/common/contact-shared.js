@@ -114,30 +114,60 @@ export function formatText(record) {
   ].join('\n')
 }
 
-export function json(statusCode, obj) {
+const DEFAULT_DEV_ORIGINS =
+  'http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000'
+
+function parseOriginList(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)
+}
+
+function effectiveAllowedOrigins() {
+  const fromEnv = parseOriginList(process.env.CONTACT_CORS_ORIGINS)
+  if (fromEnv.length) return fromEnv
+  return parseOriginList(DEFAULT_DEV_ORIGINS)
+}
+
+// Echo the request Origin when it is on the allowlist; otherwise the primary
+// (first) configured origin. Never uses '*'.
+export function resolveCorsOrigin(event) {
+  const list = effectiveAllowedOrigins()
+  const headers = event?.headers || {}
+  const requestOrigin = safeTrim(headers.origin || headers.Origin)
+  if (requestOrigin && list.includes(requestOrigin)) return requestOrigin
+  return list[0]
+}
+
+function corsHeaders(resolvedOrigin) {
+  const origin = resolvedOrigin || effectiveAllowedOrigins()[0]
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
+    'Access-Control-Allow-Methods': 'OPTIONS,GET,POST',
+    Vary: 'Origin'
+  }
+}
+
+export function json(statusCode, obj, origin) {
   return {
     statusCode,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
-      'Access-Control-Allow-Methods': 'OPTIONS,GET,POST'
+      ...corsHeaders(origin)
     },
     body: JSON.stringify(obj)
   }
 }
 
-export function optionsResponse() {
+export function optionsResponse(origin) {
   return {
     statusCode: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type,x-admin-key',
-      'Access-Control-Allow-Methods': 'OPTIONS,GET,POST'
-    }
+    headers: corsHeaders(origin)
   }
 }
 
-export function unauthorized() {
-  return json(401, { error: 'Unauthorized' })
+export function unauthorized(origin) {
+  return json(401, { error: 'Unauthorized' }, origin)
 }
