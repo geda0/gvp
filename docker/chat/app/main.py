@@ -769,6 +769,56 @@ async def live_relay_ws(websocket: WebSocket, bridge_id: str) -> None:
     )
 
 
+def _live_probe_allowed(request: Request) -> bool:
+    """Allow the probe locally (CHAT_READY_VERBOSE=1) or with the verbose secret."""
+    if os.environ.get("CHAT_READY_VERBOSE", "").strip() == "1":
+        return True
+    return _ready_verbose_allowed(request)
+
+
+@app.get("/api/live/probe")
+async def live_probe(request: Request) -> JSONResponse:
+    """End-to-end voice probe: mint → upstream WS → setupComplete, no browser.
+
+    Use to bisect timeouts: if this is OK, the bug is in the relay or browser;
+    if it fails here, the bug is in mint/handshake/upstream.
+    """
+    if not _live_probe_allowed(request):
+        return JSONResponse(status_code=404, content={"error": "not_found"})
+
+    if app.state.knowledge_pack is None or not app.state.system_prompt:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": app.state.corpus_error or "Knowledge pack missing",
+                "code": "corpus_unavailable",
+            },
+        )
+
+    if not os.environ.get("GEMINI_API_KEY", "").strip():
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Gemini API key is not configured", "code": "gemini_key_missing"},
+        )
+
+    from app import live_gemini as _lg
+
+    prompt_src = app.state.voice_system_prompt or app.state.system_prompt
+    instruction = build_live_system_instruction(prompt_src, app.state.knowledge_pack)
+    try:
+        result = await asyncio.wait_for(
+            _lg.probe_live_session(instruction),
+            timeout=60,
+        )
+    except asyncio.TimeoutError:
+        return JSONResponse(
+            status_code=504,
+            content={"ok": False, "error": "probe_timeout_60s"},
+        )
+    logger.info("live probe result=%s", {k: v for k, v in result.items() if k != 'first_frame'})
+    return JSONResponse(status_code=200 if result.get('ok') else 502, content=result)
+
+
 @app.post("/api/live/transcript")
 async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
     """Persist a single voice turn (input + output transcription pair).

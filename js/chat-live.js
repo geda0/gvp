@@ -16,8 +16,10 @@ const PCM_JITTER_MAX_AHEAD_SEC = 4.5
 const VOICE_WS_IDLE_MS = 3 * 60 * 1000
 /** Hard cap on continuous voice session length (ms). */
 const VOICE_MAX_SESSION_MS = 25 * 60 * 1000
-/** Per-attempt POST /api/live/session budget (ms). */
-const LIVE_SESSION_ATTEMPT_MS = 45 * 1000
+/** Per-attempt POST /api/live/session budget (ms). Sized > backend mint timeout
+ *  (GEMINI_LIVE_MINT_TIMEOUT_SEC, default 50) so the FE always sees the real
+ *  504 instead of aborting on its own and forcing a blind retry. */
+const LIVE_SESSION_ATTEMPT_MS = 60 * 1000
 /** Retries after the first POST attempt (inclusive budget ≈ 4 × 45s + backoff). */
 const LIVE_SESSION_MAX_RETRIES = 3
 const LIVE_SESSION_RETRY_BACKOFF_MS = [600, 1400, 2800]
