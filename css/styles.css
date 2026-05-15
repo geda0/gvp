@@ -1001,11 +1001,9 @@ section#portfolioProjects.visible.content-section-reveal {
     align-items: stretch;
 }
 
-@media (min-width: 768px) {
-    .hero-copy-block > .hero-chat {
-        order: -1;
-    }
-}
+/* Source order wins: identity (name + tagline + CTAs) reads first, then the
+   launcher card. Previously this rule lifted `.hero-chat` above `.hero-copy`
+   on desktop via `order: -1`, which pushed the name below the fold. */
 
 .hero-copy {
     width: 100%;
