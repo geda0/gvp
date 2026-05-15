@@ -87,12 +87,10 @@
                         <div class="hero-layout">
                             <div class="hero-copy-block">
                                 <div class="hero-copy">
-                                    <p class="hero-eyebrow">Senior Software Engineer · 15+ years</p>
+                                    <p class="hero-eyebrow">Architecture · Platforms · Production AI</p>
                                     <h1>Marwan Elgendy</h1>
-                                    <p class="hero-subtitle">Architecture &amp; Platforms — cloud-native systems at scale</p>
-                                    <p class="hero-tagline">I build systems that hold up in production: clear boundaries, operable services, and end-to-end delivery across data-intensive SaaS and cloud platforms.</p>
-                                    <p class="hero-proof">Scaled HP Instant Ink to millions · Apptio financial pipelines: ~10× faster, zero correctness drift</p>
-                                    <p class="hero-companies"><span class="hero-companies__label">Previously</span> IBM (Apptio) · JumpCloud · HP · AT&amp;T</p>
+                                    <p class="hero-subtitle">I design, build, and ship production systems.</p>
+                                    <p class="hero-tagline">The chat below knows my work. Ask anything — projects, approaches, what I can do, services.</p>
                                     <div class="hero-cta">
                                         <a href="resume/Marwan_Elgendy_Resume_public.pdf" target="_blank" rel="noopener noreferrer" class="cta-primary" data-track="resume_click">Resume (PDF)</a>
                                         <button type="button" id="openContactBtn" class="cta-secondary contact-open-btn" data-track="contact_open">Contact</button>
@@ -102,7 +100,7 @@
                                     <div class="hero-chat__label-wrap">
                                         <p class="hero-chat__label">
                                             <span class="hero-chat__dot" aria-hidden="true"></span>
-                                            Ask anything about my work
+                                            Ask about my work
                                         </p>
                                         <button type="button" id="agentNodeMic" form="agentNodeForm"
                                             class="agent-node__mic chat-composer__mic" data-gvp-launcher="voice"
@@ -117,7 +115,7 @@
                                             </svg>
                                         </button>
                                     </div>
-                                    <p class="hero-chat__hint">Grounded in this site's resume and project pages — not a general chatbot.</p>
+                                    <p class="hero-chat__hint">Grounded in my actual projects and resume.</p>
                                     <div id="agentSlotHero" class="agent-slot agent-slot--hero">
                                     <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero"
                                         aria-label="Ask about Marwan's work — answers use this site's resume and project pages">
@@ -130,7 +128,7 @@
                                                     <span class="agent-node__cursor" aria-hidden="true">|</span>
                                                 </div>
                                                 <input type="text" id="agentNodeInput" class="agent-node__input" inputmode="text" autocomplete="off"
-                                                    placeholder="What would you like to know about my work?"
+                                                    placeholder="Ask anything…"
                                                     data-track="hero_chat_input_focus" />
                                             </div>
                                             <button type="submit" id="agentNodeSubmit" class="agent-node__submit"
@@ -141,31 +139,31 @@
                                 </div>
                                 <div id="heroChatSuggestions" class="hero-chat__suggestions" hidden aria-hidden="true" aria-label="Suggested prompts">
                                     <button type="button" class="hero-chat__chip"
-                                        data-prompt="How do you approach platform architecture?"
-                                        data-chip-label="Platform architecture"
-                                        data-track="hero_chat_chip_architecture">Platform architecture</button>
+                                        data-prompt="What can you do?"
+                                        data-chip-label="What I do"
+                                        data-track="hero_chat_chip_what_i_do">What I do</button>
                                     <button type="button" class="hero-chat__chip"
-                                        data-prompt="Tell me about an accomplishment you're especially proud of."
-                                        data-chip-label="Impressive accomplishment"
-                                        data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
+                                        data-prompt="What services do you offer?"
+                                        data-chip-label="Services"
+                                        data-track="hero_chat_chip_services">Services</button>
                                     <button type="button" class="hero-chat__chip"
-                                        data-prompt="What project challenged you the most, and how did you approach it?"
-                                        data-chip-label="Most challenging project"
-                                        data-track="hero_chat_chip_challenge">Most challenging project</button>
+                                        data-prompt="Show me a recent project."
+                                        data-chip-label="Recent work"
+                                        data-track="hero_chat_chip_recent_work">Recent work</button>
                                 </div>
                                 </div>
                                 <div class="hero-highlights">
                                     <div class="highlight">
                                         <h4>Platform Architecture</h4>
-                                        <p>Interfaces, boundaries, and operable systems that scale with teams.</p>
+                                        <p>Systems that grow with your team without buckling under it.</p>
                                     </div>
                                     <div class="highlight">
                                         <h4>End-to-End Delivery</h4>
-                                        <p>Own the whole loop: ship, stabilize, and iterate with feedback.</p>
+                                        <p>From whiteboard to production — and the operational reality after.</p>
                                     </div>
                                     <div class="highlight">
                                         <h4>Data-Intensive SaaS</h4>
-                                        <p>Reliability, correctness, and throughput in customer-critical platforms.</p>
+                                        <p>Pipelines and services where correctness matters as much as speed.</p>
                                     </div>
                                 </div>
                             </div>
@@ -267,7 +265,7 @@
             <header class="chat-dialog__header">
                 <div class="chat-dialog__head-text">
                     <h2 id="chatDialogTitle" class="chat-dialog__title">Ask about my work</h2>
-                    <p class="chat-dialog__subtitle">Grounded in my resume and projects. Not a general chatbot.</p>
+                    <p class="chat-dialog__subtitle">Grounded in my projects and resume.</p>
                 </div>
                 <div class="chat-dialog__header-actions">
                     <button type="button" id="chatComposerMic" class="chat-composer__mic chat-dialog__header-mic"
@@ -285,22 +283,22 @@
                 </div>
             </header>
             <div class="chat-dialog__scroll">
-                <p id="chatEmptyState" class="chat-empty-state">Use the starter chip below or type your own — answers stay grounded in my resume and projects.</p>
+                <p id="chatEmptyState" class="chat-empty-state">Pick a starter below, or ask anything. Grounded in my real work.</p>
                 <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
             </div>
             <div id="chatDialogSuggestions" class="chat-dialog__suggestions" aria-label="Suggested prompts">
                 <button type="button" class="chat-dialog__chip"
-                    data-prompt="How do you approach platform architecture?"
-                    data-chip-label="Platform architecture"
-                    data-track="chat_dialog_chip_architecture">Platform architecture</button>
+                    data-prompt="How would you scale a SaaS platform?"
+                    data-chip-label="Scaling SaaS"
+                    data-track="chat_dialog_chip_scaling">Scaling SaaS</button>
                 <button type="button" class="chat-dialog__chip"
-                    data-prompt="Tell me about an accomplishment you're especially proud of."
-                    data-chip-label="Impressive accomplishment"
-                    data-track="chat_dialog_chip_accomplishment">Impressive accomplishment</button>
+                    data-prompt="How do you ship AI in production?"
+                    data-chip-label="Shipping AI"
+                    data-track="chat_dialog_chip_shipping_ai">Shipping AI</button>
                 <button type="button" class="chat-dialog__chip"
-                    data-prompt="What project challenged you the most, and how did you approach it?"
-                    data-chip-label="Most challenging project"
-                    data-track="chat_dialog_chip_challenge">Most challenging project</button>
+                    data-prompt="Show me a recent project."
+                    data-chip-label="Recent work"
+                    data-track="chat_dialog_chip_recent_work">Recent work</button>
             </div>
             <form id="chatComposer" class="chat-composer" novalidate>
                 <label for="chatComposerInput" class="visually-hidden">Message to chat assistant</label>

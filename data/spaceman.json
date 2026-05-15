@@ -32,10 +32,10 @@
     },
     "home": {
       "messages": [
-        "Building production systems.",
-        "Boundaries. Operability. Delivery.",
-        "Browse Playground and Portfolio.",
-        "15+ years, still shipping."
+        "I design, build, and ship production systems.",
+        "Architecture, platforms, production AI.",
+        "Playground: experiments. Portfolio: real systems.",
+        "The chat knows the work — ask anything."
       ],
       "typingSpeed": 50,
       "messageDelay": 9000
@@ -81,10 +81,10 @@
         },
         "home": {
           "messages": [
-            "Building production systems.",
-            "Boundaries. Operability. Delivery.",
-            "Browse Playground and Portfolio.",
-            "15+ years, still shipping."
+            "I design, build, and ship production systems.",
+            "Architecture, platforms, production AI.",
+            "Playground: experiments. Portfolio: real systems.",
+            "The chat knows the work — ask anything."
           ],
           "typingSpeed": 50,
           "messageDelay": 9000
