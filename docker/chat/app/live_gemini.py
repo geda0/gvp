@@ -28,12 +28,65 @@ def _live_client_singleton() -> genai.Client:
     return _live_client
 
 
+_LIVE_TOOLS = types.Tool(
+    function_declarations=[
+        types.FunctionDeclaration(
+            name='open_resume',
+            description=(
+                'Open the visitor-facing resume PDF in a new tab. Call this when the user asks to '
+                'see, open, download, or get the resume.'
+            ),
+            parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+        ),
+        types.FunctionDeclaration(
+            name='open_contact_form',
+            description=(
+                'Open the contact dialog, optionally pre-filling subject and message. Call this when '
+                "the user wants to get in touch, hire, send a message, or reach out."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    'subject': types.Schema(
+                        type=types.Type.STRING,
+                        description='Short subject line (e.g. "Architecture role").',
+                    ),
+                    'message': types.Schema(
+                        type=types.Type.STRING,
+                        description='Pre-filled message body in the visitor\'s voice.',
+                    ),
+                },
+            ),
+        ),
+        types.FunctionDeclaration(
+            name='navigate_to_section',
+            description=(
+                "Navigate to a top-level section of the site. Call this for hands-free movement "
+                "when the user asks to go to Home, Portfolio, or Playground/Experiments."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    'section': types.Schema(
+                        type=types.Type.STRING,
+                        enum=['home', 'portfolio', 'playground'],
+                        description='Section id to navigate to.',
+                    ),
+                },
+                required=['section'],
+            ),
+        ),
+    ],
+)
+
+
 def _live_connect_config(system_instruction: str) -> types.LiveConnectConfig:
     return types.LiveConnectConfig(
         system_instruction=system_instruction,
         response_modalities=[types.Modality.AUDIO, types.Modality.TEXT],
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
+        tools=[_LIVE_TOOLS],
     )
 
 
@@ -63,7 +116,10 @@ async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
 
     auth = await client.aio.auth_tokens.create(
         config=types.CreateAuthTokenConfig(
-            uses=8,
+            # One token, one session. Default is 1 anyway; previous `uses=8` widened
+            # the blast radius if a token ever leaked, with no FE benefit (each
+            # /api/live/session call mints a fresh token).
+            uses=1,
             expire_time=expire_time,
             new_session_expire_time=new_session_expire_time,
             live_connect_constraints=types.LiveConnectConstraints(
