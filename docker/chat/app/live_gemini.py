@@ -258,7 +258,16 @@ async def probe_live_session(system_instruction: str) -> dict[str, Any]:
             except Exception:
                 first = {'__non_json__': True, 'preview': str(raw)[:200]}
             result['first_frame_keys'] = sorted(first.keys()) if isinstance(first, dict) else []
-            result['setup_complete'] = bool(isinstance(first, dict) and (first.get('setupComplete') or first.get('setup_complete')))
+            # setupComplete arrives as ``{"setupComplete": {}}`` — an empty dict is
+            # falsy in Python, so `first.get('setupComplete')` alone reads as "not
+            # complete" even though the upstream said yes. Check presence + non-False.
+            if isinstance(first, dict):
+                setup_payload = first.get('setupComplete')
+                if setup_payload is None:
+                    setup_payload = first.get('setup_complete')
+                result['setup_complete'] = setup_payload is not None and setup_payload is not False
+            else:
+                result['setup_complete'] = False
             if not result['setup_complete']:
                 result['first_frame'] = first
     except Exception as exc:

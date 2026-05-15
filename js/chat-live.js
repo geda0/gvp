@@ -238,6 +238,15 @@ function voiceCaptureGateMessage() {
   if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
     return 'This browser does not support microphone capture for voice chat.'
   }
+  // HTTPS page + http:// chat API = browser silently blocks the POST and the
+  // ws:// upgrade as active mixed content, which surfaces as a 45-60s "voice
+  // timed out" with no clue in the console. Fail loud, fail fast instead.
+  if (typeof window.location !== 'undefined' && window.location.protocol === 'https:') {
+    const apiBase = resolveChatApiBase()
+    if (typeof apiBase === 'string' && /^http:\/\//i.test(apiBase)) {
+      return 'Voice needs the chat API on HTTPS too (browsers block ws:// + http:// from https:// pages). Add an ACM cert to the ALB / front it with CloudFront.'
+    }
+  }
   return ''
 }
 
