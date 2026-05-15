@@ -101,8 +101,8 @@ function normalizeSlot(slot) {
   return slot === 'navbar' ? 'navbar' : 'hero'
 }
 
-/** Fraction of `heroDockBandEl` height that must overlap the viewport to keep the launcher in `#agentSlotHero`. */
-const HERO_BAND_VISIBLE_FRAC = 0.15
+/** Fraction of the measured hero launcher height that must sit below the fixed header and inside the viewport to keep `#agentNode` in `#agentSlotHero` (otherwise dock to navbar). */
+const HERO_LAUNCHER_VISIBLE_FRAC = 0.36
 
 export function initAgentNode(options = {}) {
   const node = document.getElementById('agentNode')
@@ -110,8 +110,6 @@ export function initAgentNode(options = {}) {
   const navbarSlot = document.getElementById('agentSlotNavbar')
   const mic = document.getElementById('agentNodeMic')
   const heroChatLabelWrap = heroSlot?.closest('.hero-chat')?.querySelector('.hero-chat__label-wrap')
-  /** Prefer `.hero-chat` (launcher band) so docking matches “scrolled past the bar” like subpages; `.hero-layout` is too tall and delays navbar dock. */
-  const heroDockBandEl = heroSlot?.closest('.hero-chat') || heroSlot?.closest('.hero-layout') || heroSlot?.closest('.hero') || heroSlot
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
   const ambientOverlay = node?.querySelector('.agent-node__ambient-overlay')
@@ -339,18 +337,28 @@ export function initAgentNode(options = {}) {
     return { top: 0, bottom }
   }
 
-  const readHeroBandSubstantiallyVisible = () => {
-    const el = heroDockBandEl
-    if (!el) return true
+  const readFixedHeaderBottom = () => {
+    const header = document.body.querySelector('header')
+    if (!header) return 0
+    const br = header.getBoundingClientRect()
+    return Number.isFinite(br.bottom) ? br.bottom : 0
+  }
+
+  /** Hero copy is “usable” only if enough of the pill (or reserved slot when docked away) sits in the visual viewport below the fixed header. */
+  const readHeroLauncherAccessible = () => {
+    if (!heroSlot) return true
+    const inHeroSlot = node.parentElement === heroSlot
+    const el = inHeroSlot ? node : heroSlot
     const r = el.getBoundingClientRect()
     const { top: vpTop, bottom: vpBottom } = readViewportYExtents()
+    const usableTop = Math.min(Math.max(vpTop, readFixedHeaderBottom()), vpBottom)
     if (!Number.isFinite(r.height) || r.height < 4) return false
-    const overlap = Math.max(0, Math.min(r.bottom, vpBottom) - Math.max(r.top, vpTop))
-    return overlap / r.height >= HERO_BAND_VISIBLE_FRAC
+    const overlap = Math.max(0, Math.min(r.bottom, vpBottom) - Math.max(r.top, usableTop))
+    return overlap / r.height >= HERO_LAUNCHER_VISIBLE_FRAC
   }
 
   const syncHeroVisibilityForDock = () => {
-    state.heroVisible = readHeroBandSubstantiallyVisible()
+    state.heroVisible = readHeroLauncherAccessible()
   }
 
   const scheduleHomeDockFromScroll = () => {
@@ -521,7 +529,7 @@ export function initAgentNode(options = {}) {
     scheduleHomeDockFromScroll()
   }
 
-  if (typeof IntersectionObserver === 'function' && heroDockBandEl) {
+  if (typeof IntersectionObserver === 'function' && heroSlot) {
     launcherObserver?.disconnect()
     launcherObserver = new IntersectionObserver(() => {
       syncHeroVisibilityForDock()
@@ -529,9 +537,9 @@ export function initAgentNode(options = {}) {
     }, {
       root: null,
       rootMargin: '0px',
-      threshold: [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.35, 0.5, 0.65, 0.8, 1]
+      threshold: [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.65, 0.8, 1]
     })
-    launcherObserver.observe(heroDockBandEl)
+    launcherObserver.observe(heroSlot)
   } else {
     syncHeroVisibilityForDock()
   }

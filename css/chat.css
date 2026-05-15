@@ -496,6 +496,8 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
 .agent-slot--navbar .agent-node {
     --agent-text-lane-height: 2.5rem;
     max-width: min(23rem, 100%);
+    min-width: 0;
+    overflow: hidden;
     gap: 0.32rem;
     padding: 0.22rem 0.48rem 0.22rem 0.58rem;
     background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
@@ -506,7 +508,9 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
 }
 
 .agent-slot--navbar .agent-node__text-lane {
-    min-inline-size: min(100%, 24ch);
+    /* Allow flex shrink below placeholder intrinsic width (nav center is narrow). */
+    min-inline-size: 0;
+    overflow: hidden;
 }
 
 .agent-slot--navbar .agent-node__bubble-text {
@@ -516,6 +520,7 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
 
 .agent-slot--navbar .agent-node__form {
     gap: 0.28rem;
+    min-width: 0;
     min-height: var(--agent-text-lane-height);
     padding: 0;
     border: none;
@@ -527,6 +532,8 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
     font-size: 0.82rem;
     line-height: 1.32;
     padding: 0.28rem 0;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .agent-slot--navbar .agent-node__mic {
@@ -535,6 +542,43 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
     width: 1.52rem;
     height: 1.52rem;
     font-size: 0.88rem;
+}
+
+/* Playground / portfolio: navbar pill is the only launcher — slightly larger tap targets & type */
+body.content-open .agent-slot--navbar {
+    max-width: min(26rem, 100%);
+}
+
+body.content-open .agent-slot--navbar .agent-node {
+    --agent-text-lane-height: 2.72rem;
+    max-width: min(26rem, 100%);
+    gap: 0.36rem;
+    padding: 0.26rem 0.55rem 0.26rem 0.64rem;
+}
+
+body.content-open .agent-slot--navbar .agent-node__form-icon {
+    font-size: 0.92rem;
+}
+
+body.content-open .agent-slot--navbar .agent-node__bubble-text {
+    font-size: 0.89rem;
+    line-height: 1.4;
+}
+
+body.content-open .agent-slot--navbar .agent-node__form {
+    gap: 0.32rem;
+}
+
+body.content-open .agent-slot--navbar .agent-node__input {
+    font-size: 0.88rem;
+    line-height: 1.36;
+    padding: 0.32rem 0;
+}
+
+body.content-open .agent-slot--navbar .agent-node__mic {
+    width: 1.66rem;
+    height: 1.66rem;
+    font-size: 0.93rem;
 }
 
 .chat-dialog {
@@ -1321,6 +1365,21 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
         width: 1.52rem;
         height: 1.52rem;
         font-size: 0.88rem;
+    }
+
+    body.content-open .agent-slot--navbar .agent-node {
+        padding: 0.24rem 0.46rem 0.24rem 0.56rem;
+    }
+
+    body.content-open .agent-slot--navbar .agent-node__input {
+        font-size: 0.85rem;
+        line-height: 1.34;
+    }
+
+    body.content-open .agent-slot--navbar .agent-node__mic {
+        width: 1.58rem;
+        height: 1.58rem;
+        font-size: 0.9rem;
     }
 }
 

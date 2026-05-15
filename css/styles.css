@@ -15,8 +15,8 @@
     --border-subtle: rgba(255, 255, 255, 0.09);
     --border-strong: rgba(255, 255, 255, 0.16);
 
-    --accent: #4f7cce;
-    --accent-hover: #6b94dc;
+    --accent: #3d73c4;
+    --accent-hover: #5d8fd8;
     --on-accent: #ffffff;
 
     --radius-sm: 6px;
@@ -39,12 +39,12 @@
     --footer-link-color: var(--link-color);
     --footer-link-visited: var(--link-visited);
     --footer-link-hover: var(--accent-hover);
-    --overlay-gradient: radial-gradient(ellipse 90% 55% at 50% 15%, rgba(79, 124, 206, 0.07), transparent 58%);
+    --overlay-gradient: radial-gradient(ellipse 90% 55% at 50% 15%, rgba(61, 115, 196, 0.07), transparent 58%);
     --heading-shadow: none;
 
-    /* Chat: accent ring + richer violet chrome (halo, chips, dialog) */
+    /* Chat: accent ring + cool blue chrome (halo, hero bar, dialog) — avoid lavender */
     --chat-launcher-ring: var(--accent);
-    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 28%, #c9bfff 72%);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 40%, #b2cff0 60%);
     --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 46%, var(--border-subtle));
     --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
     --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent);
@@ -88,7 +88,7 @@
     --heading-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 
     --chat-launcher-ring: var(--accent);
-    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 48%, #a4b2ec 52%);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 58%, #c5ddd0 42%);
     --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 40%, var(--border-subtle));
     --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
     --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent);
