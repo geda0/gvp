@@ -296,8 +296,81 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
   docker push "${REMOTE_SHA}"
   docker push "${REMOTE_LATEST}"
 
-  CLUSTER="${CHAT_ECS_CLUSTER}"
-  SERVICE="${CHAT_ECS_SERVICE}"
+  # ---- Optional: SAM-managed ECS chat stack (aws/chat-ecs-template.yaml) ----
+  # When CHAT_ECS_SAM_STACK_NAME_<ENV> is set we deploy/update the ECS+ALB stack
+  # with the freshly-pushed image. The stack update creates a new TaskDefinition
+  # revision and CloudFormation rolls the service. Outputs ClusterName/ServiceName
+  # are exported so the existing ALB-DNS auto-derive below still works unchanged.
+  CHAT_ECS_SAM_STACK_NAME=""
+  CHAT_ECS_CERT_ARN=""
+  CHAT_ECS_ALB_LOG_BUCKET=""
+  if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+    CHAT_ECS_SAM_STACK_NAME="${CHAT_ECS_SAM_STACK_NAME_STAGE:-}"
+    CHAT_ECS_CERT_ARN="${CHAT_ECS_CERT_ARN_STAGE:-${CHAT_ECS_CERT_ARN:-}}"
+    CHAT_ECS_ALB_LOG_BUCKET="${CHAT_ECS_ALB_LOG_BUCKET_STAGE:-${CHAT_ECS_ALB_LOG_BUCKET:-}}"
+  else
+    CHAT_ECS_SAM_STACK_NAME="${CHAT_ECS_SAM_STACK_NAME_PROD:-}"
+    CHAT_ECS_CERT_ARN="${CHAT_ECS_CERT_ARN_PROD:-${CHAT_ECS_CERT_ARN:-}}"
+    CHAT_ECS_ALB_LOG_BUCKET="${CHAT_ECS_ALB_LOG_BUCKET_PROD:-${CHAT_ECS_ALB_LOG_BUCKET:-}}"
+  fi
+
+  if [[ -n "${CHAT_ECS_SAM_STACK_NAME}" ]]; then
+    if [[ -z "${CHAT_ECS_VPC_ID:-}" || -z "${CHAT_ECS_SUBNET_IDS:-}" ]]; then
+      echo "ERROR: CHAT_ECS_SAM_STACK_NAME_${DEPLOY_ENV} is set but CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS are missing." >&2
+      echo "       Set both before re-running. See secrets.example/chat-deploy.env.example." >&2
+      exit 1
+    fi
+    if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+      echo "ERROR: GEMINI_API_KEY required for chat-ecs SAM deploy." >&2
+      exit 1
+    fi
+    echo "sam deploy chat-ecs stack=${CHAT_ECS_SAM_STACK_NAME} env=${DEPLOY_ENV} image=${REMOTE_SHA}"
+    sam deploy \
+      --template-file "${AWS_DIR}/chat-ecs-template.yaml" \
+      --stack-name "${CHAT_ECS_SAM_STACK_NAME}" \
+      --region "${REGION}" \
+      --capabilities CAPABILITY_IAM \
+      --no-confirm-changeset \
+      --no-fail-on-empty-changeset \
+      --resolve-s3 \
+      --s3-prefix "${CHAT_ECS_SAM_STACK_NAME}" \
+      --parameter-overrides \
+        "StageName=${DEPLOY_ENV}" \
+        "VpcId=${CHAT_ECS_VPC_ID}" \
+        "SubnetIds=${CHAT_ECS_SUBNET_IDS}" \
+        "ImageUri=${REMOTE_SHA}" \
+        "GeminiApiKey=${GEMINI_API_KEY}" \
+        "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}" \
+        "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}" \
+        "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}" \
+        "ChatVoiceModel=${CHAT_VOICE_MODEL:-}" \
+        "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link}" \
+        "ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME:-}" \
+        "CertificateArn=${CHAT_ECS_CERT_ARN}" \
+        "AlbLogBucket=${CHAT_ECS_ALB_LOG_BUCKET}"
+
+    # Read outputs and feed back into the existing CHAT_ECS_CLUSTER / _SERVICE
+    # vars so the ALB-DNS discovery further down works without extra config.
+    _ECS_OUTPUTS_JSON="$(aws cloudformation describe-stacks \
+      --stack-name "${CHAT_ECS_SAM_STACK_NAME}" \
+      --region "${REGION}" \
+      --query 'Stacks[0].Outputs' \
+      --output json 2>/dev/null || echo '[]')"
+    _ECS_CLUSTER_FROM_STACK="$(echo "${_ECS_OUTPUTS_JSON}" | python3 -c "import json,sys; xs=json.load(sys.stdin); print(next((x['OutputValue'] for x in xs if x['OutputKey']=='ClusterName'),''))" 2>/dev/null || true)"
+    _ECS_SERVICE_FROM_STACK="$(echo "${_ECS_OUTPUTS_JSON}" | python3 -c "import json,sys; xs=json.load(sys.stdin); print(next((x['OutputValue'] for x in xs if x['OutputKey']=='ServiceName'),''))" 2>/dev/null || true)"
+    if [[ -n "${_ECS_CLUSTER_FROM_STACK}" && -n "${_ECS_SERVICE_FROM_STACK}" ]]; then
+      CHAT_ECS_CLUSTER="${_ECS_CLUSTER_FROM_STACK}"
+      CHAT_ECS_SERVICE="${_ECS_SERVICE_FROM_STACK}"
+      echo "chat-ecs outputs: cluster=${CHAT_ECS_CLUSTER} service=${CHAT_ECS_SERVICE}"
+    fi
+    # When SAM owns the service, the CloudFormation update already rolled the
+    # TaskDefinition. Skip the legacy aws-ecs-update-service path below.
+    CLUSTER=""
+    SERVICE=""
+  else
+    CLUSTER="${CHAT_ECS_CLUSTER}"
+    SERVICE="${CHAT_ECS_SERVICE}"
+  fi
 
   if [[ -n "${CLUSTER}" && -n "${SERVICE}" ]]; then
     echo "ECS force deploy cluster=${CLUSTER} service=${SERVICE}"
@@ -308,7 +381,7 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
       --region "${REGION}" \
       --no-cli-pager
     echo "note: ECS chat image defaults CHAT_LIVE_RELAY=1 (docker/chat/Dockerfile). gvp:chat-api-url is patched from CHAT_*_CHAT_API_URL when set, else derived from this ECS service’s ALB/NLB DNS when CHAT_ECS_AUTO_SYNC_CHAT_URL is enabled."
-  else
+  elif [[ -z "${CHAT_ECS_SAM_STACK_NAME}" ]]; then
     echo "CHAT_ECS_CLUSTER_* / CHAT_ECS_SERVICE_* unset — skip ECS roll (image pushed)."
   fi
 elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
