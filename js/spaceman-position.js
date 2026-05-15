@@ -64,6 +64,11 @@ class SpacemanPosition {
     return { nudge, relax }
   }
 
+  /** Mobile: shift mascot slightly left over the 💬 strip (negative lowers --sx). */
+  _navbarGlueHorizontalNudgePx(vw) {
+    return vw < 768 ? -8 : 0
+  }
+
   setHooks(hooks = {}) {
     this._hooks = { ...this._hooks, ...hooks };
   }
@@ -425,7 +430,8 @@ class SpacemanPosition {
         if (agentNavBar) {
           const nr = dockedAgent.getBoundingClientRect()
           const { nudge, relax } = this._navbarGlueVerticalTuning(nr, vw)
-          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue, nudge, relax)
+          const hx = this._navbarGlueHorizontalNudgePx(vw)
+          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue, nudge, relax, hx)
           if (g) {
             x = g.x
             y = g.y
@@ -444,7 +450,16 @@ class SpacemanPosition {
             nodeRect && nodeRect.width > 8 && nodeRect.height > 8 ? nodeRect : slotRect
           /* Tight horizontal glue: right edge of figure ≈ ref.left − heroGlueGap */
           const heroGlueGap = vw < 768 ? 7 : 5
-          const g = this._glueLeftOfAgentRect(vw, vh, scale, ref, heroGlueGap)
+          /* Mobile only: nudge figure upward vs slot/agent midline (feet ~ Grounded hint) */
+          const heroMobileUpNudgePx = vw < 768 ? -36 : 0
+          const g = this._glueLeftOfAgentRect(
+            vw,
+            vh,
+            scale,
+            ref,
+            heroGlueGap,
+            heroMobileUpNudgePx
+          )
           if (g) {
             x = g.x
             y = g.y
@@ -485,8 +500,9 @@ class SpacemanPosition {
    * Place spaceman so its right edge sits `glueGap` px left of `ref` (agent or slot rect).
    * Vertical center tracks ref midline; clamps to viewport bounds.
    * @param {number} relaxMinYPx subtract from bounds.minY clamp only (navbar glue: sit higher).
+   * @param {number} glueHxNudgePx add to launcher-relative cx before clamp (mobile navbar: nudge left).
    */
-  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap, verticalNudgePx = 0, relaxMinYPx = 0) {
+  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap, verticalNudgePx = 0, relaxMinYPx = 0, glueHxNudgePx = 0) {
     if (!ref || ref.width < 8 || ref.height < 8) return null
     const bounds = this._getBounds(vw, vh, scale)
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
@@ -495,7 +511,7 @@ class SpacemanPosition {
     const baseH = (rect.height / (this.currentScale || 1)) || 320
     const w = baseW * scale
     const h = baseH * scale
-    const cx = ref.left - glueGap - w / 2
+    const cx = ref.left - glueGap - w / 2 + glueHxNudgePx
     const cy = ref.top + ref.height / 2 + verticalNudgePx
     const minY = bounds.minY - Math.max(0, relaxMinYPx)
     return {
@@ -569,7 +585,8 @@ class SpacemanPosition {
       if (br.width >= 8 && br.height >= 8) {
         const navGap = vw < 768 ? 7 : 5
         const { nudge, relax } = this._navbarGlueVerticalTuning(br, vw)
-        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap, nudge, relax)
+        const hx = this._navbarGlueHorizontalNudgePx(vw)
+        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap, nudge, relax, hx)
         if (glued) return glued
       }
     }

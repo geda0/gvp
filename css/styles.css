@@ -42,14 +42,14 @@
     --overlay-gradient: radial-gradient(ellipse 90% 55% at 50% 15%, rgba(79, 124, 206, 0.07), transparent 58%);
     --heading-shadow: none;
 
-    /* Chat bar: accent-anchored, soft violet-leaning halo (ring stays accent for buttons / dots) */
+    /* Chat: accent ring + richer violet chrome (halo, chips, dialog) */
     --chat-launcher-ring: var(--accent);
-    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 44%, #d8d2ff 56%);
-    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 38%, var(--border-subtle));
-    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 7%, transparent);
-    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 10%, transparent);
-    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 15%, transparent);
-    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 28%, #c9bfff 72%);
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 46%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 20%, transparent);
+    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 16%, transparent);
 
     /* Fixed site header: single compact row + optional notch */
     --site-header-height: calc(2.65rem + env(safe-area-inset-top, 0px));
@@ -88,12 +88,12 @@
     --heading-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 
     --chat-launcher-ring: var(--accent);
-    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 58%, #8b9fd4 42%);
-    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 34%, var(--border-subtle));
-    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 8%, transparent);
-    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
-    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 16%, transparent);
-    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 8%, transparent);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 48%, #a4b2ec 52%);
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 40%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 11%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 19%, transparent);
+    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 12%, transparent);
 }
 
 /* Garden scene: trees (only visible in garden theme) */

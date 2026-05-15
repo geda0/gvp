@@ -102,7 +102,7 @@ function normalizeSlot(slot) {
 }
 
 /** Fraction of `heroDockBandEl` height that must overlap the viewport to keep the launcher in `#agentSlotHero`. */
-const HERO_BAND_VISIBLE_FRAC = 0.2
+const HERO_BAND_VISIBLE_FRAC = 0.15
 
 export function initAgentNode(options = {}) {
   const node = document.getElementById('agentNode')
@@ -110,8 +110,8 @@ export function initAgentNode(options = {}) {
   const navbarSlot = document.getElementById('agentSlotNavbar')
   const mic = document.getElementById('agentNodeMic')
   const heroChatLabelWrap = heroSlot?.closest('.hero-chat')?.querySelector('.hero-chat__label-wrap')
-  /** Full hero band (copy + chat + highlights): dock launcher to navbar once this is mostly scrolled away. */
-  const heroDockBandEl = heroSlot?.closest('.hero') || heroSlot?.closest('.hero-chat') || heroSlot
+  /** Prefer `.hero-chat` (launcher band) so docking matches “scrolled past the bar” like subpages; `.hero-layout` is too tall and delays navbar dock. */
+  const heroDockBandEl = heroSlot?.closest('.hero-chat') || heroSlot?.closest('.hero-layout') || heroSlot?.closest('.hero') || heroSlot
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
   const ambientOverlay = node?.querySelector('.agent-node__ambient-overlay')
@@ -119,21 +119,11 @@ export function initAgentNode(options = {}) {
   if (!node || !heroSlot || !navbarSlot || !form || !input) return null
 
   const {
+    openPanel = () => {},
     openPanelWithMessage = () => {},
     isOpen = () => false,
     spacemanPosition = null
   } = options
-
-  const openLauncherDeepIntent = () => {
-    let deep = String(currentDeepQuestion || '').trim()
-    if (!deep) {
-      applyPlaceholder(state.section, placeholderIdx[state.section])
-      deep = String(currentDeepQuestion || '').trim()
-    }
-    if (!deep) return
-    const source = state.slot === 'navbar' ? 'header' : 'hero'
-    openPanelWithMessage(deep, source)
-  }
 
   const mql = typeof window.matchMedia === 'function'
     ? window.matchMedia(FINE_POINTER_QUERY)
@@ -339,13 +329,23 @@ export function initAgentNode(options = {}) {
     dockTo(want)
   }
 
+  const readViewportYExtents = () => {
+    const vv = window.visualViewport
+    if (vv && Number.isFinite(vv.height) && vv.height > 0) {
+      const top = Math.max(0, Number(vv.offsetTop) || 0)
+      return { top, bottom: top + vv.height }
+    }
+    const bottom = window.innerHeight || document.documentElement.clientHeight || 0
+    return { top: 0, bottom }
+  }
+
   const readHeroBandSubstantiallyVisible = () => {
     const el = heroDockBandEl
     if (!el) return true
     const r = el.getBoundingClientRect()
-    const vh = window.innerHeight || document.documentElement.clientHeight || 0
+    const { top: vpTop, bottom: vpBottom } = readViewportYExtents()
     if (!Number.isFinite(r.height) || r.height < 4) return false
-    const overlap = Math.max(0, Math.min(r.bottom, vh) - Math.max(r.top, 0))
+    const overlap = Math.max(0, Math.min(r.bottom, vpBottom) - Math.max(r.top, vpTop))
     return overlap / r.height >= HERO_BAND_VISIBLE_FRAC
   }
 
@@ -358,11 +358,8 @@ export function initAgentNode(options = {}) {
     if (homeDockScrollRaf != null) return
     homeDockScrollRaf = requestAnimationFrame(() => {
       homeDockScrollRaf = null
-      const prev = state.heroVisible
       syncHeroVisibilityForDock()
-      if (prev !== state.heroVisible) {
-        dockTo(state.heroVisible ? 'hero' : 'navbar')
-      }
+      applyHomeDockFromHeroVisibility()
     })
   }
 
@@ -376,6 +373,10 @@ export function initAgentNode(options = {}) {
     if (next === 'home') {
       syncHeroVisibilityForDock()
       dockTo(state.heroVisible ? 'hero' : 'navbar')
+      requestAnimationFrame(() => {
+        syncHeroVisibilityForDock()
+        applyHomeDockFromHeroVisibility()
+      })
     } else {
       dockTo('navbar')
     }
@@ -411,7 +412,7 @@ export function initAgentNode(options = {}) {
     }, MORPH_LEAVE_DEBOUNCE_MS)
   }
 
-  const shouldOpenDeepIntentFromLauncher = () => {
+  const shouldOpenPanelFromLauncher = () => {
     if (isOpen()) return false
     if (state.mode === 'modal') return false
     if (String(input.value || '').trim()) return false
@@ -419,7 +420,7 @@ export function initAgentNode(options = {}) {
     return state.mode === 'bubble' || state.mode === 'bar'
   }
 
-  const isLauncherDeepIntentPointerTarget = (target) => {
+  const isLauncherPanelPointerTarget = (target) => {
     if (!target || !form.contains(target)) return false
     if (target.closest('.agent-node__mic')) return false
     return true
@@ -428,17 +429,17 @@ export function initAgentNode(options = {}) {
   form.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.button !== undefined) return
     if (event.target.closest('.agent-node__mic')) return
-    if (!shouldOpenDeepIntentFromLauncher()) return
-    if (!isLauncherDeepIntentPointerTarget(event.target)) return
+    if (!shouldOpenPanelFromLauncher()) return
+    if (!isLauncherPanelPointerTarget(event.target)) return
     event.preventDefault()
-    openLauncherDeepIntent()
+    openPanel()
   }, true)
 
   const submitLauncher = () => {
     const text = String(input.value || '').trim()
     const source = state.slot === 'navbar' ? 'header' : 'hero'
     if (!text) {
-      openLauncherDeepIntent()
+      openPanel()
       return
     }
     input.value = ''
@@ -468,7 +469,7 @@ export function initAgentNode(options = {}) {
     if (event.target.closest('.agent-node__mic')) return
     if (event.target.closest('.agent-node__form')) return
     if (String(input.value || '').trim()) return
-    openLauncherDeepIntent()
+    openPanel()
   })
 
   node.addEventListener('focusin', onPointerEnter)
@@ -536,6 +537,7 @@ export function initAgentNode(options = {}) {
   }
 
   window.addEventListener('scroll', onScrollLikeForHomeDock, { passive: true })
+  window.addEventListener('scrollend', onScrollLikeForHomeDock)
   window.visualViewport?.addEventListener?.('scroll', onScrollLikeForHomeDock)
   window.visualViewport?.addEventListener?.('resize', onScrollLikeForHomeDock)
 
@@ -550,6 +552,7 @@ export function initAgentNode(options = {}) {
       homeDockScrollRaf = null
     }
     window.removeEventListener('scroll', onScrollLikeForHomeDock)
+    window.removeEventListener('scrollend', onScrollLikeForHomeDock)
     window.visualViewport?.removeEventListener?.('scroll', onScrollLikeForHomeDock)
     window.visualViewport?.removeEventListener?.('resize', onScrollLikeForHomeDock)
     launcherObserver?.disconnect()
@@ -567,7 +570,6 @@ export function initAgentNode(options = {}) {
     setState,
     dockTo,
     syncFromNavigation,
-    openLauncherDeepIntent,
     getPlaceholderSuggestion,
     subscribePlaceholder,
     destroy

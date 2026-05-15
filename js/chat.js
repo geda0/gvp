@@ -114,12 +114,33 @@ export function initChat() {
   const composerInput = document.getElementById('chatComposerInput')
   const composerSend = composer?.querySelector('.chat-composer__send')
   const composerMic = document.getElementById('chatComposerMic')
-  const composerClear = document.getElementById('chatComposerClear')
   const statusEl = document.getElementById('chatStatus')
 
   if (!agentNode || !agentForm || !agentInput || !heroSlotEl || !dialog || !panel || !messagesEl || !composer || !composerInput || !statusEl) return null
 
   const PLACEHOLDER_DIALOG_CHIP_ATTR = 'data-gvp-dialog-placeholder'
+  const PLACEHOLDER_HIGHLIGHT_MS = 2800
+  let placeholderHighlightTimer = null
+
+  const clearPlaceholderHighlightTimer = () => {
+    if (placeholderHighlightTimer == null) return
+    clearTimeout(placeholderHighlightTimer)
+    placeholderHighlightTimer = null
+  }
+
+  const flashPlaceholderSuggestionHighlight = () => {
+    if (!dialogSuggestions || dialog.hidden) return
+    const chip = dialogSuggestions.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)
+    if (!chip) return
+    clearPlaceholderHighlightTimer()
+    chip.classList.remove('chat-dialog__chip--new-highlight')
+    void chip.offsetWidth
+    chip.classList.add('chat-dialog__chip--new-highlight')
+    placeholderHighlightTimer = setTimeout(() => {
+      chip.classList.remove('chat-dialog__chip--new-highlight')
+      placeholderHighlightTimer = null
+    }, PLACEHOLDER_HIGHLIGHT_MS)
+  }
 
   const renderDialogPlaceholderChips = (detail) => {
     if (!dialogSuggestions) return
@@ -138,6 +159,7 @@ export function initChat() {
     btn.title = deep
     btn.setAttribute('data-track', 'chat_dialog_chip_placeholder')
     dialogSuggestions.appendChild(btn)
+    flashPlaceholderSuggestionHighlight()
   }
 
   const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
@@ -389,7 +411,6 @@ export function initChat() {
       chatVoiceFeatureEnabled && (liveUi.active || liveUi.connecting)
     composerInput.disabled = textBusy || voiceBusy
     if (composerSend) composerSend.disabled = textBusy || voiceBusy
-    if (composerClear) composerClear.disabled = textBusy || voiceBusy
     if (!chatVoiceFeatureEnabled) {
       if (composerMic) {
         composerMic.hidden = true
@@ -429,15 +450,6 @@ export function initChat() {
     }
   }
 
-  function discardComposerDraft({ focusComposer = true } = {}) {
-    composerInput.value = ''
-    autosizeComposer()
-    reconcileComposerControls()
-    if (focusComposer && isOpen() && typeof composerInput.focus === 'function') {
-      composerInput.focus()
-    }
-  }
-
   const patchLiveUi = (patch) => {
     if ('active' in patch) liveUi.active = Boolean(patch.active)
     if ('connecting' in patch) liveUi.connecting = Boolean(patch.connecting)
@@ -457,6 +469,9 @@ export function initChat() {
 
   const snapClose = ({ restoreFocus = true } = {}) => {
     clearPanelAnimation()
+    clearPlaceholderHighlightTimer()
+    dialogSuggestions?.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)
+      ?.classList.remove('chat-dialog__chip--new-highlight')
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -478,6 +493,8 @@ export function initChat() {
 
   const openPanel = () => {
     if (isOpen()) return
+    composerInput.value = ''
+    autosizeComposer()
     state.lastFocus = document.activeElement
     clearPanelAnimation()
     state.agentNodeApi?.setState?.('modal')
@@ -812,10 +829,6 @@ export function initChat() {
 
   composerInput.addEventListener('input', () => {
     autosizeComposer()
-  })
-
-  composerClear?.addEventListener('click', () => {
-    discardComposerDraft()
   })
 
   backdrop?.addEventListener('click', () => closePanel())
