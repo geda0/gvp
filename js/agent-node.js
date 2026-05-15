@@ -5,6 +5,7 @@ const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 const MORPH_LEAVE_DEBOUNCE_MS = 120
 const PLACEHOLDER_ROTATE_MS = 4500
+const PLACEHOLDER_CROSSFADE_MS = 160
 const LIFECYCLE_STATES = ['sending', 'thinking', 'streaming', 'tool_call', 'error']
 
 const PLACEHOLDER_POOL = {
@@ -144,6 +145,7 @@ export function initAgentNode(options = {}) {
   let lastSyncedSection = 'home'
   const placeholderIdx = { home: 0, playground: 0, portfolio: 0 }
   let placeholderRotateTimer = null
+  let placeholderCrossfadeTimer = null
 
   const prefersReducedMotion = () => Boolean(reducedMql?.matches)
 
@@ -185,20 +187,53 @@ export function initAgentNode(options = {}) {
     PLACEHOLDER_POOL[section] || PLACEHOLDER_POOL.home
   )
 
-  const applyPlaceholder = (section, index) => {
+  const clearPlaceholderCrossfade = () => {
+    if (!placeholderCrossfadeTimer) return
+    clearTimeout(placeholderCrossfadeTimer)
+    placeholderCrossfadeTimer = null
+  }
+
+  const applyPlaceholder = (section, index, { animate = false } = {}) => {
+    clearPlaceholderCrossfade()
     const pool = poolForSection(section)
     const n = Number(index) || 0
     const i = ((n % pool.length) + pool.length) % pool.length
     const entry = normalizePoolEntry(pool[i])
-    input.placeholder = entry.teaser
-    currentDeepQuestion = entry.deepQuestion
-    notifyPlaceholderChange()
+
+    let doAnimate = Boolean(animate) && !prefersReducedMotion()
+    if (doAnimate && (isOpen() || node.matches(':focus-within'))) doAnimate = false
+    if (doAnimate && String(input.value || '').trim()) doAnimate = false
+    if (doAnimate && node.classList.contains('agent-node--lifecycle-active')) doAnimate = false
+
+    if (!doAnimate) {
+      input.placeholder = entry.teaser
+      currentDeepQuestion = entry.deepQuestion
+      input.style.removeProperty('opacity')
+      input.style.removeProperty('transition')
+      notifyPlaceholderChange()
+      return
+    }
+
+    input.style.transition = `opacity ${PLACEHOLDER_CROSSFADE_MS}ms ease`
+    input.style.opacity = '0'
+    placeholderCrossfadeTimer = setTimeout(() => {
+      placeholderCrossfadeTimer = null
+      input.placeholder = entry.teaser
+      currentDeepQuestion = entry.deepQuestion
+      notifyPlaceholderChange()
+      requestAnimationFrame(() => {
+        void input.offsetWidth
+        input.style.opacity = '1'
+      })
+      setTimeout(() => {
+        input.style.removeProperty('transition')
+      }, PLACEHOLDER_CROSSFADE_MS + 60)
+    }, PLACEHOLDER_CROSSFADE_MS)
   }
 
   const bumpPlaceholderOnSectionChange = (section) => {
     const pool = poolForSection(section)
     placeholderIdx[section] = (placeholderIdx[section] + 1) % pool.length
-    applyPlaceholder(section, placeholderIdx[section])
   }
 
   const clearPlaceholderRotateTimer = () => {
@@ -229,14 +264,16 @@ export function initAgentNode(options = {}) {
     if (prefersReducedMotion() || isOpen()) return
     if (!isFinePointer()) return
     if (state.mode === 'modal') return
-    if (isObstructingDialogOpen()) return
+    // Always arm the interval when otherwise eligible. If a project/contact dialog
+    // is open at navigation time, an early return here left no timer at all, so
+    // rotation never resumed after the dialog closed (nothing re-called sync).
     placeholderRotateTimer = window.setInterval(() => {
       if (isOpen() || node.matches(':focus-within')) return
       if (isObstructingDialogOpen()) return
       if (state.mode === 'modal') return
       const sec = state.section
       placeholderIdx[sec] = (placeholderIdx[sec] + 1) % poolForSection(sec).length
-      applyPlaceholder(sec, placeholderIdx[sec])
+      applyPlaceholder(sec, placeholderIdx[sec], { animate: true })
     }, PLACEHOLDER_ROTATE_MS)
   }
 
@@ -373,7 +410,8 @@ export function initAgentNode(options = {}) {
 
   const syncFromNavigation = (section = 'home') => {
     const next = normalizeSection(section)
-    if (next !== lastSyncedSection) {
+    const sectionChanged = next !== lastSyncedSection
+    if (sectionChanged) {
       bumpPlaceholderOnSectionChange(next)
       lastSyncedSection = next
     }
@@ -388,7 +426,7 @@ export function initAgentNode(options = {}) {
     } else {
       dockTo('navbar')
     }
-    applyPlaceholder(state.section, placeholderIdx[state.section])
+    applyPlaceholder(state.section, placeholderIdx[state.section], { animate: sectionChanged })
     if (
       isFinePointer()
       && !isOpen()
@@ -407,6 +445,13 @@ export function initAgentNode(options = {}) {
     if (state.mode !== 'modal') {
       setState('bar')
     }
+  }
+
+  const onFocusInAgent = () => {
+    clearPlaceholderCrossfade()
+    input.style.removeProperty('opacity')
+    input.style.removeProperty('transition')
+    onPointerEnter()
   }
 
   const queueBubbleMode = () => {
@@ -483,7 +528,7 @@ export function initAgentNode(options = {}) {
     openPanel()
   })
 
-  node.addEventListener('focusin', onPointerEnter)
+  node.addEventListener('focusin', onFocusInAgent)
   node.addEventListener('pointerenter', onPointerEnter)
   node.addEventListener('pointerleave', queueBubbleMode)
   node.addEventListener('focusout', () => {
@@ -557,6 +602,9 @@ export function initAgentNode(options = {}) {
   const destroy = () => {
     clearLeaveTimer()
     clearPlaceholderRotateTimer()
+    clearPlaceholderCrossfade()
+    input.style.removeProperty('opacity')
+    input.style.removeProperty('transition')
     syncBubbleLifecycleOverlay(false)
     if (homeDockScrollRaf != null) {
       cancelAnimationFrame(homeDockScrollRaf)

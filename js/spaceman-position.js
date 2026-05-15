@@ -67,12 +67,26 @@ class SpacemanPosition {
     return Math.round(Math.min(Math.max(280, vw - 40), 36 * rem))
   }
 
+  /** ~⅛ of home hero band height — desktop navbar-docked launcher only (keeps helmet inside viewport). */
+  _heroHeadroomLowerPx() {
+    const hero = document.querySelector('#home .hero') || document.querySelector('.hero')
+    const r = hero?.getBoundingClientRect?.()
+    if (!r || r.height < 48) return 0
+    return Math.round(r.height / 8)
+  }
+
   /** Stronger upward glue + relaxed top clamp so the figure reads “in” the top bar beside the chat pill. */
   _navbarGlueVerticalTuning(ref, vw) {
     const isMobile = vw < 768
     const rh = Math.max(12, ref.height)
-    const nudge = -Math.round(rh * 0.44) - (isMobile ? 12 : 8)
-    const relax = isMobile ? 68 : 54
+    if (isMobile) {
+      const nudge = -Math.round(rh * 0.44) - 12
+      const relax = 68
+      return { nudge, relax }
+    }
+    /* Desktop: push toward the top of the safe band as far as clamps allow */
+    const nudge = -Math.round(rh * 0.52) - 22
+    const relax = 86
     return { nudge, relax }
   }
 
@@ -481,6 +495,14 @@ class SpacemanPosition {
           if (g) {
             x = g.x
             y = g.y
+            /* Desktop, home (not playground/portfolio): launcher in navbar — nudge down ~⅛ hero height */
+            if (!isMobile && !document.body.classList.contains('content-open')) {
+              const headroom = this._heroHeadroomLowerPx()
+              if (headroom > 0) {
+                const bTail = this._getBounds(vw, vh, scale)
+                y = clamp(y + headroom, bTail.minY, bTail.maxY)
+              }
+            }
             placedHome = true
           }
         }

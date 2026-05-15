@@ -174,7 +174,7 @@ class Spaceman {
 
   _getNextMessage() {
     // Show welcome only once per session, and only when on home/idle (not in the middle of Playground or Portfolio)
-    const showWelcome = !this._firstMessageShown && (this.state === 'idle' || this.state === 'home');
+    const showWelcome = !this._firstMessageShown && this.state === 'home';
     if (showWelcome) {
       const welcome = this._getWelcomeMessage();
       return { message: welcome, fromMergedArray: false };
@@ -601,10 +601,10 @@ class Spaceman {
   _startMessageCycle() {
     if (this._chatLifecycleState !== 'idle') return;
     if (this.isDetermined) return; // Freeze message cycle when determined
-    if (this.state === 'home' || this.state === 'idle') {
+    // Pre-navigation bootstrap: clear bubble until a real section (e.g. home) runs.
+    if (this.state === 'idle') {
       const { text } = this.elements;
       if (text) text.textContent = '';
-      this._firstMessageShown = true;
       return;
     }
 
