@@ -125,7 +125,11 @@ export function initAgentNode(options = {}) {
   } = options
 
   const openLauncherDeepIntent = () => {
-    const deep = String(currentDeepQuestion || '').trim()
+    let deep = String(currentDeepQuestion || '').trim()
+    if (!deep) {
+      applyPlaceholder(state.section, placeholderIdx[state.section])
+      deep = String(currentDeepQuestion || '').trim()
+    }
     if (!deep) return
     const source = state.slot === 'navbar' ? 'header' : 'hero'
     openPanelWithMessage(deep, source)
@@ -411,18 +415,21 @@ export function initAgentNode(options = {}) {
     if (isOpen()) return false
     if (state.mode === 'modal') return false
     if (String(input.value || '').trim()) return false
-    if (node.classList.contains('agent-node--lifecycle-active')) return false
     if (isObstructingDialogOpen()) return false
     return state.mode === 'bubble' || state.mode === 'bar'
+  }
+
+  const isLauncherDeepIntentPointerTarget = (target) => {
+    if (!target || !form.contains(target)) return false
+    if (target.closest('.agent-node__mic')) return false
+    return true
   }
 
   form.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.button !== undefined) return
     if (event.target.closest('.agent-node__mic')) return
     if (!shouldOpenDeepIntentFromLauncher()) return
-    const inLane = event.target.closest('.agent-node__text-lane')
-      || event.target === input
-    if (!inLane) return
+    if (!isLauncherDeepIntentPointerTarget(event.target)) return
     event.preventDefault()
     openLauncherDeepIntent()
   }, true)
