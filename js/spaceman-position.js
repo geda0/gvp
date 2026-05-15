@@ -67,7 +67,7 @@ class SpacemanPosition {
     return Math.round(Math.min(Math.max(280, vw - 40), 36 * rem))
   }
 
-  /** Nudge spaceman down on home so the helmet clears the top edge (~⅛ hero band height). */
+  /** ~⅛ of home hero band height — desktop navbar-docked launcher only (keeps helmet inside viewport). */
   _heroHeadroomLowerPx() {
     const hero = document.querySelector('#home .hero') || document.querySelector('.hero')
     const r = hero?.getBoundingClientRect?.()
@@ -495,6 +495,14 @@ class SpacemanPosition {
           if (g) {
             x = g.x
             y = g.y
+            /* Desktop, home (not playground/portfolio): launcher in navbar — nudge down ~⅛ hero height */
+            if (!isMobile && !document.body.classList.contains('content-open')) {
+              const headroom = this._heroHeadroomLowerPx()
+              if (headroom > 0) {
+                const bTail = this._getBounds(vw, vh, scale)
+                y = clamp(y + headroom, bTail.minY, bTail.maxY)
+              }
+            }
             placedHome = true
           }
         }
@@ -550,13 +558,6 @@ class SpacemanPosition {
           const desiredY = isMobile ? -30 : 0
           x = clamp(desiredX, bounds.minX, bounds.maxX)
           y = clamp(desiredY, bounds.minY, bounds.maxY)
-        }
-
-        const headroom = this._heroHeadroomLowerPx()
-        if (headroom > 0) {
-          const tailOpts = isMobile ? { looserMobileHeroEdges: true } : {}
-          const bTail = this._getBounds(vw, vh, scale, tailOpts)
-          y = clamp(y + headroom, bTail.minY, bTail.maxY)
         }
     }
 
