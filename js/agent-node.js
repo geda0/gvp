@@ -431,12 +431,14 @@ export function initAgentNode(options = {}) {
   const isLauncherPanelPointerTarget = (target) => {
     if (!target || !form.contains(target)) return false
     if (target.closest('.agent-node__mic')) return false
+    if (target.closest('.agent-node__submit')) return false
     return true
   }
 
   form.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 && event.button !== undefined) return
     if (event.target.closest('.agent-node__mic')) return
+    if (event.target.closest('.agent-node__submit')) return
     if (!shouldOpenPanelFromLauncher()) return
     if (!isLauncherPanelPointerTarget(event.target)) return
     event.preventDefault()
@@ -475,6 +477,7 @@ export function initAgentNode(options = {}) {
     if (isFinePointer()) return
     if (state.mode !== 'bubble' || isOpen()) return
     if (event.target.closest('.agent-node__mic')) return
+    if (event.target.closest('.agent-node__submit')) return
     if (event.target.closest('.agent-node__form')) return
     if (String(input.value || '').trim()) return
     openPanel()

@@ -55,6 +55,18 @@ class SpacemanPosition {
     return document.getElementById('agentNode')?.dataset?.slot === 'navbar'
   }
 
+  /**
+   * Width of the home hero copy column when measurable; otherwise a capped “hero-width”
+   * stand-in (~36rem max) for navbar nudges on subpages.
+   */
+  _readHeroContentWidthPx(vw) {
+    const el = document.querySelector('#home .hero-copy') || document.querySelector('.hero-copy')
+    const r = el?.getBoundingClientRect?.()
+    if (r && r.width > 48) return Math.round(r.width)
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    return Math.round(Math.min(Math.max(280, vw - 40), 36 * rem))
+  }
+
   /** Stronger upward glue + relaxed top clamp so the figure reads “in” the top bar beside the chat pill. */
   _navbarGlueVerticalTuning(ref, vw) {
     const isMobile = vw < 768
@@ -64,9 +76,14 @@ class SpacemanPosition {
     return { nudge, relax }
   }
 
-  /** Mobile: shift mascot slightly left over the 💬 strip (negative lowers --sx). */
+  /**
+   * Mobile: nudge toward the centered chat pill by ~10% of hero-column width (px),
+   * keeping a small legacy left bias so the figure still reads beside the strip.
+   */
   _navbarGlueHorizontalNudgePx(vw) {
-    return vw < 768 ? -8 : 0
+    if (vw >= 768) return 0
+    const hw = this._readHeroContentWidthPx(vw)
+    return Math.round(-6 + hw * 0.1)
   }
 
   setHooks(hooks = {}) {
@@ -406,7 +423,7 @@ class SpacemanPosition {
     } else {
         /* Home hero: slightly smaller than legacy full-page scale, closer to docked agent */
         scale = isMobile ? (vw < 480 ? 0.4 : 0.46) : isTablet ? 0.5 : 0.54;
-        const bounds = this._getBounds(vw, vh, scale);
+        let bounds = this._getBounds(vw, vh, scale);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
         const heroCopy = document.querySelector('.hero-copy')
         const heroSlot = document.getElementById('agentSlotHero')
@@ -424,6 +441,35 @@ class SpacemanPosition {
 
         let placedHome = false
         const agentNavBar = dockedAgent?.dataset?.slot === 'navbar'
+        /**
+         * Mobile + launcher in hero: stack on the chat pill — bbox left flush with pill left,
+         * bottom slightly overlaps pill top so the figure reads “on” the bar (not the generic top band).
+         */
+        if (isMobile && !agentNavBar) {
+          const b = this._getBounds(vw, vh, scale, { looserMobileHeroEdges: true })
+          let ref = null
+          if (slotRect && slotRect.width > 8 && slotRect.height > 8) {
+            const nr = dockedAgent?.getBoundingClientRect?.()
+            ref = (nr && nr.width > 8 && nr.height > 8) ? nr : slotRect
+          }
+          if (ref) {
+            const stackIntoBarPx = vw < 480 ? 10 : 8
+            const cx = ref.left + w / 2
+            const cy = ref.top + stackIntoBarPx - h / 2
+            x = clamp(cx - vw / 2, b.minX, b.maxX)
+            y = clamp(cy - vh / 2, b.minY, b.maxY)
+            placedHome = true
+            bounds = b
+          } else if (heroCopy) {
+            const r = heroCopy.getBoundingClientRect()
+            if (r.width > 0 && r.height > 0) {
+              x = clamp(r.left - vw / 2 + 8, b.minX, b.maxX)
+              y = b.minY
+              placedHome = true
+              bounds = b
+            }
+          }
+        }
         const navGlue = agentNavBar
           ? (vw < 768 ? 7 : 5)
           : (vw < 768 ? 8 : 6)
@@ -466,7 +512,7 @@ class SpacemanPosition {
             placedHome = true
           }
         }
-        if (!placedHome && heroCopy) {
+        if (!placedHome && heroCopy && !isMobile) {
           const r = heroCopy.getBoundingClientRect()
           if (r.width > 0 && r.height > 0) {
             const edgePad = vw < 768 ? 12 : this.options.edgePad
@@ -483,7 +529,7 @@ class SpacemanPosition {
             }
           } else {
             x = clamp(0, bounds.minX, bounds.maxX)
-            y = clamp(isMobile ? -30 : 0, bounds.minY, bounds.maxY)
+            y = clamp(0, bounds.minY, bounds.maxY)
           }
         } else if (!placedHome) {
           const desiredX = isMobile ? 32 : 0
@@ -504,7 +550,7 @@ class SpacemanPosition {
    */
   _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap, verticalNudgePx = 0, relaxMinYPx = 0, glueHxNudgePx = 0) {
     if (!ref || ref.width < 8 || ref.height < 8) return null
-    const bounds = this._getBounds(vw, vh, scale)
+    const bounds = this._getBounds(vw, vh, scale, vw < 768 ? { looserMobileHeroEdges: true } : {})
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
     const rect = this.container.getBoundingClientRect()
     const baseW = (rect.width / (this.currentScale || 1)) || 200
@@ -538,11 +584,12 @@ class SpacemanPosition {
     return 0
   }
 
-  _getBounds(vw, vh, scale) {
+  _getBounds(vw, vh, scale, opts = {}) {
     const navHeight = this._navChromeHeight ?? this._readSiteHeaderHeightPx()
     const dockClearance = this._getDockClearance()
-    const edgePad = vw < 768 ? 12 : this.options.edgePad;
-    const bubbleSafetyPad = vw < 768 ? 22 : 10;
+    const loose = Boolean(opts.looserMobileHeroEdges && vw < 768)
+    const edgePad = loose ? 8 : (vw < 768 ? 12 : this.options.edgePad);
+    const bubbleSafetyPad = loose ? 12 : (vw < 768 ? 22 : 10);
     const rect = this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;

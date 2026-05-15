@@ -101,6 +101,7 @@ export function initChat() {
   const agentForm = agentNode?.querySelector('.agent-node__form')
   const agentInput = agentNode?.querySelector('.agent-node__input')
   const agentNodeMic = document.getElementById('agentNodeMic')
+  const agentNodeSubmit = document.getElementById('agentNodeSubmit')
   const heroSlotEl = document.getElementById('agentSlotHero')
 
   const dialog = document.getElementById('chatDialog')
@@ -202,6 +203,13 @@ export function initChat() {
       agentInput.setAttribute('data-track', 'header_chat_input_focus')
     } else {
       agentInput.setAttribute('data-track', 'hero_chat_input_focus')
+    }
+    if (agentNodeSubmit) {
+      if (source === 'header') {
+        agentNodeSubmit.setAttribute('data-track', 'header_chat_submit')
+      } else {
+        agentNodeSubmit.setAttribute('data-track', 'hero_chat_submit')
+      }
     }
     if (!chatVoiceFeatureEnabled) return
     if (source === 'header') {
