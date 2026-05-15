@@ -273,7 +273,7 @@ body > header {
     border-bottom: 1px solid var(--border-subtle);
     /* Avoid rare horizontal page scroll from slim chatbar + links */
     overflow-x: hidden;
-    /* Above #spacemanContainer (1001) so fixed nav + docked agent mic stay clickable; below chat (1095) / project (1100) */
+    /* Below #spacemanContainer (1020) for paint order; mascot uses pointer-events so #agentNode / nav stay clickable. Below chat (1095) / project (1100). */
     z-index: 1010;
     transition: background-color 0.4s ease, border-color 0.4s ease;
 }
@@ -821,7 +821,7 @@ body:not(.content-open) section#home {
     padding-top: clamp(3rem, 12vh, 7.5rem);
 }
 
-/* Hero area: no tap highlight or focus rectangle on mobile touch */
+/* Stacking: #spacemanContainer is z-index 1020 in spaceman.css (above this header) with pointer-events tuned so nav + #agentNode stay clickable. Hero tap styling: */
 #spacemanContainer,
 #spacemanContainer * {
     -webkit-tap-highlight-color: transparent;

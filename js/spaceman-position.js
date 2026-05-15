@@ -35,10 +35,7 @@ class SpacemanPosition {
     this._dragReturnTimer = null;
     this._layoutCooldownUntil = 0;
     this._hooks = {};
-    this.agentTrail = document.getElementById('agentTrail')
     this.agentNode = document.getElementById('agentNode')
-    this._trailVisible = true
-    this._trailLoopRaf = null
     /** Measured `body > header` height for bounds; refreshed each `_update`. */
     this._navChromeHeight = null
 
@@ -100,7 +97,6 @@ class SpacemanPosition {
     // After assets/fonts
     window.addEventListener('load', () => this.updatePosition(), { once: true });
     document.fonts?.ready?.then(() => this.updatePosition());
-    this._updateTrail()
   }
 
   _readDialogPanelRect(dialogId, panelSelector) {
@@ -207,7 +203,7 @@ class SpacemanPosition {
     }
 
     if (this.agentNode) {
-      this._agentNodeMutationObs = new MutationObserver(() => this._updateTrail())
+      this._agentNodeMutationObs = new MutationObserver(() => this.updatePosition())
       this._agentNodeMutationObs.observe(this.agentNode, {
         attributes: true,
         attributeFilter: ['class', 'data-state', 'data-slot']
@@ -236,7 +232,6 @@ class SpacemanPosition {
     }
     clearTimeout(this._updateT);
     this._updateT = setTimeout(() => this._update(), 50);
-    this._updateTrail()
   }
 
   _bindDrag() {
@@ -484,7 +479,6 @@ class SpacemanPosition {
     }
 
     this._moveTo(x, y, scale);
-    this._updateTrail()
   }
 
   /**
@@ -609,7 +603,6 @@ class SpacemanPosition {
   _moveTo(x, y, scale) {
     clearTimeout(this._cleanupTimer);
     this.movable.classList.add('moving', 'thrust');
-    this._startTrailLoop()
 
     // No wobble when content open
     const wobble =
@@ -624,13 +617,10 @@ class SpacemanPosition {
     this.movable.style.setProperty('--sy', `${y + wobble}px`);
     this.movable.style.setProperty('--ss', `${scale}`);
     this.currentScale = scale;
-    this._updateTrail()
 
     const cleanup = () => {
       this.movable.classList.remove('thrust', 'moving');
       this.movable.removeEventListener('transitionend', onEnd);
-      this._stopTrailLoop()
-      this._updateTrail()
     };
 
     const onEnd = (e) => {
@@ -652,141 +642,12 @@ class SpacemanPosition {
     this._cleanupTimer = setTimeout(cleanup, transitionMs + 50);
   }
 
-  _startTrailLoop() {
-    if (this._trailLoopRaf) return
-    const tick = () => {
-      this._trailLoopRaf = null
-      if (!this.movable.classList.contains('moving')) return
-      this._updateTrail()
-      this._trailLoopRaf = requestAnimationFrame(tick)
-    }
-    this._trailLoopRaf = requestAnimationFrame(tick)
-  }
-
-  _stopTrailLoop() {
-    if (!this._trailLoopRaf) return
-    cancelAnimationFrame(this._trailLoopRaf)
-    this._trailLoopRaf = null
-  }
-
-  updateTrail() {
-    this._updateTrail()
-  }
-
-  setTrailVisible(visible) {
-    this._trailVisible = Boolean(visible)
-    if (!this.agentTrail) return
-    this.agentTrail.classList.toggle('agent-trail--hidden', !this._trailVisible)
-    this.agentTrail.setAttribute('aria-hidden', 'true')
-    if (!this._trailVisible) {
-      this.agentTrail.style.opacity = '0'
-      this.agentTrail.style.pointerEvents = 'none'
-      return
-    }
-    this.agentTrail.style.opacity = ''
-    this.agentTrail.style.pointerEvents = 'none'
-    this._updateTrail()
-  }
-
-  /** Theme toggles display between `.helmet` and `.hero-head`; only the painted head has a non-zero box. */
-  _trailHeadBoundingRect() {
-    if (!this.spaceman) return null
-    for (const sel of ['.helmet', '.hero-head']) {
-      const el = this.spaceman.querySelector(sel)
-      if (!el) continue
-      const r = el.getBoundingClientRect()
-      if (r.width > 2 && r.height > 2) return r
-    }
-    return null
-  }
-
-  _updateTrail() {
-    const trail = this.agentTrail || document.getElementById('agentTrail')
-    const node = this.agentNode || document.getElementById('agentNode')
-    if (!trail || !node) return
-    const dots = trail.querySelectorAll('.agent-trail__dot')
-    if (!dots.length) return
-
-    if (!this._trailVisible) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    const dialogOpen = document.body.classList.contains('chat-dialog-open')
-      || document.body.classList.contains('project-dialog-open')
-      || document.body.classList.contains('contact-dialog-open')
-    if (dialogOpen) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    const headRect = this._trailHeadBoundingRect()
-    const b = node.getBoundingClientRect()
-    if (!headRect || headRect.width <= 0 || headRect.height <= 0 || b.width <= 0 || b.height <= 0) {
-      trail.classList.add('agent-trail--hidden')
-      return
-    }
-
-    /* Thought starts on the head rim toward the launcher (like .thought-tail), not the head bbox center. */
-    const ahx = headRect.left + headRect.width / 2
-    const ahy = headRect.top + headRect.height / 2
-    const gx = b.left + b.width / 2
-    const gy = b.top + b.height / 2
-    const toGx = gx - ahx
-    const toGy = gy - ahy
-    const toGLen = Math.hypot(toGx, toGy)
-    const rim = Math.min(headRect.width, headRect.height) * 0.38
-    let ax = ahx
-    let ay = ahy
-    if (toGLen > 12) {
-      ax = ahx + (toGx / toGLen) * rim
-      ay = ahy + (toGy / toGLen) * rim
-    }
-    const bx = Math.max(b.left, Math.min(ax, b.right))
-    const by = Math.max(b.top, Math.min(ay, b.bottom))
-    const rdx = bx - ax
-    const rdy = by - ay
-    const rlen = Math.hypot(rdx, rdy) || 1
-    /* Long chords: shallower arc + lower t so dots stay nearer the helmet (less “stretched” line) */
-    const stretch = Math.min(1, Math.max(0, (rlen - 64) / 260))
-    const bulgeMag = Math.max(7, 16 - 9 * stretch)
-    const ts = [
-      0.22 + (0.12 - 0.22) * stretch,
-      0.52 + (0.32 - 0.52) * stretch,
-      0.8 + (0.55 - 0.8) * stretch
-    ]
-    let ox = (-rdy / rlen) * bulgeMag
-    let oy = (rdx / rlen) * bulgeMag
-    if (oy > 0) {
-      ox = -ox
-      oy = -oy
-    }
-    const cx = (ax + bx) / 2 + ox
-    const cy = (ay + by) / 2 + oy
-    const quad = (t) => {
-      const u = 1 - t
-      return {
-        x: u * u * ax + 2 * u * t * cx + t * t * bx,
-        y: u * u * ay + 2 * u * t * cy + t * t * by
-      }
-    }
-
-    dots.forEach((dot, index) => {
-      const t = ts[index] ?? ts[ts.length - 1]
-      const p = quad(t)
-      dot.style.transform = `translate(${p.x}px, ${p.y}px)`
-    })
-
-    trail.classList.remove('agent-trail--hidden')
-  }
-
   destroy() {
     clearTimeout(this._updateT);
     clearTimeout(this._cleanupTimer);
     clearTimeout(this._resizeTimer);
     clearTimeout(this._scrollTimer);
     this._clearPostDragCooldown();
-    this._stopTrailLoop()
     if (this._onEnd) this.movable.removeEventListener('transitionend', this._onEnd);
     this._mutationObs?.disconnect();
     this._agentNodeMutationObs?.disconnect()

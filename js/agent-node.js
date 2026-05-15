@@ -101,17 +101,17 @@ function normalizeSlot(slot) {
   return slot === 'navbar' ? 'navbar' : 'hero'
 }
 
-const HERO_OBSERVER_THRESHOLDS = [0, 0.2, 0.35, 0.6, 1]
+/** Fraction of `heroDockBandEl` height that must overlap the viewport to keep the launcher in `#agentSlotHero`. */
+const HERO_BAND_VISIBLE_FRAC = 0.2
 
 export function initAgentNode(options = {}) {
   const node = document.getElementById('agentNode')
   const heroSlot = document.getElementById('agentSlotHero')
   const navbarSlot = document.getElementById('agentSlotNavbar')
-  const trail = document.getElementById('agentTrail')
   const mic = document.getElementById('agentNodeMic')
   const heroChatLabelWrap = heroSlot?.closest('.hero-chat')?.querySelector('.hero-chat__label-wrap')
-  /** Match pre–agent-node behavior: observe the whole hero chat column, not only the pill slot. */
-  const heroScrollDockRoot = heroSlot?.closest('.hero-chat') || heroSlot
+  /** Full hero band (copy + chat + highlights): dock launcher to navbar once this is mostly scrolled away. */
+  const heroDockBandEl = heroSlot?.closest('.hero') || heroSlot?.closest('.hero-chat') || heroSlot
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
   const ambientOverlay = node?.querySelector('.agent-node__ambient-overlay')
@@ -148,6 +148,7 @@ export function initAgentNode(options = {}) {
   let leaveTimer = null
   let unsubscribeChatBus = null
   let launcherObserver = null
+  let homeDockScrollRaf = null
   let lastSyncedSection = 'home'
   const placeholderIdx = { home: 0, playground: 0, portfolio: 0 }
   let placeholderRotateTimer = null
@@ -283,22 +284,12 @@ export function initAgentNode(options = {}) {
     }
   }
 
-  const syncTrailVisibility = () => {
-    if (!spacemanPosition || typeof spacemanPosition.setTrailVisible !== 'function') return
-    const dialogOpen = document.body.classList.contains('chat-dialog-open')
-      || document.body.classList.contains('project-dialog-open')
-      || document.body.classList.contains('contact-dialog-open')
-    const visible = state.mode !== 'modal' && !dialogOpen
-    spacemanPosition.setTrailVisible(visible)
-  }
-
   const setState = (nextState = 'bubble') => {
     const prev = state.mode
     const safe = nextState === 'bar' || nextState === 'modal' ? nextState : 'bubble'
     state.mode = safe
     node.dataset.state = safe
     if (safe === 'modal') clearPlaceholderRotateTimer()
-    syncTrailVisibility()
     syncInputReadOnly()
     options.onStateChange?.(safe)
     const after = () => {
@@ -335,10 +326,40 @@ export function initAgentNode(options = {}) {
     spacemanPosition?.updatePosition?.()
   }
 
-  const syncHeroVisibleFromRect = () => {
-    const r = heroScrollDockRoot.getBoundingClientRect()
+  const applyHomeDockFromHeroVisibility = () => {
+    if (state.section !== 'home') return
+    const want = state.heroVisible ? 'hero' : 'navbar'
+    if (state.slot === want && node.parentElement === (want === 'navbar' ? navbarSlot : heroSlot)) {
+      return
+    }
+    dockTo(want)
+  }
+
+  const readHeroBandSubstantiallyVisible = () => {
+    const el = heroDockBandEl
+    if (!el) return true
+    const r = el.getBoundingClientRect()
     const vh = window.innerHeight || document.documentElement.clientHeight || 0
-    state.heroVisible = r.bottom > 0 && r.top < vh
+    if (!Number.isFinite(r.height) || r.height < 4) return false
+    const overlap = Math.max(0, Math.min(r.bottom, vh) - Math.max(r.top, 0))
+    return overlap / r.height >= HERO_BAND_VISIBLE_FRAC
+  }
+
+  const syncHeroVisibilityForDock = () => {
+    state.heroVisible = readHeroBandSubstantiallyVisible()
+  }
+
+  const scheduleHomeDockFromScroll = () => {
+    if (state.section !== 'home') return
+    if (homeDockScrollRaf != null) return
+    homeDockScrollRaf = requestAnimationFrame(() => {
+      homeDockScrollRaf = null
+      const prev = state.heroVisible
+      syncHeroVisibilityForDock()
+      if (prev !== state.heroVisible) {
+        dockTo(state.heroVisible ? 'hero' : 'navbar')
+      }
+    })
   }
 
   const syncFromNavigation = (section = 'home') => {
@@ -349,7 +370,7 @@ export function initAgentNode(options = {}) {
     }
     state.section = next
     if (next === 'home') {
-      syncHeroVisibleFromRect()
+      syncHeroVisibilityForDock()
       dockTo(state.heroVisible ? 'hero' : 'navbar')
     } else {
       dockTo('navbar')
@@ -456,18 +477,15 @@ export function initAgentNode(options = {}) {
 
   const applyLifecycleClass = (chatState) => {
     node.classList.remove('agent-node--lifecycle-active')
-    trail?.classList.remove('agent-trail--lifecycle-active')
     LIFECYCLE_STATES.forEach((status) => {
       const safe = status.replace(/_/g, '-')
       node.classList.remove(`agent-node--lifecycle-${safe}`)
-      trail?.classList.remove(`agent-trail--${safe}`)
     })
     const busy = Boolean(chatState && chatState !== 'idle')
     syncBubbleLifecycleOverlay(busy)
     if (!chatState || chatState === 'idle') return
     const safeState = String(chatState).replace(/_/g, '-')
     node.classList.add('agent-node--lifecycle-active', `agent-node--lifecycle-${safeState}`)
-    trail?.classList.add('agent-trail--lifecycle-active', `agent-trail--${safeState}`)
   }
 
   unsubscribeChatBus = chatBus.on((chatState) => {
@@ -475,7 +493,6 @@ export function initAgentNode(options = {}) {
   })
 
   const onFinePointerMqlChange = () => {
-    syncTrailVisibility()
     if (!isFinePointer() && state.mode !== 'modal') {
       clearLeaveTimer()
       setState('bubble')
@@ -492,32 +509,42 @@ export function initAgentNode(options = {}) {
   }
   reducedMql?.addEventListener?.('change', onReducedMotionMqlChange)
 
-  if (typeof IntersectionObserver === 'function') {
+  const onScrollLikeForHomeDock = () => {
+    scheduleHomeDockFromScroll()
+  }
+
+  if (typeof IntersectionObserver === 'function' && heroDockBandEl) {
     launcherObserver?.disconnect()
-    launcherObserver = new IntersectionObserver((entries) => {
-      const entry = entries[0]
-      if (!entry) return
-      state.heroVisible = entry.isIntersecting && entry.intersectionRatio >= 0.35
-      if (state.section === 'home') {
-        dockTo(state.heroVisible ? 'hero' : 'navbar')
-      }
+    launcherObserver = new IntersectionObserver(() => {
+      syncHeroVisibilityForDock()
+      applyHomeDockFromHeroVisibility()
     }, {
       root: null,
       rootMargin: '0px',
-      threshold: HERO_OBSERVER_THRESHOLDS
+      threshold: [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25, 0.35, 0.5, 0.65, 0.8, 1]
     })
-    launcherObserver.observe(heroScrollDockRoot)
+    launcherObserver.observe(heroDockBandEl)
   } else {
-    state.heroVisible = false
+    syncHeroVisibilityForDock()
   }
 
+  window.addEventListener('scroll', onScrollLikeForHomeDock, { passive: true })
+  window.visualViewport?.addEventListener?.('scroll', onScrollLikeForHomeDock)
+  window.visualViewport?.addEventListener?.('resize', onScrollLikeForHomeDock)
+
   syncFromNavigation('home')
-  syncTrailVisibility()
 
   const destroy = () => {
     clearLeaveTimer()
     clearPlaceholderRotateTimer()
     syncBubbleLifecycleOverlay(false)
+    if (homeDockScrollRaf != null) {
+      cancelAnimationFrame(homeDockScrollRaf)
+      homeDockScrollRaf = null
+    }
+    window.removeEventListener('scroll', onScrollLikeForHomeDock)
+    window.visualViewport?.removeEventListener?.('scroll', onScrollLikeForHomeDock)
+    window.visualViewport?.removeEventListener?.('resize', onScrollLikeForHomeDock)
     launcherObserver?.disconnect()
     launcherObserver = null
     unsubscribeChatBus?.()
@@ -533,7 +560,6 @@ export function initAgentNode(options = {}) {
     setState,
     dockTo,
     syncFromNavigation,
-    syncTrailVisibility,
     openLauncherDeepIntent,
     getPlaceholderSuggestion,
     subscribePlaceholder,

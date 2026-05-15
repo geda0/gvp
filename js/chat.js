@@ -228,7 +228,6 @@ export function initChat() {
     launcherState.section = nextSection
     syncAgentLauncherChrome(nextSection)
     state.agentNodeApi?.syncFromNavigation?.(nextSection)
-    state.agentNodeApi?.syncTrailVisibility?.()
   }
 
   const setStatus = (text, tone = 'muted') => {
@@ -454,7 +453,6 @@ export function initChat() {
     dialog.hidden = !visible
     dialog.setAttribute('aria-hidden', visible ? 'false' : 'true')
     document.body.classList.toggle('chat-dialog-open', visible)
-    state.agentNodeApi?.syncTrailVisibility?.()
   }
 
   const snapClose = ({ restoreFocus = true } = {}) => {

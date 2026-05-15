@@ -731,7 +731,7 @@
 
 /* ===== SPACEMAN POSITIONING & MOVEMENT ===== */
 
-/* Below fixed site header (styles.css z-index: 1010) so nav chrome wins hit-testing; above main content; below project dialog (1100+). */
+/* Above fixed site header (styles.css body > header z-index: 1010) so the mascot paints over the bar when docked; below chat (1040) / project (1100). Hit-testing: container + .spaceman-outer use pointer-events: none; .spaceman and .spaceman-hero-menu use auto so clicks pass through chrome gaps to #agentNode / nav. */
 #spacemanContainer {
   position: fixed;
   top: 50%;
@@ -740,10 +740,14 @@
              translate(var(--sx, 0px), var(--sy, 0px))
              scale(var(--ss, 1));
   transform-origin: center center;
-  z-index: 1001;
+  z-index: 1020;
   pointer-events: none;
   transition: transform 0.5s ease-out;
   will-change: transform;
+}
+
+#spacemanContainer > .spaceman-outer {
+  pointer-events: none;
 }
 
 #spacemanContainer .spaceman {
@@ -789,12 +793,12 @@
 /* ===== Z-INDEX MANAGEMENT ===== */
 
 body.content-open #spacemanContainer {
-  z-index: 1001;
+  z-index: 1020;
   transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Project / contact modals: keep mascot *under* dialog stacking (project 1100, contact 1090) so
-   close button, backdrop, and panel receive clicks. Spaceman .spaceman still uses pointer-events: auto. */
+   close button, backdrop, and panel receive clicks. #spacemanContainer > .spaceman-outer is none; .spaceman and .spaceman-hero-menu stay auto. */
 body.project-dialog-open #spacemanContainer,
 body.contact-dialog-open:not(.chat-dialog-open) #spacemanContainer {
   z-index: 1080;
@@ -805,15 +809,6 @@ body.contact-dialog-open:not(.chat-dialog-open) #spacemanContainer {
 body.chat-dialog-open #spacemanContainer {
   z-index: 1040;
   transition: transform var(--gvp-chat-panel-anim-ms, 280ms) var(--gvp-chat-panel-anim-ease, cubic-bezier(0.22, 1, 0.36, 1));
-}
-
-/* Trail hidden while overlays are open (agent-node also syncs via JS). */
-body.chat-dialog-open #agentTrail,
-body.project-dialog-open #agentTrail,
-body.contact-dialog-open #agentTrail {
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
 }
 
 /* ===== RESPONSIVE SCALING ===== */

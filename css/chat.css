@@ -2,82 +2,6 @@ body.chat-dialog-open {
     overflow: hidden;
 }
 
-/* ---- Agent trail (fixed overlay; dots positioned in JS) ---- */
-#agentTrail {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 1002;
-}
-
-#agentTrail.agent-trail--hidden {
-    opacity: 0;
-    visibility: hidden;
-}
-
-.agent-trail__dot {
-    position: fixed;
-    top: 0;
-    left: 0;
-    border-radius: 50%;
-    background: var(--spaceman-tail-dot-bg, rgba(255, 255, 255, 0.95));
-    box-shadow:
-        0 2px 8px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.72),
-        0 0 12px color-mix(in srgb, var(--chat-launcher-ring) 35%, transparent);
-    opacity: 0.92;
-    will-change: transform;
-    animation: agent-trail-pullet 2.4s ease-in-out infinite;
-}
-
-[data-theme='garden'] .agent-trail__dot {
-    box-shadow:
-        0 2px 8px rgba(30, 50, 30, 0.22),
-        inset 0 1px 0 rgba(255, 255, 255, 0.85),
-        0 0 10px color-mix(in srgb, var(--chat-launcher-ring) 28%, transparent);
-}
-
-.agent-trail__dot:nth-child(1) {
-    width: 12px;
-    height: 12px;
-    margin: -6px 0 0 -6px;
-}
-
-.agent-trail__dot:nth-child(2) {
-    width: 10px;
-    height: 10px;
-    margin: -5px 0 0 -5px;
-    animation-delay: 0.14s;
-}
-
-.agent-trail__dot:nth-child(3) {
-    width: 8px;
-    height: 8px;
-    margin: -4px 0 0 -4px;
-    animation-delay: 0.28s;
-}
-
-#agentTrail.agent-trail--lifecycle-active.agent-trail--thinking .agent-trail__dot,
-#agentTrail.agent-trail--lifecycle-active.agent-trail--streaming .agent-trail__dot {
-    animation: agent-trail-pullet-strong 0.95s ease-in-out infinite;
-}
-
-#agentTrail.agent-trail--lifecycle-active.agent-trail--thinking .agent-trail__dot:nth-child(2),
-#agentTrail.agent-trail--lifecycle-active.agent-trail--streaming .agent-trail__dot:nth-child(2) {
-    animation-delay: 0.12s;
-}
-
-#agentTrail.agent-trail--lifecycle-active.agent-trail--thinking .agent-trail__dot:nth-child(3),
-#agentTrail.agent-trail--lifecycle-active.agent-trail--streaming .agent-trail__dot:nth-child(3) {
-    animation-delay: 0.24s;
-}
-
-#agentTrail.agent-trail--lifecycle-active.agent-trail--error .agent-trail__dot {
-    background: #d14343;
-    box-shadow: 0 0 0 0.2rem color-mix(in srgb, #d14343 30%, transparent);
-    animation: none;
-}
-
 /* ---- Hero chat shell: Ask eyebrow + chips (launcher is #agentNode; pre-hh bar look) ---- */
 .hero-chat__label-wrap {
     display: flex;
@@ -1478,41 +1402,8 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
         animation: none;
     }
 
-    #agentTrail.agent-trail--lifecycle-active.agent-trail--thinking .agent-trail__dot,
-    #agentTrail.agent-trail--lifecycle-active.agent-trail--streaming .agent-trail__dot {
-        animation: none;
-    }
-
-    .agent-trail__dot {
-        animation: none;
-    }
-
     .chat-messages {
         scroll-behavior: auto;
-    }
-}
-
-@keyframes agent-trail-pullet {
-    0%,
-    100% {
-        opacity: 0.78;
-        filter: brightness(1);
-    }
-
-    50% {
-        opacity: 1;
-        filter: brightness(1.12);
-    }
-}
-
-@keyframes agent-trail-pullet-strong {
-    0%,
-    100% {
-        opacity: 0.45;
-    }
-
-    50% {
-        opacity: 1;
     }
 }
 
