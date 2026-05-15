@@ -681,13 +681,26 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             },
         )
 
+    mint_timeout = float(os.environ.get('GEMINI_LIVE_MINT_TIMEOUT_SEC', '50'))
     try:
         prompt_src = app.state.voice_system_prompt or app.state.system_prompt
         instruction = build_live_system_instruction(
             prompt_src,
             app.state.knowledge_pack,
         )
-        session_payload = await mint_live_session_async(instruction)
+        session_payload = await asyncio.wait_for(
+            mint_live_session_async(instruction),
+            timeout=mint_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning('live session mint timed out after %ss', mint_timeout)
+        return JSONResponse(
+            status_code=504,
+            content={
+                'error': 'Voice session setup timed out on the server. Try again.',
+                'code': 'live_mint_timeout',
+            },
+        )
     except RuntimeError as exc:
         logger.warning("live session unavailable: %s", exc)
         return JSONResponse(

@@ -16,12 +16,109 @@ const PCM_JITTER_MAX_AHEAD_SEC = 4.5
 const VOICE_WS_IDLE_MS = 3 * 60 * 1000
 /** Hard cap on continuous voice session length (ms). */
 const VOICE_MAX_SESSION_MS = 25 * 60 * 1000
-/** POST /api/live/session budget (ms). */
-const LIVE_SESSION_FETCH_MS = 30 * 1000
+/** Per-attempt POST /api/live/session budget (ms). */
+const LIVE_SESSION_ATTEMPT_MS = 45 * 1000
+/** Retries after the first POST attempt (inclusive budget ≈ 4 × 45s + backoff). */
+const LIVE_SESSION_MAX_RETRIES = 3
+const LIVE_SESSION_RETRY_BACKOFF_MS = [600, 1400, 2800]
+/** Full connect rounds (new session POST + WebSocket) on transient WS/setup failure. */
+const VOICE_CONNECT_MAX_ROUNDS = 2
+const VOICE_CONNECT_ROUND_BACKOFF_MS = [800, 1600]
 /** WebSocket must reach OPEN before setup wait (ms). */
 const LIVE_WS_OPEN_MS = 20 * 1000
 /** Max wait for setupComplete after WebSocket is open (ms). */
 const LIVE_SETUP_WAIT_MS = 60 * 1000
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const makeVoiceRetryableError = (message) => {
+  const err = new Error(message)
+  err.retryable = true
+  return err
+}
+
+const isVoiceRetryableHttpStatus = (status) =>
+  status === 408 || status === 429 || status === 502 || status === 503 || status === 504
+
+const isVoiceRetryableError = (error) =>
+  Boolean(error && typeof error === 'object' && error.retryable)
+
+const isVoiceRetryableSetupFailure = (error, isRelayWsPath) => {
+  if (!error || typeof error !== 'object') return false
+  if (error.retryable) return true
+  if (error.name !== 'LiveSetupFailed') return false
+  return Boolean(isRelayWsPath)
+}
+
+async function postLiveVoiceSession(postUrl, sessionId, { onRetry } = {}) {
+  let lastError = null
+  const maxAttempts = LIVE_SESSION_MAX_RETRIES + 1
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const fetchOpts = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId })
+    }
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      fetchOpts.signal = AbortSignal.timeout(LIVE_SESSION_ATTEMPT_MS)
+    }
+    try {
+      let response
+      try {
+        response = await fetch(postUrl, fetchOpts)
+      } catch (fetchErr) {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          throw makeVoiceRetryableError('You appear to be offline. Check your connection and try again.')
+        }
+        if (fetchErr instanceof Error
+          && (fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError')) {
+          throw makeVoiceRetryableError('Voice session request timed out.')
+        }
+        throw makeVoiceRetryableError('Could not reach the voice service. Check your connection and try again.')
+      }
+
+      const responseText = await response.text()
+      let body = {}
+      if (responseText) {
+        try {
+          body = JSON.parse(responseText)
+        } catch (_) {
+          body = {}
+        }
+      }
+
+      if (!response.ok) {
+        const detail = body?.detail || body?.error
+        const code = body?.code
+        const msg = typeof detail === 'string' && detail.trim()
+          ? detail.trim()
+          : 'Could not start voice session.'
+        if (isVoiceRetryableHttpStatus(response.status)
+          || code === 'live_mint_timeout'
+          || code === 'upstream_timeout') {
+          throw makeVoiceRetryableError(msg)
+        }
+        throw new Error(msg)
+      }
+
+      const { websocketUrl, handshake, model: modelFromBody } = body
+      if (!websocketUrl || !handshake) {
+        throw makeVoiceRetryableError('Voice session response was incomplete.')
+      }
+      return body
+    } catch (error) {
+      lastError = error
+      if (!isVoiceRetryableError(error) || attempt >= LIVE_SESSION_MAX_RETRIES) {
+        throw error
+      }
+      if (typeof onRetry === 'function') {
+        onRetry(attempt + 1, maxAttempts)
+      }
+      await sleep(LIVE_SESSION_RETRY_BACKOFF_MS[attempt] || 2800)
+    }
+  }
+  throw lastError || makeVoiceRetryableError('Could not start voice session.')
+}
 
 function detachWebSocketHandlers(socket) {
   if (!socket) return
@@ -587,6 +684,7 @@ export function bindChatLiveVoice(opts) {
         : (typeof errField?.message === 'string' ? errField.message : String(errField?.code || 'Voice setup failed'))
       const err = new Error(detail)
       err.name = 'LiveSetupFailed'
+      if (lastLiveVoiceTransport === 'relay') err.retryable = true
       rejectPendingSetupLatch(err)
       return
     }
@@ -705,172 +803,175 @@ export function bindChatLiveVoice(opts) {
     try {
       const root = resolveChatApiBase().replace(/\/+$/, '')
       const postUrl = `${root}/api/live/session`
+      let isRelayWsPath = false
 
-      const fetchOpts = {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: getSessionId() })
-      }
-      if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-        fetchOpts.signal = AbortSignal.timeout(LIVE_SESSION_FETCH_MS)
-      }
-      const response = await fetch(postUrl, fetchOpts)
-
-      const responseText = await response.text()
-      let body = {}
-      if (responseText) {
-        try {
-          body = JSON.parse(responseText)
-        } catch (_) {
-          body = {}
-        }
-      }
-
-      if (!response.ok) {
-        const detail = body?.detail || body?.error
-        throw new Error(typeof detail === 'string' && detail.trim()
-          ? detail.trim()
-          : 'Could not start voice session.')
-      }
-
-      const { websocketUrl, handshake, model: modelFromBody } = body
-      if (!websocketUrl || !handshake) {
-        throw new Error('Voice session response was incomplete.')
-      }
-
-      const wsUrlStr = String(websocketUrl)
-      // Relay URLs always use this path on our API host; trust it even if legacy JSON omits transport fields.
-      const isRelayWsPath = wsUrlStr.includes('/api/live/relay/')
-      const constrainedWs = wsUrlStr.includes('BidiGenerateContentConstrained')
-      const modelResource = typeof modelFromBody === 'string' && modelFromBody.trim()
-        ? modelFromBody.trim()
-        : (modelFromBody != null ? String(modelFromBody) : '')
-      const clientSlimsFirstFrame = Boolean(
-        constrainedWs
-        && modelResource
-        && handshake
-        && typeof handshake === 'object'
-        && handshake.setup
-        && typeof handshake.setup === 'object'
-        && Object.keys(handshake.setup).length > 1
-      )
-      const firstClientSetup = clientSlimsFirstFrame
-        ? { setup: { model: modelResource } }
-        : handshake
-
-      lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
-
-      const transport = lastLiveVoiceTransport || ''
-      const voiceBrowserExperience = typeof body.voiceBrowserExperience === 'string'
-        ? body.voiceBrowserExperience
-        : ''
-      const blockDirectGoogle = !isRelayWsPath
-        && (transport === 'direct_google' || voiceBrowserExperience === 'direct_google_only')
-        && !voiceAllowDirectGoogleDevOverride()
-      if (blockDirectGoogle) {
-        patchLiveUi({ connecting: false, active: false })
-        setStatus(
-          'Voice needs the chat API on a host with WebSocket relay (not direct browser-to-Google). Text chat still works; deploy chat on ECS/ALB or set localStorage gvp_chat_voice_allow_direct=1 only for debugging.',
-          'error',
-        )
-        trackEvent('chat_live_blocked', { reason: 'direct_google_transport' })
-        chatBus.emit('idle', { source: 'chat-live' })
-        return
-      }
-
-      if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
-        throw new Error('Invalid voice session URL.')
-      }
-
-      voiceSessionOpen = true
-      setupDone = false
-      wsOpened = false
-      player = new PcmJitterPlayer()
-
-      const setupReadyPromise = new Promise((resolve, reject) => {
-        pendingSetupLatch = { resolve, reject, timeoutId: null }
-        pendingSetupLatch.timeoutId = setTimeout(() => {
-          const err = new Error(liveSetupTimeoutMessage(isRelayWsPath))
-          err.name = 'LiveSetupFailed'
-          rejectPendingSetupLatch(err)
-        }, LIVE_SETUP_WAIT_MS)
-      })
-
-      const wsOpenPromise = new Promise((resolve, reject) => {
-        const openTimer = setTimeout(() => {
-          const err = new Error('Voice WebSocket did not connect in time.')
-          err.name = 'LiveSetupFailed'
-          reject(err)
-        }, LIVE_WS_OPEN_MS)
-        const settleOpen = () => {
-          clearTimeout(openTimer)
-          wsOpened = true
-          bumpVoiceWsIdleTimer()
-          if (!isRelayWsPath) {
-            try {
-              ws.send(JSON.stringify(firstClientSetup))
-            } catch (sendErr) {
-              const err = new Error(sendErr?.message || 'Could not start voice handshake.')
-              err.name = 'LiveSetupFailed'
-              reject(err)
-              return
-            }
-          }
-          resolve()
-        }
-        const settleOpenFail = (err) => {
-          clearTimeout(openTimer)
-          reject(err)
-        }
-        ws = new WebSocket(websocketUrl)
-        ws.onopen = () => settleOpen()
-        ws.onmessage = (ev) => {
-          bumpVoiceWsIdleTimer()
-          void handlePayload(ev.data)
-        }
-        ws.onerror = () => {
-          setStatus('Voice connection error.', 'error')
-          trackEvent('chat_live_error', { phase: 'websocket' })
-          chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
-          if (!wsOpened) {
-            const err = new Error('Voice WebSocket connection failed.')
-            err.name = 'LiveSetupFailed'
-            settleOpenFail(err)
-          }
-        }
-        ws.onclose = (ev) => {
-          if (!voiceSessionOpen) return
-          const ready = setupDone
-          const code = ev.code
-          const reason = ev.reason
-          const closeMsg = isRelayWsPath
-            ? voiceRelayCloseUserMessage(code, reason)
-            : voiceSessionEarlyCloseUserMessage(code, reason)
-          const transportForCloseMsg = lastLiveVoiceTransport
-          const markHostBlocked = !ready
-            && transportForCloseMsg === 'relay'
-            && (code === 1011 || code === 4403 || String(reason || '').toLowerCase().includes('internal'))
-          let latchRejected = false
-          if (!ready) {
-            const err = new Error(closeMsg)
-            err.name = 'LiveSetupFailed'
-            if (!wsOpened) {
-              settleOpenFail(err)
-            }
-            latchRejected = rejectPendingSetupLatch(err)
-          }
-          if (markHostBlocked) voiceUnavailableOnHost = true
+      for (let connectRound = 0; connectRound <= VOICE_CONNECT_MAX_ROUNDS; connectRound++) {
+        if (connectRound > 0) {
           stopVoiceInternal({ silent: true })
-          if (!ready && !latchRejected) {
-            setStatus(closeMsg, 'error')
-            trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
-            chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
-          }
+          setStatus(`Reconnecting voice… (attempt ${connectRound + 1}/${VOICE_CONNECT_MAX_ROUNDS + 1})`)
+          trackEvent('chat_live_connect_retry', { round: connectRound })
+          await sleep(VOICE_CONNECT_ROUND_BACKOFF_MS[connectRound - 1] || 1600)
         }
-      })
 
-      await wsOpenPromise
-      await setupReadyPromise
+        let body
+        try {
+          body = await postLiveVoiceSession(postUrl, getSessionId(), {
+            onRetry: (attempt, maxAttempts) => {
+              setStatus(`Connecting voice… (retry ${attempt}/${maxAttempts})`)
+              trackEvent('chat_live_session_retry', { attempt, maxAttempts })
+            }
+          })
+        } catch (sessionErr) {
+          if (isVoiceRetryableError(sessionErr) && connectRound < VOICE_CONNECT_MAX_ROUNDS) {
+            continue
+          }
+          throw sessionErr
+        }
+
+        const { websocketUrl, handshake, model: modelFromBody } = body
+        const wsUrlStr = String(websocketUrl)
+        // Relay URLs always use this path on our API host; trust it even if legacy JSON omits transport fields.
+        isRelayWsPath = wsUrlStr.includes('/api/live/relay/')
+        const constrainedWs = wsUrlStr.includes('BidiGenerateContentConstrained')
+        const modelResource = typeof modelFromBody === 'string' && modelFromBody.trim()
+          ? modelFromBody.trim()
+          : (modelFromBody != null ? String(modelFromBody) : '')
+        const clientSlimsFirstFrame = Boolean(
+          constrainedWs
+          && modelResource
+          && handshake
+          && typeof handshake === 'object'
+          && handshake.setup
+          && typeof handshake.setup === 'object'
+          && Object.keys(handshake.setup).length > 1
+        )
+        const firstClientSetup = clientSlimsFirstFrame
+          ? { setup: { model: modelResource } }
+          : handshake
+
+        lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
+
+        const transport = lastLiveVoiceTransport || ''
+        const voiceBrowserExperience = typeof body.voiceBrowserExperience === 'string'
+          ? body.voiceBrowserExperience
+          : ''
+        const blockDirectGoogle = !isRelayWsPath
+          && (transport === 'direct_google' || voiceBrowserExperience === 'direct_google_only')
+          && !voiceAllowDirectGoogleDevOverride()
+        if (blockDirectGoogle) {
+          patchLiveUi({ connecting: false, active: false })
+          setStatus(
+            'Voice needs the chat API on a host with WebSocket relay (not direct browser-to-Google). Text chat still works; deploy chat on ECS/ALB or set localStorage gvp_chat_voice_allow_direct=1 only for debugging.',
+            'error',
+          )
+          trackEvent('chat_live_blocked', { reason: 'direct_google_transport' })
+          chatBus.emit('idle', { source: 'chat-live' })
+          return
+        }
+
+        if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
+          throw new Error('Invalid voice session URL.')
+        }
+
+        const liveSetupErr = (message) => {
+          const err = new Error(message)
+          err.name = 'LiveSetupFailed'
+          if (isRelayWsPath) err.retryable = true
+          return err
+        }
+
+        try {
+          voiceSessionOpen = true
+          setupDone = false
+          wsOpened = false
+          player = new PcmJitterPlayer()
+
+          const setupReadyPromise = new Promise((resolve, reject) => {
+            pendingSetupLatch = { resolve, reject, timeoutId: null }
+            pendingSetupLatch.timeoutId = setTimeout(() => {
+              rejectPendingSetupLatch(liveSetupErr(liveSetupTimeoutMessage(isRelayWsPath)))
+            }, LIVE_SETUP_WAIT_MS)
+          })
+
+          const wsOpenPromise = new Promise((resolve, reject) => {
+            const openTimer = setTimeout(() => {
+              reject(liveSetupErr('Voice WebSocket did not connect in time.'))
+            }, LIVE_WS_OPEN_MS)
+            const settleOpen = () => {
+              clearTimeout(openTimer)
+              wsOpened = true
+              bumpVoiceWsIdleTimer()
+              if (!isRelayWsPath) {
+                try {
+                  ws.send(JSON.stringify(firstClientSetup))
+                } catch (sendErr) {
+                  reject(liveSetupErr(sendErr?.message || 'Could not start voice handshake.'))
+                  return
+                }
+              }
+              resolve()
+            }
+            const settleOpenFail = (err) => {
+              clearTimeout(openTimer)
+              if (err && typeof err === 'object' && err.name === 'LiveSetupFailed' && isRelayWsPath) {
+                err.retryable = true
+              }
+              reject(err)
+            }
+            ws = new WebSocket(websocketUrl)
+            ws.onopen = () => settleOpen()
+            ws.onmessage = (ev) => {
+              bumpVoiceWsIdleTimer()
+              void handlePayload(ev.data)
+            }
+            ws.onerror = () => {
+              trackEvent('chat_live_error', { phase: 'websocket' })
+              if (!wsOpened) {
+                settleOpenFail(liveSetupErr('Voice WebSocket connection failed.'))
+              }
+            }
+            ws.onclose = (ev) => {
+              if (!voiceSessionOpen) return
+              const ready = setupDone
+              const code = ev.code
+              const reason = ev.reason
+              const closeMsg = isRelayWsPath
+                ? voiceRelayCloseUserMessage(code, reason)
+                : voiceSessionEarlyCloseUserMessage(code, reason)
+              const transportForCloseMsg = lastLiveVoiceTransport
+              const markHostBlocked = !ready
+                && transportForCloseMsg === 'relay'
+                && (code === 1011 || code === 4403 || String(reason || '').toLowerCase().includes('internal'))
+              let latchRejected = false
+              if (!ready) {
+                const err = liveSetupErr(closeMsg)
+                if (!wsOpened) {
+                  settleOpenFail(err)
+                }
+                latchRejected = rejectPendingSetupLatch(err)
+              }
+              if (markHostBlocked) voiceUnavailableOnHost = true
+              stopVoiceInternal({ silent: true })
+              if (!ready && !latchRejected) {
+                setStatus(closeMsg, 'error')
+                trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
+                chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
+              }
+            }
+          })
+
+          await wsOpenPromise
+          await setupReadyPromise
+        } catch (connectErr) {
+          stopVoiceInternal({ silent: true })
+          if (isVoiceRetryableSetupFailure(connectErr, isRelayWsPath)
+            && connectRound < VOICE_CONNECT_MAX_ROUNDS) {
+            continue
+          }
+          throw connectErr
+        }
+        break
+      }
 
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -961,8 +1062,8 @@ export function bindChatLiveVoice(opts) {
       let msg = ename === 'LiveSetupFailed' && error instanceof Error
         ? error.message
         : micAccessUserMessage(error)
-      if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
-        msg = 'Voice session request timed out. Try again.'
+      if (isVoiceRetryableError(error)) {
+        msg = 'Voice could not connect after several tries. The chat API may still be warming up (cold start) or is unreachable — wait a moment and tap the mic again.'
       }
       setStatus(msg, 'error')
       trackEvent('chat_live_error', { phase: 'start', message: msg })

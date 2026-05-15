@@ -121,6 +121,33 @@ async def test_live_session_voice_strict_without_relay_503(client: AsyncClient, 
 
 
 @pytest.mark.asyncio
+async def test_live_session_mint_timeout_504(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
+    monkeypatch.setenv('CHAT_LIVE_RELAY', '1')
+
+    async def slow_mint(_instruction: str) -> dict:
+        import asyncio
+
+        await asyncio.sleep(2.0)
+        return {
+            'handshake': {'setup': {'model': 'models/gemini-3.1-flash-live-preview'}},
+            'model': 'models/gemini-3.1-flash-live-preview',
+            'apiVersion': 'v1alpha',
+            '_authTokenName': 'auth_tokens/unit-test-token',
+        }
+
+    monkeypatch.setattr('app.main.mint_live_session_async', slow_mint)
+    monkeypatch.setenv('GEMINI_LIVE_MINT_TIMEOUT_SEC', '0.05')
+
+    r = await client.post('/api/live/session', json={'sessionId': 'sess-timeout'})
+    assert r.status_code == 504
+    assert r.json().get('code') == 'live_mint_timeout'
+
+
+@pytest.mark.asyncio
 async def test_live_session_malformed_json(client: AsyncClient) -> None:
     r = await client.post(
         '/api/live/session',

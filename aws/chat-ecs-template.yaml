@@ -226,6 +226,7 @@ Resources:
             - { Name: CHAT_PROVIDER, Value: gemini }
             - { Name: CHAT_LIVE_RELAY, Value: '1' }
             - { Name: CHAT_LIVE_RELAY_BRIDGE_TTL_SEC, Value: '300' }
+            - { Name: GEMINI_LIVE_MINT_TIMEOUT_SEC, Value: '50' }
             - { Name: CHAT_CORS_ORIGINS, Value: !Ref ChatCorsOrigins }
             - { Name: GEMINI_API_KEY, Value: !Ref GeminiApiKey }
             - { Name: GEMINI_MODEL, Value: !Ref GeminiModel }
