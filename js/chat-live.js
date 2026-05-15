@@ -16,8 +16,12 @@ const PCM_JITTER_MAX_AHEAD_SEC = 4.5
 const VOICE_WS_IDLE_MS = 3 * 60 * 1000
 /** Hard cap on continuous voice session length (ms). */
 const VOICE_MAX_SESSION_MS = 25 * 60 * 1000
-/** Max wait for Google's setupComplete after opening the Live WebSocket (ms). */
-const LIVE_SETUP_WAIT_MS = 45 * 1000
+/** POST /api/live/session budget (ms). */
+const LIVE_SESSION_FETCH_MS = 30 * 1000
+/** WebSocket must reach OPEN before setup wait (ms). */
+const LIVE_WS_OPEN_MS = 20 * 1000
+/** Max wait for setupComplete after WebSocket is open (ms). */
+const LIVE_SETUP_WAIT_MS = 60 * 1000
 
 function detachWebSocketHandlers(socket) {
   if (!socket) return
@@ -58,6 +62,19 @@ async function decodeWebSocketJsonPayload(raw) {
   return text
 }
 
+function voiceRelayCloseUserMessage(code, reason) {
+  const r = (reason || '').trim()
+  if (code === 4403) {
+    return 'Voice blocked: this page origin is not allowed on the chat API (check CHAT_CORS_ORIGINS).'
+  }
+  if (code === 4404) {
+    return r
+      ? `Voice relay expired (${r}). Tap the mic again.`
+      : 'Voice relay link expired. Tap the mic again to start a new session.'
+  }
+  return voiceSessionEarlyCloseUserMessage(code, reason)
+}
+
 function voiceSessionEarlyCloseUserMessage(code, reason) {
   const r = (reason || '').trim()
   if (r) return `Voice session ended before it was ready (${r}). Try again.`
@@ -71,6 +88,13 @@ function voiceSessionEarlyCloseUserMessage(code, reason) {
     return `Voice session ended before it was ready (code ${code}). Try again.`
   }
   return 'Voice session ended before it was ready. Try again or check your connection.'
+}
+
+function liveSetupTimeoutMessage(isRelayWsPath) {
+  if (isRelayWsPath) {
+    return 'Voice did not become ready in time. Confirm the latest chat image is deployed and CHAT_CORS_ORIGINS includes this site.'
+  }
+  return 'Voice did not become ready in time. Check your connection and try again.'
 }
 
 /** Shown when direct browser→Google live voice fails on serverless chat (no WS relay). */
@@ -334,6 +358,21 @@ export function bindChatLiveVoice(opts) {
   let voiceMaxSessionTimer = null
   /** Resolves when Live setupComplete arrives; cleared after await or on stop. */
   let pendingSetupLatch = null
+  let wsOpened = false
+
+  const rejectPendingSetupLatch = (err) => {
+    if (!pendingSetupLatch) return false
+    if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
+    const rj = pendingSetupLatch.reject
+    pendingSetupLatch = null
+    if (typeof rj === 'function') {
+      try {
+        rj(err)
+      } catch (_) {}
+      return true
+    }
+    return false
+  }
 
   const clearVoiceTimers = () => {
     if (voiceWsIdleTimer) {
@@ -413,6 +452,7 @@ export function bindChatLiveVoice(opts) {
 
     clearVoiceTimers()
     voiceSessionOpen = false
+    wsOpened = false
     active = false
     lastLiveVoiceTransport = null
     syncMicChrome()
@@ -540,8 +580,19 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
+    if (!setupDone && pendingSetupLatch && msg.error) {
+      const errField = msg.error
+      const detail = typeof errField === 'string'
+        ? errField
+        : (typeof errField?.message === 'string' ? errField.message : String(errField?.code || 'Voice setup failed'))
+      const err = new Error(detail)
+      err.name = 'LiveSetupFailed'
+      rejectPendingSetupLatch(err)
+      return
+    }
+
     const setupPayload = msg.setupComplete ?? msg.setup_complete
-    if (setupPayload) {
+    if (setupPayload != null && setupPayload !== false) {
       setupDone = true
       voiceUnavailableOnHost = false
       if (pendingSetupLatch) {
@@ -655,11 +706,15 @@ export function bindChatLiveVoice(opts) {
       const root = resolveChatApiBase().replace(/\/+$/, '')
       const postUrl = `${root}/api/live/session`
 
-      const response = await fetch(postUrl, {
+      const fetchOpts = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: getSessionId() })
-      })
+      }
+      if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        fetchOpts.signal = AbortSignal.timeout(LIVE_SESSION_FETCH_MS)
+      }
+      const response = await fetch(postUrl, fetchOpts)
 
       const responseText = await response.text()
       let body = {}
@@ -729,74 +784,92 @@ export function bindChatLiveVoice(opts) {
 
       voiceSessionOpen = true
       setupDone = false
+      wsOpened = false
       player = new PcmJitterPlayer()
 
       const setupReadyPromise = new Promise((resolve, reject) => {
         pendingSetupLatch = { resolve, reject, timeoutId: null }
         pendingSetupLatch.timeoutId = setTimeout(() => {
-          const latch = pendingSetupLatch
-          if (!latch) return
-          pendingSetupLatch = null
-          const tid = latch.timeoutId
-          if (tid != null) clearTimeout(tid)
-          const err = new Error('Voice session timed out waiting for ready.')
+          const err = new Error(liveSetupTimeoutMessage(isRelayWsPath))
           err.name = 'LiveSetupFailed'
-          if (typeof latch.reject === 'function') latch.reject(err)
+          rejectPendingSetupLatch(err)
         }, LIVE_SETUP_WAIT_MS)
       })
 
-      ws = new WebSocket(websocketUrl)
-
-      ws.onopen = () => {
-        bumpVoiceWsIdleTimer()
-        // Relay path: server already sent setup to Google when upstream connected; a second
-        // client setup frame resets the session and setupComplete never arrives → 45s timeout.
-        if (!isRelayWsPath) {
-          ws.send(JSON.stringify(firstClientSetup))
-        }
-      }
-
-      ws.onmessage = (ev) => {
-        bumpVoiceWsIdleTimer()
-        void handlePayload(ev.data)
-      }
-
-      ws.onerror = () => {
-        setStatus('Voice connection error.', 'error')
-        trackEvent('chat_live_error', { phase: 'websocket' })
-        chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
-      }
-
-      ws.onclose = (ev) => {
-        if (!voiceSessionOpen) return
-        const ready = setupDone
-        const code = ev.code
-        const reason = ev.reason
-        const transportForCloseMsg = lastLiveVoiceTransport
-        const markHostBlocked = !ready
-          && transportForCloseMsg === 'relay'
-          && (code === 1011 || String(reason || '').toLowerCase().includes('internal'))
-        let latchRejected = false
-        if (!ready && pendingSetupLatch && typeof pendingSetupLatch.reject === 'function') {
-          latchRejected = true
-          if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
-          const rj = pendingSetupLatch.reject
-          pendingSetupLatch = null
-          const err = new Error(voiceSessionEarlyCloseUserMessage(code, reason))
+      const wsOpenPromise = new Promise((resolve, reject) => {
+        const openTimer = setTimeout(() => {
+          const err = new Error('Voice WebSocket did not connect in time.')
           err.name = 'LiveSetupFailed'
-          try {
-            rj(err)
-          } catch (_) {}
+          reject(err)
+        }, LIVE_WS_OPEN_MS)
+        const settleOpen = () => {
+          clearTimeout(openTimer)
+          wsOpened = true
+          bumpVoiceWsIdleTimer()
+          if (!isRelayWsPath) {
+            try {
+              ws.send(JSON.stringify(firstClientSetup))
+            } catch (sendErr) {
+              const err = new Error(sendErr?.message || 'Could not start voice handshake.')
+              err.name = 'LiveSetupFailed'
+              reject(err)
+              return
+            }
+          }
+          resolve()
         }
-        if (markHostBlocked) voiceUnavailableOnHost = true
-        stopVoiceInternal({ silent: true })
-        if (!ready && !latchRejected) {
-          setStatus(voiceSessionEarlyCloseUserMessage(code, reason), 'error')
-          trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
-          chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
+        const settleOpenFail = (err) => {
+          clearTimeout(openTimer)
+          reject(err)
         }
-      }
+        ws = new WebSocket(websocketUrl)
+        ws.onopen = () => settleOpen()
+        ws.onmessage = (ev) => {
+          bumpVoiceWsIdleTimer()
+          void handlePayload(ev.data)
+        }
+        ws.onerror = () => {
+          setStatus('Voice connection error.', 'error')
+          trackEvent('chat_live_error', { phase: 'websocket' })
+          chatBus.emit('error', { source: 'chat-live', message: 'WebSocket error' })
+          if (!wsOpened) {
+            const err = new Error('Voice WebSocket connection failed.')
+            err.name = 'LiveSetupFailed'
+            settleOpenFail(err)
+          }
+        }
+        ws.onclose = (ev) => {
+          if (!voiceSessionOpen) return
+          const ready = setupDone
+          const code = ev.code
+          const reason = ev.reason
+          const closeMsg = isRelayWsPath
+            ? voiceRelayCloseUserMessage(code, reason)
+            : voiceSessionEarlyCloseUserMessage(code, reason)
+          const transportForCloseMsg = lastLiveVoiceTransport
+          const markHostBlocked = !ready
+            && transportForCloseMsg === 'relay'
+            && (code === 1011 || code === 4403 || String(reason || '').toLowerCase().includes('internal'))
+          let latchRejected = false
+          if (!ready) {
+            const err = new Error(closeMsg)
+            err.name = 'LiveSetupFailed'
+            if (!wsOpened) {
+              settleOpenFail(err)
+            }
+            latchRejected = rejectPendingSetupLatch(err)
+          }
+          if (markHostBlocked) voiceUnavailableOnHost = true
+          stopVoiceInternal({ silent: true })
+          if (!ready && !latchRejected) {
+            setStatus(closeMsg, 'error')
+            trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
+            chatBus.emit('error', { source: 'chat-live', message: 'WebSocket closed before ready' })
+          }
+        }
+      })
 
+      await wsOpenPromise
       await setupReadyPromise
 
       stream = await navigator.mediaDevices.getUserMedia({
@@ -885,9 +958,12 @@ export function bindChatLiveVoice(opts) {
       if (ename === 'LiveSetupAbort') {
         return
       }
-      const msg = ename === 'LiveSetupFailed' && error instanceof Error
+      let msg = ename === 'LiveSetupFailed' && error instanceof Error
         ? error.message
         : micAccessUserMessage(error)
+      if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+        msg = 'Voice session request timed out. Try again.'
+      }
       setStatus(msg, 'error')
       trackEvent('chat_live_error', { phase: 'start', message: msg })
       chatBus.emit('error', { source: 'chat-live', message: msg })

@@ -9,7 +9,9 @@ module connects upstream with ``Authorization: Token`` for a single controlled p
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 
 import websockets
 from fastapi import WebSocket
@@ -21,6 +23,19 @@ GOOGLE_LIVE_CONSTRAINED_URI = (
     'wss://generativelanguage.googleapis.com/ws/'
     'google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained'
 )
+
+_UPSTREAM_OPEN_TIMEOUT = float(os.environ.get('CHAT_LIVE_RELAY_UPSTREAM_OPEN_SEC', '25'))
+_UPSTREAM_PING_INTERVAL = float(os.environ.get('CHAT_LIVE_RELAY_PING_INTERVAL_SEC', '20'))
+_UPSTREAM_PING_TIMEOUT = float(os.environ.get('CHAT_LIVE_RELAY_PING_TIMEOUT_SEC', '20'))
+
+
+async def _notify_browser_relay_error(browser_ws: WebSocket, code: str, message: str) -> None:
+    try:
+        await browser_ws.send_text(
+            json.dumps({'error': message, 'code': code}),
+        )
+    except Exception:
+        pass
 
 
 async def relay_browser_to_google(
@@ -35,6 +50,10 @@ async def relay_browser_to_google(
             GOOGLE_LIVE_CONSTRAINED_URI,
             additional_headers=headers,
             max_size=None,
+            open_timeout=_UPSTREAM_OPEN_TIMEOUT,
+            ping_interval=_UPSTREAM_PING_INTERVAL,
+            ping_timeout=_UPSTREAM_PING_TIMEOUT,
+            close_timeout=10,
         ) as upstream:
             reader_ready = asyncio.Event()
 
@@ -78,7 +97,19 @@ async def relay_browser_to_google(
                     logger.debug('relay upstream_to_browser end: %s', exc)
 
             u_task = asyncio.create_task(upstream_to_browser())
-            await reader_ready.wait()
+            try:
+                await asyncio.wait_for(reader_ready.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.error('live relay: browser reader task did not start')
+                await _notify_browser_relay_error(
+                    browser_ws,
+                    'relay_reader_timeout',
+                    'Voice relay failed to start',
+                )
+                u_task.cancel()
+                await asyncio.gather(u_task, return_exceptions=True)
+                return
+
             await upstream.send(handshake_json)
 
             b_task = asyncio.create_task(browser_to_upstream())
@@ -89,8 +120,25 @@ async def relay_browser_to_google(
             for p in pending:
                 p.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
+    except asyncio.TimeoutError:
+        logger.warning('live relay upstream connect timed out after %ss', _UPSTREAM_OPEN_TIMEOUT)
+        await _notify_browser_relay_error(
+            browser_ws,
+            'relay_upstream_timeout',
+            'Voice service connection timed out',
+        )
+        try:
+            await browser_ws.close(code=1011, reason='upstream connect timeout')
+        except Exception:
+            pass
+        return
     except Exception as exc:
         logger.warning('live relay upstream failed: %s', exc)
+        await _notify_browser_relay_error(
+            browser_ws,
+            'relay_upstream_failed',
+            'Voice relay failed',
+        )
         try:
             await browser_ws.close(code=1011, reason='live relay failed')
         except Exception:

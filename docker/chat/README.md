@@ -30,6 +30,8 @@ CHAT_PROVIDER=mock \
 | `GEMINI_MODEL` | Primary model override (default **`gemini-3.1-flash-lite`**) |
 | `GEMINI_LIVE_MODEL` | Multimodal **Live** model id for browser voice (default **`gemini-3.1-flash-live-preview`**) |
 | `CHAT_LIVE_RELAY` | **`1`** (default in [`Dockerfile`](Dockerfile) for ECS images): browser WebSocket to **`/api/live/relay/…`** on this app; upstream Google uses **`Authorization: Token`**. **`0`**: browser opens Google with **`access_token`** query only (Lambda HTTP API stack; **voice from the browser typically fails** with Google close 1011). SAM [`chat-template.yaml`](../aws/chat-template.yaml) sets **`0`**. |
+| `CHAT_LIVE_RELAY_BRIDGE_TTL_SEC` | Seconds the relay bridge id stays valid after **`POST /api/live/session`** (default **300**). |
+| `CHAT_LIVE_RELAY_UPSTREAM_OPEN_SEC` | Upstream Google WebSocket connect timeout (default **25**). |
 | `CHAT_LIVE_VOICE_STRICT` | **`1`**: when **`CHAT_LIVE_RELAY=0`**, **`POST /api/live/session`** returns **503** `live_voice_requires_relay` and does **not** mint an ephemeral token. Default **off** (Lambda keeps returning `direct_google` JSON for backward compatibility). |
 | `CHAT_LIVE_SYSTEM_MAX_CHARS` | Max characters for combined voice system instruction + knowledge XML (default **14000**) |
 | `OPENAI_API_KEY` | Required when `CHAT_PROVIDER=openai` |

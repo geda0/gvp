@@ -55,8 +55,14 @@ async def test_relay_sends_handshake_after_reader_ready() -> None:
         async def __aexit__(self, *_exc):
             return None
 
+    captured_connect: dict = {}
+
+    def capture_connect(*args, **kwargs):
+        captured_connect.update(kwargs)
+        return FakeCm()
+
     with (
-        patch('app.live_relay.websockets.connect', return_value=FakeCm()),
+        patch('app.live_relay.websockets.connect', side_effect=capture_connect),
         patch.object(asyncio.Event, 'set', tracking_set),
     ):
         await relay_browser_to_google(
@@ -68,3 +74,5 @@ async def test_relay_sends_handshake_after_reader_ready() -> None:
     assert order.index('upstream_connected') < order.index('reader_ready')
     assert order.index('reader_ready') < order.index('handshake')
     assert fake_upstream.sent == [handshake]
+    assert captured_connect.get('open_timeout') == 25.0
+    assert captured_connect.get('ping_interval') == 20.0

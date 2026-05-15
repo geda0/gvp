@@ -184,6 +184,14 @@ class LiveTranscriptTurn(BaseModel):
     toolCalls: list[dict[str, Any]] | None = Field(default=None)
 
 
+def _live_relay_bridge_ttl_sec() -> float:
+    raw = os.environ.get('CHAT_LIVE_RELAY_BRIDGE_TTL_SEC', '300').strip()
+    try:
+        return max(60.0, min(float(raw), 900.0))
+    except ValueError:
+        return 300.0
+
+
 def _cleanup_expired_live_relays(bridges: dict[str, Any]) -> None:
     now = time.monotonic()
     dead = [k for k, v in bridges.items() if float(v.get('expires', 0)) < now]
@@ -706,7 +714,7 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         bridges[bridge_id] = {
             "token_name": token_name,
             "handshake": dict(session_payload.get("handshake") or {}),
-            "expires": time.monotonic() + 120.0,
+            "expires": time.monotonic() + _live_relay_bridge_ttl_sec(),
         }
         session_payload["websocketUrl"] = _live_relay_ws_url(request, bridge_id)
         session_payload["liveVoiceTransport"] = "relay"
@@ -730,6 +738,8 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
 @app.websocket("/api/live/relay/{bridge_id}")
 async def live_relay_ws(websocket: WebSocket, bridge_id: str) -> None:
     if not _live_relay_origin_allowed(websocket):
+        origin = (websocket.headers.get('origin') or '').strip() or '<none>'
+        logger.warning('live relay rejected origin=%s bridge=%s', origin, bridge_id[:12])
         await websocket.close(code=4403, reason="origin not allowed")
         return
     bridges: dict[str, Any] = app.state.live_relay_bridges
