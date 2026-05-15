@@ -302,7 +302,8 @@ export function bindChatLiveVoice(opts) {
     isTextPending,
     openPanel,
     isPanelOpen,
-    patchLiveUi
+    patchLiveUi,
+    onToolCall
   } = opts
 
   const micButtons = normalizeMicButtons(opts)
@@ -361,12 +362,39 @@ export function bindChatLiveVoice(opts) {
   let assistantBubble = null
   let userDraft = ''
   let assistantDraft = ''
+  let turnToolCalls = []
 
   const resetDraftState = () => {
     userBubble = null
     assistantBubble = null
     userDraft = ''
     assistantDraft = ''
+    turnToolCalls = []
+  }
+
+  const persistVoiceTurn = (userText, assistantText, toolCalls) => {
+    const trimmedUser = (userText || '').trim()
+    const trimmedAssistant = (assistantText || '').trim()
+    if (!trimmedUser && !trimmedAssistant) return
+    const root = resolveChatApiBase().replace(/\/+$/, '')
+    const url = `${root}/api/live/transcript`
+    const body = {
+      sessionId: typeof getSessionId === 'function' ? getSessionId() : null,
+      userText: trimmedUser,
+      assistantText: trimmedAssistant,
+      capturedAt: new Date().toISOString(),
+      transport: lastLiveVoiceTransport || 'live',
+      toolCalls: Array.isArray(toolCalls) ? toolCalls : []
+    }
+    // Best-effort. Use keepalive so a turn fired right before close still ships.
+    try {
+      void fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true
+      }).catch(() => {})
+    } catch (_) {}
   }
 
   const syncMicChrome = () => {
@@ -494,6 +522,9 @@ export function bindChatLiveVoice(opts) {
   const finalizeTurn = () => {
     if (userBubble) finalizeBubble(userBubble, userDraft.trim())
     if (assistantBubble) finalizeBubble(assistantBubble, assistantDraft.trim())
+    // Fire-and-forget persist before clearing drafts. Mirrors the text-chat
+    // persistence path so the admin panel sees voice turns alongside text turns.
+    persistVoiceTurn(userDraft, assistantDraft, turnToolCalls)
     resetDraftState()
     scrollMessagesToBottom()
   }
@@ -552,6 +583,35 @@ export function bindChatLiveVoice(opts) {
 
       if (sc.turnComplete || sc.turn_complete) {
         finalizeTurn()
+      }
+    }
+
+    const toolCall = msg.toolCall || msg.tool_call
+    if (toolCall && Array.isArray(toolCall.functionCalls || toolCall.function_calls)) {
+      const calls = toolCall.functionCalls || toolCall.function_calls
+      const responses = []
+      for (const call of calls) {
+        const id = call?.id
+        const name = typeof call?.name === 'string' ? call.name : ''
+        const args = call?.args && typeof call.args === 'object' ? call.args : {}
+        let response = { result: 'ok' }
+        if (typeof onToolCall === 'function' && name) {
+          try {
+            const out = await onToolCall(name, args)
+            if (out && typeof out === 'object') response = out
+          } catch (err) {
+            response = { error: err?.message || 'tool_failed' }
+          }
+        } else if (name) {
+          response = { error: 'no_handler' }
+        }
+        turnToolCalls.push({ id, name, args, response })
+        responses.push({ id, name, response })
+      }
+      if (responses.length && ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ toolResponse: { functionResponses: responses } }))
+        } catch (_) {}
       }
     }
   }

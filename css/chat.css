@@ -630,6 +630,17 @@ body.content-open .agent-slot--navbar {
     max-width: min(24rem, 100%);
 }
 
+/* Mobile: when content is open and the launcher docks to the navbar, the mascot also
+   docks beside it and (a) overlaps the pill on narrow phones and (b) clips above the
+   navbar baseline. Drop the docked mascot on small viewports so the launcher pill gets
+   the full navbar centre. The mascot still renders on the home hero. */
+@media (max-width: 767px) {
+    body.content-open #spacemanContainer {
+        opacity: 0;
+        pointer-events: none;
+    }
+}
+
 body.content-open .agent-slot--navbar .agent-node {
     --agent-text-lane-height: 1.48rem;
     max-width: min(24rem, 100%);
@@ -1444,6 +1455,14 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 
     .hero-chat {
         margin-bottom: 2rem;
+    }
+
+    /* Collapse the suggestion chips on mobile until the launcher is focused —
+       cuts the mobile hero footprint. Chips remain reachable inside the chat modal.
+       `[hidden]` still wins via its own !important rule, so JS-controlled hide-on-mount
+       behavior is preserved. */
+    .hero-chat:not(:focus-within) .hero-chat__suggestions:not([hidden]) {
+        display: none;
     }
 
     .agent-slot--hero .agent-node[data-state='bubble'],

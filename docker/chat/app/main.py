@@ -175,6 +175,15 @@ class LiveSessionRequest(BaseModel):
     sessionId: str | None = Field(default=None, max_length=128)
 
 
+class LiveTranscriptTurn(BaseModel):
+    sessionId: str | None = Field(default=None, max_length=128)
+    userText: str = Field(default="", max_length=8000)
+    assistantText: str = Field(default="", max_length=16000)
+    capturedAt: str | None = Field(default=None, max_length=64)
+    transport: str | None = Field(default=None, max_length=32)
+    toolCalls: list[dict[str, Any]] | None = Field(default=None)
+
+
 def _cleanup_expired_live_relays(bridges: dict[str, Any]) -> None:
     now = time.monotonic()
     dead = [k for k, v in bridges.items() if float(v.get('expires', 0)) < now]
@@ -735,6 +744,63 @@ async def live_relay_ws(websocket: WebSocket, bridge_id: str) -> None:
         token_name=str(entry["token_name"]),
         handshake_json=handshake_json,
     )
+
+
+@app.post("/api/live/transcript")
+async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
+    """Persist a single voice turn (input + output transcription pair).
+
+    Best-effort: returns 200 even if no transcript store is configured, since
+    voice still works without persistence. Mirrors the text-chat persist path so
+    the admin transcripts panel sees voice and text turns side by side.
+    """
+    store = app.state.transcript_store
+    if store is None:
+        return JSONResponse(status_code=204, content=None)
+
+    user_text = (payload.userText or "").strip()
+    assistant_text = (payload.assistantText or "").strip()
+    if not user_text and not assistant_text:
+        return JSONResponse(status_code=204, content=None)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    captured_at = (payload.capturedAt or now_iso).strip() or now_iso
+    transport = (payload.transport or "live").strip() or "live"
+    tool_calls = payload.toolCalls or []
+
+    turn = {
+        "capturedAt": captured_at,
+        "promptVersion": app.state.prompt_version,
+        "modality": "voice",
+        "transport": transport,
+        "requestMessages": [
+            {"role": "user", "content": user_text},
+        ] if user_text else [],
+        "reply": assistant_text,
+        "toolCalls": tool_calls,
+        "actions": [],
+        "flags": {},
+    }
+    flags: dict[str, bool] = {}
+
+    try:
+        await store.persist_turn(
+            session_id=payload.sessionId,
+            created_at=captured_at,
+            prompt_version=app.state.prompt_version,
+            provider=app.state.provider_name,
+            model=live_model_id(),
+            turn=turn,
+            flags=flags,
+        )
+    except Exception:
+        logger.exception("Failed to persist voice transcript")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "persist_failed", "code": "transcript_store_error"},
+        )
+
+    return JSONResponse(status_code=204, content=None)
 
 
 @app.exception_handler(RequestValidationError)

@@ -884,6 +884,38 @@ export function initChat() {
   }
   window.addEventListener(EV_OPEN_CHAT, onOpenChatEvent)
 
+  // Dispatch tool calls emitted by the Live API in voice mode. Mirrors the
+  // text-chat action handler below: same destinations, no buttons (voice executes
+  // immediately). Return value is sent back as toolResponse.response so the model
+  // knows the action ran.
+  const applyVoiceToolCall = (name, args) => {
+    if (name === 'open_resume') {
+      window.open(RESUME_URL, '_blank', 'noopener,noreferrer')
+      return { result: 'opened_resume' }
+    }
+    if (name === 'open_contact_form') {
+      const prefill = args && typeof args === 'object'
+        ? { subject: typeof args.subject === 'string' ? args.subject : '',
+            message: typeof args.message === 'string' ? args.message : '' }
+        : null
+      openContactFromChat(prefill)
+      return { result: 'opened_contact_form' }
+    }
+    if (name === 'navigate_to_section') {
+      const section = args && typeof args.section === 'string' ? args.section : ''
+      if (section === 'home') {
+        history.replaceState(null, '', './')
+        window.dispatchEvent(new HashChangeEvent('hashchange'))
+      } else if (section === 'portfolio' || section === 'playground') {
+        window.location.hash = `#${section}`
+      } else {
+        return { error: `unknown_section: ${section}` }
+      }
+      return { result: 'navigated', section }
+    }
+    return { error: `unknown_tool: ${name}` }
+  }
+
   const disposeChatLiveVoice = bindChatLiveVoice({
     micButtons: chatVoiceFeatureEnabled ? [composerMic, agentNodeMic].filter(Boolean) : [],
     messagesEl,
@@ -895,7 +927,8 @@ export function initChat() {
     isTextPending: () => state.pending,
     openPanel,
     isPanelOpen: isOpen,
-    patchLiveUi
+    patchLiveUi,
+    onToolCall: applyVoiceToolCall
   })
 
   reconcileComposerControls()
