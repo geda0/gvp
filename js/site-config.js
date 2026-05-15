@@ -21,6 +21,10 @@ export const contactApiUrl = resolveApiUrl('gvp:contact-api-url', '/api/contact'
 export const chatApiUrl = resolveApiUrl('gvp:chat-api-url', '/api/chat')
 export const chatVoiceFeatureEnabled = readChatVoiceFeatureEnabled()
 
+if (typeof document !== 'undefined' && document.documentElement) {
+  document.documentElement.dataset.gvpChatVoice = chatVoiceFeatureEnabled ? '1' : '0'
+}
+
 if (typeof window !== 'undefined') {
   window.__CONTACT_API_URL__ = contactApiUrl
   window.__CHAT_API_URL__ = chatApiUrl

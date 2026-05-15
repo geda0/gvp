@@ -201,6 +201,16 @@ body.chat-dialog-open {
     justify-content: center;
 }
 
+.navbar-center__chat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-width: 0;
+    max-width: 100%;
+}
+
 /* ---- Agent node morph (bubble | bar | modal) — single input pill; ambient copy stays in DOM for a11y/JS ---- */
 .agent-node {
     --agent-morph-ms: 320ms;
@@ -498,8 +508,20 @@ body.chat-dialog-open {
         0 0 1.05rem var(--chat-launcher-glow-diffuse);
 }
 
-/* Original hero bar had no leading 💬 in the pill */
-.agent-slot--hero .agent-node__form-icon {
+html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form,
+html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='bar'] .agent-node__form,
+html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='modal'] .agent-node__form {
+    padding-left: 0.42rem;
+}
+
+/* Text chat only: no mic / SVG launcher — 💬 stays in the agent pill; hide dialog header mic. */
+html[data-gvp-chat-voice='0'] #agentNodeMic,
+html[data-gvp-chat-voice='0'] #chatComposerMic {
+    display: none !important;
+}
+
+/* With voice: mic lives in the label row; hide duplicate 💬 in the pill. Text-only: show 💬 in the bar. */
+html[data-gvp-chat-voice='1'] .agent-slot--hero .agent-node__form-icon {
     display: none;
 }
 
@@ -518,7 +540,7 @@ body.chat-dialog-open {
 
 .agent-slot--hero .agent-node[data-state='bubble']:focus-within .agent-node__form,
 .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form:focus-within,
-.hero-chat:has(#agentNodeMic:focus) .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
+html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
     opacity: 1;
 }
 
@@ -885,6 +907,10 @@ body.chat-dialog-open {
     outline-offset: 2px;
 }
 
+.chat-dialog__chip--from-placeholder {
+    border-style: dashed;
+}
+
 .chat-messages {
     list-style: none;
     margin: 0;
@@ -1164,8 +1190,8 @@ body.chat-dialog-open {
     top: 0.38rem;
     right: 0.42rem;
     z-index: 1;
-    width: 1.55rem;
-    height: 1.55rem;
+    width: 2.75rem;
+    height: 2.75rem;
     margin: 0;
     padding: 0;
     display: flex;
@@ -1252,6 +1278,16 @@ body.chat-dialog-open {
     display: block;
 }
 
+/* `display: block` above overrides UA `[hidden]` on nested SVGs; keep toggled launcher glyphs hidden. */
+.chat-composer__mic .chat-composer__mic-icon[hidden] {
+    display: none;
+}
+
+.chat-composer__mic[data-gvp-launcher='voice'] .chat-composer__launcher-icon--chat,
+.chat-composer__mic[data-gvp-launcher='chat'] .chat-composer__launcher-icon--voice {
+    display: none;
+}
+
 .chat-composer__send:disabled {
     opacity: 0.6;
     cursor: not-allowed;
@@ -1296,7 +1332,10 @@ body.chat-dialog-open {
     font-size: 0.73rem;
     line-height: 1.1;
     font-weight: 600;
-    padding: 0.34rem 0.62rem;
+    padding: 0.42rem 0.75rem;
+    min-height: 44px;
+    min-width: 2.75rem;
+    box-sizing: border-box;
     cursor: pointer;
 }
 

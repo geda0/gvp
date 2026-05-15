@@ -40,8 +40,23 @@ class SpacemanPosition {
     this.agentNode = document.getElementById('agentNode')
     this._trailVisible = true
     this._trailLoopRaf = null
+    /** Measured `body > header` height for bounds; refreshed each `_update`. */
+    this._navChromeHeight = null
 
     this.init();
+  }
+
+  _readSiteHeaderHeightPx() {
+    const header = document.querySelector('body > header')
+    if (!header) return this.options.navHeight
+    const h = header.getBoundingClientRect().height
+    if (!Number.isFinite(h) || h < 8) return this.options.navHeight
+    return Math.max(56, Math.round(h))
+  }
+
+  /** Navbar-docked agent: hero scrolled away or playground/portfolio. */
+  _agentDockedInNavbar() {
+    return document.getElementById('agentNode')?.dataset?.slot === 'navbar'
   }
 
   setHooks(hooks = {}) {
@@ -153,6 +168,8 @@ class SpacemanPosition {
     if (this.agentNode) this._resizeObs.observe(this.agentNode)
     const heroCopy = document.querySelector('.hero-copy')
     if (heroCopy) this._resizeObs.observe(heroCopy)
+    const siteHeader = document.querySelector('body > header')
+    if (siteHeader) this._resizeObs.observe(siteHeader)
 
     // Transition end -> reposition
     this._onTransitionEnd = (e) => {
@@ -347,6 +364,7 @@ class SpacemanPosition {
 
   _update() {
     this._syncBodyContentOpen();
+    this._navChromeHeight = this._readSiteHeaderHeightPx()
     if (this.isStaying) {
       this._clampStayingIfNeeded();
       return;
@@ -371,9 +389,17 @@ class SpacemanPosition {
 
       if (content) {
         const dialogOpen = !!dialogContent;
-        scale = dialogOpen
-          ? (isMobile ? 0.4 : isTablet ? 0.5 : 0.62)
-          : isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
+        const navDocked =
+          document.body.classList.contains('content-open') && this._agentDockedInNavbar()
+        if (navDocked && !dialogOpen) {
+          scale = isMobile
+            ? (vw < 480 ? 0.36 : 0.38)
+            : isTablet ? 0.52 : 0.6
+        } else {
+          scale = dialogOpen
+            ? (isMobile ? 0.4 : isTablet ? 0.5 : 0.62)
+            : isMobile ? 0.45 : isTablet ? 0.55 : 0.7;
+        }
         const pos = this._calcPosition(vw, vh, content, scale);
         x = pos.x;
         y = pos.y;
@@ -397,10 +423,13 @@ class SpacemanPosition {
         const heroPad = Math.min(pad, vw < 768 ? 26 : 22)
 
         let placedHome = false
-        const navGlue = vw < 768 ? 8 : 6
-        if (dockedAgent?.dataset?.slot === 'navbar') {
+        const agentNavBar = dockedAgent?.dataset?.slot === 'navbar'
+        const navGlue = agentNavBar
+          ? (vw < 768 ? 7 : 5)
+          : (vw < 768 ? 8 : 6)
+        if (agentNavBar) {
           const nr = dockedAgent.getBoundingClientRect()
-          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue)
+          const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue, -6)
           if (g) {
             x = g.x
             y = g.y
@@ -468,7 +497,7 @@ class SpacemanPosition {
    * Place spaceman so its right edge sits `glueGap` px left of `ref` (agent or slot rect).
    * Vertical center tracks ref midline; clamps to viewport bounds.
    */
-  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap) {
+  _glueLeftOfAgentRect(vw, vh, scale, ref, glueGap, verticalNudgePx = 0) {
     if (!ref || ref.width < 8 || ref.height < 8) return null
     const bounds = this._getBounds(vw, vh, scale)
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
@@ -478,7 +507,7 @@ class SpacemanPosition {
     const w = baseW * scale
     const h = baseH * scale
     const cx = ref.left - glueGap - w / 2
-    const cy = ref.top + ref.height / 2
+    const cy = ref.top + ref.height / 2 + verticalNudgePx
     return {
       x: clamp(cx - vw / 2, bounds.minX, bounds.maxX),
       y: clamp(cy - vh / 2, bounds.minY, bounds.maxY)
@@ -504,7 +533,7 @@ class SpacemanPosition {
   }
 
   _getBounds(vw, vh, scale) {
-    const { navHeight } = this.options;
+    const navHeight = this._navChromeHeight ?? this._readSiteHeaderHeightPx()
     const dockClearance = this._getDockClearance()
     const edgePad = vw < 768 ? 12 : this.options.edgePad;
     const bubbleSafetyPad = vw < 768 ? 22 : 10;
@@ -548,8 +577,8 @@ class SpacemanPosition {
     if (dockedAgent?.dataset?.slot === 'navbar') {
       const br = dockedAgent.getBoundingClientRect()
       if (br.width >= 8 && br.height >= 8) {
-        const navGap = vw < 768 ? 8 : 6
-        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap)
+        const navGap = vw < 768 ? 7 : 5
+        const glued = this._glueLeftOfAgentRect(vw, vh, scale, br, navGap, -6)
         if (glued) return glued
       }
     }

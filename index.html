@@ -27,6 +27,13 @@
     <meta name="gvp:contact-api-url" content="https://fvfqpef8kb.execute-api.us-east-2.amazonaws.com/api/contact" />
     <meta name="gvp:chat-api-url" content="https://m7qmz78kb6.execute-api.us-east-2.amazonaws.com/api/chat" />
     <meta name="gvp:chat-voice-enabled" content="0" />
+    <script>
+        (function () {
+            var m = document.querySelector('meta[name="gvp:chat-voice-enabled"]')
+            var v = m && (m.getAttribute('content') || '').trim().toLowerCase()
+            document.documentElement.dataset.gvpChatVoice = (v === '1' || v === 'true') ? '1' : '0'
+        })()
+    </script>
 </head>
 
 <body>
@@ -43,7 +50,9 @@
                     aria-label="Switch to Garden theme"><span class="theme-toggle-icon" aria-hidden="true">🦸</span></button>
             </div>
             <div class="navbar-center">
-                <div id="agentSlotNavbar" class="agent-slot agent-slot--navbar"></div>
+                <div class="navbar-center__chat">
+                    <div id="agentSlotNavbar" class="agent-slot agent-slot--navbar"></div>
+                </div>
             </div>
             <div class="navbar-right">
                 <a href="#portfolio" id="portfolioNav">Portfolio</a>
@@ -101,15 +110,15 @@
                                             Ask anything about my work
                                         </p>
                                         <button type="button" id="agentNodeMic" form="agentNodeForm"
-                                            class="agent-node__mic chat-composer__mic" aria-label="Start voice mode"
-                                            aria-pressed="false" data-track="hero_agent_node_mic">
+                                            class="agent-node__mic chat-composer__mic" data-gvp-launcher="voice"
+                                            aria-label="Start voice mode" aria-pressed="false"
+                                            data-track="hero_agent_node_mic">
                                             <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--voice" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                                 <path fill="currentColor"
                                                     d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
                                             </svg>
-                                            <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden>
-                                                <path fill="currentColor"
-                                                    d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2zm0 14H5.17L4 17.17V4h16v12z" />
+                                            <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" hidden>
+                                                <path d="M5.5 6.75h11a2 2 0 0 1 2 2v4.75a2 2 0 0 1-2 2h-4.9l-3.1 2.65V15.5H5.5a2 2 0 0 1-2-2V8.75a2 2 0 0 1 2-2z" />
                                             </svg>
                                         </button>
                                     </div>
@@ -135,12 +144,15 @@
                                 <div id="heroChatSuggestions" class="hero-chat__suggestions" hidden aria-hidden="true" aria-label="Suggested prompts">
                                     <button type="button" class="hero-chat__chip"
                                         data-prompt="How do you approach platform architecture?"
+                                        data-chip-label="Platform architecture"
                                         data-track="hero_chat_chip_architecture">Platform architecture</button>
                                     <button type="button" class="hero-chat__chip"
                                         data-prompt="Tell me about an accomplishment you're especially proud of."
+                                        data-chip-label="Impressive accomplishment"
                                         data-track="hero_chat_chip_accomplishment">Impressive accomplishment</button>
                                     <button type="button" class="hero-chat__chip"
                                         data-prompt="What project challenged you the most, and how did you approach it?"
+                                        data-chip-label="Most challenging project"
                                         data-track="hero_chat_chip_challenge">Most challenging project</button>
                                 </div>
                                 </div>
@@ -261,33 +273,35 @@
                 </div>
                 <div class="chat-dialog__header-actions">
                     <button type="button" id="chatComposerMic" class="chat-composer__mic chat-dialog__header-mic"
-                        aria-label="Start voice mode" aria-pressed="false"
+                        data-gvp-launcher="voice" aria-label="Start voice mode" aria-pressed="false"
                         data-track="chat_composer_mic">
                         <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--voice" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path fill="currentColor"
                                 d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
                         </svg>
-                        <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" hidden>
-                            <path fill="currentColor"
-                                d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2zm0 14H5.17L4 17.17V4h16v12z" />
+                        <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" hidden>
+                            <path d="M5.5 6.75h11a2 2 0 0 1 2 2v4.75a2 2 0 0 1-2 2h-4.9l-3.1 2.65V15.5H5.5a2 2 0 0 1-2-2V8.75a2 2 0 0 1 2-2z" />
                         </svg>
                     </button>
                     <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>
                 </div>
             </header>
             <div class="chat-dialog__scroll">
-                <p id="chatEmptyState" class="chat-empty-state">Questions here focus on Marwan's work — the HP Instant Ink scale-up, the Apptio pipeline migration, the JumpCloud identity platform, or anything across his 15+ years. Grounded in his resume, not a general chatbot.</p>
+                <p id="chatEmptyState" class="chat-empty-state">Use the starter chip below or type your own — answers stay grounded in my resume and projects.</p>
                 <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
             </div>
-            <div id="chatDialogSuggestions" class="chat-dialog__suggestions">
+            <div id="chatDialogSuggestions" class="chat-dialog__suggestions" aria-label="Suggested prompts">
                 <button type="button" class="chat-dialog__chip"
                     data-prompt="How do you approach platform architecture?"
+                    data-chip-label="Platform architecture"
                     data-track="chat_dialog_chip_architecture">Platform architecture</button>
                 <button type="button" class="chat-dialog__chip"
                     data-prompt="Tell me about an accomplishment you're especially proud of."
+                    data-chip-label="Impressive accomplishment"
                     data-track="chat_dialog_chip_accomplishment">Impressive accomplishment</button>
                 <button type="button" class="chat-dialog__chip"
                     data-prompt="What project challenged you the most, and how did you approach it?"
+                    data-chip-label="Most challenging project"
                     data-track="chat_dialog_chip_challenge">Most challenging project</button>
             </div>
             <form id="chatComposer" class="chat-composer" novalidate>
@@ -322,6 +336,7 @@
         <p>
             <a href="resume/Marwan_Elgendy_Resume_public.pdf" target="_blank" rel="noopener noreferrer" data-track="resume_click">Resume</a> |
             <a href="https://www.linkedin.com/in/marwan-elgendy/" target="_blank" rel="noopener noreferrer" data-track="linkedin_click">LinkedIn</a> |
+            <button type="button" id="footerOpenChatBtn" class="footer-chat-open" data-track="footer_open_chat" aria-label="Open chat">Chat</button> |
             <a href="mailto:marwan.gendy@gmail.com" data-track="email_click">marwan.gendy@gmail.com</a>
         </p>
     </footer>

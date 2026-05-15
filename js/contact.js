@@ -1,6 +1,13 @@
 import { contactApiUrl } from './site-config.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
 
+/** Assigned in initContactForm; opens #contactDialog without synthetic button click. */
+let openContactDialogImpl = () => {}
+
+export function openContactDialog() {
+  openContactDialogImpl()
+}
+
 export function initContactForm() {
   const CONTACT_HELPER_TEXT = ''
   const CONTACT_SUCCESS_TEXT = 'Got it — your message is on its way. I\'ll be in touch.'
@@ -52,6 +59,8 @@ export function initContactForm() {
     showFormView(true)
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
   }
+
+  openContactDialogImpl = openDialog
 
   const closeDialog = () => {
     setDialogVisibility(dialog, false)

@@ -279,16 +279,10 @@ class Spaceman {
 
   _syncChipVisibility() {
     const heroChips = document.getElementById('heroChatSuggestions')
-    const navChips = document.getElementById('navbarChatSuggestions')
     const showHero = (this.state === 'home' || this.state === 'idle') && !this.isQuiet
-    const showNav = (this.state === 'playground' || this.state === 'portfolio') && !this.isQuiet
     if (heroChips) {
       heroChips.hidden = !showHero
       heroChips.setAttribute('aria-hidden', showHero ? 'false' : 'true')
-    }
-    if (navChips) {
-      navChips.hidden = !showNav
-      navChips.setAttribute('aria-hidden', showNav ? 'false' : 'true')
     }
   }
 
@@ -315,7 +309,7 @@ class Spaceman {
     this._quietMenuOutsideClick = (e) => {
       if (quietMenu.hidden) return;
       if (quietMenu.contains(e.target) || this.elements.spaceman?.contains(e.target)) return;
-      if (e.target.closest('#heroChatSuggestions') || e.target.closest('#navbarChatSuggestions')) return;
+      if (e.target.closest('#heroChatSuggestions')) return;
       this._dismissHeroMenu();
     };
   }

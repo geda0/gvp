@@ -110,6 +110,8 @@ export function initAgentNode(options = {}) {
   const trail = document.getElementById('agentTrail')
   const mic = document.getElementById('agentNodeMic')
   const heroChatLabelWrap = heroSlot?.closest('.hero-chat')?.querySelector('.hero-chat__label-wrap')
+  /** Match pre–agent-node behavior: observe the whole hero chat column, not only the pill slot. */
+  const heroScrollDockRoot = heroSlot?.closest('.hero-chat') || heroSlot
   const form = node?.querySelector('.agent-node__form')
   const input = node?.querySelector('.agent-node__input')
   const ambientOverlay = node?.querySelector('.agent-node__ambient-overlay')
@@ -118,7 +120,6 @@ export function initAgentNode(options = {}) {
 
   const {
     openPanelWithMessage = () => {},
-    openPanelWithDraft = () => {},
     isOpen = () => false,
     spacemanPosition = null
   } = options
@@ -127,7 +128,7 @@ export function initAgentNode(options = {}) {
     const deep = String(currentDeepQuestion || '').trim()
     if (!deep) return
     const source = state.slot === 'navbar' ? 'header' : 'hero'
-    openPanelWithDraft(deep, source)
+    openPanelWithMessage(deep, source)
   }
 
   const mql = typeof window.matchMedia === 'function'
@@ -159,6 +160,34 @@ export function initAgentNode(options = {}) {
     || document.body.classList.contains('contact-dialog-open')
   )
 
+  const placeholderSubscribers = new Set()
+
+  const getPlaceholderSuggestion = () => ({
+    teaser: String(input.placeholder || '').trim(),
+    deepQuestion: String(currentDeepQuestion || '').trim(),
+    section: state.section
+  })
+
+  const notifyPlaceholderChange = () => {
+    const payload = getPlaceholderSuggestion()
+    placeholderSubscribers.forEach((fn) => {
+      try {
+        fn(payload)
+      } catch (_) {
+        // Ignore subscriber errors
+      }
+    })
+  }
+
+  const subscribePlaceholder = (fn) => {
+    if (typeof fn !== 'function') return () => {}
+    placeholderSubscribers.add(fn)
+    fn(getPlaceholderSuggestion())
+    return () => {
+      placeholderSubscribers.delete(fn)
+    }
+  }
+
   const poolForSection = (section) => (
     PLACEHOLDER_POOL[section] || PLACEHOLDER_POOL.home
   )
@@ -170,6 +199,7 @@ export function initAgentNode(options = {}) {
     const entry = normalizePoolEntry(pool[i])
     input.placeholder = entry.teaser
     currentDeepQuestion = entry.deepQuestion
+    notifyPlaceholderChange()
   }
 
   const bumpPlaceholderOnSectionChange = (section) => {
@@ -309,7 +339,7 @@ export function initAgentNode(options = {}) {
   }
 
   const syncHeroVisibleFromRect = () => {
-    const r = heroSlot.getBoundingClientRect()
+    const r = heroScrollDockRoot.getBoundingClientRect()
     const vh = window.innerHeight || document.documentElement.clientHeight || 0
     state.heroVisible = r.bottom > 0 && r.top < vh
   }
@@ -479,7 +509,7 @@ export function initAgentNode(options = {}) {
       rootMargin: '0px',
       threshold: HERO_OBSERVER_THRESHOLDS
     })
-    launcherObserver.observe(heroSlot)
+    launcherObserver.observe(heroScrollDockRoot)
   } else {
     state.heroVisible = false
   }
@@ -495,6 +525,7 @@ export function initAgentNode(options = {}) {
     launcherObserver = null
     unsubscribeChatBus?.()
     unsubscribeChatBus = null
+    placeholderSubscribers.clear()
     mql?.removeEventListener?.('change', onFinePointerMqlChange)
     reducedMql?.removeEventListener?.('change', onReducedMotionMqlChange)
   }
@@ -507,6 +538,8 @@ export function initAgentNode(options = {}) {
     syncFromNavigation,
     syncTrailVisibility,
     openLauncherDeepIntent,
+    getPlaceholderSuggestion,
+    subscribePlaceholder,
     destroy
   }
 }

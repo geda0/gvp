@@ -1,4 +1,5 @@
 import { trackEvent } from './analytics.js'
+import { openContactDialog } from './contact.js'
 import { chatBus } from './chat-bus.js'
 import { chatApiUrl, chatVoiceFeatureEnabled } from './site-config.js'
 import { normalizeSection } from './section-names.js'
@@ -15,6 +16,14 @@ const MAX_COMPOSER_HEIGHT = 128
 const SUCCESS_IDLE_DELAY_MS = 700
 const ERROR_IDLE_DELAY_MS = 2300
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
+
+function readChipLabel(el) {
+  const explicit = typeof el?.getAttribute === 'function'
+    ? el.getAttribute('data-chip-label')?.trim()
+    : ''
+  if (explicit) return explicit
+  return String(el?.textContent || '').trim()
+}
 
 let collapseChat = () => {}
 let syncChatLaunchersImpl = () => {}
@@ -110,6 +119,27 @@ export function initChat() {
 
   if (!agentNode || !agentForm || !agentInput || !heroSlotEl || !dialog || !panel || !messagesEl || !composer || !composerInput || !statusEl) return null
 
+  const PLACEHOLDER_DIALOG_CHIP_ATTR = 'data-gvp-dialog-placeholder'
+
+  const renderDialogPlaceholderChips = (detail) => {
+    if (!dialogSuggestions) return
+    if (messagesEl.children.length > 0) return
+    const teaser = String(detail?.teaser || '').trim()
+    const deep = String(detail?.deepQuestion || '').trim()
+    dialogSuggestions.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)?.remove()
+    if (!teaser || !deep) return
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'chat-dialog__chip chat-dialog__chip--from-placeholder'
+    btn.setAttribute(PLACEHOLDER_DIALOG_CHIP_ATTR, '1')
+    btn.setAttribute('data-prompt', deep)
+    btn.setAttribute('data-chip-label', teaser)
+    btn.textContent = teaser
+    btn.title = deep
+    btn.setAttribute('data-track', 'chat_dialog_chip_placeholder')
+    dialogSuggestions.appendChild(btn)
+  }
+
   const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
   const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
   const state = {
@@ -117,7 +147,8 @@ export function initChat() {
     pending: false,
     lastFocus: null,
     sessionId: getOrCreateSessionId(),
-    agentNodeApi: null
+    agentNodeApi: null,
+    placeholderUnsub: null
   }
   const launcherState = {
     section: 'home'
@@ -145,25 +176,18 @@ export function initChat() {
   const syncAgentLauncherChrome = (_section = 'home') => {
     normalizeSection(_section)
     const source = resolveLauncherSource()
-    const agentMicTrack = chatVoiceFeatureEnabled
-      ? 'header_agent_node_mic'
-      : 'header_agent_node_open_chat'
-    const agentHeroTrack = chatVoiceFeatureEnabled
-      ? 'hero_agent_node_mic'
-      : 'hero_agent_node_open_chat'
     if (source === 'header') {
       agentInput.setAttribute('data-track', 'header_chat_input_focus')
-      if (agentNodeMic) agentNodeMic.setAttribute('data-track', agentMicTrack)
     } else {
       agentInput.setAttribute('data-track', 'hero_chat_input_focus')
-      if (agentNodeMic) agentNodeMic.setAttribute('data-track', agentHeroTrack)
     }
-    if (composerMic) {
-      composerMic.setAttribute(
-        'data-track',
-        chatVoiceFeatureEnabled ? 'chat_composer_mic' : 'chat_composer_focus_field'
-      )
+    if (!chatVoiceFeatureEnabled) return
+    if (source === 'header') {
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'header_agent_node_mic')
+    } else {
+      if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'hero_agent_node_mic')
     }
+    if (composerMic) composerMic.setAttribute('data-track', 'chat_composer_mic')
   }
 
   const clearPanelAnimation = () => {
@@ -261,6 +285,9 @@ export function initChat() {
     if (dialogSuggestions) {
       dialogSuggestions.hidden = hasMessages
       dialogSuggestions.setAttribute('aria-hidden', hasMessages ? 'true' : 'false')
+      if (!hasMessages && state.agentNodeApi?.getPlaceholderSuggestion) {
+        renderDialogPlaceholderChips(state.agentNodeApi.getPlaceholderSuggestion())
+      }
     }
   }
 
@@ -347,19 +374,14 @@ export function initChat() {
 
   const liveUi = { active: false, connecting: false }
 
-  const setVoiceLauncherButtonMode = (btn, voiceEnabled) => {
+  const prepareVoiceLauncherButtons = (btn) => {
     if (!btn) return
+    btn.setAttribute('data-gvp-launcher', 'voice')
     const voiceIcon = btn.querySelector('.chat-composer__launcher-icon--voice')
     const chatIcon = btn.querySelector('.chat-composer__launcher-icon--chat')
-    if (voiceIcon) voiceIcon.hidden = !voiceEnabled
-    if (chatIcon) chatIcon.hidden = voiceEnabled
-    if (voiceEnabled) {
-      btn.setAttribute('aria-label', 'Start voice mode')
-      return
-    }
-    btn.removeAttribute('aria-pressed')
-    const label = btn.id === 'chatComposerMic' ? 'Focus message field' : 'Open chat'
-    btn.setAttribute('aria-label', label)
+    if (voiceIcon) voiceIcon.hidden = false
+    if (chatIcon) chatIcon.hidden = true
+    btn.setAttribute('aria-label', 'Start voice mode')
   }
 
   const reconcileComposerControls = () => {
@@ -370,26 +392,28 @@ export function initChat() {
     if (composerSend) composerSend.disabled = textBusy || voiceBusy
     if (composerClear) composerClear.disabled = textBusy || voiceBusy
     if (!chatVoiceFeatureEnabled) {
-      setVoiceLauncherButtonMode(composerMic, false)
-      setVoiceLauncherButtonMode(agentNodeMic, false)
       if (composerMic) {
-        composerMic.hidden = false
-        composerMic.disabled = textBusy
-        composerMic.removeAttribute('inert')
-        composerMic.removeAttribute('aria-hidden')
+        composerMic.hidden = true
+        composerMic.disabled = true
+        composerMic.setAttribute('inert', '')
+        composerMic.setAttribute('aria-hidden', 'true')
+        composerMic.removeAttribute('aria-pressed')
+        composerMic.removeAttribute('data-gvp-launcher')
       }
       if (agentNodeMic) {
-        agentNodeMic.hidden = false
-        agentNodeMic.disabled = textBusy
-        agentNodeMic.removeAttribute('inert')
-        agentNodeMic.removeAttribute('aria-hidden')
+        agentNodeMic.hidden = true
+        agentNodeMic.disabled = true
+        agentNodeMic.setAttribute('inert', '')
+        agentNodeMic.setAttribute('aria-hidden', 'true')
+        agentNodeMic.removeAttribute('aria-pressed')
+        agentNodeMic.removeAttribute('data-gvp-launcher')
       }
       syncAgentLauncherChrome(launcherState.section)
       return
     }
     if (composerMic || agentNodeMic) {
-      setVoiceLauncherButtonMode(composerMic, true)
-      setVoiceLauncherButtonMode(agentNodeMic, true)
+      prepareVoiceLauncherButtons(composerMic)
+      prepareVoiceLauncherButtons(agentNodeMic)
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
       if (composerMic) {
         composerMic.disabled = micBusy
@@ -527,7 +551,7 @@ export function initChat() {
 
   const openContactFromChat = (prefill) => {
     closePanel({ restoreFocus: false, immediate: true })
-    document.getElementById('openContactBtn')?.click()
+    openContactDialog()
     if (!prefill || typeof prefill !== 'object') return
 
     requestAnimationFrame(() => {
@@ -735,27 +759,6 @@ export function initChat() {
     })
   }
 
-  const onTextOnlyLauncherClick = (event) => {
-    if (chatVoiceFeatureEnabled) return
-    const btn = event.currentTarget
-    if (!(btn instanceof HTMLButtonElement) || btn.disabled) return
-    if (btn === composerMic) {
-      if (!isOpen()) return
-      event.preventDefault()
-      composerInput.focus()
-      return
-    }
-    if (btn === agentNodeMic) {
-      event.preventDefault()
-      const wasOpen = isOpen()
-      state.agentNodeApi?.openLauncherDeepIntent?.()
-      if (!wasOpen && !isOpen()) openPanel()
-    }
-  }
-
-  agentNodeMic?.addEventListener('click', onTextOnlyLauncherClick)
-  composerMic?.addEventListener('click', onTextOnlyLauncherClick)
-
   agentInput.addEventListener('focus', () => {
     const source = resolveLauncherSource()
     if (source === 'header') {
@@ -773,19 +776,19 @@ export function initChat() {
 
   document.addEventListener('click', (event) => {
     const chipsRoot = event.target.closest('#heroChatSuggestions')
-      || event.target.closest('#navbarChatSuggestions')
     if (!chipsRoot) return
     const chip = event.target.closest('[data-prompt]')
     if (!chip) return
     const prompt = String(chip.getAttribute('data-prompt') || '').trim()
     if (!prompt) return
     const source = resolveLauncherSource()
+    const label = readChipLabel(chip) || prompt
     if (source === 'header') {
-      trackEvent('header_chat_chip', { prompt: chip.textContent || '' })
+      trackEvent('header_chat_chip', { prompt: label })
     } else {
-      trackEvent('hero_chat_chip', { prompt: chip.textContent || '' })
+      trackEvent('hero_chat_chip', { prompt: label })
     }
-    openPanelWithDraft(prompt, source)
+    openPanelWithMessage(prompt, source)
   })
 
   dialogSuggestions?.addEventListener('click', (event) => {
@@ -793,9 +796,9 @@ export function initChat() {
     if (!chip) return
     const prompt = String(chip.getAttribute('data-prompt') || '').trim()
     if (!prompt) return
-    trackEvent('chat_dialog_chip', { prompt: chip.textContent || '' })
-    if (!isOpen()) openPanel()
-    void sendMessage(prompt, 'composer')
+    const label = readChipLabel(chip) || prompt
+    trackEvent('chat_dialog_chip', { prompt: label })
+    openPanelWithMessage(prompt, 'composer')
   })
 
   composer.addEventListener('submit', (event) => {
@@ -879,7 +882,14 @@ export function initChat() {
   reconcileComposerControls()
 
   const bindAgentNode = (agentNodeApi) => {
+    state.placeholderUnsub?.()
+    state.placeholderUnsub = null
     state.agentNodeApi = agentNodeApi || null
+    if (agentNodeApi?.subscribePlaceholder) {
+      state.placeholderUnsub = agentNodeApi.subscribePlaceholder((detail) => {
+        renderDialogPlaceholderChips(detail)
+      })
+    }
     syncChatLaunchersImpl(launcherState.section || 'home')
   }
 
