@@ -749,7 +749,11 @@ export function bindChatLiveVoice(opts) {
 
       ws.onopen = () => {
         bumpVoiceWsIdleTimer()
-        ws.send(JSON.stringify(firstClientSetup))
+        // Relay path: server already sent setup to Google when upstream connected; a second
+        // client setup frame resets the session and setupComplete never arrives → 45s timeout.
+        if (!isRelayWsPath) {
+          ws.send(JSON.stringify(firstClientSetup))
+        }
       }
 
       ws.onmessage = (ev) => {

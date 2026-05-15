@@ -36,7 +36,7 @@ async def relay_browser_to_google(
             additional_headers=headers,
             max_size=None,
         ) as upstream:
-            await upstream.send(handshake_json)
+            reader_ready = asyncio.Event()
 
             async def browser_to_upstream() -> None:
                 try:
@@ -60,6 +60,7 @@ async def relay_browser_to_google(
                     pass
 
             async def upstream_to_browser() -> None:
+                reader_ready.set()
                 try:
                     async for packet in upstream:
                         if isinstance(packet, str):
@@ -76,8 +77,11 @@ async def relay_browser_to_google(
                 except Exception as exc:
                     logger.debug('relay upstream_to_browser end: %s', exc)
 
-            b_task = asyncio.create_task(browser_to_upstream())
             u_task = asyncio.create_task(upstream_to_browser())
+            await reader_ready.wait()
+            await upstream.send(handshake_json)
+
+            b_task = asyncio.create_task(browser_to_upstream())
             done, pending = await asyncio.wait(
                 {b_task, u_task},
                 return_when=asyncio.FIRST_COMPLETED,
