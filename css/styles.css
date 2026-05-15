@@ -53,6 +53,9 @@
 
     /* Fixed site header: single compact row + optional notch */
     --site-header-height: calc(2.65rem + env(safe-area-inset-top, 0px));
+    /* Fixed site footer: two compact lines (copyright + links) + bottom safe-area. */
+    /* Keep in sync with body > footer paddings + font sizes; body reserves matching padding-bottom. */
+    --site-footer-height: calc(4.5rem + env(safe-area-inset-bottom, 0px));
     --home-hero-pad-bottom: clamp(1.2rem, 3.2vh, 1.85rem);
 }
 
@@ -222,7 +225,9 @@ body {
     font-family: var(--font-body);
     color: var(--text-primary);
     margin: 0;
-    padding: 0;
+    /* Reserve vertical space for the fixed footer so trailing content (e.g. the About
+       paragraph on the home page) is not occluded. */
+    padding: 0 0 var(--site-footer-height) 0;
     transition: color 0.4s ease, background-color 0.4s ease;
     font-size: 16px;
     line-height: 1.6;
@@ -996,11 +1001,9 @@ section#portfolioProjects.visible.content-section-reveal {
     align-items: stretch;
 }
 
-@media (min-width: 768px) {
-    .hero-copy-block > .hero-chat {
-        order: -1;
-    }
-}
+/* Source order wins: identity (name + tagline + CTAs) reads first, then the
+   launcher card. Previously this rule lifted `.hero-chat` above `.hero-copy`
+   on desktop via `order: -1`, which pushed the name below the fold. */
 
 .hero-copy {
     width: 100%;
@@ -1482,6 +1485,25 @@ body.contact-dialog-open {
     border-color: var(--border-subtle);
 }
 
+/* Garden theme: running text otherwise sits directly over the ocean stripe and tree
+   silhouettes, which kills contrast (most visible on mobile where the ocean band
+   crosses the About paragraph). Give the prose blocks the same translucent panel
+   treatment as `.highlight` so the text reads cleanly without breaking the scene. */
+[data-theme="garden"] .experience-summary,
+[data-theme="garden"] .portfolio-earlier-career {
+    background: rgba(255, 255, 255, 0.42);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.85rem;
+    padding: 1.4rem 1.5rem;
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+[data-theme="garden"] .portfolio-earlier-career {
+    margin-top: 1.5rem;
+    padding-bottom: 1.4rem;
+}
+
 /* Media queries for responsive design */
 @media (max-width: 767px) {
     nav ul {
@@ -1766,6 +1788,8 @@ h6 {
 
     body {
         font-size: 14px;
+        /* Footer link line can wrap on narrow phones; give it a bit more headroom. */
+        --site-footer-height: calc(5.5rem + env(safe-area-inset-bottom, 0px));
     }
 
     h1 {

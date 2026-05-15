@@ -164,7 +164,7 @@ if [[ "${DEPLOY_ENV}" == "stage" ]]; then
   CHAT_ECS_SERVICE="${CHAT_ECS_SERVICE_STAGE:-${CHAT_ECS_SERVICE:-}}"
 else
   CHAT_ECS_CLUSTER="${CHAT_ECS_CLUSTER_PROD:-${CHAT_ECS_CLUSTER:-}}"
-  CHAT_ECS_SERVICE="${CHAT_ECS_SERVICE_PROD:-}"
+  CHAT_ECS_SERVICE="${CHAT_ECS_SERVICE_PROD:-${CHAT_ECS_SERVICE:-}}"
 fi
 
 test_pid=""
@@ -370,10 +370,50 @@ else
   CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-${CHAT_ECS_DISCOVERED_URL:-${CHAT_SAM_CHAT_URL}}}"
 fi
 
+# Is the chat URL hosted on Lambda HttpApi (no browser WebSocket upgrade possible)?
+# Match the public AWS execute-api hostname; everything else (ECS/ALB, custom domain
+# fronting ECS, etc.) is assumed WSS-capable. Used to auto-decide the voice meta flag.
+_chat_url_is_lambda_only() {
+  case "${1:-}" in
+    https://*.execute-api.*.amazonaws.com*|http://*.execute-api.*.amazonaws.com*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Voice meta flag: explicit GVP_CHAT_VOICE wins (1/true/yes → on, anything else → off).
+# When unset, auto-decide from CHAT_SYNC_CHAT_URL:
+#   - WSS-capable host (ECS/ALB)  → gvp:chat-voice-enabled=1
+#   - Lambda execute-api host     → gvp:chat-voice-enabled=0 (FE blocks direct_google)
+# Warn loudly when the user explicitly enabled voice but pointed at a Lambda host.
+if [[ -z "${GVP_CHAT_VOICE:-}" ]]; then
+  if [[ -n "${CHAT_SYNC_CHAT_URL}" ]] && ! _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL}"; then
+    GVP_CHAT_VOICE=1
+    CHAT_VOICE_REASON="auto (chat URL is WSS-capable)"
+  else
+    GVP_CHAT_VOICE=0
+    if [[ -z "${CHAT_SYNC_CHAT_URL}" ]]; then
+      CHAT_VOICE_REASON="auto (no chat URL)"
+    else
+      CHAT_VOICE_REASON="auto (chat URL is Lambda execute-api)"
+    fi
+  fi
+else
+  CHAT_VOICE_REASON="explicit GVP_CHAT_VOICE=${GVP_CHAT_VOICE}"
+fi
+
 CHAT_VOICE_META=0
 case "${GVP_CHAT_VOICE:-0}" in
   1|true|TRUE|True|yes|YES|Yes) CHAT_VOICE_META=1 ;;
 esac
+
+if [[ "${CHAT_VOICE_META}" == "1" ]] && _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL:-}"; then
+  echo "WARNING: gvp:chat-voice-enabled=1 but chat URL is Lambda execute-api; the browser FE will refuse voice (direct_google blocked)." >&2
+  if [[ "${DEPLOY_ENV}" == "stage" ]]; then
+    echo "         Fix: set CHAT_STAGE_CHAT_API_URL to your ECS/ALB host, or set CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for auto-derive." >&2
+  else
+    echo "         Fix: set CHAT_PROD_CHAT_API_URL to your ECS/ALB host, or set CHAT_ECS_CLUSTER_PROD+CHAT_ECS_SERVICE_PROD for auto-derive." >&2
+  fi
+fi
 
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
   if [[ -n "${CHAT_SYNC_CHAT_URL}" ]]; then
@@ -386,6 +426,20 @@ if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
   if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_SYNC_CHAT_URL}" ]]; then
     echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL, or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB discovery, or deploy Lambda chat (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY) for ChatPostApiUrl." >&2
   fi
+fi
+
+echo
+echo "=== Voice readiness (${DEPLOY_ENV}) ==="
+echo "  chat URL          : ${CHAT_SYNC_CHAT_URL:-<unset>}"
+echo "  gvp:chat-voice    : ${CHAT_VOICE_META}  (${CHAT_VOICE_REASON})"
+if [[ "${CHAT_VOICE_META}" == "1" ]]; then
+  if _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL:-}"; then
+    echo "  status            : ⚠ chat URL is Lambda; browser voice will be blocked by FE"
+  else
+    echo "  status            : OK — ECS image defaults CHAT_LIVE_RELAY=1, FE will accept relay transport"
+  fi
+else
+  echo "  status            : voice OFF — mic UI hidden on the static site"
 fi
 
 echo "Done (deploy env=${DEPLOY_ENV})."
