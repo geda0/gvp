@@ -10,6 +10,7 @@ from urllib.parse import quote
 from google import genai
 from google.genai import types
 
+from google.genai import _common, _live_converters
 from google.genai import _transformers as genai_transformers
 
 from app.live_env import live_model_id
@@ -81,13 +82,47 @@ _LIVE_TOOLS = types.Tool(
 
 
 def _live_connect_config(system_instruction: str) -> types.LiveConnectConfig:
+    # Gemini Live accepts exactly one modality per session (an AUDIO+TEXT
+    # combination is invalid and the upstream silently rejects the setup,
+    # surfacing on the client as a 45-60s wait for setupComplete that never
+    # arrives). We pick AUDIO and rely on input/output_audio_transcription for
+    # the running transcript bubbles.
     return types.LiveConnectConfig(
         system_instruction=system_instruction,
-        response_modalities=[types.Modality.AUDIO, types.Modality.TEXT],
+        response_modalities=[types.Modality.AUDIO],
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         tools=[_LIVE_TOOLS],
     )
+
+
+def _build_setup_handshake(
+    client: genai.Client, model: str, cfg: types.LiveConnectConfig
+) -> dict[str, Any]:
+    """Wire-format setup frame for v1alpha BidiGenerateContent[Constrained].
+
+    Mirrors the path google-genai uses for direct-API-key Live sessions
+    (live.py: ``_LiveConnectParameters_to_mldev`` → drop ``config`` → re-set
+    ``setup.model``). The constrained endpoint validates the setup against the
+    locked LiveConnectConstraints baked into the token, so the wire shape must
+    match what the SDK would have sent. A minimal ``{setup: {model}}`` causes
+    the upstream to close mid-handshake with no useful reason.
+    """
+    api_client = client._api_client
+    transformed_model = genai_transformers.t_model(api_client, model)
+    from_object = types.LiveConnectParameters(
+        model=transformed_model, config=cfg
+    ).model_dump(exclude_none=True)
+    request_dict = _common.convert_to_dict(
+        _live_converters._LiveConnectParameters_to_mldev(
+            api_client=api_client, from_object=from_object
+        )
+    )
+    request_dict.pop('config', None)
+    request_dict = _common.encode_unserializable_types(request_dict)
+    setup = request_dict.setdefault('setup', {})
+    setup['model'] = transformed_model
+    return request_dict
 
 
 def google_constrained_browser_ws_url(token_name: str) -> str:
@@ -102,9 +137,8 @@ def google_constrained_browser_ws_url(token_name: str) -> str:
 
 
 async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
-    """Mint auth token + minimal setup. Caller chooses relay vs direct Google wss (see CHAT_LIVE_RELAY)."""
+    """Mint auth token + full setup handshake. Caller chooses relay vs direct Google wss (see CHAT_LIVE_RELAY)."""
     client = _live_client_singleton()
-    api_client = client._api_client
     mid = live_model_id()
     cfg = _live_connect_config(system_instruction)
 
@@ -132,15 +166,12 @@ async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
     if not token_name:
         raise RuntimeError('Auth token response missing name')
 
-    transformed_model = genai_transformers.t_model(api_client, mid)
-
-    handshake: dict[str, Any] = {'setup': {'model': transformed_model}}
-
-    version = 'v1alpha'
+    handshake = _build_setup_handshake(client, mid, cfg)
+    transformed_model = handshake.get('setup', {}).get('model') or mid
 
     return {
         'handshake': handshake,
         'model': transformed_model,
-        'apiVersion': version,
+        'apiVersion': 'v1alpha',
         '_authTokenName': token_name,
     }

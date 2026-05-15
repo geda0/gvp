@@ -828,26 +828,16 @@ export function bindChatLiveVoice(opts) {
           throw sessionErr
         }
 
-        const { websocketUrl, handshake, model: modelFromBody } = body
+        const { websocketUrl, handshake } = body
         const wsUrlStr = String(websocketUrl)
         // Relay URLs always use this path on our API host; trust it even if legacy JSON omits transport fields.
         isRelayWsPath = wsUrlStr.includes('/api/live/relay/')
-        const constrainedWs = wsUrlStr.includes('BidiGenerateContentConstrained')
-        const modelResource = typeof modelFromBody === 'string' && modelFromBody.trim()
-          ? modelFromBody.trim()
-          : (modelFromBody != null ? String(modelFromBody) : '')
-        const clientSlimsFirstFrame = Boolean(
-          constrainedWs
-          && modelResource
-          && handshake
-          && typeof handshake === 'object'
-          && handshake.setup
-          && typeof handshake.setup === 'object'
-          && Object.keys(handshake.setup).length > 1
-        )
-        const firstClientSetup = clientSlimsFirstFrame
-          ? { setup: { model: modelResource } }
-          : handshake
+        // The constrained endpoint validates the full setup frame against the
+        // constraints baked into the ephemeral token. Send the handshake the
+        // backend built (mirrors what google-genai's live.py sends for direct
+        // API-key sessions). A minimal `{setup: {model}}` causes upstream to
+        // close mid-handshake.
+        const firstClientSetup = handshake
 
         lastLiveVoiceTransport = typeof body.liveVoiceTransport === 'string' ? body.liveVoiceTransport : null
 
