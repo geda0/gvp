@@ -104,6 +104,7 @@ Conditions:
   HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
   HasTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
   HasAlbLogs: !Not [!Equals [!Ref AlbLogBucket, '']]
+  IsStage: !Equals [!Ref StageName, 'stage']
 
 Resources:
   # --- Networking ---
@@ -235,6 +236,8 @@ Resources:
             - { Name: CHAT_VOICE_MODEL, Value: !Ref ChatVoiceModel }
             - { Name: CHAT_TRANSCRIPTS_TABLE, Value: !Ref ChatTranscriptsTableName }
             - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            # Stage: enable verbose /ready + /api/live/probe diagnostics. Prod stays locked down.
+            - { Name: CHAT_READY_VERBOSE, Value: !If [IsStage, '1', '0'] }
 
   # --- ALB ---
   LoadBalancer:
