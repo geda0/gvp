@@ -2,40 +2,40 @@
   "states": {
     "idle": {
       "messages": [
-        "Building production systems.",
+        "Home: what I offer. Portfolio: what I've shipped.",
+        "Playground: skills and experiments.",
         "Correctness over speed.",
-        "15+ years, still shipping.",
-        "Browse Playground and Portfolio."
+        "15+ years, still shipping."
       ],
       "typingSpeed": 50,
       "messageDelay": 9000
     },
     "playground": {
       "messages": [
-        "Prototypes with production habits.",
+        "Explorations and skills — smaller scope, real habits.",
         "Fast loops. Clear constraints.",
         "Click a card for details.",
-        "Correctness over speed."
+        "Side projects with production discipline."
       ],
       "typingSpeed": 40,
       "messageDelay": 10000
     },
     "portfolio": {
       "messages": [
-        "Systems owned end-to-end.",
+        "What I've done — roles and shipped outcomes.",
         "IBM (Apptio), HP, JumpCloud, AT&T.",
         "Click a card for details.",
-        "15+ years, still shipping."
+        "Systems owned end-to-end."
       ],
       "typingSpeed": 40,
       "messageDelay": 10000
     },
     "home": {
       "messages": [
-        "I design, build, and ship production systems.",
-        "Architecture, platforms, production AI.",
-        "Playground: experiments. Portfolio: real systems.",
-        "The chat knows the work — ask anything."
+        "Services and fit live here — ask what I provide.",
+        "Portfolio has shipped work; Playground has experiments.",
+        "Architecture, platforms, delivery.",
+        "The chat is grounded in this site — ask anything."
       ],
       "typingSpeed": 50,
       "messageDelay": 9000
@@ -51,40 +51,40 @@
       "states": {
         "idle": {
           "messages": [
-            "Building production systems.",
+            "Home: what I offer. Portfolio: what I've shipped.",
+            "Playground: skills and experiments.",
             "Correctness over speed.",
-            "15+ years, still shipping.",
-            "Browse Playground and Portfolio."
+            "15+ years, still shipping."
           ],
           "typingSpeed": 50,
           "messageDelay": 9000
         },
         "playground": {
           "messages": [
-            "Prototypes with production habits.",
+            "Explorations and skills — smaller scope, real habits.",
             "Fast loops. Clear constraints.",
             "Click a card for details.",
-            "Correctness over speed."
+            "Side projects with production discipline."
           ],
           "typingSpeed": 40,
           "messageDelay": 10000
         },
         "portfolio": {
           "messages": [
-            "Systems owned end-to-end.",
+            "What I've done — roles and shipped outcomes.",
             "IBM (Apptio), HP, JumpCloud, AT&T.",
             "Click a card for details.",
-            "15+ years, still shipping."
+            "Systems owned end-to-end."
           ],
           "typingSpeed": 40,
           "messageDelay": 10000
         },
         "home": {
           "messages": [
-            "I design, build, and ship production systems.",
-            "Architecture, platforms, production AI.",
-            "Playground: experiments. Portfolio: real systems.",
-            "The chat knows the work — ask anything."
+            "Services and fit live here — ask what I provide.",
+            "Portfolio has shipped work; Playground has experiments.",
+            "Architecture, platforms, delivery.",
+            "The chat is grounded in this site — ask anything."
           ],
           "typingSpeed": 50,
           "messageDelay": 9000

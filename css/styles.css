@@ -728,7 +728,8 @@ body > footer a:focus-visible {
     border-radius: 2px;
 }
 
-body > footer .footer-chat-open {
+body > footer .footer-chat-open,
+body > footer .footer-contact-open {
     background: none;
     border: none;
     padding: 0;
@@ -742,13 +743,15 @@ body > footer .footer-chat-open {
     transition: color 0.2s ease;
 }
 
-body > footer .footer-chat-open:hover {
+body > footer .footer-chat-open:hover,
+body > footer .footer-contact-open:hover {
     color: var(--footer-link-hover);
     text-decoration: underline;
     text-underline-offset: 3px;
 }
 
-body > footer .footer-chat-open:focus-visible {
+body > footer .footer-chat-open:focus-visible,
+body > footer .footer-contact-open:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
     border-radius: 2px;
@@ -835,6 +838,44 @@ body:not(.content-open) section#home {
 #spacemanContainer:focus:not(:focus-visible),
 #spacemanContainer *:focus:not(:focus-visible) {
     outline: none;
+}
+
+#portfolioContent > .portfolio-intro {
+    margin-top: clamp(3rem, 10vh, 5rem);
+}
+
+.portfolio-resume-link {
+    margin-top: 1rem;
+}
+
+.portfolio-resume-link a {
+    font-weight: 600;
+    color: var(--link-color);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.portfolio-resume-link a:hover {
+    color: var(--accent-hover);
+}
+
+#portfolioContent > .portfolio-intro + section#portfolioProjects {
+    margin-top: 2rem;
+}
+
+#playgroundContent > .playground-intro {
+    max-width: 44rem;
+    margin: clamp(3rem, 10vh, 5rem) auto 0;
+    padding: 0 1.25rem;
+    text-align: center;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+
+#playgroundContent > .playground-intro + section#projects {
+    margin-top: 2rem;
 }
 
 #portfolioContent,
@@ -1011,27 +1052,42 @@ section#portfolioProjects.visible.content-section-reveal {
 
 .hero-eyebrow {
     font-family: var(--font-body);
-    font-size: 0.72rem;
+    font-size: 0.88rem;
     font-weight: 600;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    text-transform: none;
     color: var(--text-muted);
-    margin: 0 0 0.65rem;
-}
-
-.hero h1 {
-    font-size: 2.4em;
-    margin-bottom: 8px;
-    white-space: normal;
-    letter-spacing: -0.02em;
+    margin: 0 auto 0rem;
+    max-width: 42rem;
 }
 
 .hero-subtitle {
-    font-size: 1.05em;
-    color: var(--text-muted);
-    margin-bottom: 4px;
+    font-size: clamp(1rem, 2.5vw, 1.12rem);
+    line-height: 1.45;
+    color: var(--text-primary);
+    margin: 0 auto 0.15rem;
     font-weight: 600;
     font-family: var(--font-body);
+    max-width: 38rem;
+    letter-spacing: -0.02em;
+}
+
+.hero-lede {
+    font-family: var(--font-body);
+    font-size: clamp(0.92rem, 2.35vw, 1.02rem);
+    line-height: 1.6;
+    font-weight: 500;
+    color: var(--text-muted);
+    max-width: 38rem;
+    margin: 0 auto 1.65rem;
+    letter-spacing: -0.01em;
+}
+
+.hero h1 {
+    font-size: 2.0em;
+    margin-bottom: 1.1rem;
+    white-space: normal;
+    letter-spacing: -0.02em;
 }
 
 .hero-tagline {
@@ -1112,15 +1168,6 @@ section#portfolioProjects.visible.content-section-reveal {
     margin-bottom: 0;
 }
 
-.hero-cta {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-    margin-bottom: 28px;
-    margin-top: 16px;
-}
-
-.cta-primary,
 .cta-secondary {
     display: inline-block;
     padding: 0.65rem 1.35rem;
@@ -1195,10 +1242,6 @@ section#portfolioProjects.visible.content-section-reveal {
     .hero-copy-block .hero-tagline {
         margin-left: auto;
         margin-right: auto;
-    }
-
-    .hero-copy-block .hero-cta {
-        justify-content: center;
     }
 
     .hero-copy-block .hero-highlights {
@@ -1487,9 +1530,10 @@ body.contact-dialog-open {
 
 /* Garden theme: running text otherwise sits directly over the ocean stripe and tree
    silhouettes, which kills contrast (most visible on mobile where the ocean band
-   crosses the About paragraph). Give the prose blocks the same translucent panel
+   crosses portfolio intro and playground intro). Give the prose blocks the same translucent panel
    treatment as `.highlight` so the text reads cleanly without breaking the scene. */
 [data-theme="garden"] .experience-summary,
+[data-theme="garden"] .playground-intro,
 [data-theme="garden"] .portfolio-earlier-career {
     background: rgba(255, 255, 255, 0.42);
     border: 1px solid var(--border-subtle);
@@ -1539,7 +1583,6 @@ body.contact-dialog-open {
 
     .hero h1 {
         font-size: 1.8em;
-        order: 2;
     }
 
     .hero-copy {
@@ -1547,28 +1590,25 @@ body.contact-dialog-open {
         flex-direction: column;
     }
 
-    .hero-eyebrow {
-        order: 1;
+    .hero-subtitle {
+        font-size: clamp(0.98rem, 3.8vw, 1.06rem);
+        padding: 0 0.35rem;
+        box-sizing: border-box;
+        margin-bottom: 0.55rem;
     }
 
-    .hero-subtitle {
-        font-size: 0.95em;
-        order: 3;
+    .hero-lede {
+        font-size: clamp(0.9rem, 3.5vw, 0.98rem);
+        line-height: 1.55;
+        margin-bottom: 1.35rem;
+        padding: 0 0.35rem;
+        box-sizing: border-box;
     }
 
     .hero-tagline {
         font-size: 0.85em;
         margin-bottom: 14px;
         order: 4;
-    }
-
-    /* Resume / Contact directly under tagline on small screens */
-    .hero-cta {
-        order: 7;
-        margin-top: 0.35rem;
-        margin-bottom: 1.45rem;
-        flex-wrap: wrap;
-        justify-content: center;
     }
 
     .hero-proof {

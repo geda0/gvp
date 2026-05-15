@@ -8,6 +8,137 @@ import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
+
+/** Preset prompts per route; home matches original hero + dialog starters. */
+const SECTION_PROMPT_CHIPS = {
+  home: {
+    hero: [
+      {
+        prompt: 'What can you do?',
+        label: 'What I do',
+        track: 'hero_chat_chip_what_i_do'
+      },
+      {
+        prompt: 'What services do you offer?',
+        label: 'Services',
+        track: 'hero_chat_chip_services'
+      },
+      {
+        prompt: 'Show me a recent project.',
+        label: 'Recent work',
+        track: 'hero_chat_chip_recent_work'
+      }
+    ],
+    dialog: [
+      {
+        prompt: 'How would you scale a SaaS platform?',
+        label: 'Scaling SaaS',
+        track: 'chat_dialog_chip_scaling'
+      },
+      {
+        prompt: 'How do you ship AI in production?',
+        label: 'Shipping AI',
+        track: 'chat_dialog_chip_shipping_ai'
+      },
+      {
+        prompt: 'Show me a recent project.',
+        label: 'Recent work',
+        track: 'chat_dialog_chip_recent_work'
+      }
+    ]
+  },
+  portfolio: {
+    hero: [
+      {
+        prompt: 'Walk me through your flagship deliveries across IBM (Apptio), JumpCloud, and HP.',
+        label: 'Career arc',
+        track: 'hero_chat_chip_career_arc'
+      },
+      {
+        prompt: 'What impact did you have on correctness-critical data pipelines at Apptio?',
+        label: 'Apptio depth',
+        track: 'hero_chat_chip_apptio'
+      },
+      {
+        prompt: 'Which portfolio role should we unpack first for a hiring loop?',
+        label: 'Where to start',
+        track: 'hero_chat_chip_where_start'
+      }
+    ],
+    dialog: [
+      {
+        prompt: 'What did you ship at JumpCloud — scope, stakeholders, and how you proved it was production-ready?',
+        label: 'JumpCloud ship',
+        track: 'chat_dialog_chip_jumpcloud'
+      },
+      {
+        prompt: 'How did you scale HP Instant Ink — migration strategy, boundaries, and outcomes?',
+        label: 'HP scale story',
+        track: 'chat_dialog_chip_hp'
+      },
+      {
+        prompt: 'Pick one résumé role and walk through problem → constraints → what you delivered.',
+        label: 'Deep on one role',
+        track: 'chat_dialog_chip_one_role'
+      }
+    ]
+  },
+  playground: {
+    hero: [
+      {
+        prompt: 'What playground experiments should I look at first — skills they showcase?',
+        label: 'Explorations',
+        track: 'hero_chat_chip_explorations'
+      },
+      {
+        prompt: 'How do you balance learning vs production discipline in side projects?',
+        label: 'Skills & habits',
+        track: 'hero_chat_chip_skills'
+      },
+      {
+        prompt: 'Walk me through the Generative Video Platform idea and build.',
+        label: 'GVP prototype',
+        track: 'hero_chat_chip_gvp'
+      }
+    ],
+    dialog: [
+      {
+        prompt: 'What skills do your playground builds demonstrate compared with your portfolio work?',
+        label: 'Skills vs prod',
+        track: 'chat_dialog_chip_skills_vs_prod'
+      },
+      {
+        prompt: 'What did you learn building Monday Rover — constraints, stack, honest limits?',
+        label: 'Raspberry Pi rover',
+        track: 'chat_dialog_chip_rover'
+      },
+      {
+        prompt: 'Which experiment tested the hardest integration or product boundary?',
+        label: 'Hardest experiment',
+        track: 'chat_dialog_chip_hard_exp'
+      }
+    ]
+  }
+}
+
+function replaceSectionPresetChips(container, chips, chipClassName) {
+  if (!container || !Array.isArray(chips)) return
+  const removeSelector = chipClassName === 'chat-dialog__chip'
+    ? 'button.chat-dialog__chip:not([data-gvp-dialog-placeholder])'
+    : 'button.hero-chat__chip'
+  container.querySelectorAll(removeSelector).forEach((n) => n.remove())
+  chips.forEach((c) => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = chipClassName
+    btn.setAttribute('data-prompt', c.prompt)
+    btn.setAttribute('data-chip-label', c.label)
+    if (c.track) btn.setAttribute('data-track', c.track)
+    btn.textContent = c.label
+    container.appendChild(btn)
+  })
+}
+
 const EV_COLLAPSE = 'gvp:site-chat-collapse'
 /** Open chat dialog from decoupled surfaces (e.g. spaceman) without importing chat from those modules. */
 export const EV_OPEN_CHAT = 'gvp:open-chat'
@@ -253,11 +384,21 @@ export function initChat() {
     return `translate(${Math.round(dx)}px, ${Math.round(dy)}px) scale(${sx}, ${sy})`
   }
 
+  const heroSuggestionsEl = document.getElementById('heroChatSuggestions')
+
+  const applySectionPromptChips = (section = 'home') => {
+    const nextSection = normalizeSection(section)
+    const pack = SECTION_PROMPT_CHIPS[nextSection] || SECTION_PROMPT_CHIPS.home
+    replaceSectionPresetChips(heroSuggestionsEl, pack.hero, 'hero-chat__chip')
+    replaceSectionPresetChips(dialogSuggestions, pack.dialog, 'chat-dialog__chip')
+  }
+
   syncChatLaunchersImpl = (section = 'home') => {
     const nextSection = normalizeSection(section)
     launcherState.section = nextSection
     syncAgentLauncherChrome(nextSection)
     state.agentNodeApi?.syncFromNavigation?.(nextSection)
+    applySectionPromptChips(nextSection)
   }
 
   const setStatus = (text, tone = 'muted') => {

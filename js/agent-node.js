@@ -11,24 +11,28 @@ const LIFECYCLE_STATES = ['sending', 'thinking', 'streaming', 'tool_call', 'erro
 const PLACEHOLDER_POOL = {
   home: [
     {
+      teaser: 'What do you provide teams?',
+      deepQuestion: 'In concrete terms: what do you provide teams — fractional leadership, hands-on delivery, architecture reviews — and how should someone decide if you are a fit for their stage and stack?'
+    },
+    {
+      teaser: 'How do you usually engage?',
+      deepQuestion: 'How do you usually engage with a new team or project — discovery, milestones, communication rhythm — and what do you need from stakeholders to move fast without thrash?'
+    },
+    {
+      teaser: 'Where do you add the most leverage?',
+      deepQuestion: 'Where do you add the most leverage on a typical platform or data-heavy initiative — early architecture, migration execution, operational hardening — and how do you measure whether it worked?'
+    },
+    {
+      teaser: 'What problems do you say no to?',
+      deepQuestion: 'What kinds of problems or engagements do you tend to decline or defer — scope, maturity, tooling mismatch — and what signals tell you early that it is not the right fit?'
+    },
+    {
       teaser: 'Ask about my Apptio work',
       deepQuestion: 'What did you work on at Apptio (IBM)? Walk me through the financial data pipelines, the problems you solved, and the impact you had.'
     },
     {
       teaser: 'What did a normal week look like at JumpCloud?',
       deepQuestion: 'What did a normal week look like at JumpCloud—systems you owned, stakeholders, metrics you watched, and how you prioritized when incidents stacked up?'
-    },
-    {
-      teaser: 'How did you prove the pipeline migration was correct?',
-      deepQuestion: 'When you sped up or migrated data pipelines at Apptio (IBM), how did you prove correctness under load—tests, reconciliation, shadow traffic—and what broke first when scale showed up?'
-    },
-    {
-      teaser: "What's your AWS experience?",
-      deepQuestion: 'Tell me about your hands-on AWS experience: which services you have used in production, the scale you operated at, and a system you are proud of.'
-    },
-    {
-      teaser: 'What was your hardest project?',
-      deepQuestion: 'What is the hardest project you have worked on? Describe the problem, the constraints, your role, and how you got it across the line.'
     },
     {
       teaser: 'Walk me through how you design platform boundaries.',

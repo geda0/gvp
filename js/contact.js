@@ -11,7 +11,7 @@ export function openContactDialog() {
 export function initContactForm() {
   const CONTACT_HELPER_TEXT = ''
   const CONTACT_SUCCESS_TEXT = 'Got it — your message is on its way. I\'ll be in touch.'
-  const openBtn = document.getElementById('openContactBtn')
+  const footerOpenContactBtn = document.getElementById('footerOpenContactBtn')
   const dialog = document.getElementById('contactDialog')
   const closeBtn = dialog?.querySelector('.contact-dialog__close')
   const backdrop = dialog?.querySelector('.contact-dialog__backdrop')
@@ -71,7 +71,7 @@ export function initContactForm() {
     lastFocus = null
   }
 
-  openBtn?.addEventListener('click', openDialog)
+  footerOpenContactBtn?.addEventListener('click', openDialog)
   closeBtn?.addEventListener('click', closeDialog)
   backdrop?.addEventListener('click', closeDialog)
   sendAnotherBtn.addEventListener('click', () => {
