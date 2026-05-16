@@ -770,6 +770,11 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     border-top-color: var(--border-subtle);
 }
 
+[data-theme='garden'] .contact-dialog.chat-dialog .chat-voice-pane {
+    background: rgb(252, 253, 250);
+    border-top-color: var(--border-subtle);
+}
+
 .contact-dialog.chat-dialog .chat-status {
     background: color-mix(in srgb, rgb(14, 18, 24) 94%, var(--chat-launcher-glow-chrome) 6%);
 }
@@ -866,6 +871,10 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     align-self: center;
 }
 
+.chat-dialog__panel[data-voice-active] .chat-dialog__header-mic {
+    display: none !important;
+}
+
 .chat-dialog__intent-pill {
     flex-shrink: 0;
     display: flex;
@@ -955,6 +964,19 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
+}
+
+.chat-dialog__panel[data-voice-active] .chat-dialog__scroll {
+    flex: 1 1 0;
+    min-height: min(52vh, 26rem);
+}
+
+.chat-dialog__panel[data-voice-active] .chat-dialog__footer {
+    display: none;
+}
+
+.chat-dialog__panel[data-voice-active] .chat-empty-state {
+    display: none !important;
 }
 
 .chat-empty-state {
@@ -1077,111 +1099,120 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     opacity: 0.7;
 }
 
-/* ── Active voice pane (Phase 3b): replaces the composer while mic is hot ── */
-/* Two halos drive off CSS custom properties pushed from the audio worklet
- * (mic input RMS) and the PcmJitterPlayer (model output RMS). Each frame
- * coalesces into a single rAF write in chat.js so the visual update stays at
- * display rate even when audio frames arrive every ~30ms. */
+/* ── Active voice bar: compact strip; transcript stays primary above ── */
 .chat-voice-pane {
     --gvp-voice-input-level: 0;
     --gvp-voice-output-level: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 1.5rem 1rem 1.25rem;
-    border-top: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
+    position: relative;
     flex-shrink: 0;
+    padding: 0.55rem 1rem 0.65rem;
+    border-top: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
+    background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
 }
 
-.chat-voice-pane__mic {
-    position: relative;
-    width: 96px;
-    height: 96px;
-    border-radius: 50%;
-    border: 2px solid var(--chat-launcher-glow-chrome);
-    background: radial-gradient(circle at 30% 30%,
-        color-mix(in srgb, var(--chat-launcher-glow-chrome) 32%, transparent),
-        color-mix(in srgb, var(--chat-launcher-glow-chrome) 10%, transparent) 70%);
-    color: var(--chat-launcher-glow-chrome);
-    display: grid;
-    place-items: center;
-    cursor: pointer;
-    padding: 0;
-    transition: transform 120ms ease;
-}
-
-.chat-voice-pane__mic:hover { transform: scale(1.04); }
-.chat-voice-pane__mic:active { transform: scale(0.97); }
-
-.chat-voice-pane__mic-icon {
-    position: relative;
-    z-index: 2;
-    display: block;
+.chat-voice-pane__levels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    border-radius: inherit;
 }
 
 .chat-voice-pane__halo {
     position: absolute;
-    border-radius: 50%;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
     pointer-events: none;
     transition: opacity 80ms linear, transform 80ms linear;
-    will-change: opacity, transform;
 }
 
-/* Inner halo = model speaking ("agent is talking"). Pulses with PCM playback. */
 .chat-voice-pane__halo--output {
-    inset: -6px;
-    border: 2px solid color-mix(in srgb, var(--chat-launcher-glow-chrome) 80%, transparent);
-    opacity: calc(0.18 + var(--gvp-voice-output-level, 0) * 1.0);
-    transform: scale(calc(1 + var(--gvp-voice-output-level, 0) * 0.35));
-    z-index: 1;
+    background: linear-gradient(90deg,
+        transparent,
+        color-mix(in srgb, var(--chat-launcher-glow-chrome) 72%, transparent),
+        transparent);
+    opacity: calc(0.2 + var(--gvp-voice-output-level, 0) * 0.9);
+    transform: scaleX(calc(0.35 + var(--gvp-voice-output-level, 0) * 0.65));
+    transform-origin: center;
 }
 
-/* Outer halo = mic input ("we hear you"). Pulses with your voice. */
 .chat-voice-pane__halo--input {
-    inset: -18px;
-    border: 1px solid color-mix(in srgb, var(--chat-launcher-glow-chrome) 60%, transparent);
-    opacity: calc(0.10 + var(--gvp-voice-input-level, 0) * 1.2);
-    transform: scale(calc(1 + var(--gvp-voice-input-level, 0) * 0.55));
-    z-index: 0;
+    height: 2px;
+    background: linear-gradient(90deg,
+        transparent,
+        color-mix(in srgb, var(--chat-launcher-glow-chrome) 48%, transparent),
+        transparent);
+    opacity: calc(0.12 + var(--gvp-voice-input-level, 0) * 0.85);
+    transform: scaleX(calc(0.25 + var(--gvp-voice-input-level, 0) * 0.75));
+    transform-origin: center;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    /* Pin halos at a low static glow — no audio-driven scaling. The transcript
-     * stays visible above so the visitor can still follow the conversation. */
-    .chat-voice-pane__halo--output,
-    .chat-voice-pane__halo--input {
-        transform: none;
-        transition: none;
-    }
-    .chat-voice-pane__halo--output { opacity: 0.35; }
-    .chat-voice-pane__halo--input { opacity: 0.18; }
+.chat-voice-pane__row {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+}
+
+.chat-voice-pane__dot {
+    flex-shrink: 0;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: var(--chat-launcher-glow-chrome);
+    box-shadow: 0 0 0.35rem color-mix(in srgb, var(--chat-launcher-glow-chrome) 55%, transparent);
+    animation: chat-voice-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes chat-voice-dot-pulse {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.15); }
 }
 
 .chat-voice-pane__status {
+    flex: 1;
+    min-width: 0;
     margin: 0;
-    font-family: var(--font-display, inherit);
-    font-size: 0.96rem;
+    font-family: var(--font-body);
+    font-size: 0.84rem;
     font-weight: 500;
-    color: var(--text, inherit);
+    line-height: 1.35;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
 }
 
-.chat-voice-pane__hint {
-    margin: 0;
+.chat-voice-pane__stop {
+    flex-shrink: 0;
+    border: 1px solid color-mix(in srgb, var(--chat-launcher-glow-chrome) 45%, var(--border-subtle));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent);
+    color: var(--text-primary);
+    font-family: var(--font-body);
     font-size: 0.78rem;
-    color: var(--text-muted);
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0.38rem 0.85rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-/* Mobile sizing for both chooser and voice pane — keep them dominant but not
- * overflowing on a 360-wide phone. */
-@media (max-width: 640px) {
-    .chat-chooser { padding: 1.5rem 1rem 0.5rem; }
-    .chat-chooser__mic { width: 108px; height: 108px; }
-    .chat-chooser__mic-icon { width: 44px; height: 44px; }
-    .chat-chooser__caption { font-size: 0.96rem; }
-    .chat-voice-pane { padding: 1rem 1rem 0.75rem; }
-    .chat-voice-pane__mic { width: 78px; height: 78px; }
-    .chat-voice-pane__mic-icon { width: 34px; height: 34px; }
+.chat-voice-pane__stop:hover {
+    background: color-mix(in srgb, var(--chat-launcher-glow-chrome) 24%, transparent);
+    border-color: color-mix(in srgb, var(--chat-launcher-glow-chrome) 62%, var(--border-subtle));
+}
+
+.chat-voice-pane__stop:focus-visible {
+    outline: 2px solid var(--chat-launcher-ring);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-voice-pane__dot { animation: none; opacity: 0.85; }
+    .chat-voice-pane__halo { transition: none; }
 }
 
 .chat-dialog__suggestions {

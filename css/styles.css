@@ -1060,8 +1060,8 @@ section#portfolioProjects.visible.content-section-reveal {
 
 .hero-voice__mic {
     position: relative;
-    width: 156px;
-    height: 156px;
+    width: 132px;
+    height: 132px;
     border-radius: 50%;
     border: 2px solid color-mix(in srgb, var(--chat-launcher-glow-chrome, #5da4ff) 70%, transparent);
     background: radial-gradient(circle at 30% 30%,
@@ -1152,9 +1152,18 @@ section#portfolioProjects.visible.content-section-reveal {
     color: var(--text-muted);
 }
 
+/* Hero voice is the primary mic; hide the duplicate in the label row. */
+html[data-gvp-chat-voice='1'] .hero-chat:has(.hero-voice:not([hidden])) .hero-chat__label-wrap .agent-node__mic {
+    display: none !important;
+}
+
+html[data-gvp-chat-voice='1'] .hero-chat:has(.hero-voice:not([hidden])) .agent-slot--hero .agent-node__form-icon {
+    display: block;
+}
+
 @media (max-width: 640px) {
-    .hero-voice__mic { width: 124px; height: 124px; }
-    .hero-voice__mic-icon { width: 44px; height: 44px; }
+    .hero-voice__mic { width: 108px; height: 108px; }
+    .hero-voice__mic-icon { width: 40px; height: 40px; }
 }
 
 /* Source order wins: identity (name + tagline + CTAs) reads first, then the
