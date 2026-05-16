@@ -116,8 +116,7 @@ class Spaceman {
     const r = this.resume;
     if (state === 'portfolio' && r.experience?.length) {
       r.experience.slice(0, 5).forEach(ex => {
-        const verb = ex.workVerb || 'on';
-        base.push(`At ${ex.company}, Marwan worked ${verb} ${ex.role}.`);
+        base.push(`${ex.company} — ${ex.role}.`);
         if (ex.highlights?.[0]) base.push(`${ex.company}: ${ex.highlights[0]}`);
       });
     }
@@ -138,18 +137,18 @@ class Spaceman {
 
   _getSkillPhrase(skill) {
     const phrases = {
-      'Software Architecture': 'Marwan designs software architecture for scale.',
-      'SaaS': 'Marwan builds SaaS platforms.',
-      'Full-stack': 'Marwan builds full-stack applications.',
-      'Video Platform': 'Marwan builds video platforms.',
-      'Data-intensive systems': 'Marwan builds data-intensive systems.',
-      'Cloud-native systems': 'Marwan builds cloud-native systems.',
-      'Distributed services': 'Marwan builds distributed services.',
-      'AWS': 'Marwan designs and delivers AWS-based systems.',
-      'Kubernetes': 'Marwan delivers production workloads on Kubernetes.',
-      'Terraform': 'Marwan automates cloud infrastructure with Terraform.'
+      'Software Architecture': 'Architecture for systems that have to scale.',
+      'SaaS': 'SaaS platforms — designed and shipped.',
+      'Full-stack': 'Full-stack delivery, front to back.',
+      'Video Platform': 'Video platforms with AI in the loop.',
+      'Data-intensive systems': 'Data-intensive systems — large scale, correctness-critical.',
+      'Cloud-native systems': 'Cloud-native services on AWS.',
+      'Distributed services': 'Distributed services that hold under load.',
+      'AWS': 'AWS-native platforms, designed and operated.',
+      'Kubernetes': 'Production workloads on Kubernetes.',
+      'Terraform': 'Infrastructure as code with Terraform.'
     };
-    return phrases[skill] ?? `Marwan builds with ${skill}.`;
+    return phrases[skill] ?? `${skill}.`;
   }
 
   _getProjectMessage() {
@@ -169,7 +168,7 @@ class Spaceman {
   }
 
   _getWelcomeMessage() {
-    return 'Marwan Elgendy — software architect and full-stack engineer.';
+    return 'Marwan Elgendy — architecture, platforms, cloud-native, AI.';
   }
 
   _getNextMessage() {

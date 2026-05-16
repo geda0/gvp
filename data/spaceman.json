@@ -2,40 +2,40 @@
   "states": {
     "idle": {
       "messages": [
-        "Home: what I offer. Portfolio: what I've shipped.",
+        "Home: what I do. Portfolio: what I've shipped.",
         "Playground: skills and experiments.",
-        "Correctness over speed.",
-        "15+ years, still shipping."
+        "Production systems, end to end.",
+        "15+ years building software."
       ],
       "typingSpeed": 50,
       "messageDelay": 9000
     },
     "playground": {
       "messages": [
-        "Explorations and skills — smaller scope, real habits.",
-        "Fast loops. Clear constraints.",
+        "Experiments on a smaller canvas.",
+        "Fast loops. Honest scope.",
         "Click a card for details.",
-        "Side projects with production discipline."
+        "Production habits, smaller stakes."
       ],
       "typingSpeed": 40,
       "messageDelay": 10000
     },
     "portfolio": {
       "messages": [
-        "What I've done — roles and shipped outcomes.",
+        "Roles and shipped work.",
         "IBM (Apptio), HP, JumpCloud, AT&T.",
         "Click a card for details.",
-        "Systems owned end-to-end."
+        "Systems owned end to end."
       ],
       "typingSpeed": 40,
       "messageDelay": 10000
     },
     "home": {
       "messages": [
-        "Services and fit live here — ask what I provide.",
-        "Portfolio has shipped work; Playground has experiments.",
-        "Architecture, platforms, delivery.",
-        "The chat is grounded in this site — ask anything."
+        "My services: architecture, platforms, cloud-native, AI.",
+        "Ask what I do, where I fit, what I've shipped.",
+        "Portfolio: shipped proof. Playground: experiments.",
+        "Grounded in my actual projects and services."
       ],
       "typingSpeed": 50,
       "messageDelay": 9000

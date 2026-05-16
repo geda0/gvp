@@ -9,113 +9,113 @@ import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
 
-/** Preset prompts per route — Home = services / engagements / capability pitch; Portfolio / Playground = page-native. */
+/** Preset prompts per route — Home = capability pitch; Portfolio / Playground = page-native depth. */
 const SECTION_PROMPT_CHIPS = {
   home: {
     hero: [
       {
-        prompt: 'What services or engagements do you offer teams — architecture leadership, delivery, reviews — and what is usually in scope?',
-        label: 'Services',
+        prompt: 'What can you do?',
+        label: 'What can you do?',
+        track: 'hero_chat_chip_what_can_you_do'
+      },
+      {
+        prompt: 'What are your services?',
+        label: 'What are your services?',
         track: 'hero_chat_chip_services'
       },
       {
-        prompt: 'What kinds of work do you take on day to day as a senior software engineer — hands-on coding, design, architecture, and stakeholder alignment?',
-        label: 'Work I do',
-        track: 'hero_chat_chip_what_i_do'
-      },
-      {
-        prompt: 'Introduce yourself, what you do, and what you bring to the table — headline strengths and where proof lives on this site?',
-        label: 'About me',
-        track: 'hero_chat_chip_recent_work'
+        prompt: 'How do you build production AI?',
+        label: 'Production AI?',
+        track: 'hero_chat_chip_production_ai'
       }
     ],
     dialog: [
       {
-        prompt: 'How do you typically engage with a new team — discovery, milestones, cadence — and what do you need from stakeholders to move fast?',
-        label: 'Engagement shape',
-        track: 'chat_dialog_chip_scaling'
+        prompt: 'What data engineering work do you take on?',
+        label: 'Data engineering?',
+        track: 'chat_dialog_chip_data'
       },
       {
-        prompt: 'When someone asks what problems you solve best, how do you answer without naming employers yet?',
-        label: 'Problems I solve',
-        track: 'chat_dialog_chip_shipping_ai'
+        prompt: 'What migrations have you led?',
+        label: 'Migrations?',
+        track: 'chat_dialog_chip_migrations'
       },
       {
-        prompt: 'How do you communicate architecture trade-offs to both engineers and leadership so decisions stick?',
-        label: 'Stakeholder clarity',
-        track: 'chat_dialog_chip_recent_work'
+        prompt: 'How do you engage — review, build, or lead?',
+        label: 'How do you engage?',
+        track: 'chat_dialog_chip_engagement'
       }
     ]
   },
   portfolio: {
     hero: [
       {
-        prompt: 'Walk me through your shipped work across IBM (Apptio), JumpCloud, HP, and AT&T — outcomes, not titles.',
-        label: 'Shipped arc',
-        track: 'hero_chat_chip_career_arc'
+        prompt: 'Show me architecture you have shipped.',
+        label: 'Architecture you have shipped?',
+        track: 'hero_chat_chip_architecture_proof'
       },
       {
-        prompt: 'Deep dive Apptio (IBM): correctness-critical pipelines — constraints, migration, how you proved zero drift.',
-        label: 'Apptio depth',
+        prompt: 'Tell me about your work at Apptio (IBM).',
+        label: 'Apptio (IBM)?',
         track: 'hero_chat_chip_apptio'
       },
       {
-        prompt: 'Which card on this Portfolio page should I open first for a hiring loop — and why?',
-        label: 'Where to start',
-        track: 'hero_chat_chip_where_start'
+        prompt: 'Which project should I look at first?',
+        label: 'Where to start?',
+        track: 'hero_chat_chip_start_here'
       }
     ],
     dialog: [
       {
-        prompt: 'JumpCloud: hybrid Postgres/Mongo data layer and GraphQL—what did you ship, and how did you verify production readiness?',
-        label: 'JumpCloud ship',
+        prompt: 'How did you scale Instant Ink from thousands to millions?',
+        label: 'Scaling Instant Ink?',
+        track: 'chat_dialog_chip_scaling'
+      },
+      {
+        prompt: 'How did the hybrid Postgres/Mongo + GraphQL design work at JumpCloud?',
+        label: 'JumpCloud data layer?',
         track: 'chat_dialog_chip_jumpcloud'
       },
       {
-        prompt: 'HP Instant Ink: how did DDD and cloud migration scale subscribers without killing reliability?',
-        label: 'HP scale story',
-        track: 'chat_dialog_chip_hp'
-      },
-      {
-        prompt: 'Pick one résumé role and walk problem → architectural boundaries → measurable outcome.',
-        label: 'Deep on one role',
-        track: 'chat_dialog_chip_one_role'
+        prompt: 'Walk me through a migration you have led.',
+        label: 'A migration you have led?',
+        track: 'chat_dialog_chip_migration_proof'
       }
     ]
   },
   playground: {
     hero: [
       {
-        prompt: 'On this Playground page, which experiment best shows skills that complement your portfolio — and why?',
-        label: 'Skills spotlight',
-        track: 'hero_chat_chip_explorations'
+        prompt: 'Show me what you can build.',
+        label: 'What can you build?',
+        track: 'hero_chat_chip_what_can_you_build'
       },
       {
-        prompt: 'How do these builds differ from shipped portfolio work — hypothesis, scope, and honest limits?',
-        label: 'Play vs prod',
-        track: 'hero_chat_chip_skills'
+        prompt: 'How would you build production AI?',
+        label: 'How would you build AI?',
+        track: 'hero_chat_chip_production_ai_pg'
       },
       {
-        prompt: 'Walk through the Generative Video Platform—idea, orchestration, and what you would harden next.',
-        label: 'GVP prototype',
-        track: 'hero_chat_chip_gvp'
+        prompt: 'Show me your hardware and vision work.',
+        label: 'Hardware + vision?',
+        track: 'hero_chat_chip_hardware'
       }
     ],
     dialog: [
       {
-        prompt: 'What skills do these experiments sharpen versus your cloud-native portfolio roles?',
-        label: 'Skills vs portfolio',
-        track: 'chat_dialog_chip_skills_vs_prod'
+        prompt: 'How do you take experiments to production?',
+        label: 'Experiment to production?',
+        track: 'chat_dialog_chip_experiment_to_product'
       },
       {
-        prompt: 'Monday Rover: embedded vision loop—constraints, stack trade-offs, and what broke under motion?',
-        label: 'Raspberry Pi rover',
-        track: 'chat_dialog_chip_rover'
+        prompt: 'Tell me about the Generative Video Platform.',
+        label: 'Generative Video Platform?',
+        track: 'chat_dialog_chip_gvp'
       },
       {
-        prompt: 'Which playground project stressed integration or product boundaries the hardest?',
-        label: 'Hardest boundary',
-        track: 'chat_dialog_chip_hard_exp'
+        prompt: 'How do you build under tight constraints?',
+        label: 'Tight constraints?',
+        track: 'chat_dialog_chip_constraints'
       }
     ]
   }
@@ -123,9 +123,9 @@ const SECTION_PROMPT_CHIPS = {
 
 /** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio / Playground). */
 const CHAT_EMPTY_HINT_BY_SECTION = {
-  home: 'Suggestions match Home — services and engagements, how we might work together, and what I take on.',
-  portfolio: 'Suggestions match Portfolio — roles, shipped outcomes, and proof in production.',
-  playground: 'Suggestions match Playground — experiments, skills, and honest limits.'
+  home: 'Home prompts: my services, where I fit, and how I work.',
+  portfolio: 'Portfolio prompts: my shipped work as proof.',
+  playground: 'Playground prompts: experiments and what I can build.'
 }
 
 function replaceSectionPresetChips(container, chips, chipClassName) {

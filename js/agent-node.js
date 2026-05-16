@@ -11,96 +11,80 @@ const LIFECYCLE_STATES = ['sending', 'thinking', 'streaming', 'tool_call', 'erro
 const PLACEHOLDER_POOL = {
   home: [
     {
-      teaser: 'Services & engagements?',
-      deepQuestion: 'What services or engagements do you offer teams — interim architecture leadership, hands-on delivery, reviews — and what is typically in versus out of scope?'
+      teaser: 'Services?',
+      deepQuestion: 'What services do you offer?'
     },
     {
-      teaser: 'Work you take on?',
-      deepQuestion: 'Day to day, what kinds of work do you actually take on as a software architect — design docs, coding, stakeholder alignment — and where do you refuse to be ornamental only?'
+      teaser: 'Architecture work?',
+      deepQuestion: 'What kinds of architecture work do you take on?'
     },
     {
-      teaser: 'Present your strengths?',
-      deepQuestion: 'If someone asks what you bring in thirty seconds on a call, how should they introduce you — headline strengths, domains, and where proof lives on this site without diving employers yet?'
+      teaser: 'Data engineering?',
+      deepQuestion: 'What kinds of data engineering work do you take on?'
     },
     {
-      teaser: 'How do we engage?',
-      deepQuestion: 'How would we engage if we worked together — discovery cadence, milestones, communication channels — and what do you need from stakeholders before architecture sticks?'
+      teaser: 'Production AI?',
+      deepQuestion: 'How do you build production AI products?'
     },
     {
-      teaser: 'Problems you solve?',
-      deepQuestion: 'Without naming past employers yet: what categories of problems do you solve best — cloud-native platforms, data-heavy SaaS, migrations — and what signals tell you early if there is a fit?'
+      teaser: 'Migrations?',
+      deepQuestion: 'What kinds of migrations have you led?'
     },
     {
-      teaser: 'Architecture communication?',
-      deepQuestion: 'How do you communicate architecture trade-offs so both engineers and leadership understand constraints — diagrams, narratives, ADRs — and how do you drive decisions without boiling the ocean?'
-    },
-    {
-      teaser: 'Production posture?',
-      deepQuestion: 'Your homepage stresses systems that hold up in production — how does that show up in how you engage clients or teams before code ships — guardrails, observability hooks, rollout mindset?'
+      teaser: 'Engagement shape?',
+      deepQuestion: 'How do you engage — review, build, or lead?'
     }
   ],
   playground: [
     {
-      teaser: 'Production habits on a small canvas?',
-      deepQuestion: 'These builds are explorations—where did you still apply production habits (tests, observability, boundaries) versus consciously shortcutting—and what would you harden first with more time?'
+      teaser: 'What you can build?',
+      deepQuestion: 'What can you build at the experiment scale?'
     },
     {
-      teaser: 'What hypothesis did this test?',
-      deepQuestion: 'What hypothesis did this playground project test—about UX, infra, or models—and what did the build prove or disprove versus reading docs alone?'
+      teaser: 'Experiment to production?',
+      deepQuestion: 'How do you take an experiment to production?'
     },
     {
-      teaser: 'Stack choices here?',
-      deepQuestion: 'What stack did you choose for this experiment versus your day-job defaults, and what constraint (cost, latency, device) drove that choice most?'
+      teaser: 'Generative Video Platform?',
+      deepQuestion: 'Tell me about the Generative Video Platform — what was it exploring?'
     },
     {
-      teaser: 'Honest limits of this build?',
-      deepQuestion: 'What are the honest limits of this prototype—scale, security, ops—and what would you instrument or automate before calling it production-adjacent?'
+      teaser: 'Monday Rover?',
+      deepQuestion: 'Tell me about the Monday Rover — the vision loop and what constrained hardware forced you to simplify.'
     },
     {
-      teaser: 'GVP / generative video angle?',
-      deepQuestion: 'On the Generative Video Platform exploration: what product and orchestration problems were you probing, and where did cost and output variability hurt most?'
+      teaser: 'Production habits?',
+      deepQuestion: 'Where do production habits show up in these builds, and where did you cut corners?'
     },
     {
-      teaser: 'Monday Rover / edge devices?',
-      deepQuestion: 'On the Raspberry Pi rover: what did constrained hardware force you to simplify in the vision loop, and what would you redo for reliability in the field?'
+      teaser: 'Tight constraints?',
+      deepQuestion: 'How do you build under tight constraints — cost, latency, device?'
     }
   ],
   portfolio: [
     {
-      teaser: 'Apptio (IBM) pipelines?',
-      deepQuestion: 'What did you own at Apptio (IBM)? Walk me through the financial-data pipeline work — constraints, correctness, performance — and how you proved nothing drifted during migration.'
+      teaser: 'Architecture proof?',
+      deepQuestion: 'Show me architecture work that shipped.'
     },
     {
-      teaser: 'JumpCloud data layer?',
-      deepQuestion: 'At JumpCloud, how did you shape the hybrid Postgres/Mongo layer and GraphQL surface for massive tenant scale — trade-offs, failure modes, and how you verified production readiness?'
+      teaser: 'Apptio (IBM)?',
+      deepQuestion: 'What did you ship at Apptio — pipelines, correctness, migration?'
     },
     {
-      teaser: 'HP Instant Ink migration?',
-      deepQuestion: 'At HP Instant Ink, how did DDD and service boundaries help teams migrate a live revenue service — sequencing, coordination, and how reliability held while subscriber volume climbed?'
+      teaser: 'JumpCloud (M365)?',
+      deepQuestion: 'How did the hybrid Postgres/Mongo + GraphQL design work at JumpCloud under tenant scale?'
     },
     {
-      teaser: 'This role in one arc',
-      deepQuestion: 'Summarize this role in one arc: org context, what you owned end to end, and the outcome that best proves it shipped in production — not just designed.'
+      teaser: 'Instant Ink (HP)?',
+      deepQuestion: 'How did DDD and service boundaries let Instant Ink scale from thousands to millions of subscribers?'
     },
     {
-      teaser: 'Hardest architectural bet?',
-      deepQuestion: 'In this position, what was the hardest architectural bet—data model, migration, platform cutover—and how did you de-risk it before and after launch?'
+      teaser: 'Migration proof?',
+      deepQuestion: 'Walk me through a migration you have led — what did it take?'
     },
     {
-      teaser: 'Operability after launch?',
-      deepQuestion: 'After the main launch or migration here, what did operability look like—on-call, dashboards, playbooks—and what incident or near-miss shaped what you automated next?'
-    },
-    {
-      teaser: 'Stakeholders & decisions',
-      deepQuestion: 'Who were your primary partners in this role (product, infra, leadership), and how did you resolve priority conflicts without stalling delivery?'
-    },
-    {
-      teaser: 'Compare Apptio vs JumpCloud vs HP',
-      deepQuestion: 'How does this role compare to your other flagship stops (Apptio, JumpCloud, HP) in terms of technical risk profile, team topology, and the kind of leverage you provided?'
-    },
-    {
-      teaser: 'Proof it worked',
-      deepQuestion: 'What evidence convinced you—and leadership—that this initiative worked: metrics, audits, reconciliation, customer signals—and what would you measure differently next time?'
+      teaser: 'Proof it worked?',
+      deepQuestion: 'What proof convinced you it worked — metrics, audits, customer signals?'
     }
   ]
 }
