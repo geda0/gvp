@@ -535,6 +535,33 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
         'voice_prompt_version': getattr(app.state, 'voice_prompt_version', None),
         'voice_prompt_dedicated': bool(getattr(app.state, 'voice_system_prompt', None)),
     }
+    # Persistence diagnostics — first stop when "the admin shows 0 sessions"
+    # is reported. configured=false means CHAT_TRANSCRIPTS_TABLE is unset on
+    # the chat host (every /api/chat + /api/live/transcript silently no-ops).
+    # writes_failed climbing means IAM or table not found; last_error has the
+    # boto3 reason.
+    store = getattr(app.state, 'transcript_store', None)
+    if store is not None and hasattr(store, 'stats'):
+        s = store.stats()
+        payload['transcripts'] = {
+            'configured': True,
+            'table_name': s.get('table_name'),
+            'ttl_days': s.get('ttl_days'),
+            'writes_attempted': s.get('writes_attempted', 0),
+            'writes_succeeded': s.get('writes_succeeded', 0),
+            'writes_failed': s.get('writes_failed', 0),
+            'last_attempt_at': s.get('last_attempt_at'),
+            'last_success_at': s.get('last_success_at'),
+            'last_error': s.get('last_error'),
+        }
+    else:
+        payload['transcripts'] = {
+            'configured': False,
+            'reason': (
+                'CHAT_TRANSCRIPTS_TABLE env is empty; chat + voice persists '
+                'are silently dropped (204 response with no DynamoDB write).'
+            ),
+        }
     return ready, payload
 
 
@@ -852,7 +879,17 @@ async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
     """
     store = app.state.transcript_store
     if store is None:
-        return JSONResponse(status_code=204, content=None)
+        # Surface the misconfiguration explicitly instead of pretending we
+        # persisted. The FE swallows the error via fire-and-forget; manual
+        # curl + browser DevTools shows the 503 immediately so the operator
+        # can spot "CHAT_TRANSCRIPTS_TABLE is empty" without reading logs.
+        return JSONResponse(
+            status_code=503,
+            content={
+                'error': 'CHAT_TRANSCRIPTS_TABLE is not configured on this chat host',
+                'code': 'transcripts_not_configured',
+            },
+        )
 
     user_text = (payload.userText or "").strip()
     assistant_text = (payload.assistantText or "").strip()

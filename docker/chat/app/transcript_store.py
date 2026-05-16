@@ -20,6 +20,29 @@ class TranscriptStore:
         self.ttl_days = max(1, ttl_days)
         self._table = None
         self._disabled = False
+        # Live counters surfaced via /ready (Phase 7 — production diagnostics).
+        # Lets the operator answer "is persistence actually firing?" with a
+        # single GET against the chat host, instead of correlating ECS logs
+        # to DynamoDB scans. Reset only on process restart.
+        self.writes_attempted = 0
+        self.writes_succeeded = 0
+        self.writes_failed = 0
+        self.last_error: str | None = None
+        self.last_success_at: str | None = None
+        self.last_attempt_at: str | None = None
+
+    def stats(self) -> dict[str, Any]:
+        return {
+            'table_name': self.table_name,
+            'ttl_days': self.ttl_days,
+            'disabled': self._disabled,
+            'writes_attempted': self.writes_attempted,
+            'writes_succeeded': self.writes_succeeded,
+            'writes_failed': self.writes_failed,
+            'last_error': self.last_error,
+            'last_success_at': self.last_success_at,
+            'last_attempt_at': self.last_attempt_at,
+        }
 
     def _get_table(self):
         if self._disabled:
@@ -98,6 +121,8 @@ class TranscriptStore:
         flags: dict[str, bool],
     ) -> None:
         resolved_id = str(session_id or '').strip() or f"chat-{uuid4()}"
+        self.writes_attempted += 1
+        self.last_attempt_at = datetime.now(timezone.utc).isoformat()
         try:
             await asyncio.to_thread(
                 self._persist_sync,
@@ -109,7 +134,13 @@ class TranscriptStore:
                 turn,
                 flags,
             )
-        except Exception:
+            self.writes_succeeded += 1
+            self.last_success_at = datetime.now(timezone.utc).isoformat()
+            self.last_error = None
+        except Exception as exc:
+            self.writes_failed += 1
+            # Truncate so a giant DynamoDB error doesn't bloat /ready output.
+            self.last_error = f'{type(exc).__name__}: {str(exc)[:240]}'
             logger.exception("Failed to persist chat transcript id=%s", resolved_id)
 
 

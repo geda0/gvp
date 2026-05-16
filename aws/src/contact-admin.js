@@ -378,12 +378,18 @@ function chatItemMatchesFilters(item, filters) {
 
 async function listChatTranscripts(limit, cursorRaw, filters) {
   const tableName = chatTableName()
-  const exclusiveStartKey = decodeCursor(cursorRaw)
-  let startKey = exclusiveStartKey
+  let startKey = decodeCursor(cursorRaw)
   const items = []
-  let nextCursor = ''
+  let exhausted = false
 
-  do {
+  // Loop until we have `limit` matching items OR run out of data. Critical:
+  // the OLD code pulled Limit=limit*2 and then `items.slice(0, limit)`, but
+  // returned the LastEvaluatedKey from that doubled batch as the cursor.
+  // Effect: when many rows matched, items beyond position `limit` were
+  // dropped and the cursor jumped over them — entire conversations
+  // silently invisible to the admin. We now pull Limit=limit per round
+  // and only loop to top up after filter rejections.
+  while (items.length < limit && !exhausted) {
     const response = await ddb.send(
       new QueryCommand({
         TableName: tableName,
@@ -393,7 +399,7 @@ async function listChatTranscripts(limit, cursorRaw, filters) {
           ':pk': CHAT_LIST_PK
         },
         ScanIndexForward: false,
-        Limit: Math.max(limit * 2, limit),
+        Limit: limit,
         ExclusiveStartKey: startKey
       })
     )
@@ -423,13 +429,32 @@ async function listChatTranscripts(limit, cursorRaw, filters) {
       })
     }
     startKey = response.LastEvaluatedKey
-    nextCursor = encodeCursor(startKey)
-    if (items.length >= limit) break
-  } while (startKey)
+    if (!startKey) exhausted = true
+  }
+
+  // We may have overshot by up to `limit-1` items if the last batch filled the
+  // remaining slack. Slice; build the cursor from the LAST item we KEPT so
+  // the next page resumes exactly where we stopped. Using response.LastEvaluatedKey
+  // here would skip the items we collected-but-didn't-return.
+  let returnedItems = items
+  let returnedCursor = ''
+  if (items.length > limit) {
+    returnedItems = items.slice(0, limit)
+    const lastKept = returnedItems[returnedItems.length - 1]
+    returnedCursor = encodeCursor({
+      listPk: CHAT_LIST_PK,
+      createdAt: lastKept.createdAt,
+      id: lastKept.id
+    })
+  } else if (items.length === limit && !exhausted) {
+    // Filled exactly; LastEvaluatedKey points to the next unread row.
+    returnedCursor = encodeCursor(startKey)
+  }
+  // exhausted (no more data) → empty cursor.
 
   return {
-    items: items.slice(0, limit),
-    nextCursor: items.length >= limit ? nextCursor : encodeCursor(startKey)
+    items: returnedItems,
+    nextCursor: returnedCursor
   }
 }
 
