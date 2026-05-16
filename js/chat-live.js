@@ -46,8 +46,8 @@ const LIVE_SETUP_WAIT_MS = 60 * 1000
 /** Greeting text + the model instruction wrapper. We tell the model to speak
  *  only the verbatim sentence (no preamble, no commentary) so the visitor
  *  hears exactly the prompt the product team approved. */
-const GREETING_TEXT_COLD = "Hi! I'm your AI Assistant. Just tap the mic to talk."
-const GREETING_TEXT_WARM = "Hi! I'm your AI Assistant."
+const GREETING_TEXT_COLD = "Hi! I'm your AI Assistant. What would you like to know about Marwan's work?"
+const GREETING_TEXT_WARM = "Hi! I'm your AI Assistant. What would you like to know?"
 const WARM_FOLLOWUP_INSTRUCTION = (
   'The visitor has not spoken yet. Continue naturally in one short sentence — '
   + "invite them to ask about Marwan's work, projects, or experience. Under 18 words."
@@ -193,8 +193,8 @@ function voiceRelayCloseUserMessage(code, reason) {
   }
   if (code === 4404) {
     return r
-      ? `Voice relay expired (${r}). Tap the mic again.`
-      : 'Voice relay link expired. Tap the mic again to start a new session.'
+      ? `Voice relay expired (${r}). Tap Start live chat again.`
+      : 'Voice relay link expired. Tap Start live chat to begin a new session.'
   }
   return voiceSessionEarlyCloseUserMessage(code, reason)
 }
@@ -499,7 +499,9 @@ export function bindChatLiveVoice(opts) {
     onToolCall,
     /** Optional level callback: ({ input, output }) every audio frame.
      *  Both are RMS in [0,1]. Phase 3b's aura subscribes to drive CSS vars. */
-    onAudioLevels
+    onAudioLevels,
+    /** When true, mic launcher opens the Start gate instead of connecting voice. */
+    onVoiceLauncherRequest
   } = opts
 
   const emitLevel = typeof onAudioLevels === 'function'
@@ -569,7 +571,7 @@ export function bindChatLiveVoice(opts) {
     voiceWsIdleTimer = setTimeout(() => {
       voiceWsIdleTimer = null
       if (!voiceSessionOpen) return
-      setStatus('Voice closed after a long quiet period. Tap the mic to try again.', 'error')
+      setStatus('Voice closed after a long quiet period. Tap Start live chat to try again.', 'error')
       trackEvent('chat_live_stop', { reason: 'ws_idle' })
       stopVoiceInternal({ silent: false })
     }, VOICE_WS_IDLE_MS)
@@ -616,7 +618,7 @@ export function bindChatLiveVoice(opts) {
     noMicIdleTimer = setTimeout(() => {
       noMicIdleTimer = null
       if (!voiceSessionOpen || active) return
-      setStatus('Voice paused. Tap the mic to start talking.')
+      setStatus('Voice paused. Tap Start live chat to continue.')
       trackEvent('chat_live_stop', { reason: 'no_mic_idle' })
       stopVoiceInternal({ silent: false })
     }, VOICE_SESSION_IDLE_NO_MIC_MS)
@@ -1185,7 +1187,7 @@ export function bindChatLiveVoice(opts) {
       voiceMaxSessionTimer = setTimeout(() => {
         voiceMaxSessionTimer = null
         if (!voiceSessionOpen) return
-        setStatus('Voice session time limit reached. Tap the mic to start again.', 'error')
+        setStatus('Voice session time limit reached. Tap Start live chat to begin again.', 'error')
         trackEvent('chat_live_stop', { reason: 'max_session' })
         stopVoiceInternal({ silent: false })
       }, VOICE_MAX_SESSION_MS)
@@ -1273,10 +1275,15 @@ export function bindChatLiveVoice(opts) {
           scheduleNoMicIdleClose()
         }
       } else {
-        // Cold path: greeting plays, no mic. Visitor must tap.
-        patchLiveUi({ active: false, connecting: false, sessionOpen: true })
-        setStatus('Tap the mic to start talking.')
-        scheduleNoMicIdleClose()
+        // Cold path: visitor already tapped Start live chat — attach mic now.
+        try {
+          await attachMicrophoneInternal()
+          setStatus('Listening… speak about Marwan\'s work.')
+        } catch (micErr) {
+          patchLiveUi({ active: false, connecting: false, sessionOpen: true })
+          setStatus(micAccessUserMessage(micErr), 'error')
+          scheduleNoMicIdleClose()
+        }
       }
     } catch (error) {
       stopVoiceInternal({ silent: true })
@@ -1288,7 +1295,7 @@ export function bindChatLiveVoice(opts) {
         ? error.message
         : micAccessUserMessage(error)
       if (isVoiceRetryableError(error)) {
-        msg = 'Voice could not connect after several tries. The chat API may still be warming up (cold start) or is unreachable — wait a moment and tap the mic again.'
+        msg = 'Voice could not connect after several tries. The chat API may still be warming up (cold start) or is unreachable — wait a moment and tap Start live chat again.'
       }
       setStatus(msg, 'error')
       trackEvent('chat_live_error', { phase: 'start', message: msg })
@@ -1335,6 +1342,10 @@ export function bindChatLiveVoice(opts) {
     }
 
     if (voiceConnectInFlight) return
+
+    if (typeof onVoiceLauncherRequest === 'function' && onVoiceLauncherRequest({ button: btn })) {
+      return
+    }
 
     void startVoice()
   }

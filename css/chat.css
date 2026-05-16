@@ -979,6 +979,18 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     display: none !important;
 }
 
+.chat-dialog__panel[data-voice-pending] .chat-empty-state {
+    display: none !important;
+}
+
+.chat-dialog__panel[data-voice-pending] .chat-dialog__suggestions {
+    display: none !important;
+}
+
+.chat-dialog__panel[data-voice-pending] .chat-dialog__footer {
+    display: none;
+}
+
 .chat-empty-state {
     margin: auto;
     padding: 1rem 1rem 0.3rem;
@@ -1099,15 +1111,86 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     opacity: 0.7;
 }
 
-/* ── Active voice bar: compact strip; transcript stays primary above ── */
+/* ── Voice pane: Start gate + live strip; transcript stays primary above ── */
 .chat-voice-pane {
     --gvp-voice-input-level: 0;
     --gvp-voice-output-level: 0;
     position: relative;
     flex-shrink: 0;
-    padding: 0.55rem 1rem 0.65rem;
     border-top: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
     background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+}
+
+.chat-voice-pane__start {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 1rem 1rem 0.85rem;
+    text-align: center;
+}
+
+.chat-voice-pane__start-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    border: 1px solid color-mix(in srgb, var(--chat-launcher-glow-chrome) 48%, var(--border-subtle));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--chat-launcher-glow-chrome) 18%, transparent);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0.62rem 1.15rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-voice-pane__start-btn:hover {
+    background: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
+    border-color: color-mix(in srgb, var(--chat-launcher-glow-chrome) 62%, var(--border-subtle));
+    box-shadow: 0 8px 22px -10px color-mix(in srgb, var(--chat-launcher-glow-chrome) 45%, transparent);
+}
+
+.chat-voice-pane__start-btn:focus-visible {
+    outline: 2px solid var(--chat-launcher-ring);
+    outline-offset: 2px;
+}
+
+.chat-voice-pane__start-btn:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.chat-voice-pane__start-dot {
+    flex-shrink: 0;
+    width: 0.52rem;
+    height: 0.52rem;
+    border-radius: 50%;
+    background: #e85c5c;
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, #e85c5c 35%, transparent);
+    animation: chat-voice-start-dot 1.35s ease-in-out infinite;
+}
+
+@keyframes chat-voice-start-dot {
+    0%, 100% { opacity: 0.72; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.12); }
+}
+
+.chat-voice-pane__start-hint {
+    margin: 0;
+    max-width: 22rem;
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
+.chat-voice-pane__live {
+    position: relative;
+    padding: 0.55rem 1rem 0.65rem;
 }
 
 .chat-voice-pane__levels {
@@ -1212,6 +1295,7 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 
 @media (prefers-reduced-motion: reduce) {
     .chat-voice-pane__dot { animation: none; opacity: 0.85; }
+    .chat-voice-pane__start-dot { animation: none; opacity: 0.9; }
     .chat-voice-pane__halo { transition: none; }
 }
 

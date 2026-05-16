@@ -249,6 +249,9 @@ export function initChat() {
   const messagesEl = document.getElementById('chatMessages')
   const emptyStateEl = document.getElementById('chatEmptyState')
   const voicePaneEl = document.getElementById('chatVoicePane')
+  const voiceStartEl = document.getElementById('chatVoiceStart')
+  const voiceStartBtn = document.getElementById('chatVoiceStartBtn')
+  const voiceLiveEl = document.getElementById('chatVoiceLive')
   const voicePaneMicBtn = document.getElementById('chatVoiceMic')
   const voicePaneStatusEl = document.getElementById('chatVoicePaneStatus')
   const dialogSuggestions = document.getElementById('chatDialogSuggestions')
@@ -449,6 +452,25 @@ export function initChat() {
   }
 
   const liveUi = { active: false, connecting: false }
+  let voiceAwaitingStart = false
+  let voiceStartRequested = false
+
+  const clearVoiceAwaitingStart = () => {
+    voiceAwaitingStart = false
+    voiceStartRequested = false
+    if (voiceStartBtn) voiceStartBtn.disabled = false
+    reconcileVoicePane()
+  }
+
+  const openPanelAwaitingVoiceStart = () => {
+    voiceAwaitingStart = true
+    if (!isOpen()) openPanel({ voiceGate: true })
+    reconcileVoicePane()
+    requestAnimationFrame(() => {
+      if (!isOpen()) return
+      voiceStartBtn?.focus()
+    })
+  }
 
   const syncEmptyState = () => {
     const hasMessages = messagesEl.children.length > 0
@@ -459,7 +481,7 @@ export function initChat() {
     }
 
     if (emptyStateEl) {
-      const showEmpty = !hasMessages && !liveUi.active && !liveUi.connecting
+      const showEmpty = !hasMessages && !liveUi.active && !liveUi.connecting && !voiceAwaitingStart
       emptyStateEl.hidden = !showEmpty
       emptyStateEl.setAttribute('aria-hidden', showEmpty ? 'false' : 'true')
       if (showEmpty) {
@@ -468,7 +490,7 @@ export function initChat() {
       }
     }
     if (dialogSuggestions) {
-      const showChips = !hasMessages && !liveUi.active && !liveUi.connecting
+      const showChips = !hasMessages && !liveUi.active && !liveUi.connecting && !voiceAwaitingStart
       dialogSuggestions.hidden = !showChips
       dialogSuggestions.setAttribute('aria-hidden', showChips ? 'false' : 'true')
       if (showChips && state.agentNodeApi?.getPlaceholderSuggestion) {
@@ -628,6 +650,18 @@ export function initChat() {
     if ('active' in patch) liveUi.active = Boolean(patch.active)
     if ('connecting' in patch) liveUi.connecting = Boolean(patch.connecting)
     if ('sessionOpen' in patch) liveUi.sessionOpen = Boolean(patch.sessionOpen)
+    if (liveUi.active || liveUi.sessionOpen) {
+      voiceAwaitingStart = false
+      voiceStartRequested = false
+    } else if (
+      voiceStartRequested
+      && !liveUi.connecting
+      && !liveUi.active
+      && !liveUi.sessionOpen
+    ) {
+      voiceAwaitingStart = true
+      voiceStartRequested = false
+    }
     reconcileComposerControls()
     reconcileVoicePane()
   }
@@ -637,18 +671,45 @@ export function initChat() {
    *  hinted by the aura — copy stays simple to avoid distracting flicker). */
   const reconcileVoicePane = () => {
     if (!voicePaneEl) return
-    const showPane = Boolean(liveUi.active)
-    const voiceSession = showPane || liveUi.connecting
-    voicePaneEl.hidden = !showPane
-    voicePaneEl.setAttribute('aria-hidden', showPane ? 'false' : 'true')
-    if (panel) panel.toggleAttribute('data-voice-active', showPane)
-    if (composer) composer.hidden = showPane
-    if (dialogSuggestions && voiceSession) {
+    const showLive = Boolean(liveUi.active)
+    const showConnecting = Boolean(liveUi.connecting)
+    const showStartGate = Boolean(
+      chatVoiceFeatureEnabled
+      && (voiceAwaitingStart || voiceStartRequested || showConnecting)
+      && !showLive
+    )
+    const showPaneShell = showStartGate || showLive
+
+    voicePaneEl.hidden = !showPaneShell
+    voicePaneEl.setAttribute('aria-hidden', showPaneShell ? 'false' : 'true')
+
+    if (voiceStartEl) {
+      voiceStartEl.hidden = !showStartGate
+      voiceStartEl.setAttribute('aria-hidden', showStartGate ? 'false' : 'true')
+    }
+    if (voiceLiveEl) {
+      voiceLiveEl.hidden = !showLive
+      voiceLiveEl.setAttribute('aria-hidden', showLive ? 'false' : 'true')
+    }
+    if (voiceStartBtn) {
+      voiceStartBtn.disabled = showConnecting
+      const label = voiceStartBtn.querySelector('.chat-voice-pane__start-label')
+      if (label) {
+        label.textContent = showConnecting ? 'Connecting…' : 'Start live chat'
+      }
+    }
+
+    if (panel) {
+      panel.toggleAttribute('data-voice-active', showLive)
+      panel.toggleAttribute('data-voice-pending', showStartGate || showConnecting)
+    }
+    if (composer) composer.hidden = showLive || showStartGate || showConnecting
+    if (dialogSuggestions && (showLive || showConnecting || showStartGate)) {
       dialogSuggestions.hidden = true
       dialogSuggestions.setAttribute('aria-hidden', 'true')
     }
     if (composerMic) {
-      const hideHeaderMic = showPane
+      const hideHeaderMic = showLive || showStartGate || showConnecting
       composerMic.hidden = hideHeaderMic
       if (hideHeaderMic) {
         composerMic.setAttribute('aria-hidden', 'true')
@@ -657,16 +718,16 @@ export function initChat() {
       }
     }
     if (voicePaneStatusEl) {
-      voicePaneStatusEl.textContent = showPane
+      voicePaneStatusEl.textContent = showLive
         ? "Listening — speak about Marwan's work."
         : 'Listening…'
     }
-    if (!showPane) {
+    if (!showLive) {
       voicePaneEl.style.removeProperty('--gvp-voice-input-level')
       voicePaneEl.style.removeProperty('--gvp-voice-output-level')
     }
     syncEmptyState()
-    if (showPane) scrollMessagesToBottom(true)
+    if (showLive) scrollMessagesToBottom(true)
   }
 
   // rAF-coalesce live audio levels into CSS vars on the pane. Audio frames
@@ -722,6 +783,7 @@ export function initChat() {
     if (liveVoice?.isSessionOpen?.()) {
       liveVoice.stopVoice?.({ silent: true })
     }
+    clearVoiceAwaitingStart()
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -741,8 +803,9 @@ export function initChat() {
     })
   }
 
-  const openPanel = () => {
+  const openPanel = ({ voiceGate = false } = {}) => {
     if (isOpen()) return
+    if (!voiceGate) clearVoiceAwaitingStart()
     composerInput.value = ''
     autosizeComposer()
     state.lastFocus = document.activeElement
@@ -838,6 +901,7 @@ export function initChat() {
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
     messagesEl.textContent = ''
+    clearVoiceAwaitingStart()
     if (liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
       liveVoice.stopVoice({ silent: true })
     }
@@ -1111,13 +1175,26 @@ export function initChat() {
         openPanel()
         return
       }
-      openPanel()
+      openPanelAwaitingVoiceStart()
+    })
+  }
+  if (voiceStartBtn) {
+    voiceStartBtn.addEventListener('click', () => {
+      trackEvent('chat_voice_start', {})
+      if (!liveVoice || typeof liveVoice.startVoice !== 'function') {
+        setStatus('Voice is not available right now.', 'error')
+        return
+      }
+      voiceStartRequested = true
+      voiceAwaitingStart = false
+      reconcileVoicePane()
       void liveVoice.startVoice({ intent: 'auto' })
     })
   }
   if (heroTypeBtn) {
     heroTypeBtn.addEventListener('click', () => {
       trackEvent('hero_voice_type_instead', {})
+      clearVoiceAwaitingStart()
       openPanel()
       requestAnimationFrame(() => {
         if (!isOpen()) return
@@ -1221,6 +1298,12 @@ export function initChat() {
     patchLiveUi,
     onToolCall: applyVoiceToolCall,
     onAudioLevels: handleAudioLevels,
+    onVoiceLauncherRequest: () => {
+      if (liveUi.active || liveUi.connecting) return false
+      if (liveVoice?.isSessionOpen?.()) return false
+      openPanelAwaitingVoiceStart()
+      return true
+    },
   }) || {}
 
   // Compat: old call sites expected a dispose function. Keep that shape too.
@@ -1252,12 +1335,11 @@ export function initChat() {
     /** Open dialog with voice intent: starts the live session immediately so
      *  the greeting plays as the dialog mounts. Phase 2's chooser big-mic and
      *  Phase 4's hero mic both come through here. */
-    openPanelForVoice: ({ intent = 'auto' } = {}) => {
-      openPanel()
-      if (liveVoice && typeof liveVoice.startVoice === 'function') {
-        void liveVoice.startVoice({ intent })
-      }
+    openPanelForVoice: () => {
+      openPanelAwaitingVoiceStart()
     },
+    openPanelAwaitingVoiceStart,
+    clearVoiceAwaitingStart,
     closePanelImmediate: ({ restoreFocus = false } = {}) => closePanel({ restoreFocus, immediate: true }),
     isOpen
   }

@@ -297,16 +297,26 @@
                  the duration. Dual aura is driven by --gvp-voice-input-level and
                  --gvp-voice-output-level CSS vars (mic RMS + model PCM RMS). -->
             <div id="chatVoicePane" class="chat-voice-pane" hidden aria-hidden="true">
-                <div class="chat-voice-pane__levels" aria-hidden="true">
-                    <span class="chat-voice-pane__halo chat-voice-pane__halo--output"></span>
-                    <span class="chat-voice-pane__halo chat-voice-pane__halo--input"></span>
+                <div id="chatVoiceStart" class="chat-voice-pane__start" hidden aria-hidden="true">
+                    <button type="button" id="chatVoiceStartBtn" class="chat-voice-pane__start-btn"
+                        data-track="chat_voice_start">
+                        <span class="chat-voice-pane__start-dot" aria-hidden="true"></span>
+                        <span class="chat-voice-pane__start-label">Start live chat</span>
+                    </button>
+                    <p class="chat-voice-pane__start-hint">Uses your microphone. The assistant will greet you, then you can talk.</p>
                 </div>
-                <div class="chat-voice-pane__row">
-                    <span class="chat-voice-pane__dot" aria-hidden="true"></span>
-                    <p id="chatVoicePaneStatus" class="chat-voice-pane__status" role="status" aria-live="polite">Listening…</p>
-                    <button type="button" id="chatVoiceMic" class="chat-voice-pane__stop"
-                        aria-label="End voice session"
-                        data-track="chat_voice_stop">End</button>
+                <div id="chatVoiceLive" class="chat-voice-pane__live" hidden aria-hidden="true">
+                    <div class="chat-voice-pane__levels" aria-hidden="true">
+                        <span class="chat-voice-pane__halo chat-voice-pane__halo--output"></span>
+                        <span class="chat-voice-pane__halo chat-voice-pane__halo--input"></span>
+                    </div>
+                    <div class="chat-voice-pane__row">
+                        <span class="chat-voice-pane__dot" aria-hidden="true"></span>
+                        <p id="chatVoicePaneStatus" class="chat-voice-pane__status" role="status" aria-live="polite">Listening…</p>
+                        <button type="button" id="chatVoiceMic" class="chat-voice-pane__stop"
+                            aria-label="End voice session"
+                            data-track="chat_voice_stop">End</button>
+                    </div>
                 </div>
             </div>
             <form id="chatComposer" class="chat-composer" novalidate>
