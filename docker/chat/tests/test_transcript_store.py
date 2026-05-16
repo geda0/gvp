@@ -102,3 +102,46 @@ async def test_transcript_store_updates_defaults() -> None:
     assert values[':listPk'] == 'CHAT_TRANSCRIPT'
     assert values[':reviewedDefault'] is False
     assert values[':adminNotesDefault'] == ''
+
+
+@pytest.mark.asyncio
+async def test_persist_turn_increments_success_counter() -> None:
+    """writes_succeeded must reflect actual DynamoDB writes, not silent no-ops."""
+    table = FakeTable()
+    store = TranscriptStore('ChatTranscripts', ttl_days=30)
+    store._table = table
+
+    await store.persist_turn(
+        session_id='s1', created_at='2026-01-01T00:00:00+00:00',
+        prompt_version='v1', provider='mock', model='m',
+        turn={'reply': 'a'}, flags={},
+    )
+    s = store.stats()
+    assert s['writes_attempted'] == 1
+    assert s['writes_succeeded'] == 1
+    assert s['writes_failed'] == 0
+    assert s['last_success_at'] is not None
+    assert s['last_error'] is None
+
+
+@pytest.mark.asyncio
+async def test_persist_turn_disabled_counts_as_failure_not_success() -> None:
+    """Regression: when boto3 is missing (or _get_table returns None for any
+    reason), the old code returned silently and writes_succeeded incremented
+    — making the chat host falsely report persistence working while no
+    DynamoDB write occurred. Now: writes_failed increments + last_error is
+    populated so /ready surfaces the disabled state immediately."""
+    store = TranscriptStore('ChatTranscripts', ttl_days=30)
+    store._disabled = True  # simulate boto3 import failure
+
+    await store.persist_turn(
+        session_id='s1', created_at='2026-01-01T00:00:00+00:00',
+        prompt_version='v1', provider='mock', model='m',
+        turn={'reply': 'a'}, flags={},
+    )
+    s = store.stats()
+    assert s['writes_attempted'] == 1
+    assert s['writes_succeeded'] == 0, 'silent skip must not look like a success'
+    assert s['writes_failed'] == 1
+    assert s['last_error'] is not None
+    assert 'disabled' in s['last_error'].lower() or 'boto3' in s['last_error'].lower()

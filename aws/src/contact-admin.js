@@ -260,6 +260,55 @@ function normalizeChatItem(item) {
   const flags = typeof item?.flags === 'object' && item.flags !== null
     ? item.flags
     : {}
+
+  // --- Per-conversation telemetry roll-up ------------------------------
+  // Each turn carries its own modality + audio/duration stats (see
+  // docker/chat/app/main.py /api/chat and /api/live/transcript). We
+  // aggregate per item once here so list views, detail views, AND the
+  // global summary all share the same field names without re-doing the
+  // math three times.
+  let voiceTurnCount = 0
+  let textTurnCount = 0
+  let totalToolCalls = 0
+  let interruptedTurns = 0
+  let totalAudioInBytes = 0
+  let totalAudioOutBytes = 0
+  let totalVoiceDurationMs = 0
+  let textLatencySumMs = 0
+  let textLatencySamples = 0
+  const transports = {}            // 'relay' | 'direct_google' | 'live' -> count
+  const toolHistogram = {}          // tool name -> invocation count
+  for (const t of turns) {
+    if (!t || typeof t !== 'object') continue
+    const modality = t.modality === 'text' || t.modality === 'voice'
+      ? t.modality
+      : (t.transport || t.audioInBytes || t.audioOutBytes ? 'voice' : 'text')
+    if (modality === 'voice') {
+      voiceTurnCount += 1
+      const transport = String(t.transport || 'live')
+      transports[transport] = (transports[transport] || 0) + 1
+      if (Number.isFinite(t.audioInBytes)) totalAudioInBytes += Number(t.audioInBytes)
+      if (Number.isFinite(t.audioOutBytes)) totalAudioOutBytes += Number(t.audioOutBytes)
+      if (Number.isFinite(t.turnDurationMs)) totalVoiceDurationMs += Number(t.turnDurationMs)
+      if (t.interrupted) interruptedTurns += 1
+    } else {
+      textTurnCount += 1
+      if (Number.isFinite(t.latencyMs)) {
+        textLatencySumMs += Number(t.latencyMs)
+        textLatencySamples += 1
+      }
+    }
+    const calls = Array.isArray(t.toolCalls) ? t.toolCalls : []
+    for (const call of calls) {
+      const name = String(call?.name || '').trim() || 'unknown'
+      toolHistogram[name] = (toolHistogram[name] || 0) + 1
+      totalToolCalls += 1
+    }
+  }
+  const modality = voiceTurnCount > 0 && textTurnCount === 0
+    ? 'voice'
+    : (textTurnCount > 0 && voiceTurnCount === 0 ? 'text' : (voiceTurnCount ? 'mixed' : 'text'))
+
   return {
     id: item?.id || '',
     createdAt: item?.createdAt || '',
@@ -277,7 +326,21 @@ function normalizeChatItem(item) {
     }, {}),
     turns,
     lastUserMessage: lastTurn?.requestMessages?.filter?.((m) => m?.role === 'user')?.at?.(-1)?.content || '',
-    lastReply: lastTurn?.reply || ''
+    lastReply: lastTurn?.reply || '',
+    // Aggregated telemetry — list rows use modality / voiceTurnCount / etc.
+    // for badges; the summary endpoint sums these across all items.
+    modality,
+    voiceTurnCount,
+    textTurnCount,
+    totalToolCalls,
+    interruptedTurns,
+    totalAudioInBytes,
+    totalAudioOutBytes,
+    totalVoiceDurationMs,
+    textLatencySumMs,
+    textLatencySamples,
+    transports,
+    toolHistogram
   }
 }
 
@@ -315,12 +378,18 @@ function chatItemMatchesFilters(item, filters) {
 
 async function listChatTranscripts(limit, cursorRaw, filters) {
   const tableName = chatTableName()
-  const exclusiveStartKey = decodeCursor(cursorRaw)
-  let startKey = exclusiveStartKey
+  let startKey = decodeCursor(cursorRaw)
   const items = []
-  let nextCursor = ''
+  let exhausted = false
 
-  do {
+  // Loop until we have `limit` matching items OR run out of data. Critical:
+  // the OLD code pulled Limit=limit*2 and then `items.slice(0, limit)`, but
+  // returned the LastEvaluatedKey from that doubled batch as the cursor.
+  // Effect: when many rows matched, items beyond position `limit` were
+  // dropped and the cursor jumped over them — entire conversations
+  // silently invisible to the admin. We now pull Limit=limit per round
+  // and only loop to top up after filter rejections.
+  while (items.length < limit && !exhausted) {
     const response = await ddb.send(
       new QueryCommand({
         TableName: tableName,
@@ -330,7 +399,7 @@ async function listChatTranscripts(limit, cursorRaw, filters) {
           ':pk': CHAT_LIST_PK
         },
         ScanIndexForward: false,
-        Limit: Math.max(limit * 2, limit),
+        Limit: limit,
         ExclusiveStartKey: startKey
       })
     )
@@ -348,17 +417,44 @@ async function listChatTranscripts(limit, cursorRaw, filters) {
         turnCount: item.turnCount,
         model: item.model,
         provider: item.provider,
-        lastUserMessage: item.lastUserMessage
+        lastUserMessage: item.lastUserMessage,
+        // Voice indicators for the list view — keep small so the row stays
+        // light. Full breakdown lives on the detail endpoint.
+        modality: item.modality,
+        voiceTurnCount: item.voiceTurnCount,
+        textTurnCount: item.textTurnCount,
+        totalToolCalls: item.totalToolCalls,
+        totalVoiceDurationMs: item.totalVoiceDurationMs,
+        transports: item.transports
       })
     }
     startKey = response.LastEvaluatedKey
-    nextCursor = encodeCursor(startKey)
-    if (items.length >= limit) break
-  } while (startKey)
+    if (!startKey) exhausted = true
+  }
+
+  // We may have overshot by up to `limit-1` items if the last batch filled the
+  // remaining slack. Slice; build the cursor from the LAST item we KEPT so
+  // the next page resumes exactly where we stopped. Using response.LastEvaluatedKey
+  // here would skip the items we collected-but-didn't-return.
+  let returnedItems = items
+  let returnedCursor = ''
+  if (items.length > limit) {
+    returnedItems = items.slice(0, limit)
+    const lastKept = returnedItems[returnedItems.length - 1]
+    returnedCursor = encodeCursor({
+      listPk: CHAT_LIST_PK,
+      createdAt: lastKept.createdAt,
+      id: lastKept.id
+    })
+  } else if (items.length === limit && !exhausted) {
+    // Filled exactly; LastEvaluatedKey points to the next unread row.
+    returnedCursor = encodeCursor(startKey)
+  }
+  // exhausted (no more data) → empty cursor.
 
   return {
-    items: items.slice(0, limit),
-    nextCursor: items.length >= limit ? nextCursor : encodeCursor(startKey)
+    items: returnedItems,
+    nextCursor: returnedCursor
   }
 }
 
@@ -404,6 +500,10 @@ async function updateChatReviewed(id, reviewed) {
 
 async function getChatSummary() {
   const summary = {
+    // Surface which table this admin Lambda is reading from so a deploy /
+    // env mismatch (admin SPA → prod contact API while voice writes hit the
+    // stage table, or vice versa) is visible in the dashboard immediately.
+    tableName: chatTableName(),
     total: 0,
     reviewed: 0,
     unreviewed: 0,
@@ -412,9 +512,39 @@ async function getChatSummary() {
     byFlag: CHAT_FLAGS.reduce((acc, name) => {
       acc[name] = 0
       return acc
-    }, {})
+    }, {}),
+    // Voice telemetry roll-up across every transcript in the table. Computed
+    // from per-turn fields (modality/turnDurationMs/audio*/toolCalls) so it
+    // stays accurate as the FE adds more metrics — no separate aggregate
+    // table to keep in sync.
+    voice: {
+      sessions: 0,                 // any conversation with >=1 voice turn
+      textOnlySessions: 0,
+      mixedSessions: 0,
+      voiceTurns: 0,
+      textTurns: 0,
+      toolCalls: 0,
+      toolHistogram: {},
+      transports: {},
+      interruptedTurns: 0,
+      audioInBytes: 0,
+      audioOutBytes: 0,
+      totalVoiceDurationMs: 0,
+      avgVoiceTurnDurationMs: 0,
+      avgTextLatencyMs: 0,
+      _textLatencySumMs: 0,
+      _textLatencySamples: 0
+    },
+    // Activity by UTC day (last 30) — sparkline data for the dashboard. We
+    // pull updatedAt (when the most recent turn landed) so a long-running
+    // session shows up on the day it was last touched.
+    activityByDay: {},
+    activeDays: 0
   }
 
+  // Pull only the fields the summary needs. Keep ProjectionExpression tight
+  // so a 50k-row table doesn't OOM the Lambda. `turns` is the big one but
+  // is required for the per-turn modality/transport/tool rollups.
   let startKey
   do {
     const response = await ddb.send(
@@ -424,7 +554,7 @@ async function getChatSummary() {
         ExpressionAttributeValues: {
           ':pk': CHAT_LIST_PK
         },
-        ProjectionExpression: 'id, reviewed, promptVersion, #flags, flagged',
+        ProjectionExpression: 'id, reviewed, promptVersion, #flags, flagged, updatedAt, createdAt, turns',
         ExpressionAttributeNames: {
           '#flags': 'flags'
         },
@@ -444,9 +574,51 @@ async function getChatSummary() {
       for (const flag of CHAT_FLAGS) {
         if (item.flags?.[flag]) summary.byFlag[flag] += 1
       }
+
+      // Voice rollup
+      if (item.voiceTurnCount > 0) summary.voice.sessions += 1
+      else summary.voice.textOnlySessions += 1
+      if (item.voiceTurnCount > 0 && item.textTurnCount > 0) summary.voice.mixedSessions += 1
+      summary.voice.voiceTurns += item.voiceTurnCount
+      summary.voice.textTurns += item.textTurnCount
+      summary.voice.toolCalls += item.totalToolCalls
+      summary.voice.interruptedTurns += item.interruptedTurns
+      summary.voice.audioInBytes += item.totalAudioInBytes
+      summary.voice.audioOutBytes += item.totalAudioOutBytes
+      summary.voice.totalVoiceDurationMs += item.totalVoiceDurationMs
+      summary.voice._textLatencySumMs += item.textLatencySumMs
+      summary.voice._textLatencySamples += item.textLatencySamples
+      for (const [name, n] of Object.entries(item.toolHistogram || {})) {
+        summary.voice.toolHistogram[name] = (summary.voice.toolHistogram[name] || 0) + n
+      }
+      for (const [t, n] of Object.entries(item.transports || {})) {
+        summary.voice.transports[t] = (summary.voice.transports[t] || 0) + n
+      }
+
+      // Activity bucket (UTC day, YYYY-MM-DD). Falls back to createdAt.
+      const dayStamp = String(item.updatedAt || item.createdAt || '').slice(0, 10)
+      if (dayStamp) {
+        summary.activityByDay[dayStamp] = (summary.activityByDay[dayStamp] || 0) + 1
+      }
     }
     startKey = response.LastEvaluatedKey
   } while (startKey)
+
+  if (summary.voice.voiceTurns > 0) {
+    summary.voice.avgVoiceTurnDurationMs = Math.round(
+      summary.voice.totalVoiceDurationMs / summary.voice.voiceTurns
+    )
+  }
+  if (summary.voice._textLatencySamples > 0) {
+    summary.voice.avgTextLatencyMs = Math.round(
+      summary.voice._textLatencySumMs / summary.voice._textLatencySamples
+    )
+  }
+  // Strip the private accumulators before responding.
+  delete summary.voice._textLatencySumMs
+  delete summary.voice._textLatencySamples
+
+  summary.activeDays = Object.keys(summary.activityByDay).length
 
   return summary
 }

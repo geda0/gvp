@@ -141,11 +141,76 @@
       </section>
 
       <section id="adminPanelTranscripts" role="tabpanel" hidden>
+        <p id="chatSourceHint" class="admin-status" data-tone="muted">
+          Reading from <code id="chatSourceTable">?</code> via <code id="chatSourceApi">?</code>.
+          If voice/text sessions you just ran aren't appearing, you may be looking at a different environment than the one that wrote them.
+        </p>
+
         <section class="admin-grid admin-grid--cards">
           <article class="admin-card"><h2>Total transcripts</h2><p id="chatSummaryTotal">-</p></article>
           <article class="admin-card"><h2>Reviewed</h2><p id="chatSummaryReviewed">-</p></article>
           <article class="admin-card"><h2>Unreviewed</h2><p id="chatSummaryUnreviewed">-</p></article>
           <article class="admin-card"><h2>Flagged</h2><p id="chatSummaryFlagged">-</p></article>
+          <article class="admin-card"><h2>Active days (30d)</h2><p id="chatSummaryActiveDays">-</p></article>
+        </section>
+
+        <section class="admin-grid admin-grid--cards admin-grid--cards--voice">
+          <article class="admin-card admin-card--accent">
+            <h2>Voice sessions</h2>
+            <p id="voiceSummarySessions">-</p>
+            <p class="admin-card__hint" id="voiceSummarySessionsHint">—</p>
+          </article>
+          <article class="admin-card">
+            <h2>Voice turns</h2>
+            <p id="voiceSummaryTurns">-</p>
+            <p class="admin-card__hint" id="voiceSummaryTurnsHint">avg: — / turn</p>
+          </article>
+          <article class="admin-card">
+            <h2>Text turns</h2>
+            <p id="voiceSummaryTextTurns">-</p>
+            <p class="admin-card__hint" id="voiceSummaryTextTurnsHint">avg latency: —</p>
+          </article>
+          <article class="admin-card">
+            <h2>Tool calls</h2>
+            <p id="voiceSummaryToolCalls">-</p>
+            <p class="admin-card__hint" id="voiceSummaryToolCallsHint">—</p>
+          </article>
+          <article class="admin-card">
+            <h2>Voice airtime</h2>
+            <p id="voiceSummaryAirtime">-</p>
+            <p class="admin-card__hint">total mic + model speech across all sessions</p>
+          </article>
+          <article class="admin-card">
+            <h2>Interruptions</h2>
+            <p id="voiceSummaryInterrupted">-</p>
+            <p class="admin-card__hint">turns ended early by barge-in</p>
+          </article>
+        </section>
+
+        <section class="admin-grid admin-grid--secondary">
+          <article class="admin-card">
+            <h2>Tool histogram</h2>
+            <table class="admin-table admin-table--compact" id="voiceToolHistogramTable">
+              <thead><tr><th>Tool</th><th class="admin-num">Calls</th></tr></thead>
+              <tbody><tr><td colspan="2">No tool calls yet.</td></tr></tbody>
+            </table>
+          </article>
+          <article class="admin-card">
+            <h2>Transport split</h2>
+            <dl class="admin-detail" id="voiceTransportSplit">
+              <div><dt>Relay</dt><dd>—</dd></div>
+              <div><dt>Direct Google</dt><dd>—</dd></div>
+            </dl>
+            <p class="admin-card__hint">relay = same-origin WS via our ALB; direct_google = browser → Google (won't work behind Lambda).</p>
+          </article>
+          <article class="admin-card">
+            <h2>Audio bytes</h2>
+            <dl class="admin-detail" id="voiceAudioBytes">
+              <div><dt>From mic (16 kHz PCM)</dt><dd>—</dd></div>
+              <div><dt>From model (24 kHz PCM)</dt><dd>—</dd></div>
+            </dl>
+            <p class="admin-card__hint">raw bytes; before WebSocket/base64 overhead.</p>
+          </article>
         </section>
 
         <section class="admin-card admin-card--filters">
@@ -194,14 +259,17 @@
                 <thead>
                   <tr>
                     <th>Updated</th>
+                    <th>Mode</th>
                     <th>Prompt</th>
-                    <th>Turns</th>
+                    <th class="admin-num">Turns</th>
+                    <th class="admin-num">Tools</th>
+                    <th class="admin-num">Voice time</th>
                     <th>Reviewed</th>
                     <th>Flags</th>
                   </tr>
                 </thead>
                 <tbody id="chatTranscriptsTable">
-                  <tr><td colspan="5">No transcripts loaded yet.</td></tr>
+                  <tr><td colspan="8">No transcripts loaded yet.</td></tr>
                 </tbody>
               </table>
             </div>

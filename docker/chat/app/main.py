@@ -182,6 +182,14 @@ class LiveTranscriptTurn(BaseModel):
     capturedAt: str | None = Field(default=None, max_length=64)
     transport: str | None = Field(default=None, max_length=32)
     toolCalls: list[dict[str, Any]] | None = Field(default=None)
+    # Voice telemetry (Phase 6 — admin dashboard): every field is optional so
+    # older FE builds keep working. The backend coerces to safe ints/floats
+    # before persistence so no garbage lands in DynamoDB.
+    intent: str | None = Field(default=None, max_length=16)
+    turnDurationMs: int | None = Field(default=None, ge=0, le=30 * 60 * 1000)
+    audioInBytes: int | None = Field(default=None, ge=0, le=200 * 1024 * 1024)
+    audioOutBytes: int | None = Field(default=None, ge=0, le=200 * 1024 * 1024)
+    interrupted: bool | None = Field(default=None)
 
 
 def _live_relay_bridge_ttl_sec() -> float:
@@ -527,6 +535,37 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
         'voice_prompt_version': getattr(app.state, 'voice_prompt_version', None),
         'voice_prompt_dedicated': bool(getattr(app.state, 'voice_system_prompt', None)),
     }
+    # Persistence diagnostics — first stop when "the admin shows 0 sessions"
+    # is reported. configured=false means CHAT_TRANSCRIPTS_TABLE is unset on
+    # the chat host (every /api/chat + /api/live/transcript silently no-ops).
+    # writes_failed climbing means IAM or table not found; last_error has the
+    # boto3 reason.
+    store = getattr(app.state, 'transcript_store', None)
+    if store is not None and hasattr(store, 'stats'):
+        s = store.stats()
+        payload['transcripts'] = {
+            'configured': True,
+            # `disabled=true` means boto3 import failed at startup (or some
+            # other initialization issue) — writes are dropped even though
+            # the env var is set. Distinct from configured=false (no env).
+            'disabled': bool(s.get('disabled')),
+            'table_name': s.get('table_name'),
+            'ttl_days': s.get('ttl_days'),
+            'writes_attempted': s.get('writes_attempted', 0),
+            'writes_succeeded': s.get('writes_succeeded', 0),
+            'writes_failed': s.get('writes_failed', 0),
+            'last_attempt_at': s.get('last_attempt_at'),
+            'last_success_at': s.get('last_success_at'),
+            'last_error': s.get('last_error'),
+        }
+    else:
+        payload['transcripts'] = {
+            'configured': False,
+            'reason': (
+                'CHAT_TRANSCRIPTS_TABLE env is empty; chat + voice persists '
+                'are silently dropped (204 response with no DynamoDB write).'
+            ),
+        }
     return ready, payload
 
 
@@ -625,6 +664,9 @@ async def chat(payload: ChatRequest) -> JSONResponse:
         turn = {
             'capturedAt': now_iso,
             'promptVersion': app.state.prompt_version,
+            # Tag every text turn so the admin dashboard can split voice vs
+            # text without pattern-matching on which fields are present.
+            'modality': 'text',
             'requestMessages': [row.model_dump() for row in payload.messages],
             'reply': reply_text,
             'retrieval': retrieval,
@@ -841,7 +883,17 @@ async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
     """
     store = app.state.transcript_store
     if store is None:
-        return JSONResponse(status_code=204, content=None)
+        # Surface the misconfiguration explicitly instead of pretending we
+        # persisted. The FE swallows the error via fire-and-forget; manual
+        # curl + browser DevTools shows the 503 immediately so the operator
+        # can spot "CHAT_TRANSCRIPTS_TABLE is empty" without reading logs.
+        return JSONResponse(
+            status_code=503,
+            content={
+                'error': 'CHAT_TRANSCRIPTS_TABLE is not configured on this chat host',
+                'code': 'transcripts_not_configured',
+            },
+        )
 
     user_text = (payload.userText or "").strip()
     assistant_text = (payload.assistantText or "").strip()
@@ -852,6 +904,9 @@ async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
     captured_at = (payload.capturedAt or now_iso).strip() or now_iso
     transport = (payload.transport or "live").strip() or "live"
     tool_calls = payload.toolCalls or []
+    intent = (payload.intent or "").strip().lower() or None
+    if intent not in (None, "cold", "warm"):
+        intent = None
 
     turn = {
         "capturedAt": captured_at,
@@ -865,7 +920,17 @@ async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
         "toolCalls": tool_calls,
         "actions": [],
         "flags": {},
+        # Voice telemetry — kept inside the turn so it ages with TTL alongside
+        # the rest of the turn data. Coerce to plain ints (DynamoDB Number)
+        # via int(); None values are dropped so the item stays compact.
+        "intent": intent,
+        "turnDurationMs": int(payload.turnDurationMs) if payload.turnDurationMs is not None else None,
+        "audioInBytes": int(payload.audioInBytes) if payload.audioInBytes is not None else None,
+        "audioOutBytes": int(payload.audioOutBytes) if payload.audioOutBytes is not None else None,
+        "interrupted": bool(payload.interrupted) if payload.interrupted is not None else None,
     }
+    # Drop None keys so DynamoDB items stay tidy and partial backfills work.
+    turn = {k: v for k, v in turn.items() if v is not None}
     flags: dict[str, bool] = {}
 
     try:
