@@ -57,16 +57,17 @@ Voice uses the **Gemini Live** WebSocket protocol (preview). Official overview: 
 
 **Verify voice after deploy:** `POST /api/live/session` on the **same host** as `gvp:chat-api-url` should return **`liveVoiceTransport":"relay"`**, **`voiceBrowserExperience":"relay_recommended"`**, **`voiceHint":"ok"`**, and a **`websocketUrl`** containing **`/api/live/relay/`**. In DevTools Network, the voice socket should hit your API host (not `generativelanguage.googleapis.com`). First inbound JSON should include **`setupComplete`** within a few seconds (the FE waits up to 45s). The relay sends setup **once** server-side; the browser must **not** send a second setup on that path. If voice hangs on “Connecting…” then times out, redeploy the chat image with the latest relay + `js/chat-live.js` and confirm **`CHAT_CORS_ORIGINS`** includes your page origin (relay closes with **4403** when Origin is rejected). If you see **`direct_google`** / **`direct_google_only`**, the browser client skips opening that socket unless `localStorage gvp_chat_voice_allow_direct=1` (debug only); use ECS + relay for real voice.
 
-| Deploy shape | `CHAT_LIVE_RELAY` | Mic meta (`GVP_CHAT_VOICE`) | Voice outcome |
-|--------------|-------------------|-------------------------------|---------------|
-| Lambda HTTP API (SAM) | `0` | off | Text chat; mic hidden. |
-| Lambda + mic meta on | `0` | on | Mic visible; client blocks **`direct_google`** (clear error, no 1011 loop). |
-| ECS/ALB + relay | `1` | on | **`relay`** path; voice can work. |
-| Lambda + strict | `0` + **`CHAT_LIVE_VOICE_STRICT=1`** | n/a | **503** on live session; no token mint. |
+Mic UI is always rendered in the FE (no meta flag). Voice transport depends on the chat host:
+
+| Deploy shape | `CHAT_LIVE_RELAY` | Voice outcome |
+|--------------|-------------------|---------------|
+| Lambda HTTP API (SAM) | `0` | Mic visible; client blocks **`direct_google`** (clear error, no 1011 loop). Text chat works. |
+| ECS/ALB + relay | `1` | **`relay`** path; voice can work. |
+| Lambda + strict | `0` + **`CHAT_LIVE_VOICE_STRICT=1`** | **503** on live session; no token mint. Text chat works. |
 
 ## Deploy (stage / prod)
 
-Single entry point: **`scripts/integrate-and-deploy.sh`** from the repo root (see [`secrets.example/deploy.env.example`](../secrets.example/deploy.env.example) and optional [`secrets.example/chat-deploy.env.example`](../secrets.example/chat-deploy.env.example)). **`GVP_CHAT_VOICE=1`** (or **`true`** / **`yes`**) turns on the static site’s mic UI via **`gvp:chat-voice-enabled`** during the same script’s HTML meta sync; omit for a text-only chat surface in the browser.
+Single entry point: **`scripts/integrate-and-deploy.sh`** from the repo root (see [`secrets.example/deploy.env.example`](../secrets.example/deploy.env.example) and optional [`secrets.example/chat-deploy.env.example`](../secrets.example/chat-deploy.env.example)). Voice is always on in the FE; the deploy auto-bootstraps the ECS chat stack by default (opt out with **`CHAT_VOICE_ECS_BOOTSTRAP=0`** for a text-only Lambda chat).
 
 ```bash
 bash scripts/integrate-and-deploy.sh        # prod — stack SAM_STACK_NAME (default page)

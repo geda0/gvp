@@ -514,20 +514,8 @@ body.chat-dialog-open {
         0 0 1.25rem var(--chat-launcher-glow-diffuse);
 }
 
-html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form,
-html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='bar'] .agent-node__form,
-html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='modal'] .agent-node__form {
-    padding-left: 0.42rem;
-}
-
-/* Text chat only: no mic / SVG launcher — 💬 stays in the agent pill; hide dialog header mic. */
-html[data-gvp-chat-voice='0'] #agentNodeMic,
-html[data-gvp-chat-voice='0'] #chatVoiceStartBtn {
-    display: none !important;
-}
-
-/* With voice: mic lives in the label row; hide duplicate 💬 in the pill. Text-only: show 💬 in the bar. */
-html[data-gvp-chat-voice='1'] .agent-slot--hero .agent-node__form-icon {
+/* Voice is always on: mic lives in the label row; hide duplicate 💬 in the pill. */
+.agent-slot--hero .agent-node__form-icon {
     display: none;
 }
 
@@ -547,7 +535,7 @@ html[data-gvp-chat-voice='1'] .agent-slot--hero .agent-node__form-icon {
 
 .agent-slot--hero .agent-node[data-state='bubble']:focus-within .agent-node__form,
 .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form:focus-within,
-html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
+.hero-chat:has(#agentNodeMic:focus) .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form {
     opacity: 1;
 }
 
@@ -1284,16 +1272,6 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     text-align: center;
 }
 
-.chat-dialog__dock--text-only .chat-dialog__dock-collapse--voice {
-    display: none;
-}
-
-.chat-dialog__dock--text-only .chat-dialog__dock-collapse--text {
-    grid-template-rows: 1fr;
-    opacity: 1;
-    pointer-events: auto;
-}
-
 @media (prefers-reduced-motion: reduce) {
     .chat-dialog__dock-collapse {
         transition: none;
@@ -1313,9 +1291,9 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 }
 
 /* ── Chooser (Phase 2): voice-first entry surface inside the dialog ── */
-/* Shown when chatVoiceFeatureEnabled and the conversation is empty. The big
- * mic is the dominant CTA; the composer (rendered separately, below) becomes
- * the quieter secondary path. Hides itself the moment any message lands. */
+/* Shown when the conversation is empty. The big mic is the dominant CTA; the
+ * composer (rendered separately, below) becomes the quieter secondary path.
+ * Hides itself the moment any message lands. */
 .chat-chooser {
     display: flex;
     flex-direction: column;
@@ -2107,12 +2085,6 @@ body.content-open .agent-slot--navbar .agent-node__submit {
         padding: 0.22rem 0.28rem 0.22rem 0.65rem;
         gap: 0.38rem;
         min-height: 2.31rem;
-    }
-
-    html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='bubble'] .agent-node__form,
-    html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='bar'] .agent-node__form,
-    html[data-gvp-chat-voice='0'] .agent-slot--hero .agent-node[data-state='modal'] .agent-node__form {
-        padding-left: 0.65rem;
     }
 
     .agent-slot--hero .agent-node__input {

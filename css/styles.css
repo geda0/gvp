@@ -1246,11 +1246,11 @@ section#portfolioProjects.visible.content-section-reveal {
 }
 
 /* Hide duplicate mic in label row when hero voice CTA is shown */
-html[data-gvp-chat-voice='1'] .hero-chat:has(.hero-voice:not([hidden])) .hero-chat__label-wrap .agent-node__mic {
+.hero-chat:has(.hero-voice:not([hidden])) .hero-chat__label-wrap .agent-node__mic {
     display: none !important;
 }
 
-html[data-gvp-chat-voice='1'] .hero-chat:has(.hero-voice:not([hidden])) .agent-slot--hero .agent-node__form-icon {
+.hero-chat:has(.hero-voice:not([hidden])) .agent-slot--hero .agent-node__form-icon {
     display: block;
 }
 
