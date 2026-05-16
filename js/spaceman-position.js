@@ -208,6 +208,8 @@ class SpacemanPosition {
     if (this.agentNode) this._resizeObs.observe(this.agentNode)
     const heroCopy = document.querySelector('.hero-copy')
     if (heroCopy) this._resizeObs.observe(heroCopy)
+    const heroChat = document.querySelector('#home .hero-chat')
+    if (heroChat) this._resizeObs.observe(heroChat)
     const siteHeader = document.querySelector('body > header')
     if (siteHeader) this._resizeObs.observe(siteHeader)
 
@@ -504,6 +506,48 @@ class SpacemanPosition {
               }
             }
             placedHome = true
+          }
+        }
+
+        if (!placedHome && !isMobile && !agentNavBar) {
+          const askCol = document.querySelector('#home .hero-chat__ask')
+          const voiceEl = document.getElementById('heroVoice')
+          const askRect = askCol?.getBoundingClientRect?.()
+          const voiceRect =
+            voiceEl && !voiceEl.hidden ? voiceEl.getBoundingClientRect?.() : null
+          const barRef =
+            slotRect && slotRect.width > 40 && slotRect.height > 8
+              ? slotRect
+              : dockedAgent?.getBoundingClientRect?.()
+          let cx = null
+          let cy = null
+          if (
+            askRect &&
+            voiceRect &&
+            voiceRect.width > 8 &&
+            voiceRect.left > askRect.right + 4
+          ) {
+            cx = (askRect.right + voiceRect.left) / 2
+          } else {
+            const anchor = document.getElementById('heroSpacemanAnchor')
+            const anchorRect = anchor?.getBoundingClientRect?.()
+            if (anchorRect && anchorRect.width >= 8) {
+              cx = anchorRect.left + anchorRect.width / 2
+            }
+          }
+          if (cx != null) {
+            if (barRef && barRef.height > 8) {
+              cy = barRef.top + barRef.height / 2
+            } else if (askRect && voiceRect) {
+              cy = (askRect.top + askRect.height / 2 + voiceRect.top + voiceRect.height / 2) / 2
+            } else if (askRect) {
+              cy = askRect.top + askRect.height / 2
+            }
+            if (cy != null) {
+              x = clamp(cx - vw / 2, bounds.minX, bounds.maxX)
+              y = clamp(cy - vh / 2, bounds.minY, bounds.maxY)
+              placedHome = true
+            }
           }
         }
 

@@ -123,9 +123,15 @@ const SECTION_PROMPT_CHIPS = {
 
 /** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio / Playground). */
 const CHAT_EMPTY_HINT_BY_SECTION = {
-  home: 'Pick a suggestion below, or type your question. Ask about my services and projects.',
-  portfolio: 'Pick a suggestion below, or type your question. Ask about my roles, what I shipped, how I work',
+  home: 'Pick a suggestion below, or type your question. Ask about my services, projects, and what I do.',
+  portfolio: 'Pick a suggestion below, or type your question. Ask about my roles, what I shipped, how I work.',
   playground: 'Pick a suggestion below, or type your question. Ask about my experiments and what I can build.'
+}
+
+const CHAT_VOICE_EMPTY_HINT_BY_SECTION = {
+  home: 'Start live chat to ask about my services, projects, and what I do — or type below and pick a suggestion.',
+  portfolio: 'Start live chat to ask about my roles, what I shipped, and how I work — or type below and pick a suggestion.',
+  playground: 'Start live chat to ask about my experiments and what I can build — or type below and pick a suggestion.'
 }
 
 function replaceSectionPresetChips(container, chips, chipClassName) {
@@ -247,10 +253,12 @@ export function initChat() {
   const backdrop = dialog?.querySelector('.chat-dialog__backdrop')
   const closeBtn = dialog?.querySelector('.chat-dialog__close')
   const messagesEl = document.getElementById('chatMessages')
+  const emptyEntryEl = document.getElementById('chatEmptyEntry')
   const emptyStateEl = document.getElementById('chatEmptyState')
+  const voiceStartHeaderSlot = document.getElementById('chatVoiceStartHeaderSlot')
+  const voiceStartEntrySlot = document.getElementById('chatVoiceStartEntrySlot')
   const dockEl = document.getElementById('chatDialogDock')
   const voicePaneEl = document.getElementById('chatVoicePane')
-  const voiceStartEl = document.getElementById('chatVoiceStart')
   const voiceStartBtn = document.getElementById('chatVoiceStartBtn')
   const voiceLiveEl = document.getElementById('chatVoiceLive')
   const voicePaneMicBtn = document.getElementById('chatVoiceMic')
@@ -259,7 +267,6 @@ export function initChat() {
   const composer = document.getElementById('chatComposer')
   const composerInput = document.getElementById('chatComposerInput')
   const composerSend = composer?.querySelector('.chat-composer__send')
-  const composerMic = document.getElementById('chatComposerMic')
   const statusEl = document.getElementById('chatStatus')
 
   if (!agentNode || !agentForm || !agentInput || !heroSlotEl || !dialog || !panel || !messagesEl || !composer || !composerInput || !statusEl) return null
@@ -362,7 +369,7 @@ export function initChat() {
     } else {
       if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'hero_agent_node_mic')
     }
-    if (composerMic) composerMic.setAttribute('data-track', 'chat_composer_mic')
+    if (voiceStartBtn) voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
   }
 
   const clearPanelAnimation = () => {
@@ -453,13 +460,15 @@ export function initChat() {
   }
 
   const liveUi = { active: false, connecting: false }
-  let dockMode = 'voice'
+  let dockMode = 'text'
   let voiceAwaitingStart = false
   let voiceStartRequested = false
-
   const getEffectiveDockMode = () => {
     if (!chatVoiceFeatureEnabled) return 'text'
     if (liveUi.active || liveUi.connecting) return 'voice'
+    // Pre-start / empty: same text dock (chips + composer) whether opened from bar or mic.
+    if (voiceAwaitingStart || voiceStartRequested) return 'text'
+    if (!messagesEl.children.length) return 'text'
     return dockMode === 'text' ? 'text' : 'voice'
   }
 
@@ -484,14 +493,15 @@ export function initChat() {
   const setDockMode = (mode, { awaitingVoice = false, focus = null } = {}) => {
     if (!chatVoiceFeatureEnabled) {
       dockMode = 'text'
+    } else if (awaitingVoice && !liveUi.active && !liveUi.connecting) {
+      voiceAwaitingStart = true
+      dockMode = 'text'
     } else {
       dockMode = mode === 'text' ? 'text' : 'voice'
-    }
-    if (awaitingVoice && dockMode === 'voice' && !liveUi.active) {
-      voiceAwaitingStart = true
-    } else if (dockMode === 'text' && !liveUi.active && !liveUi.connecting) {
-      voiceAwaitingStart = false
-      voiceStartRequested = false
+      if (dockMode === 'text' && !liveUi.active && !liveUi.connecting) {
+        voiceAwaitingStart = false
+        voiceStartRequested = false
+      }
     }
     syncDockMode()
     reconcileVoicePane()
@@ -503,27 +513,93 @@ export function initChat() {
     openPanel({ mode: 'voice' })
   }
 
+  const isVoiceAwaitingStartUi = () => Boolean(
+    chatVoiceFeatureEnabled
+    && (voiceAwaitingStart || voiceStartRequested)
+    && !liveUi.active
+    && !liveUi.connecting
+  )
+
+  const isVoiceSessionUi = () => Boolean(
+    chatVoiceFeatureEnabled
+    && (liveUi.active || liveUi.connecting || liveUi.sessionOpen)
+  )
+
+  const syncVoiceStartCta = () => {
+    if (!voiceStartBtn || !chatVoiceFeatureEnabled) return
+
+    const hasMessages = messagesEl.children.length > 0
+    const showLive = Boolean(liveUi.active)
+    const showConnecting = Boolean(liveUi.connecting)
+    const inVoiceSession = isVoiceSessionUi()
+    const showEntry = !hasMessages && !inVoiceSession
+
+    if (inVoiceSession) {
+      voiceStartBtn.hidden = true
+      if (voiceStartHeaderSlot) {
+        voiceStartHeaderSlot.hidden = true
+        voiceStartHeaderSlot.setAttribute('aria-hidden', 'true')
+      }
+      return
+    }
+
+    const mode = showConnecting ? 'connecting' : 'start'
+    const useHeader = !showEntry
+    const slot = useHeader ? voiceStartHeaderSlot : voiceStartEntrySlot
+    if (slot && voiceStartBtn.parentElement !== slot) slot.appendChild(voiceStartBtn)
+
+    if (voiceStartHeaderSlot) {
+      voiceStartHeaderSlot.hidden = !useHeader
+      voiceStartHeaderSlot.setAttribute('aria-hidden', useHeader ? 'false' : 'true')
+    }
+
+    voiceStartBtn.hidden = false
+    voiceStartBtn.removeAttribute('inert')
+    voiceStartBtn.removeAttribute('aria-hidden')
+    voiceStartBtn.dataset.voiceCtaMode = mode
+    voiceStartBtn.classList.toggle('chat-voice-start-cta--header', useHeader)
+    voiceStartBtn.classList.toggle('chat-voice-start-cta--connecting', mode === 'connecting')
+    voiceStartBtn.disabled = showConnecting
+    voiceStartBtn.setAttribute('aria-pressed', 'false')
+
+    const label = voiceStartBtn.querySelector('.chat-voice-start-cta__label')
+    if (label) {
+      label.textContent = mode === 'connecting' ? 'Connecting…' : 'Start live chat'
+    }
+
+    if (mode === 'connecting') {
+      voiceStartBtn.setAttribute('aria-label', 'Connecting voice…')
+    } else {
+      voiceStartBtn.setAttribute('aria-label', 'Start live chat')
+    }
+    voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
+  }
+
   const syncEmptyState = () => {
     const hasMessages = messagesEl.children.length > 0
+    const showTypePeek = isVoiceAwaitingStartUi()
+    const inVoiceSession = isVoiceSessionUi()
+    const showEntry = !hasMessages && !inVoiceSession
+    const sec = normalizeSection(launcherState.section)
+
     if (composerInput) {
       composerInput.placeholder = hasMessages
         ? 'Ask a follow-up…'
         : 'Ask a question…'
     }
 
-    if (emptyStateEl) {
-      const showEmpty = !hasMessages && !liveUi.active && !liveUi.connecting
-        && getEffectiveDockMode() === 'text'
-      emptyStateEl.hidden = !showEmpty
-      emptyStateEl.setAttribute('aria-hidden', showEmpty ? 'false' : 'true')
-      if (showEmpty) {
-        const sec = normalizeSection(launcherState.section)
-        emptyStateEl.textContent = CHAT_EMPTY_HINT_BY_SECTION[sec] || CHAT_EMPTY_HINT_BY_SECTION.home
-      }
+    if (emptyEntryEl) {
+      emptyEntryEl.hidden = !showEntry
+      emptyEntryEl.setAttribute('aria-hidden', showEntry ? 'false' : 'true')
     }
+    if (emptyStateEl && showEntry) {
+      emptyStateEl.textContent = showTypePeek
+        ? (CHAT_VOICE_EMPTY_HINT_BY_SECTION[sec] || CHAT_VOICE_EMPTY_HINT_BY_SECTION.home)
+        : (CHAT_EMPTY_HINT_BY_SECTION[sec] || CHAT_EMPTY_HINT_BY_SECTION.home)
+    }
+    syncVoiceStartCta()
     if (dialogSuggestions) {
-      const showChips = !hasMessages && !liveUi.active && !liveUi.connecting
-        && getEffectiveDockMode() === 'text'
+      const showChips = showEntry
       dialogSuggestions.hidden = !showChips
       dialogSuggestions.setAttribute('aria-hidden', showChips ? 'false' : 'true')
       if (showChips && state.agentNodeApi?.getPlaceholderSuggestion) {
@@ -636,16 +712,20 @@ export function initChat() {
     const textBusy = state.pending
     const voiceBusy =
       chatVoiceFeatureEnabled && (liveUi.active || liveUi.connecting)
-    composerInput.disabled = textBusy || voiceBusy
-    if (composerSend) composerSend.disabled = textBusy || voiceBusy
+    const showTypePeek = isVoiceAwaitingStartUi()
+    composerInput.disabled = textBusy || (voiceBusy && !showTypePeek)
+    if (composerSend) composerSend.disabled = textBusy || (voiceBusy && !showTypePeek)
     if (!chatVoiceFeatureEnabled) {
-      if (composerMic) {
-        composerMic.hidden = true
-        composerMic.disabled = true
-        composerMic.setAttribute('inert', '')
-        composerMic.setAttribute('aria-hidden', 'true')
-        composerMic.removeAttribute('aria-pressed')
-        composerMic.removeAttribute('data-gvp-launcher')
+      if (voiceStartBtn) {
+        voiceStartBtn.hidden = true
+        voiceStartBtn.disabled = true
+        voiceStartBtn.setAttribute('inert', '')
+        voiceStartBtn.setAttribute('aria-hidden', 'true')
+        voiceStartBtn.removeAttribute('aria-pressed')
+      }
+      if (voiceStartHeaderSlot) {
+        voiceStartHeaderSlot.hidden = true
+        voiceStartHeaderSlot.setAttribute('aria-hidden', 'true')
       }
       if (agentNodeMic) {
         agentNodeMic.hidden = true
@@ -658,18 +738,9 @@ export function initChat() {
       syncAgentLauncherChrome(launcherState.section)
       return
     }
-    if (composerMic || agentNodeMic) {
-      prepareVoiceLauncherButtons(composerMic)
+    if (voiceStartBtn || agentNodeMic) {
       prepareVoiceLauncherButtons(agentNodeMic)
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
-      if (composerMic) {
-        composerMic.disabled = micBusy
-        if (!liveUi.active) {
-          composerMic.hidden = false
-          composerMic.removeAttribute('inert')
-          composerMic.removeAttribute('aria-hidden')
-        }
-      }
       if (agentNodeMic) {
         agentNodeMic.disabled = micBusy
         agentNodeMic.removeAttribute('inert')
@@ -705,18 +776,7 @@ export function initChat() {
   const reconcileVoicePane = () => {
     const showLive = Boolean(liveUi.active)
     const showConnecting = Boolean(liveUi.connecting)
-
-    if (
-      !showLive
-      && !showConnecting
-      && getEffectiveDockMode() === 'voice'
-      && chatVoiceFeatureEnabled
-      && !liveUi.sessionOpen
-      && !voiceAwaitingStart
-      && !voiceStartRequested
-    ) {
-      voiceAwaitingStart = true
-    }
+    const showVoiceUi = isVoiceSessionUi()
 
     const showStartGate = Boolean(
       chatVoiceFeatureEnabled
@@ -732,32 +792,15 @@ export function initChat() {
       dockEl.setAttribute('aria-hidden', 'false')
     }
 
-    if (voiceStartEl) {
-      voiceStartEl.hidden = !showStartGate
-      voiceStartEl.setAttribute('aria-hidden', showStartGate ? 'false' : 'true')
-    }
     if (voiceLiveEl) {
       voiceLiveEl.hidden = !showLive
       voiceLiveEl.setAttribute('aria-hidden', showLive ? 'false' : 'true')
     }
-    if (voiceStartBtn) {
-      voiceStartBtn.disabled = showConnecting
-      const label = voiceStartBtn.querySelector('.chat-voice-pane__start-label')
-      if (label) {
-        label.textContent = showConnecting ? 'Connecting…' : 'Start live chat'
-      }
-    }
 
     if (panel) {
-      panel.toggleAttribute('data-voice-active', showLive)
+      panel.toggleAttribute('data-voice-active', showVoiceUi)
     }
-    if (composerMic && chatVoiceFeatureEnabled) {
-      composerMic.hidden = true
-      composerMic.setAttribute('aria-hidden', 'true')
-    } else if (composerMic) {
-      composerMic.hidden = false
-      composerMic.removeAttribute('aria-hidden')
-    }
+
     if (voicePaneStatusEl) {
       voicePaneStatusEl.textContent = showLive
         ? "Listening — speak about Marwan's work."
@@ -855,7 +898,7 @@ export function initChat() {
       return
     }
     if (wantVoice) {
-      dockMode = 'voice'
+      dockMode = 'text'
       voiceAwaitingStart = true
     } else {
       dockMode = 'text'
@@ -1098,6 +1141,7 @@ export function initChat() {
     chatBus.emit('sending', { source })
 
     setStatus('')
+    if (voiceAwaitingStart || voiceStartRequested) clearVoiceAwaitingStart()
     appendMessage('user', text, { forceScroll: true })
     state.history = state.history.concat({ role: 'user', content: text })
     if (source === 'composer') {
@@ -1205,22 +1249,28 @@ export function initChat() {
   })
 
   composerInput.addEventListener('focus', () => {
+    if (isVoiceAwaitingStartUi()) return
     if (getEffectiveDockMode() !== 'text') setDockMode('text')
   })
 
   composerInput.addEventListener('input', () => {
     autosizeComposer()
+    if (isVoiceAwaitingStartUi()) {
+      if (composerInput.value.trim().length > 0) {
+        clearVoiceAwaitingStart()
+        setDockMode('text')
+      }
+      return
+    }
     if (getEffectiveDockMode() !== 'text') setDockMode('text')
     if (composerInput.value.length > 0 && liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
       liveVoice.stopVoice({ silent: true })
     }
   })
 
-  // Hero voice CTA. Opens the dialog and starts voice — transcript stays primary.
-  // The "or type a question" link opens text mode (no auto greeting).
+  // Hero voice CTA (below text bar). Opens dialog in voice intent.
   const heroVoiceBlock = document.getElementById('heroVoice')
   const heroVoiceBtn = document.getElementById('heroVoiceMic')
-  const heroTypeBtn = document.getElementById('heroVoiceType')
   // Hide the entire voice-first block when voice is disabled at the meta level.
   // Falls back to the legacy agent-node bar (still visible below). The block
   // would be misleading otherwise — "Talk to my AI assistant" with no voice.
@@ -1240,26 +1290,6 @@ export function initChat() {
       openPanelAwaitingVoiceStart()
     })
   }
-  if (voiceStartBtn) {
-    voiceStartBtn.addEventListener('click', () => {
-      trackEvent('chat_voice_start', {})
-      if (!liveVoice || typeof liveVoice.startVoice !== 'function') {
-        setStatus('Voice is not available right now.', 'error')
-        return
-      }
-      voiceStartRequested = true
-      voiceAwaitingStart = false
-      reconcileVoicePane()
-      void liveVoice.startVoice({ intent: 'auto' })
-    })
-  }
-  if (heroTypeBtn) {
-    heroTypeBtn.addEventListener('click', () => {
-      trackEvent('hero_voice_type_instead', {})
-      openPanel({ mode: 'text' })
-    })
-  }
-
   backdrop?.addEventListener('click', () => closePanel())
   closeBtn?.addEventListener('click', () => closePanel())
 
@@ -1359,7 +1389,7 @@ export function initChat() {
   }
 
   const liveVoice = bindChatLiveVoice({
-    micButtons: chatVoiceFeatureEnabled ? [composerMic, agentNodeMic, voicePaneMicBtn].filter(Boolean) : [],
+    micButtons: chatVoiceFeatureEnabled ? [agentNodeMic, voicePaneMicBtn].filter(Boolean) : [],
     messagesEl,
     statusEl,
     syncEmptyState,
@@ -1380,6 +1410,20 @@ export function initChat() {
       return true
     },
   }) || {}
+
+  if (voiceStartBtn) {
+    voiceStartBtn.addEventListener('click', () => {
+      trackEvent('chat_voice_start', {})
+      if (!liveVoice || typeof liveVoice.startVoice !== 'function') {
+        setStatus('Voice is not available right now.', 'error')
+        return
+      }
+      voiceStartRequested = true
+      voiceAwaitingStart = false
+      reconcileVoicePane()
+      void liveVoice.startVoice({ intent: 'auto' })
+    })
+  }
 
   // Compat: old call sites expected a dispose function. Keep that shape too.
   const disposeChatLiveVoice = typeof liveVoice === 'function'

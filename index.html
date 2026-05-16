@@ -90,71 +90,68 @@
                                     <p class="hero-eyebrow">Senior Software Engineer · 15+ years</p>
                                     <h1>Marwan Elgendy</h1>
                                     <p class="hero-subtitle">Architecture · Platforms · Cloud-native · AI</p>
-                                    <p class="hero-tagline">The chat below knows my work. Ask anything — projects, approaches, what I can do, my services.</p>
+                                    <p class="hero-tagline">Projects, experience, and how I work — grounded in this site.</p>
 
                                 </div>
                                 <div class="hero-chat">
-                                    <!-- Phase 4: voice-first hero CTA. Click → opens the chat dialog
-                                         in voice intent (chooser + auto greeting). The legacy
-                                         agent-node text bar stays below as the secondary path. -->
+                                    <div class="hero-chat__controls">
+                                    <div class="hero-chat__ask">
+                                        <div class="hero-chat__label-wrap">
+                                            <p class="hero-chat__label">
+                                                <span class="hero-chat__dot" aria-hidden="true"></span>
+                                                Ask about my work
+                                            </p>
+                                            <button type="button" id="agentNodeMic" form="agentNodeForm"
+                                                class="agent-node__mic chat-composer__mic" data-gvp-launcher="voice"
+                                                aria-label="Start voice mode" aria-pressed="false"
+                                                data-track="hero_agent_node_mic">
+                                                <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--voice" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                                    <path fill="currentColor"
+                                                        d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
+                                                </svg>
+                                                <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" hidden>
+                                                    <path d="M5.5 6.75h11a2 2 0 0 1 2 2v4.75a2 2 0 0 1-2 2h-4.9l-3.1 2.65V15.5H5.5a2 2 0 0 1-2-2V8.75a2 2 0 0 1 2-2z" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div id="agentSlotHero" class="agent-slot agent-slot--hero">
+                                            <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero"
+                                                aria-label="Ask about Marwan's work — answers use this site's resume and project pages">
+                                                <form id="agentNodeForm" class="agent-node__form" novalidate>
+                                                    <label for="agentNodeInput" class="visually-hidden">Ask about Marwan's work</label>
+                                                    <span class="agent-node__form-icon" aria-hidden="true">💬</span>
+                                                    <div class="agent-node__text-lane">
+                                                        <div class="agent-node__ambient-overlay">
+                                                            <span class="agent-node__bubble-text" aria-live="polite"></span>
+                                                            <span class="agent-node__cursor" aria-hidden="true">|</span>
+                                                        </div>
+                                                        <input type="text" id="agentNodeInput" class="agent-node__input" inputmode="text" autocomplete="off"
+                                                            placeholder="Ask anything…"
+                                                            data-track="hero_chat_input_focus" />
+                                                    </div>
+                                                    <button type="submit" id="agentNodeSubmit" class="agent-node__submit"
+                                                        aria-label="Open chat and send message"
+                                                        data-track="hero_chat_submit"><span aria-hidden="true">↑</span></button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                        <div id="heroChatSuggestions" class="hero-chat__suggestions" hidden aria-hidden="true" aria-label="Suggested prompts">
+                                        </div>
+                                    </div>
+                                    <div id="heroSpacemanAnchor" class="hero-chat__center" aria-hidden="true"></div>
                                     <div class="hero-voice" id="heroVoice">
                                         <button type="button" id="heroVoiceMic" class="hero-voice__mic"
-                                            aria-label="Talk to the AI assistant — agent greets you first"
+                                            aria-label="Talk to AI — live voice in chat"
                                             data-track="hero_voice_mic">
                                             <span class="hero-voice__halo hero-voice__halo--outer" aria-hidden="true"></span>
                                             <span class="hero-voice__halo hero-voice__halo--inner" aria-hidden="true"></span>
-                                            <svg class="hero-voice__mic-icon" width="48" height="48" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                                            <svg class="hero-voice__mic-icon" width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
                                                 <path d="M12 1c-1.66 0-3 1.34-3 3v8c0 1.66 1.34 3 3 3s3-1.34 3-3V4c0-1.66-1.34-3-3-3zm6 11c0 3.31-2.69 6-6 6s-6-2.69-6-6H4c0 4.08 3.05 7.44 7 7.93V23h2v-3.07c3.95-.49 7-3.85 7-7.93h-2z" />
                                             </svg>
                                         </button>
-                                        <p class="hero-voice__caption">Talk to my AI assistant</p>
-                                        <button type="button" id="heroVoiceType" class="hero-voice__type-link"
-                                            data-track="hero_voice_type_instead">
-                                            or type a question
-                                        </button>
+                                        <p class="hero-voice__caption">Talk to AI</p>
                                     </div>
-                                    <div class="hero-chat__label-wrap hero-chat__label-wrap--secondary">
-                                        <p class="hero-chat__label">
-                                            <span class="hero-chat__dot" aria-hidden="true"></span>
-                                            Ask about my work
-                                        </p>
-                                        <button type="button" id="agentNodeMic" form="agentNodeForm"
-                                            class="agent-node__mic chat-composer__mic" data-gvp-launcher="voice"
-                                            aria-label="Start voice mode" aria-pressed="false"
-                                            data-track="hero_agent_node_mic">
-                                            <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--voice" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                                <path fill="currentColor"
-                                                    d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
-                                            </svg>
-                                            <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" hidden>
-                                                <path d="M5.5 6.75h11a2 2 0 0 1 2 2v4.75a2 2 0 0 1-2 2h-4.9l-3.1 2.65V15.5H5.5a2 2 0 0 1-2-2V8.75a2 2 0 0 1 2-2z" />
-                                            </svg>
-                                        </button>
                                     </div>
-                                    <p class="hero-chat__hint">Grounded in my actual projects and services.</p>
-                                    <div id="agentSlotHero" class="agent-slot agent-slot--hero">
-                                    <div id="agentNode" class="agent-node" data-state="bubble" data-slot="hero"
-                                        aria-label="Ask about Marwan's work — answers use this site's resume and project pages">
-                                        <form id="agentNodeForm" class="agent-node__form" novalidate>
-                                            <label for="agentNodeInput" class="visually-hidden">Ask about Marwan's work</label>
-                                            <span class="agent-node__form-icon" aria-hidden="true">💬</span>
-                                            <div class="agent-node__text-lane">
-                                                <div class="agent-node__ambient-overlay">
-                                                    <span class="agent-node__bubble-text" aria-live="polite"></span>
-                                                    <span class="agent-node__cursor" aria-hidden="true">|</span>
-                                                </div>
-                                                <input type="text" id="agentNodeInput" class="agent-node__input" inputmode="text" autocomplete="off"
-                                                    placeholder="Ask anything…"
-                                                    data-track="hero_chat_input_focus" />
-                                            </div>
-                                            <button type="submit" id="agentNodeSubmit" class="agent-node__submit"
-                                                aria-label="Open chat and send message"
-                                                data-track="hero_chat_submit"><span aria-hidden="true">↑</span></button>
-                                        </form>
-                                    </div>
-                                </div>
-                                <div id="heroChatSuggestions" class="hero-chat__suggestions" hidden aria-hidden="true" aria-label="Suggested prompts">
-                                </div>
                                 </div>
                                 <div class="hero-highlights">
                                     <div class="highlight">
@@ -273,38 +270,33 @@
                     <p class="chat-dialog__subtitle">Grounded in my actual projects and services.</p>
                 </div>
                 <div class="chat-dialog__header-actions">
-                    <button type="button" id="chatComposerMic" class="chat-composer__mic chat-dialog__header-mic"
-                        data-gvp-launcher="voice" aria-label="Start voice mode" aria-pressed="false"
-                        data-track="chat_composer_mic">
-                        <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--voice" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path fill="currentColor"
-                                d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 1 1-10 0H5a7 7 0 0 0 6 6.92V20H9v2h6v-2h-2v-2.08A7 7 0 0 0 19 11h-2z" />
-                        </svg>
-                        <svg class="chat-composer__mic-icon chat-composer__launcher-icon chat-composer__launcher-icon--chat" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" hidden>
-                            <path d="M5.5 6.75h11a2 2 0 0 1 2 2v4.75a2 2 0 0 1-2 2h-4.9l-3.1 2.65V15.5H5.5a2 2 0 0 1-2-2V8.75a2 2 0 0 1 2-2z" />
-                        </svg>
-                    </button>
+                    <div id="chatVoiceStartHeaderSlot" class="chat-voice-cta-slot chat-voice-cta-slot--header" hidden aria-hidden="true"></div>
                     <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>
                 </div>
             </header>
             <div class="chat-dialog__scroll">
-                <p id="chatEmptyState" class="chat-empty-state">Pick a starter below, or ask anything. Grounded in my actual projects and services.</p>
+                <div id="chatEmptyEntry" class="chat-empty-entry" hidden aria-hidden="true">
+                    <div id="chatVoiceStartEntrySlot" class="chat-voice-cta-slot chat-voice-cta-slot--entry">
+                        <button type="button" id="chatVoiceStartBtn" class="chat-voice-start-cta"
+                            aria-label="Start live chat" aria-pressed="false" data-voice-cta-mode="start"
+                            data-track="chat_voice_start">
+                            <span class="chat-voice-start-cta__halo chat-voice-start-cta__halo--outer" aria-hidden="true"></span>
+                            <span class="chat-voice-start-cta__halo chat-voice-start-cta__halo--inner" aria-hidden="true"></span>
+                            <span class="chat-voice-start-cta__dot" aria-hidden="true"></span>
+                            <svg class="chat-voice-start-cta__icon" width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                                <path d="M12 1c-1.66 0-3 1.34-3 3v8c0 1.66 1.34 3 3 3s3-1.34 3-3V4c0-1.66-1.34-3-3-3zm6 11c0 3.31-2.69 6-6 6s-6-2.69-6-6H4c0 4.08 3.05 7.44 7 7.93V23h2v-3.07c3.95-.49 7-3.85 7-7.93h-2z" />
+                            </svg>
+                            <span class="chat-voice-start-cta__label">Start live chat</span>
+                        </button>
+                    </div>
+                    <p id="chatEmptyState" class="chat-empty-state">Pick a suggestion below, or type your question. Ask about my services, projects, and what I do.</p>
+                </div>
                 <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
             </div>
-            <div id="chatDialogDock" class="chat-dialog__dock" data-dock-mode="voice">
+            <div id="chatDialogDock" class="chat-dialog__dock" data-dock-mode="text">
                 <div class="chat-dialog__dock-collapse chat-dialog__dock-collapse--voice">
                     <div class="chat-dialog__dock-collapse-inner">
                         <div id="chatVoicePane" class="chat-voice-pane">
-                            <div id="chatVoiceStart" class="chat-voice-pane__start" hidden aria-hidden="true">
-                                <button type="button" id="chatVoiceStartBtn" class="chat-voice-pane__start-btn"
-                                    data-track="chat_voice_start">
-                                    <span class="chat-voice-pane__start-dot" aria-hidden="true"></span>
-                                    <span class="chat-voice-pane__start-label">Start live chat</span>
-                                </button>
-                                <p class="chat-voice-pane__start-hint">Uses your microphone. The assistant will greet you, then you can talk.</p>
-                                <button type="button" class="chat-dialog__dock-switch" data-dock-switch="text"
-                                    data-track="chat_dock_switch_text">or type a question</button>
-                            </div>
                             <div id="chatVoiceLive" class="chat-voice-pane__live" hidden aria-hidden="true">
                                 <div class="chat-voice-pane__levels" aria-hidden="true">
                                     <span class="chat-voice-pane__halo chat-voice-pane__halo--output"></span>
@@ -338,8 +330,6 @@
                                 </button>
                             </div>
                         </form>
-                        <button type="button" class="chat-dialog__dock-switch chat-dialog__dock-switch--voice" data-dock-switch="voice"
-                            data-track="chat_dock_switch_voice">Start live voice instead</button>
                     </div>
                 </div>
             </div>

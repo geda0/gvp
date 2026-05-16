@@ -844,6 +844,7 @@ export function bindChatLiveVoice(opts) {
     if (setupPayload != null && setupPayload !== false) {
       setupDone = true
       voiceUnavailableOnHost = false
+      patchLiveUi({ sessionOpen: true })
       if (pendingSetupLatch) {
         if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
         const res = pendingSetupLatch.resolve
