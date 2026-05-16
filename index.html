@@ -269,6 +269,19 @@
                 </div>
             </header>
             <div class="chat-dialog__scroll">
+                <div id="chatChooser" class="chat-chooser" hidden aria-hidden="true">
+                    <button type="button" id="chatChooserMic" class="chat-chooser__mic"
+                        aria-label="Start voice — the agent will greet you first"
+                        data-track="chat_chooser_mic">
+                        <span class="chat-chooser__halo chat-chooser__halo--outer" aria-hidden="true"></span>
+                        <span class="chat-chooser__halo chat-chooser__halo--inner" aria-hidden="true"></span>
+                        <svg class="chat-chooser__mic-icon" width="56" height="56" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                            <path d="M12 1c-1.66 0-3 1.34-3 3v8c0 1.66 1.34 3 3 3s3-1.34 3-3V4c0-1.66-1.34-3-3-3zm6 11c0 3.31-2.69 6-6 6s-6-2.69-6-6H4c0 4.08 3.05 7.44 7 7.93V23h2v-3.07c3.95-.49 7-3.85 7-7.93h-2z" />
+                        </svg>
+                    </button>
+                    <p class="chat-chooser__caption">Tap to talk — I'll greet you first</p>
+                    <p class="chat-chooser__hint">Or type a question below.</p>
+                </div>
                 <p id="chatEmptyState" class="chat-empty-state">Pick a starter below, or ask anything. Grounded in my actual projects and services.</p>
                 <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
             </div>

@@ -248,6 +248,8 @@ export function initChat() {
   const closeBtn = dialog?.querySelector('.chat-dialog__close')
   const messagesEl = document.getElementById('chatMessages')
   const emptyStateEl = document.getElementById('chatEmptyState')
+  const chooserEl = document.getElementById('chatChooser')
+  const chooserMicBtn = document.getElementById('chatChooserMic')
   const dialogSuggestions = document.getElementById('chatDialogSuggestions')
   const composer = document.getElementById('chatComposer')
   const composerInput = document.getElementById('chatComposerInput')
@@ -445,20 +447,45 @@ export function initChat() {
     })
   }
 
+  /** Phase 2: when set, the visitor explicitly typed (or sent text) — collapse
+   *  the chooser even on an empty transcript so they're not pulled back to the
+   *  big mic mid-thought. Reset on Start over. */
+  let chooserDismissed = false
+
   const syncEmptyState = () => {
     const hasMessages = messagesEl.children.length > 0
+    // Chooser only shows when voice is wired and the visitor hasn't opted into
+    // text yet. Visible state hides the legacy welcome text + chips so the big
+    // mic doesn't have to compete for attention.
+    const showChooser = Boolean(chatVoiceFeatureEnabled && chooserEl && !hasMessages && !chooserDismissed)
+
+    if (chooserEl) {
+      chooserEl.hidden = !showChooser
+      chooserEl.setAttribute('aria-hidden', showChooser ? 'false' : 'true')
+    }
+    if (composer) {
+      composer.classList.toggle('chat-composer--subdued', showChooser)
+    }
+    if (composerInput) {
+      composerInput.placeholder = showChooser
+        ? 'Or type a question…'
+        : 'Ask a follow-up…'
+    }
+
     if (emptyStateEl) {
-      emptyStateEl.hidden = hasMessages
-      emptyStateEl.setAttribute('aria-hidden', hasMessages ? 'true' : 'false')
-      if (!hasMessages) {
+      const showEmpty = !hasMessages && !showChooser
+      emptyStateEl.hidden = !showEmpty
+      emptyStateEl.setAttribute('aria-hidden', showEmpty ? 'false' : 'true')
+      if (showEmpty) {
         const sec = normalizeSection(launcherState.section)
         emptyStateEl.textContent = CHAT_EMPTY_HINT_BY_SECTION[sec] || CHAT_EMPTY_HINT_BY_SECTION.home
       }
     }
     if (dialogSuggestions) {
-      dialogSuggestions.hidden = hasMessages
-      dialogSuggestions.setAttribute('aria-hidden', hasMessages ? 'true' : 'false')
-      if (!hasMessages && state.agentNodeApi?.getPlaceholderSuggestion) {
+      const showChips = !hasMessages && !showChooser
+      dialogSuggestions.hidden = !showChips
+      dialogSuggestions.setAttribute('aria-hidden', showChips ? 'false' : 'true')
+      if (showChips && state.agentNodeApi?.getPlaceholderSuggestion) {
         renderDialogPlaceholderChips(state.agentNodeApi.getPlaceholderSuggestion())
       }
     }
@@ -682,7 +709,15 @@ export function initChat() {
       syncEmptyState()
       autosizeComposer()
       reconcileComposerControls()
-      composerInput.focus()
+      // Phase 2: when the chooser is on screen the big mic is the primary
+      // action; focusing the composer instead would pull keyboard users away
+      // from it. Composer stays Tab-reachable.
+      const chooserOpen = chooserEl && !chooserEl.hidden
+      if (chooserOpen && chooserMicBtn) {
+        chooserMicBtn.focus()
+      } else {
+        composerInput.focus()
+      }
     })
   }
 
@@ -749,6 +784,10 @@ export function initChat() {
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
     messagesEl.textContent = ''
+    chooserDismissed = false
+    if (liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
+      liveVoice.stopVoice({ silent: true })
+    }
     syncEmptyState()
     state.history = []
     state.sessionId = renewSessionId()
@@ -990,7 +1029,38 @@ export function initChat() {
 
   composerInput.addEventListener('input', () => {
     autosizeComposer()
+    // First keystroke into the composer = visitor chose the text path. Collapse
+    // the chooser and close any live session that was already mid-greeting so
+    // we're not playing audio while they're trying to read what they typed.
+    if (!chooserDismissed && composerInput.value.length > 0) {
+      chooserDismissed = true
+      if (liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
+        liveVoice.stopVoice({ silent: true })
+      }
+      syncEmptyState()
+    }
   })
+
+  // Phase 2: tapping the chooser big mic is the "I'm ready, agent — greet me
+  // and turn on the mic" gesture. detectMicPermissionState() inside the live
+  // voice module picks warm vs cold; either way the session opens and the
+  // visitor hears the agent within ~1s.
+  if (chooserMicBtn) {
+    chooserMicBtn.addEventListener('click', () => {
+      trackEvent('chat_chooser_mic', {})
+      if (!liveVoice || typeof liveVoice.startVoice !== 'function') {
+        setStatus('Voice is not available right now.', 'error')
+        return
+      }
+      // Already in cold-greeting state (greeting playing, no mic): attach mic.
+      // Otherwise: open the session (which will also greet).
+      if (liveVoice.isSessionOpen?.() && !liveVoice.isActive?.()) {
+        void liveVoice.attachMicrophone?.()
+      } else {
+        void liveVoice.startVoice({ intent: 'auto' })
+      }
+    })
+  }
 
   backdrop?.addEventListener('click', () => closePanel())
   closeBtn?.addEventListener('click', () => closePanel())

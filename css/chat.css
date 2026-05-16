@@ -969,6 +969,114 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     flex-shrink: 0;
 }
 
+/* ── Chooser (Phase 2): voice-first entry surface inside the dialog ── */
+/* Shown when chatVoiceFeatureEnabled and the conversation is empty. The big
+ * mic is the dominant CTA; the composer (rendered separately, below) becomes
+ * the quieter secondary path. Hides itself the moment any message lands. */
+.chat-chooser {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    padding: 2.25rem 1rem 1rem;
+    margin: auto;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.chat-chooser__mic {
+    position: relative;
+    width: 132px;
+    height: 132px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--chat-launcher-glow-chrome) 70%, transparent);
+    background: radial-gradient(circle at 30% 30%,
+        color-mix(in srgb, var(--chat-launcher-glow-chrome) 26%, transparent),
+        color-mix(in srgb, var(--chat-launcher-glow-chrome) 8%, transparent) 70%);
+    color: var(--chat-launcher-glow-chrome);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    padding: 0;
+    transition: transform 160ms ease, background 220ms ease, box-shadow 220ms ease;
+}
+
+.chat-chooser__mic:hover,
+.chat-chooser__mic:focus-visible {
+    transform: scale(1.04);
+    background: radial-gradient(circle at 30% 30%,
+        color-mix(in srgb, var(--chat-launcher-glow-chrome) 42%, transparent),
+        color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent) 70%);
+    box-shadow: 0 18px 38px -12px color-mix(in srgb, var(--chat-launcher-glow-chrome) 55%, transparent);
+    outline: none;
+}
+
+.chat-chooser__mic:active {
+    transform: scale(0.98);
+}
+
+.chat-chooser__mic-icon {
+    position: relative;
+    z-index: 1;
+    display: block;
+}
+
+.chat-chooser__halo {
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    opacity: 0.35;
+    pointer-events: none;
+    animation: gvp-chooser-halo 2.6s ease-out infinite;
+}
+
+.chat-chooser__halo--inner {
+    inset: 0;
+    animation-delay: 0.6s;
+    opacity: 0.5;
+}
+
+@keyframes gvp-chooser-halo {
+    0% { opacity: 0.55; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.45); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-chooser__halo {
+        animation: none;
+        opacity: 0.45;
+        transform: none;
+    }
+}
+
+.chat-chooser__caption {
+    margin: 0;
+    font-family: var(--font-display, inherit);
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--text, inherit);
+}
+
+.chat-chooser__hint {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    opacity: 0.85;
+}
+
+/* Subdue the composer when the chooser is on screen so the big mic owns the
+ * eye. The composer is still fully usable — just visually quieter. */
+.chat-composer.chat-composer--subdued textarea {
+    background: transparent;
+    opacity: 0.78;
+}
+
+.chat-composer.chat-composer--subdued .chat-composer__send {
+    opacity: 0.7;
+}
+
 .chat-dialog__suggestions {
     display: flex;
     flex-wrap: wrap;
