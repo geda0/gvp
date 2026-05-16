@@ -248,6 +248,7 @@ export function initChat() {
   const closeBtn = dialog?.querySelector('.chat-dialog__close')
   const messagesEl = document.getElementById('chatMessages')
   const emptyStateEl = document.getElementById('chatEmptyState')
+  const dockEl = document.getElementById('chatDialogDock')
   const voicePaneEl = document.getElementById('chatVoicePane')
   const voiceStartEl = document.getElementById('chatVoiceStart')
   const voiceStartBtn = document.getElementById('chatVoiceStartBtn')
@@ -452,8 +453,26 @@ export function initChat() {
   }
 
   const liveUi = { active: false, connecting: false }
+  let dockMode = 'voice'
   let voiceAwaitingStart = false
   let voiceStartRequested = false
+
+  const getEffectiveDockMode = () => {
+    if (!chatVoiceFeatureEnabled) return 'text'
+    if (liveUi.active || liveUi.connecting) return 'voice'
+    return dockMode === 'text' ? 'text' : 'voice'
+  }
+
+  const syncDockMode = () => {
+    const mode = getEffectiveDockMode()
+    if (dockEl) dockEl.dataset.dockMode = mode
+    if (panel) panel.dataset.dockMode = mode
+  }
+
+  const focusDockTarget = (target) => {
+    if (target === 'voice') voiceStartBtn?.focus()
+    else composerInput?.focus()
+  }
 
   const clearVoiceAwaitingStart = () => {
     voiceAwaitingStart = false
@@ -462,14 +481,26 @@ export function initChat() {
     reconcileVoicePane()
   }
 
-  const openPanelAwaitingVoiceStart = () => {
-    voiceAwaitingStart = true
-    if (!isOpen()) openPanel({ voiceGate: true })
+  const setDockMode = (mode, { awaitingVoice = false, focus = null } = {}) => {
+    if (!chatVoiceFeatureEnabled) {
+      dockMode = 'text'
+    } else {
+      dockMode = mode === 'text' ? 'text' : 'voice'
+    }
+    if (awaitingVoice && dockMode === 'voice' && !liveUi.active) {
+      voiceAwaitingStart = true
+    } else if (dockMode === 'text' && !liveUi.active && !liveUi.connecting) {
+      voiceAwaitingStart = false
+      voiceStartRequested = false
+    }
+    syncDockMode()
     reconcileVoicePane()
-    requestAnimationFrame(() => {
-      if (!isOpen()) return
-      voiceStartBtn?.focus()
-    })
+    syncEmptyState()
+    if (focus) requestAnimationFrame(() => focusDockTarget(focus))
+  }
+
+  const openPanelAwaitingVoiceStart = () => {
+    openPanel({ mode: 'voice' })
   }
 
   const syncEmptyState = () => {
@@ -481,7 +512,8 @@ export function initChat() {
     }
 
     if (emptyStateEl) {
-      const showEmpty = !hasMessages && !liveUi.active && !liveUi.connecting && !voiceAwaitingStart
+      const showEmpty = !hasMessages && !liveUi.active && !liveUi.connecting
+        && getEffectiveDockMode() === 'text'
       emptyStateEl.hidden = !showEmpty
       emptyStateEl.setAttribute('aria-hidden', showEmpty ? 'false' : 'true')
       if (showEmpty) {
@@ -490,7 +522,8 @@ export function initChat() {
       }
     }
     if (dialogSuggestions) {
-      const showChips = !hasMessages && !liveUi.active && !liveUi.connecting && !voiceAwaitingStart
+      const showChips = !hasMessages && !liveUi.active && !liveUi.connecting
+        && getEffectiveDockMode() === 'text'
       dialogSuggestions.hidden = !showChips
       dialogSuggestions.setAttribute('aria-hidden', showChips ? 'false' : 'true')
       if (showChips && state.agentNodeApi?.getPlaceholderSuggestion) {
@@ -670,18 +703,34 @@ export function initChat() {
    *  Status text follows the voice state (greeting / listening / speaking is
    *  hinted by the aura — copy stays simple to avoid distracting flicker). */
   const reconcileVoicePane = () => {
-    if (!voicePaneEl) return
     const showLive = Boolean(liveUi.active)
     const showConnecting = Boolean(liveUi.connecting)
+
+    if (
+      !showLive
+      && !showConnecting
+      && getEffectiveDockMode() === 'voice'
+      && chatVoiceFeatureEnabled
+      && !liveUi.sessionOpen
+      && !voiceAwaitingStart
+      && !voiceStartRequested
+    ) {
+      voiceAwaitingStart = true
+    }
+
     const showStartGate = Boolean(
       chatVoiceFeatureEnabled
       && (voiceAwaitingStart || voiceStartRequested || showConnecting)
       && !showLive
     )
-    const showPaneShell = showStartGate || showLive
 
-    voicePaneEl.hidden = !showPaneShell
-    voicePaneEl.setAttribute('aria-hidden', showPaneShell ? 'false' : 'true')
+    syncDockMode()
+
+    if (dockEl) {
+      dockEl.classList.toggle('chat-dialog__dock--live', showLive)
+      dockEl.hidden = false
+      dockEl.setAttribute('aria-hidden', 'false')
+    }
 
     if (voiceStartEl) {
       voiceStartEl.hidden = !showStartGate
@@ -701,21 +750,13 @@ export function initChat() {
 
     if (panel) {
       panel.toggleAttribute('data-voice-active', showLive)
-      panel.toggleAttribute('data-voice-pending', showStartGate || showConnecting)
     }
-    if (composer) composer.hidden = showLive || showStartGate || showConnecting
-    if (dialogSuggestions && (showLive || showConnecting || showStartGate)) {
-      dialogSuggestions.hidden = true
-      dialogSuggestions.setAttribute('aria-hidden', 'true')
-    }
-    if (composerMic) {
-      const hideHeaderMic = showLive || showStartGate || showConnecting
-      composerMic.hidden = hideHeaderMic
-      if (hideHeaderMic) {
-        composerMic.setAttribute('aria-hidden', 'true')
-      } else if (chatVoiceFeatureEnabled) {
-        composerMic.removeAttribute('aria-hidden')
-      }
+    if (composerMic && chatVoiceFeatureEnabled) {
+      composerMic.hidden = true
+      composerMic.setAttribute('aria-hidden', 'true')
+    } else if (composerMic) {
+      composerMic.hidden = false
+      composerMic.removeAttribute('aria-hidden')
     }
     if (voicePaneStatusEl) {
       voicePaneStatusEl.textContent = showLive
@@ -784,6 +825,7 @@ export function initChat() {
       liveVoice.stopVoice?.({ silent: true })
     }
     clearVoiceAwaitingStart()
+    dockMode = 'voice'
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -803,9 +845,22 @@ export function initChat() {
     })
   }
 
-  const openPanel = ({ voiceGate = false } = {}) => {
-    if (isOpen()) return
-    if (!voiceGate) clearVoiceAwaitingStart()
+  const openPanel = ({ mode = 'text' } = {}) => {
+    const wantVoice = mode === 'voice' && chatVoiceFeatureEnabled
+    if (isOpen()) {
+      setDockMode(wantVoice ? 'voice' : 'text', {
+        awaitingVoice: wantVoice,
+        focus: wantVoice ? 'voice' : 'text'
+      })
+      return
+    }
+    if (wantVoice) {
+      dockMode = 'voice'
+      voiceAwaitingStart = true
+    } else {
+      dockMode = 'text'
+      clearVoiceAwaitingStart()
+    }
     composerInput.value = ''
     autosizeComposer()
     state.lastFocus = document.activeElement
@@ -834,7 +889,9 @@ export function initChat() {
       syncEmptyState()
       autosizeComposer()
       reconcileComposerControls()
-      composerInput.focus()
+      reconcileVoicePane()
+      if (wantVoice) voiceStartBtn?.focus()
+      else composerInput.focus()
     })
   }
 
@@ -1147,8 +1204,13 @@ export function initChat() {
     void sendMessage(composerInput.value, 'composer')
   })
 
+  composerInput.addEventListener('focus', () => {
+    if (getEffectiveDockMode() !== 'text') setDockMode('text')
+  })
+
   composerInput.addEventListener('input', () => {
     autosizeComposer()
+    if (getEffectiveDockMode() !== 'text') setDockMode('text')
     if (composerInput.value.length > 0 && liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
       liveVoice.stopVoice({ silent: true })
     }
@@ -1194,12 +1256,7 @@ export function initChat() {
   if (heroTypeBtn) {
     heroTypeBtn.addEventListener('click', () => {
       trackEvent('hero_voice_type_instead', {})
-      clearVoiceAwaitingStart()
-      openPanel()
-      requestAnimationFrame(() => {
-        if (!isOpen()) return
-        composerInput.focus()
-      })
+      openPanel({ mode: 'text' })
     })
   }
 
@@ -1218,6 +1275,20 @@ export function initChat() {
   })
 
   dialog.addEventListener('click', (event) => {
+    const switchEl = event.target.closest('[data-dock-switch]')
+    if (switchEl && dialog.contains(switchEl)) {
+      const target = switchEl.dataset.dockSwitch
+      if (target === 'text') {
+        trackEvent('chat_dock_switch_text', {})
+        setDockMode('text', { focus: 'text' })
+        return
+      }
+      if (target === 'voice') {
+        trackEvent('chat_dock_switch_voice', {})
+        setDockMode('voice', { awaitingVoice: true, focus: 'voice' })
+        return
+      }
+    }
     const actionEl = event.target.closest('[data-action]')
     if (!actionEl) return
     const action = actionEl.dataset.action
@@ -1236,6 +1307,9 @@ export function initChat() {
     }
   })
 
+  if (dockEl) {
+    dockEl.classList.toggle('chat-dialog__dock--text-only', !chatVoiceFeatureEnabled)
+  }
   autosizeComposer()
   syncEmptyState()
   agentInput.readOnly = launcherReadOnlyForDevice()
@@ -1243,7 +1317,7 @@ export function initChat() {
   chatBus.emit('idle', { source: 'chat-init' })
 
   const onOpenChatEvent = () => {
-    openPanel()
+    openPanel({ mode: 'text' })
     reconcileComposerControls()
   }
   window.addEventListener(EV_OPEN_CHAT, onOpenChatEvent)
@@ -1301,7 +1375,8 @@ export function initChat() {
     onVoiceLauncherRequest: () => {
       if (liveUi.active || liveUi.connecting) return false
       if (liveVoice?.isSessionOpen?.()) return false
-      openPanelAwaitingVoiceStart()
+      if (!isOpen()) openPanel({ mode: 'voice' })
+      else setDockMode('voice', { awaitingVoice: true, focus: 'voice' })
       return true
     },
   }) || {}

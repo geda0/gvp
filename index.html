@@ -291,47 +291,58 @@
                 <p id="chatEmptyState" class="chat-empty-state">Pick a starter below, or ask anything. Grounded in my actual projects and services.</p>
                 <ol id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"></ol>
             </div>
-            <div id="chatDialogSuggestions" class="chat-dialog__suggestions" aria-label="Suggested prompts">
+            <div id="chatDialogDock" class="chat-dialog__dock" data-dock-mode="voice">
+                <div class="chat-dialog__dock-collapse chat-dialog__dock-collapse--voice">
+                    <div class="chat-dialog__dock-collapse-inner">
+                        <div id="chatVoicePane" class="chat-voice-pane">
+                            <div id="chatVoiceStart" class="chat-voice-pane__start" hidden aria-hidden="true">
+                                <button type="button" id="chatVoiceStartBtn" class="chat-voice-pane__start-btn"
+                                    data-track="chat_voice_start">
+                                    <span class="chat-voice-pane__start-dot" aria-hidden="true"></span>
+                                    <span class="chat-voice-pane__start-label">Start live chat</span>
+                                </button>
+                                <p class="chat-voice-pane__start-hint">Uses your microphone. The assistant will greet you, then you can talk.</p>
+                                <button type="button" class="chat-dialog__dock-switch" data-dock-switch="text"
+                                    data-track="chat_dock_switch_text">or type a question</button>
+                            </div>
+                            <div id="chatVoiceLive" class="chat-voice-pane__live" hidden aria-hidden="true">
+                                <div class="chat-voice-pane__levels" aria-hidden="true">
+                                    <span class="chat-voice-pane__halo chat-voice-pane__halo--output"></span>
+                                    <span class="chat-voice-pane__halo chat-voice-pane__halo--input"></span>
+                                </div>
+                                <div class="chat-voice-pane__row">
+                                    <span class="chat-voice-pane__dot" aria-hidden="true"></span>
+                                    <p id="chatVoicePaneStatus" class="chat-voice-pane__status" role="status" aria-live="polite">Listening…</p>
+                                    <button type="button" id="chatVoiceMic" class="chat-voice-pane__stop"
+                                        aria-label="End voice session"
+                                        data-track="chat_voice_stop">End</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-dialog__dock-collapse chat-dialog__dock-collapse--text">
+                    <div class="chat-dialog__dock-collapse-inner">
+                        <div id="chatDialogSuggestions" class="chat-dialog__suggestions" aria-label="Suggested prompts">
+                        </div>
+                        <form id="chatComposer" class="chat-composer" novalidate>
+                            <label for="chatComposerInput" class="visually-hidden">Message to chat assistant</label>
+                            <div class="chat-composer__row chat-composer__row--stacked">
+                                <div class="chat-composer__field">
+                                    <textarea id="chatComposerInput" rows="1" placeholder="Ask a follow-up…" data-track="chat_composer_focus"></textarea>
+                                </div>
+                                <button type="submit" class="chat-composer__send chat-composer__send--wide" aria-label="Send message"
+                                    data-track="chat_composer_submit">
+                                    <span class="chat-composer__send-icon" aria-hidden="true">↑</span>
+                                    <span class="chat-composer__send-label">Send</span>
+                                </button>
+                            </div>
+                        </form>
+                        <button type="button" class="chat-dialog__dock-switch chat-dialog__dock-switch--voice" data-dock-switch="voice"
+                            data-track="chat_dock_switch_voice">Start live voice instead</button>
+                    </div>
+                </div>
             </div>
-            <!-- Phase 3b: shown while voice is active. Replaces the composer for
-                 the duration. Dual aura is driven by --gvp-voice-input-level and
-                 --gvp-voice-output-level CSS vars (mic RMS + model PCM RMS). -->
-            <div id="chatVoicePane" class="chat-voice-pane" hidden aria-hidden="true">
-                <div id="chatVoiceStart" class="chat-voice-pane__start" hidden aria-hidden="true">
-                    <button type="button" id="chatVoiceStartBtn" class="chat-voice-pane__start-btn"
-                        data-track="chat_voice_start">
-                        <span class="chat-voice-pane__start-dot" aria-hidden="true"></span>
-                        <span class="chat-voice-pane__start-label">Start live chat</span>
-                    </button>
-                    <p class="chat-voice-pane__start-hint">Uses your microphone. The assistant will greet you, then you can talk.</p>
-                </div>
-                <div id="chatVoiceLive" class="chat-voice-pane__live" hidden aria-hidden="true">
-                    <div class="chat-voice-pane__levels" aria-hidden="true">
-                        <span class="chat-voice-pane__halo chat-voice-pane__halo--output"></span>
-                        <span class="chat-voice-pane__halo chat-voice-pane__halo--input"></span>
-                    </div>
-                    <div class="chat-voice-pane__row">
-                        <span class="chat-voice-pane__dot" aria-hidden="true"></span>
-                        <p id="chatVoicePaneStatus" class="chat-voice-pane__status" role="status" aria-live="polite">Listening…</p>
-                        <button type="button" id="chatVoiceMic" class="chat-voice-pane__stop"
-                            aria-label="End voice session"
-                            data-track="chat_voice_stop">End</button>
-                    </div>
-                </div>
-            </div>
-            <form id="chatComposer" class="chat-composer" novalidate>
-                <label for="chatComposerInput" class="visually-hidden">Message to chat assistant</label>
-                <div class="chat-composer__row chat-composer__row--stacked">
-                    <div class="chat-composer__field">
-                        <textarea id="chatComposerInput" rows="1" placeholder="Ask a follow-up…" data-track="chat_composer_focus"></textarea>
-                    </div>
-                    <button type="submit" class="chat-composer__send chat-composer__send--wide" aria-label="Send message"
-                        data-track="chat_composer_submit">
-                        <span class="chat-composer__send-icon" aria-hidden="true">↑</span>
-                        <span class="chat-composer__send-label">Send</span>
-                    </button>
-                </div>
-            </form>
             <p id="chatStatus" class="chat-status" role="status" aria-live="polite"></p>
             <footer class="chat-dialog__footer">
                 <button type="button" class="chat-dialog__action" data-action="open-contact" data-track="chat_footer_open_contact">Get in touch</button>
