@@ -8,16 +8,14 @@ import { chatApiUrl, chatVoiceFeatureEnabled } from './site-config.js'
 
 const INPUT_RATE = 16000
 
-/** Cap queued PCM chunks so playback scheduling cannot grow without bound. */
-const PCM_JITTER_MAX_QUEUED_CHUNKS = 256
-/** Drop scheduled playback and reset only when way past sane (seconds). The old
- *  4.5 s value was killing legitimate multi-paragraph responses: the model
- *  generates faster than 1× realtime, the buffer crossed the limit mid-reply,
- *  the player flushed, and the next chunk audibly started a new sentence
- *  without finishing the prior one. Use 90 s — long enough for any single turn
- *  the model can produce inside its own 25-min session ceiling. Real barge-in
- *  comes from `serverContent.interrupted`, which still calls `interrupt()`. */
-const PCM_JITTER_MAX_AHEAD_SEC = 90
+/** Hard cap on queued PCM chunks. At ~1s/chunk (Gemini Live's typical output
+ *  cadence) this is ~17 minutes of buffer — well above any single turn, well
+ *  below memory pressure. When hit, the player drops NEW chunks via
+ *  backpressure (see PcmJitterPlayer.enqueue). The old behavior flushed the
+ *  *queue* mid-reply, which audibly cut the agent off ("…and then we…" stops,
+ *  next chunk starts a new sentence) — strictly worse than dropping incoming.
+ *  Real barge-in still goes through `serverContent.interrupted` → interrupt(). */
+const PCM_JITTER_MAX_QUEUED_CHUNKS = 1024
 /** Close voice if the WebSocket sends nothing for this long (ms). */
 const VOICE_WS_IDLE_MS = 3 * 60 * 1000
 /** Close an open-but-mic-less voice session after this idle stretch (ms).
@@ -380,11 +378,27 @@ function finalizeBubble(el, text) {
   el.querySelector('.chat-msg__cursor')?.remove()
 }
 
+/** Cheap RMS over a Float32 PCM frame; used for the speaking-aura and the
+ *  mic-input aura. Returning 0 for empty input keeps the callback contract
+ *  predictable (consumers can read the level as "speech amplitude in [0,1]"). */
+function pcmFrameRms(floats) {
+  if (!floats || !floats.length) return 0
+  let sum = 0
+  for (let i = 0; i < floats.length; i++) {
+    const v = floats[i]
+    sum += v * v
+  }
+  return Math.sqrt(sum / floats.length)
+}
+
 class PcmJitterPlayer {
-  constructor() {
+  /** onLevel?: (rms in [0,1]) => void — invoked per chunk (model speaking) and
+   *  with 0 when playback drains/interrupts (drives the speaking-aura). */
+  constructor({ onLevel } = {}) {
     this.ctx = null
     this.sources = []
     this.scheduledEnd = 0
+    this.onLevel = typeof onLevel === 'function' ? onLevel : null
   }
 
   async ensure(sampleRate) {
@@ -407,19 +421,22 @@ class PcmJitterPlayer {
     }
     this.sources = []
     if (this.ctx) this.scheduledEnd = this.ctx.currentTime
+    this.onLevel?.(0)
   }
 
   async enqueue(floats, sampleRate) {
     const ctx = await this.ensure(sampleRate)
     const sr = ctx.sampleRate
     const now = ctx.currentTime
-    if (
-      this.sources.length >= PCM_JITTER_MAX_QUEUED_CHUNKS
-      || (this.sources.length > 0 && this.scheduledEnd - now > PCM_JITTER_MAX_AHEAD_SEC)
-    ) {
-      this.interrupt()
+    if (this.sources.length >= PCM_JITTER_MAX_QUEUED_CHUNKS) {
+      // Backpressure: drop incoming chunks instead of flushing what's already
+      // playing. Listener still hears the in-flight sentence finish; we just
+      // stop chasing a runaway producer. The hard cap is generous enough that
+      // hitting it = the model is misbehaving, not normal speech.
+      return
     }
     const adjusted = sampleRate === sr ? floats : resampleLinear(floats, sampleRate, sr)
+    this.onLevel?.(pcmFrameRms(adjusted))
     const buffer = ctx.createBuffer(1, adjusted.length, sr)
     buffer.copyToChannel(adjusted, 0)
     const src = ctx.createBufferSource()
@@ -431,6 +448,7 @@ class PcmJitterPlayer {
     src.onended = () => {
       const i = this.sources.indexOf(src)
       if (i >= 0) this.sources.splice(i, 1)
+      if (this.sources.length === 0) this.onLevel?.(0)
     }
     this.scheduledEnd = startAt + buffer.duration
   }
@@ -478,8 +496,17 @@ export function bindChatLiveVoice(opts) {
     openPanel,
     isPanelOpen,
     patchLiveUi,
-    onToolCall
+    onToolCall,
+    /** Optional level callback: ({ input, output }) every audio frame.
+     *  Both are RMS in [0,1]. Phase 3b's aura subscribes to drive CSS vars. */
+    onAudioLevels
   } = opts
+
+  const emitLevel = typeof onAudioLevels === 'function'
+    ? (which, rms) => {
+        try { onAudioLevels({ source: which, level: rms }) } catch (_) {}
+      }
+    : null
 
   const micButtons = normalizeMicButtons(opts)
   if (!micButtons.length || !messagesEl) return () => {}
@@ -977,7 +1004,9 @@ export function bindChatLiveVoice(opts) {
         voiceSessionOpen = true
         setupDone = false
         wsOpened = false
-        player = new PcmJitterPlayer()
+        player = new PcmJitterPlayer({
+          onLevel: emitLevel ? (rms) => emitLevel('output', rms) : undefined,
+        })
 
         const setupReadyPromise = new Promise((resolve, reject) => {
           pendingSetupLatch = { resolve, reject, timeoutId: null }
@@ -1120,6 +1149,7 @@ export function bindChatLiveVoice(opts) {
         processor.port.onmessage = (ev) => {
           const buf = ev.data
           if (!(buf instanceof Float32Array)) return
+          if (emitLevel) emitLevel('input', pcmFrameRms(buf))
           sendMicFrame(buf)
         }
         processor.connect(mute)
@@ -1131,7 +1161,9 @@ export function bindChatLiveVoice(opts) {
     if (!micTapOk) {
       processor = audioCtx.createScriptProcessor(4096, 1, 1)
       processor.onaudioprocess = (event) => {
-        sendMicFrame(event.inputBuffer.getChannelData(0))
+        const ch = event.inputBuffer.getChannelData(0)
+        if (emitLevel) emitLevel('input', pcmFrameRms(ch))
+        sendMicFrame(ch)
       }
       processor.connect(mute)
     }

@@ -250,6 +250,9 @@ export function initChat() {
   const emptyStateEl = document.getElementById('chatEmptyState')
   const chooserEl = document.getElementById('chatChooser')
   const chooserMicBtn = document.getElementById('chatChooserMic')
+  const voicePaneEl = document.getElementById('chatVoicePane')
+  const voicePaneMicBtn = document.getElementById('chatVoiceMic')
+  const voicePaneStatusEl = document.getElementById('chatVoicePaneStatus')
   const dialogSuggestions = document.getElementById('chatDialogSuggestions')
   const composer = document.getElementById('chatComposer')
   const composerInput = document.getElementById('chatComposerInput')
@@ -641,7 +644,66 @@ export function initChat() {
   const patchLiveUi = (patch) => {
     if ('active' in patch) liveUi.active = Boolean(patch.active)
     if ('connecting' in patch) liveUi.connecting = Boolean(patch.connecting)
+    if ('sessionOpen' in patch) liveUi.sessionOpen = Boolean(patch.sessionOpen)
     reconcileComposerControls()
+    reconcileVoicePane()
+  }
+
+  /** Phase 3b: while voice is active the pane replaces the composer + chip row.
+   *  Status text follows the voice state (greeting / listening / speaking is
+   *  hinted by the aura — copy stays simple to avoid distracting flicker). */
+  const reconcileVoicePane = () => {
+    if (!voicePaneEl) return
+    const showPane = Boolean(liveUi.active)
+    voicePaneEl.hidden = !showPane
+    voicePaneEl.setAttribute('aria-hidden', showPane ? 'false' : 'true')
+    if (composer) composer.hidden = showPane
+    if (dialogSuggestions && showPane) {
+      dialogSuggestions.hidden = true
+      dialogSuggestions.setAttribute('aria-hidden', 'true')
+    }
+    if (voicePaneStatusEl) {
+      voicePaneStatusEl.textContent = showPane
+        ? "Listening — speak about Marwan's work."
+        : 'Listening…'
+    }
+    if (!showPane) {
+      // Clear the level vars so the next session doesn't carry over the prior
+      // last-rendered amplitudes during the show transition.
+      voicePaneEl.style.removeProperty('--gvp-voice-input-level')
+      voicePaneEl.style.removeProperty('--gvp-voice-output-level')
+    }
+  }
+
+  // rAF-coalesce live audio levels into CSS vars on the pane. Audio frames
+  // arrive every ~30ms; we throttle DOM writes to display rate. Smoothing
+  // (max of recent vs. new × decay) keeps the halo from flashing on attack.
+  let levelState = { input: 0, output: 0 }
+  let levelFrame = 0
+  let pendingLevelWrite = false
+  const flushLevels = () => {
+    pendingLevelWrite = false
+    if (!voicePaneEl) return
+    voicePaneEl.style.setProperty('--gvp-voice-input-level', levelState.input.toFixed(3))
+    voicePaneEl.style.setProperty('--gvp-voice-output-level', levelState.output.toFixed(3))
+  }
+  const scheduleLevelWrite = () => {
+    if (pendingLevelWrite) return
+    pendingLevelWrite = true
+    levelFrame = requestAnimationFrame(flushLevels)
+  }
+  const SMOOTH_DECAY = 0.82  // higher = slower fall-off; tuned so the halo
+                              // breathes with cadence instead of strobing.
+  const handleAudioLevels = ({ source, level }) => {
+    // Normalize RMS roughly into [0,1] — speech sits around 0.05-0.20 RMS, so
+    // multiply to push the halo into a visible range without hard-clipping.
+    const visual = Math.min(1, Math.max(0, level * 5.5))
+    if (source === 'input') {
+      levelState.input = Math.max(visual, levelState.input * SMOOTH_DECAY)
+    } else if (source === 'output') {
+      levelState.output = Math.max(visual, levelState.output * SMOOTH_DECAY)
+    }
+    scheduleLevelWrite()
   }
 
   const setComposerBusy = (busy) => {
@@ -1140,7 +1202,7 @@ export function initChat() {
   }
 
   const liveVoice = bindChatLiveVoice({
-    micButtons: chatVoiceFeatureEnabled ? [composerMic, agentNodeMic].filter(Boolean) : [],
+    micButtons: chatVoiceFeatureEnabled ? [composerMic, agentNodeMic, voicePaneMicBtn].filter(Boolean) : [],
     messagesEl,
     statusEl,
     syncEmptyState,
@@ -1151,7 +1213,8 @@ export function initChat() {
     openPanel,
     isPanelOpen: isOpen,
     patchLiveUi,
-    onToolCall: applyVoiceToolCall
+    onToolCall: applyVoiceToolCall,
+    onAudioLevels: handleAudioLevels,
   }) || {}
 
   // Compat: old call sites expected a dispose function. Keep that shape too.
