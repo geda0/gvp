@@ -42,7 +42,7 @@ body.chat-dialog-open {
 }
 
 .hero-chat__hint {
-    margin: 0.15rem auto 0.55rem;
+    margin: 0.15rem auto 0.75rem;
     max-width: min(36rem, 100%);
     width: 100%;
     padding: 0 0.35rem;
@@ -76,7 +76,7 @@ body.chat-dialog-open {
     flex-wrap: wrap;
     gap: 0.4rem;
     justify-content: center;
-    margin-top: 0.65rem;
+    margin-top: 0.75rem;
 }
 
 .hero-chat__suggestions[hidden] {

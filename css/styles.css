@@ -8,6 +8,8 @@
     --bg-primary: #0a0e14;
     --text-primary: #e8eaef;
     --text-muted: rgba(232, 234, 239, 0.72);
+    --text-muted-plus: rgba(232, 234, 239, 0.88);
+    --text-muted-extra: rgba(232, 234, 239, 0.61);
     --text-subtle: rgba(232, 234, 239, 0.5);
 
     --surface: rgba(255, 255, 255, 0.04);
@@ -743,6 +745,10 @@ body > footer .footer-contact-open {
     transition: color 0.2s ease;
 }
 
+body > footer .footer-link-spacing {
+    padding: 0 0.5rem;
+}
+
 body > footer .footer-chat-open:hover,
 body > footer .footer-contact-open:hover {
     color: var(--footer-link-hover);
@@ -1052,42 +1058,27 @@ section#portfolioProjects.visible.content-section-reveal {
 
 .hero-eyebrow {
     font-family: var(--font-body);
-    font-size: 0.88rem;
+    font-size: 0.72rem;
     font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: none;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
     color: var(--text-muted);
-    margin: 0 auto 0rem;
-    max-width: 42rem;
-}
-
-.hero-subtitle {
-    font-size: clamp(1rem, 2.5vw, 1.12rem);
-    line-height: 1.45;
-    color: var(--text-primary);
-    margin: 0 auto 0.15rem;
-    font-weight: 600;
-    font-family: var(--font-body);
-    max-width: 38rem;
-    letter-spacing: -0.02em;
-}
-
-.hero-lede {
-    font-family: var(--font-body);
-    font-size: clamp(0.92rem, 2.35vw, 1.02rem);
-    line-height: 1.6;
-    font-weight: 500;
-    color: var(--text-muted);
-    max-width: 38rem;
-    margin: 0 auto 1.65rem;
-    letter-spacing: -0.01em;
+    margin: 0 0 0.65rem;
 }
 
 .hero h1 {
-    font-size: 2.0em;
-    margin-bottom: 1.1rem;
+    font-size: 2em;
+    margin-bottom: 8px;
     white-space: normal;
     letter-spacing: -0.02em;
+}
+
+.hero-subtitle {
+    font-size: 1.05em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    font-weight: 600;
+    font-family: var(--font-body);
 }
 
 .hero-tagline {
@@ -1583,6 +1574,7 @@ body.contact-dialog-open {
 
     .hero h1 {
         font-size: 1.8em;
+        order: 2;
     }
 
     .hero-copy {
@@ -1590,19 +1582,13 @@ body.contact-dialog-open {
         flex-direction: column;
     }
 
-    .hero-subtitle {
-        font-size: clamp(0.98rem, 3.8vw, 1.06rem);
-        padding: 0 0.35rem;
-        box-sizing: border-box;
-        margin-bottom: 0.55rem;
+    .hero-eyebrow {
+        order: 1;
     }
 
-    .hero-lede {
-        font-size: clamp(0.9rem, 3.5vw, 0.98rem);
-        line-height: 1.55;
-        margin-bottom: 1.35rem;
-        padding: 0 0.35rem;
-        box-sizing: border-box;
+    .hero-subtitle {
+        font-size: 0.95em;
+        order: 3;
     }
 
     .hero-tagline {

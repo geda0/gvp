@@ -19,13 +19,13 @@ const SECTION_PROMPT_CHIPS = {
         track: 'hero_chat_chip_services'
       },
       {
-        prompt: 'What kinds of work do you take on day to day as a software architect — hands-on coding, design, stakeholder alignment?',
+        prompt: 'What kinds of work do you take on day to day as a senior software engineer — hands-on coding, design, architecture, and stakeholder alignment?',
         label: 'Work I do',
         track: 'hero_chat_chip_what_i_do'
       },
       {
-        prompt: 'How should I pitch or introduce what you bring on a short call — headline strengths and where proof lives on this site?',
-        label: 'Presenting you',
+        prompt: 'Introduce yourself, what you do, and what you bring to the table — headline strengths and where proof lives on this site?',
+        label: 'About me',
         track: 'hero_chat_chip_recent_work'
       }
     ],
