@@ -175,6 +175,23 @@ class LiveSessionRequest(BaseModel):
     sessionId: str | None = Field(default=None, max_length=128)
 
 
+class LiveTranscriptTurn(BaseModel):
+    sessionId: str | None = Field(default=None, max_length=128)
+    userText: str = Field(default="", max_length=8000)
+    assistantText: str = Field(default="", max_length=16000)
+    capturedAt: str | None = Field(default=None, max_length=64)
+    transport: str | None = Field(default=None, max_length=32)
+    toolCalls: list[dict[str, Any]] | None = Field(default=None)
+
+
+def _live_relay_bridge_ttl_sec() -> float:
+    raw = os.environ.get('CHAT_LIVE_RELAY_BRIDGE_TTL_SEC', '300').strip()
+    try:
+        return max(60.0, min(float(raw), 900.0))
+    except ValueError:
+        return 300.0
+
+
 def _cleanup_expired_live_relays(bridges: dict[str, Any]) -> None:
     now = time.monotonic()
     dead = [k for k, v in bridges.items() if float(v.get('expires', 0)) < now]
@@ -473,7 +490,7 @@ app.state.voice_prompt_version: str | None = None
 
 @app.get("/health")
 def health() -> dict[str, bool]:
-    return {"ok": True}
+    return {"ok": True, "liveRelay": _live_relay_enabled()}
 
 
 def _readiness_payload() -> tuple[bool, dict[str, Any]]:
@@ -581,7 +598,7 @@ async def chat(payload: ChatRequest) -> JSONResponse:
             app.state.chain.ainvoke({"messages": lc_messages}),
             timeout=app.state.provider_timeout_seconds,
         )
-    except TimeoutError:
+    except asyncio.TimeoutError:
         logger.warning("Chat invoke timed out after %ss", app.state.provider_timeout_seconds)
         return JSONResponse(
             status_code=504,
@@ -664,13 +681,26 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             },
         )
 
+    mint_timeout = float(os.environ.get('GEMINI_LIVE_MINT_TIMEOUT_SEC', '50'))
     try:
         prompt_src = app.state.voice_system_prompt or app.state.system_prompt
         instruction = build_live_system_instruction(
             prompt_src,
             app.state.knowledge_pack,
         )
-        session_payload = await mint_live_session_async(instruction)
+        session_payload = await asyncio.wait_for(
+            mint_live_session_async(instruction),
+            timeout=mint_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.warning('live session mint timed out after %ss', mint_timeout)
+        return JSONResponse(
+            status_code=504,
+            content={
+                'error': 'Voice session setup timed out on the server. Try again.',
+                'code': 'live_mint_timeout',
+            },
+        )
     except RuntimeError as exc:
         logger.warning("live session unavailable: %s", exc)
         return JSONResponse(
@@ -697,7 +727,7 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         bridges[bridge_id] = {
             "token_name": token_name,
             "handshake": dict(session_payload.get("handshake") or {}),
-            "expires": time.monotonic() + 120.0,
+            "expires": time.monotonic() + _live_relay_bridge_ttl_sec(),
         }
         session_payload["websocketUrl"] = _live_relay_ws_url(request, bridge_id)
         session_payload["liveVoiceTransport"] = "relay"
@@ -721,6 +751,8 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
 @app.websocket("/api/live/relay/{bridge_id}")
 async def live_relay_ws(websocket: WebSocket, bridge_id: str) -> None:
     if not _live_relay_origin_allowed(websocket):
+        origin = (websocket.headers.get('origin') or '').strip() or '<none>'
+        logger.warning('live relay rejected origin=%s bridge=%s', origin, bridge_id[:12])
         await websocket.close(code=4403, reason="origin not allowed")
         return
     bridges: dict[str, Any] = app.state.live_relay_bridges
@@ -735,6 +767,113 @@ async def live_relay_ws(websocket: WebSocket, bridge_id: str) -> None:
         token_name=str(entry["token_name"]),
         handshake_json=handshake_json,
     )
+
+
+def _live_probe_allowed(request: Request) -> bool:
+    """Allow the probe locally (CHAT_READY_VERBOSE=1) or with the verbose secret."""
+    if os.environ.get("CHAT_READY_VERBOSE", "").strip() == "1":
+        return True
+    return _ready_verbose_allowed(request)
+
+
+@app.get("/api/live/probe")
+async def live_probe(request: Request) -> JSONResponse:
+    """End-to-end voice probe: mint → upstream WS → setupComplete, no browser.
+
+    Use to bisect timeouts: if this is OK, the bug is in the relay or browser;
+    if it fails here, the bug is in mint/handshake/upstream.
+    """
+    if not _live_probe_allowed(request):
+        return JSONResponse(status_code=404, content={"error": "not_found"})
+
+    if app.state.knowledge_pack is None or not app.state.system_prompt:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": app.state.corpus_error or "Knowledge pack missing",
+                "code": "corpus_unavailable",
+            },
+        )
+
+    if not os.environ.get("GEMINI_API_KEY", "").strip():
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Gemini API key is not configured", "code": "gemini_key_missing"},
+        )
+
+    from app import live_gemini as _lg
+
+    prompt_src = app.state.voice_system_prompt or app.state.system_prompt
+    instruction = build_live_system_instruction(prompt_src, app.state.knowledge_pack)
+    try:
+        result = await asyncio.wait_for(
+            _lg.probe_live_session(instruction),
+            timeout=60,
+        )
+    except asyncio.TimeoutError:
+        return JSONResponse(
+            status_code=504,
+            content={"ok": False, "error": "probe_timeout_60s"},
+        )
+    logger.info("live probe result=%s", {k: v for k, v in result.items() if k != 'first_frame'})
+    return JSONResponse(status_code=200 if result.get('ok') else 502, content=result)
+
+
+@app.post("/api/live/transcript")
+async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
+    """Persist a single voice turn (input + output transcription pair).
+
+    Best-effort: returns 200 even if no transcript store is configured, since
+    voice still works without persistence. Mirrors the text-chat persist path so
+    the admin transcripts panel sees voice and text turns side by side.
+    """
+    store = app.state.transcript_store
+    if store is None:
+        return JSONResponse(status_code=204, content=None)
+
+    user_text = (payload.userText or "").strip()
+    assistant_text = (payload.assistantText or "").strip()
+    if not user_text and not assistant_text:
+        return JSONResponse(status_code=204, content=None)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    captured_at = (payload.capturedAt or now_iso).strip() or now_iso
+    transport = (payload.transport or "live").strip() or "live"
+    tool_calls = payload.toolCalls or []
+
+    turn = {
+        "capturedAt": captured_at,
+        "promptVersion": app.state.prompt_version,
+        "modality": "voice",
+        "transport": transport,
+        "requestMessages": [
+            {"role": "user", "content": user_text},
+        ] if user_text else [],
+        "reply": assistant_text,
+        "toolCalls": tool_calls,
+        "actions": [],
+        "flags": {},
+    }
+    flags: dict[str, bool] = {}
+
+    try:
+        await store.persist_turn(
+            session_id=payload.sessionId,
+            created_at=captured_at,
+            prompt_version=app.state.prompt_version,
+            provider=app.state.provider_name,
+            model=live_model_id(),
+            turn=turn,
+            flags=flags,
+        )
+    except Exception:
+        logger.exception("Failed to persist voice transcript")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "persist_failed", "code": "transcript_store_error"},
+        )
+
+    return JSONResponse(status_code=204, content=None)
 
 
 @app.exception_handler(RequestValidationError)

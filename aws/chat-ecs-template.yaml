@@ -1,0 +1,371 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Portfolio chat — Fargate behind an ALB so browser voice (Gemini Live)
+  works. API Gateway HTTP API + Lambda (aws/chat-template.yaml) cannot
+  upgrade browser WebSockets, so this stack is the long-lived host that
+  runs the same FastAPI container with CHAT_LIVE_RELAY=1.
+
+Parameters:
+  StageName:
+    Type: String
+    AllowedValues: [stage, prod]
+    Default: stage
+    Description: >
+      Deploy environment suffix. Used in resource names and tags. Resource
+      logical names stay constant; the suffix differentiates stacks in the
+      same account/region.
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to launch the ECS service and ALB in. Default VPC works for stage.
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >
+      Public subnets (>=2, different AZs) for the ALB and the Fargate tasks.
+      Tasks need outbound internet to reach Gemini; public subnets with
+      AssignPublicIp=ENABLED is the simplest setup.
+
+  ImageUri:
+    Type: String
+    Description: >
+      Full ECR image URI with tag (e.g.
+      123456789012.dkr.ecr.us-east-2.amazonaws.com/gvp-chat:stage-abc1234).
+      Changing this triggers a new TaskDefinition revision + rolling deploy.
+
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    Description: >
+      Google AI Studio / Gemini API key. NoEcho. For production, prefer
+      Secrets Manager + the task definition's `Secrets` block; this stack
+      passes it as a container env for simplicity.
+
+  ChatCorsOrigins:
+    Type: String
+    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link'
+    Description: >
+      Comma-separated CHAT_CORS_ORIGINS for the FastAPI app's CORS + the WS
+      origin allow-list. Include every browser origin that loads the chat UI.
+
+  ChatTranscriptsTableName:
+    Type: String
+    Default: ''
+    Description: >
+      DynamoDB table for transcript persistence (output from the contact
+      stack: ChatTranscriptsTableName). Empty disables persistence.
+
+  GeminiModel:
+    Type: String
+    Default: gemini-3.1-flash-lite
+  GeminiFallbackModel:
+    Type: String
+    Default: gemma-4-26b-a4b-it
+  GeminiLiveModel:
+    Type: String
+    Default: gemini-3.1-flash-live-preview
+  ChatVoiceModel:
+    Type: String
+    Default: ''
+
+  ContainerCpu:
+    Type: Number
+    Default: 256
+    AllowedValues: [256, 512, 1024]
+  ContainerMemory:
+    Type: Number
+    Default: 512
+    AllowedValues: [512, 1024, 2048]
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 4
+  ContainerPort:
+    Type: Number
+    Default: 8000
+
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: >
+      Optional ACM cert ARN for HTTPS:443 listener. When empty, the ALB
+      listens on HTTP:80 — mixed-content blocks browsers on HTTPS sites, so
+      leave this empty only for ALB-DNS smoke tests, not for the real site.
+
+  AlbLogBucket:
+    Type: String
+    Default: ''
+    Description: Optional S3 bucket for ALB access logs (empty disables).
+
+Conditions:
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+  HasTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
+  HasAlbLogs: !Not [!Equals [!Ref AlbLogBucket, '']]
+  IsStage: !Equals [!Ref StageName, 'stage']
+
+Resources:
+  # --- Networking ---
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub chat-${StageName} ALB ingress
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - !If
+          - HasCertificate
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+            Description: HTTPS from internet
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+            Description: HTTP from internet (no cert)
+      Tags:
+        - { Key: gvp:stage, Value: !Ref StageName }
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub chat-${StageName} ECS task ingress (from ALB only)
+      VpcId: !Ref VpcId
+      Tags:
+        - { Key: gvp:stage, Value: !Ref StageName }
+
+  TaskSgIngressFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref TaskSecurityGroup
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      IpProtocol: tcp
+      FromPort: !Ref ContainerPort
+      ToPort: !Ref ContainerPort
+      Description: Container port from ALB
+
+  # --- IAM ---
+  TaskExecutionRole:
+    # Used by ECS agent for image pull + CloudWatch logs. Not the running app's identity.
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskRole:
+    # Identity the running app uses (boto3 → DynamoDB transcripts).
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - !If
+          - HasTranscriptsTable
+          - PolicyName: TranscriptsWrite
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - dynamodb:PutItem
+                    - dynamodb:UpdateItem
+                  Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChatTranscriptsTableName}
+          - !Ref AWS::NoValue
+
+  # --- Logging ---
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /gvp/chat-${StageName}
+      RetentionInDays: 30
+
+  # --- ECS ---
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub gvp-chat-${StageName}
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub gvp-chat-${StageName}
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: chat
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - { ContainerPort: !Ref ContainerPort, Protocol: tcp }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: chat
+          Environment:
+            - { Name: CHAT_PROVIDER, Value: gemini }
+            - { Name: CHAT_LIVE_RELAY, Value: '1' }
+            - { Name: CHAT_LIVE_RELAY_BRIDGE_TTL_SEC, Value: '300' }
+            - { Name: GEMINI_LIVE_MINT_TIMEOUT_SEC, Value: '50' }
+            - { Name: CHAT_CORS_ORIGINS, Value: !Ref ChatCorsOrigins }
+            - { Name: GEMINI_API_KEY, Value: !Ref GeminiApiKey }
+            - { Name: GEMINI_MODEL, Value: !Ref GeminiModel }
+            - { Name: GEMINI_FALLBACK_MODEL, Value: !Ref GeminiFallbackModel }
+            - { Name: GEMINI_LIVE_MODEL, Value: !Ref GeminiLiveModel }
+            - { Name: CHAT_VOICE_MODEL, Value: !Ref ChatVoiceModel }
+            - { Name: CHAT_TRANSCRIPTS_TABLE, Value: !Ref ChatTranscriptsTableName }
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            # Stage: enable verbose /ready + /api/live/probe diagnostics. Prod stays locked down.
+            - { Name: CHAT_READY_VERBOSE, Value: !If [IsStage, '1', '0'] }
+
+  # --- ALB ---
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub gvp-chat-${StageName}
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref SubnetIds
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      IpAddressType: ipv4
+      LoadBalancerAttributes:
+        - { Key: idle_timeout.timeout_seconds, Value: '300' }
+        - !If
+          - HasAlbLogs
+          - { Key: access_logs.s3.enabled, Value: 'true' }
+          - !Ref AWS::NoValue
+        - !If
+          - HasAlbLogs
+          - { Key: access_logs.s3.bucket, Value: !Ref AlbLogBucket }
+          - !Ref AWS::NoValue
+      Tags:
+        - { Key: gvp:stage, Value: !Ref StageName }
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub gvp-chat-${StageName}
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: !Ref ContainerPort
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: '200' }
+      TargetGroupAttributes:
+        # Long-lived WS streams need a generous deregistration delay so in-flight
+        # voice turns drain instead of being killed mid-stream on deploy.
+        - { Key: deregistration_delay.timeout_seconds, Value: '60' }
+        - { Key: stickiness.enabled, Value: 'false' }
+
+  ListenerHttps:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasCertificate
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  ListenerHttp:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    # When a cert is provided, also stand up HTTP:80 → 301 → HTTPS:443 (good hygiene).
+    # When no cert, HTTP:80 forwards to the target group (DNS-only smoke testing).
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - !If
+          - HasCertificate
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: '443'
+              Host: '#{host}'
+              Path: '/#{path}'
+              Query: '#{query}'
+              StatusCode: HTTP_301
+          - Type: forward
+            TargetGroupArn: !Ref TargetGroup
+
+  Service:
+    Type: AWS::ECS::Service
+    # Make sure the listener is up before ECS tries to register tasks behind it.
+    DependsOn: [ListenerHttp, TaskSgIngressFromAlb]
+    Properties:
+      ServiceName: !Sub gvp-chat-${StageName}
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Ref SubnetIds
+          SecurityGroups: [!Ref TaskSecurityGroup]
+      LoadBalancers:
+        - ContainerName: chat
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
+      HealthCheckGracePeriodSeconds: 60
+      PropagateTags: SERVICE
+      Tags:
+        - { Key: gvp:stage, Value: !Ref StageName }
+
+Outputs:
+  ClusterName:
+    Description: ECS cluster name (export as CHAT_ECS_CLUSTER_* for the deploy script)
+    Value: !Ref Cluster
+  ServiceName:
+    Description: ECS service name (export as CHAT_ECS_SERVICE_* for the deploy script)
+    Value: !GetAtt Service.Name
+  AlbDnsName:
+    Description: ALB DNS name (point a Route53 alias here; or use directly for smoke tests)
+    Value: !GetAtt LoadBalancer.DNSName
+  ChatBaseUrl:
+    Description: Resolved chat base URL (https when cert provided, else http)
+    Value: !If
+      - HasCertificate
+      - !Sub https://${LoadBalancer.DNSName}
+      - !Sub http://${LoadBalancer.DNSName}
+  TaskRoleArn:
+    Value: !GetAtt TaskRole.Arn
+  LogGroupName:
+    Value: !Ref LogGroup
