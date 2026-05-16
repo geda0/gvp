@@ -530,11 +530,19 @@ export function initChat() {
 
     const hasMessages = messagesEl.children.length > 0
     const showLive = Boolean(liveUi.active)
-    const showConnecting = Boolean(liveUi.connecting)
-    const inVoiceSession = isVoiceSessionUi()
-    const showEntry = !hasMessages && !inVoiceSession
+    const isHotSession = Boolean(liveUi.active || liveUi.sessionOpen)
+    // "Connecting" = a mint/WS handshake is in flight but the session isn't
+    // hot yet. We need to KEEP the button visible (disabled, "Connecting…"
+    // label) in this window — otherwise the visitor sees the CTA vanish the
+    // moment they click and gets no feedback during the 0.5-2s mint.
+    const showConnecting = Boolean(
+      (liveUi.connecting || voiceStartRequested)
+      && !isHotSession
+    )
 
-    if (inVoiceSession) {
+    // Once the session is hot (setupComplete arrived), hide the start CTA —
+    // the End button in the live pane takes over.
+    if (isHotSession) {
       voiceStartBtn.hidden = true
       if (voiceStartHeaderSlot) {
         voiceStartHeaderSlot.hidden = true
@@ -543,8 +551,9 @@ export function initChat() {
       return
     }
 
-    const mode = showConnecting ? 'connecting' : 'start'
-    const useHeader = !showEntry
+    // Position: entry slot when the conversation is empty (big CTA), header
+    // slot once there's any transcript (compact CTA next to close button).
+    const useHeader = hasMessages
     const slot = useHeader ? voiceStartHeaderSlot : voiceStartEntrySlot
     if (slot && voiceStartBtn.parentElement !== slot) slot.appendChild(voiceStartBtn)
 
@@ -553,25 +562,25 @@ export function initChat() {
       voiceStartHeaderSlot.setAttribute('aria-hidden', useHeader ? 'false' : 'true')
     }
 
+    const mode = showConnecting ? 'connecting' : 'start'
     voiceStartBtn.hidden = false
     voiceStartBtn.removeAttribute('inert')
     voiceStartBtn.removeAttribute('aria-hidden')
     voiceStartBtn.dataset.voiceCtaMode = mode
     voiceStartBtn.classList.toggle('chat-voice-start-cta--header', useHeader)
-    voiceStartBtn.classList.toggle('chat-voice-start-cta--connecting', mode === 'connecting')
+    voiceStartBtn.classList.toggle('chat-voice-start-cta--connecting', showConnecting)
     voiceStartBtn.disabled = showConnecting
-    voiceStartBtn.setAttribute('aria-pressed', 'false')
+    voiceStartBtn.setAttribute('aria-pressed', showConnecting ? 'true' : 'false')
+    voiceStartBtn.setAttribute('aria-busy', showConnecting ? 'true' : 'false')
 
     const label = voiceStartBtn.querySelector('.chat-voice-start-cta__label')
     if (label) {
-      label.textContent = mode === 'connecting' ? 'Connecting…' : 'Start live chat'
+      label.textContent = showConnecting ? 'Connecting…' : 'Start live chat'
     }
-
-    if (mode === 'connecting') {
-      voiceStartBtn.setAttribute('aria-label', 'Connecting voice…')
-    } else {
-      voiceStartBtn.setAttribute('aria-label', 'Start live chat')
-    }
+    voiceStartBtn.setAttribute(
+      'aria-label',
+      showConnecting ? 'Connecting voice…' : 'Start live chat',
+    )
     voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
   }
 
@@ -864,8 +873,16 @@ export function initChat() {
     // Phase 5: closing the dialog mid-voice would otherwise leave the live
     // session running invisibly (no UI, but billing / audio output keeps
     // going). Silent stop — no extra error chip; user explicitly closed.
-    if (liveVoice?.isSessionOpen?.()) {
-      liveVoice.stopVoice?.({ silent: true })
+    // Also catches the connecting window — without this, X-ing the dialog
+    // while the WS handshake is still in flight let the session establish
+    // server-side and idle until the no-mic timer fired.
+    if (
+      liveVoice?.isSessionOpen?.()
+      || liveUi.connecting
+      || liveUi.active
+      || voiceStartRequested
+    ) {
+      liveVoice?.stopVoice?.({ silent: true })
     }
     clearVoiceAwaitingStart()
     dockMode = 'voice'
@@ -1413,13 +1430,29 @@ export function initChat() {
 
   if (voiceStartBtn) {
     voiceStartBtn.addEventListener('click', () => {
-      trackEvent('chat_voice_start', {})
       if (!liveVoice || typeof liveVoice.startVoice !== 'function') {
         setStatus('Voice is not available right now.', 'error')
         return
       }
+      // Guards: don't re-fire when voice is already up or in flight. Without
+      // these the button could mint a second token while the first is still
+      // connecting (server drops it via voiceConnectInFlight in chat-live, but
+      // the user sees a clickable button → confusing). Disable the button
+      // synchronously so a second click never reaches us.
+      if (
+        voiceStartRequested
+        || liveUi.connecting
+        || liveUi.active
+        || liveUi.sessionOpen
+        || liveVoice.isActive?.()
+        || liveVoice.isSessionOpen?.()
+      ) {
+        return
+      }
+      trackEvent('chat_voice_start', {})
       voiceStartRequested = true
       voiceAwaitingStart = false
+      voiceStartBtn.disabled = true
       reconcileVoicePane()
       void liveVoice.startVoice({ intent: 'auto' })
     })

@@ -766,7 +766,12 @@ export function bindChatLiveVoice(opts) {
       }
     }
 
-    patchLiveUi({ active: false, connecting: false })
+    // Clear ALL three voice flags in one patch so chat.js's syncVoiceStartCta
+    // sees a fully-idle state and the Start CTA can re-render. Forgetting
+    // sessionOpen here was the "Start live chat button hides completely after
+    // first session" bug — sessionOpen stayed true across the stop, so
+    // isVoiceSessionUi() kept hiding the button until page reload.
+    patchLiveUi({ active: false, connecting: false, sessionOpen: false })
 
     if (!silent) {
       chatBus.emit('idle', { source: 'chat-live' })
@@ -1342,7 +1347,17 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
-    if (voiceConnectInFlight) return
+    // Mid-connect: the visitor wants to abort. stopVoiceInternal handles a
+    // CONNECTING WebSocket cleanly + rejects the pendingSetupLatch so the
+    // in-flight startVoice() promise unwinds without surfacing an error chip.
+    // Previously this was a silent no-op — the "End" button looked broken
+    // for the 0.5-2s mint window and any retry rounds after a flaky attempt.
+    if (voiceConnectInFlight) {
+      trackEvent('chat_live_stop', { reason: 'abort_connecting' })
+      stopVoiceInternal({ silent: false })
+      setStatus('')
+      return
+    }
 
     if (typeof onVoiceLauncherRequest === 'function' && onVoiceLauncherRequest({ button: btn })) {
       return
