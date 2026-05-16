@@ -70,7 +70,14 @@ class TranscriptStore:
     ) -> None:
         table = self._get_table()
         if table is None:
-            return
+            # Raise so persist_turn's exception branch fires and bumps
+            # writes_failed + last_error. Used to `return` silently here,
+            # which let writes_succeeded climb while boto3 was actually
+            # uninstalled — invisible bug, took a manual DDB scan to spot.
+            raise RuntimeError(
+                'transcript_store is disabled (boto3 import failed at startup; '
+                'check requirements.txt and rebuild the chat image)'
+            )
         expires_at = int(
             (datetime.now(timezone.utc) + timedelta(days=self.ttl_days)).timestamp()
         )

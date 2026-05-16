@@ -355,6 +355,13 @@ function renderChatSummary(summary) {
   if (chatSummaryEls.activeDays) {
     chatSummaryEls.activeDays.textContent = summary.activeDays ?? 0
   }
+  // Show which physical table + API are being read. Catches the env-mismatch
+  // case where the admin SPA is on prod but the visitor's chat host wrote to
+  // stage (or vice versa) and the transcripts they expect aren't appearing.
+  const sourceTableEl = document.getElementById('chatSourceTable')
+  const sourceApiEl = document.getElementById('chatSourceApi')
+  if (sourceTableEl) sourceTableEl.textContent = summary.tableName || '(not reported)'
+  if (sourceApiEl) sourceApiEl.textContent = window.__ADMIN_API_BASE_URL__ || '(unset)'
 
   const v = (summary && typeof summary.voice === 'object' && summary.voice) || {}
   const total = Number(summary.total || 0)

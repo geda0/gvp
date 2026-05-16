@@ -142,6 +142,11 @@
       </section>
 
       <section id="adminPanelTranscripts" role="tabpanel" hidden>
+        <p id="chatSourceHint" class="admin-status" data-tone="muted">
+          Reading from <code id="chatSourceTable">?</code> via <code id="chatSourceApi">?</code>.
+          If voice/text sessions you just ran aren't appearing, you may be looking at a different environment than the one that wrote them.
+        </p>
+
         <section class="admin-grid admin-grid--cards">
           <article class="admin-card"><h2>Total transcripts</h2><p id="chatSummaryTotal">-</p></article>
           <article class="admin-card"><h2>Reviewed</h2><p id="chatSummaryReviewed">-</p></article>

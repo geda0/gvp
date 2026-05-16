@@ -500,6 +500,10 @@ async function updateChatReviewed(id, reviewed) {
 
 async function getChatSummary() {
   const summary = {
+    // Surface which table this admin Lambda is reading from so a deploy /
+    // env mismatch (admin SPA → prod contact API while voice writes hit the
+    // stage table, or vice versa) is visible in the dashboard immediately.
+    tableName: chatTableName(),
     total: 0,
     reviewed: 0,
     unreviewed: 0,

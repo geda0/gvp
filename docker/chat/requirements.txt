@@ -11,3 +11,10 @@ httpx==0.28.1
 mangum==0.19.0
 google-genai==2.2.0
 websockets==14.1
+# boto3 is required by transcript_store.py (DynamoDB persistence of every
+# chat + voice turn). Missing here meant the ECS container had no boto3,
+# transcript_store quietly disabled itself, and the admin dashboard showed
+# zero new sessions despite the chat host reporting persistence "success".
+# Lambda container (chat-template.yaml) ships boto3 in the runtime; this
+# only mattered for the ECS image.
+boto3==1.35.86

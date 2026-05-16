@@ -545,6 +545,10 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
         s = store.stats()
         payload['transcripts'] = {
             'configured': True,
+            # `disabled=true` means boto3 import failed at startup (or some
+            # other initialization issue) — writes are dropped even though
+            # the env var is set. Distinct from configured=false (no env).
+            'disabled': bool(s.get('disabled')),
             'table_name': s.get('table_name'),
             'ttl_days': s.get('ttl_days'),
             'writes_attempted': s.get('writes_attempted', 0),
