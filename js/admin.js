@@ -61,7 +61,21 @@ const chatSummaryEls = {
   total: document.getElementById('chatSummaryTotal'),
   reviewed: document.getElementById('chatSummaryReviewed'),
   unreviewed: document.getElementById('chatSummaryUnreviewed'),
-  flagged: document.getElementById('chatSummaryFlagged')
+  flagged: document.getElementById('chatSummaryFlagged'),
+  activeDays: document.getElementById('chatSummaryActiveDays'),
+  voiceSessions: document.getElementById('voiceSummarySessions'),
+  voiceSessionsHint: document.getElementById('voiceSummarySessionsHint'),
+  voiceTurns: document.getElementById('voiceSummaryTurns'),
+  voiceTurnsHint: document.getElementById('voiceSummaryTurnsHint'),
+  voiceTextTurns: document.getElementById('voiceSummaryTextTurns'),
+  voiceTextTurnsHint: document.getElementById('voiceSummaryTextTurnsHint'),
+  voiceToolCalls: document.getElementById('voiceSummaryToolCalls'),
+  voiceToolCallsHint: document.getElementById('voiceSummaryToolCallsHint'),
+  voiceAirtime: document.getElementById('voiceSummaryAirtime'),
+  voiceInterrupted: document.getElementById('voiceSummaryInterrupted'),
+  voiceToolHistogram: document.getElementById('voiceToolHistogramTable'),
+  voiceTransportSplit: document.getElementById('voiceTransportSplit'),
+  voiceAudioBytes: document.getElementById('voiceAudioBytes')
 }
 const chatLimitEl = document.getElementById('chatAdminLimit')
 const chatTable = document.getElementById('chatTranscriptsTable')
@@ -300,11 +314,126 @@ async function loadMoreMessages() {
   }
 }
 
+function fmtCount(n) {
+  if (!Number.isFinite(n)) return '—'
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`
+  return String(n)
+}
+
+function fmtBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '—'
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${bytes} B`
+}
+
+function fmtDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return '—'
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)} s`
+  const m = Math.floor(s / 60)
+  const sr = Math.round(s - m * 60)
+  if (m < 60) return `${m}m ${sr}s`
+  const h = Math.floor(m / 60)
+  const mr = m - h * 60
+  return `${h}h ${mr}m`
+}
+
+function pct(part, whole) {
+  if (!Number.isFinite(part) || !Number.isFinite(whole) || whole <= 0) return '—'
+  return `${Math.round((part / whole) * 100)}%`
+}
+
 function renderChatSummary(summary) {
   chatSummaryEls.total.textContent = summary.total ?? 0
   chatSummaryEls.reviewed.textContent = summary.reviewed ?? 0
   chatSummaryEls.unreviewed.textContent = summary.unreviewed ?? 0
   chatSummaryEls.flagged.textContent = summary.flagged ?? 0
+  if (chatSummaryEls.activeDays) {
+    chatSummaryEls.activeDays.textContent = summary.activeDays ?? 0
+  }
+
+  const v = (summary && typeof summary.voice === 'object' && summary.voice) || {}
+  const total = Number(summary.total || 0)
+  if (chatSummaryEls.voiceSessions) {
+    chatSummaryEls.voiceSessions.textContent = fmtCount(v.sessions || 0)
+  }
+  if (chatSummaryEls.voiceSessionsHint) {
+    const mixed = Number(v.mixedSessions || 0)
+    const share = pct(v.sessions || 0, total)
+    chatSummaryEls.voiceSessionsHint.textContent =
+      `${share} of all conversations · ${mixed} mixed (voice + text)`
+  }
+  if (chatSummaryEls.voiceTurns) {
+    chatSummaryEls.voiceTurns.textContent = fmtCount(v.voiceTurns || 0)
+  }
+  if (chatSummaryEls.voiceTurnsHint) {
+    chatSummaryEls.voiceTurnsHint.textContent =
+      `avg: ${fmtDuration(v.avgVoiceTurnDurationMs)} / turn`
+  }
+  if (chatSummaryEls.voiceTextTurns) {
+    chatSummaryEls.voiceTextTurns.textContent = fmtCount(v.textTurns || 0)
+  }
+  if (chatSummaryEls.voiceTextTurnsHint) {
+    chatSummaryEls.voiceTextTurnsHint.textContent =
+      `avg latency: ${fmtDuration(v.avgTextLatencyMs)}`
+  }
+  if (chatSummaryEls.voiceToolCalls) {
+    chatSummaryEls.voiceToolCalls.textContent = fmtCount(v.toolCalls || 0)
+  }
+  if (chatSummaryEls.voiceToolCallsHint) {
+    const total = Number(v.voiceTurns || 0) + Number(v.textTurns || 0)
+    chatSummaryEls.voiceToolCallsHint.textContent = total > 0
+      ? `${(Number(v.toolCalls || 0) / total).toFixed(2)} per turn`
+      : '—'
+  }
+  if (chatSummaryEls.voiceAirtime) {
+    chatSummaryEls.voiceAirtime.textContent = fmtDuration(v.totalVoiceDurationMs)
+  }
+  if (chatSummaryEls.voiceInterrupted) {
+    chatSummaryEls.voiceInterrupted.textContent = `${fmtCount(v.interruptedTurns || 0)} (${pct(v.interruptedTurns || 0, v.voiceTurns || 0)})`
+  }
+
+  // Tool histogram
+  if (chatSummaryEls.voiceToolHistogram) {
+    const entries = Object.entries(v.toolHistogram || {})
+      .sort((a, b) => b[1] - a[1])
+    const tbody = chatSummaryEls.voiceToolHistogram.querySelector('tbody')
+    if (tbody) {
+      tbody.innerHTML = entries.length
+        ? entries.map(([name, n]) => `
+            <tr>
+              <td><code>${escapeHtml(name)}</code></td>
+              <td class="admin-num">${escapeHtml(String(n))}</td>
+            </tr>`).join('')
+        : '<tr><td colspan="2">No tool calls yet.</td></tr>'
+    }
+  }
+
+  // Transport split
+  if (chatSummaryEls.voiceTransportSplit) {
+    const t = v.transports || {}
+    const relay = Number(t.relay || 0)
+    const direct = Number(t.direct_google || 0)
+    const live = Number(t.live || 0)
+    const total = relay + direct + live
+    chatSummaryEls.voiceTransportSplit.innerHTML = `
+      <div><dt>Relay (WSS via our ALB)</dt><dd>${fmtCount(relay)} · ${pct(relay, total)}</dd></div>
+      <div><dt>Direct → Google</dt><dd>${fmtCount(direct)} · ${pct(direct, total)}</dd></div>
+      <div><dt>Legacy / unknown</dt><dd>${fmtCount(live)}</dd></div>
+    `
+  }
+
+  // Audio bytes
+  if (chatSummaryEls.voiceAudioBytes) {
+    chatSummaryEls.voiceAudioBytes.innerHTML = `
+      <div><dt>From mic (16 kHz PCM)</dt><dd>${fmtBytes(Number(v.audioInBytes || 0))}</dd></div>
+      <div><dt>From model (24 kHz PCM)</dt><dd>${fmtBytes(Number(v.audioOutBytes || 0))}</dd></div>
+    `
+  }
 }
 
 function refreshPromptVersionFilter(summary) {
@@ -317,10 +446,19 @@ function refreshPromptVersionFilter(summary) {
   chatPromptVersionFilter.value = selected
 }
 
+function modalityBadge(modality, voiceTurns, textTurns) {
+  const m = modality || (voiceTurns > 0 && textTurns === 0 ? 'voice'
+    : (voiceTurns > 0 ? 'mixed' : 'text'))
+  const label = m === 'voice' ? 'Voice'
+    : (m === 'mixed' ? 'Mixed' : 'Text')
+  const cls = `admin-modality admin-modality--${escapeHtml(m)}`
+  return `<span class="${cls}" title="voice turns: ${voiceTurns || 0} · text turns: ${textTurns || 0}">${label}</span>`
+}
+
 function renderChatTable(items) {
   chatCurrentItems = items
   if (!items.length) {
-    chatTable.innerHTML = '<tr><td colspan="5">No transcripts match these filters.</td></tr>'
+    chatTable.innerHTML = '<tr><td colspan="8">No transcripts match these filters.</td></tr>'
     return
   }
   chatTable.innerHTML = items.map((item) => {
@@ -328,8 +466,11 @@ function renderChatTable(items) {
     return `
       <tr data-id="${escapeHtml(item.id)}" class="${item.id === chatSelectedId ? 'is-selected' : ''}">
         <td>${escapeHtml(formatDate(item.updatedAt || item.createdAt))}</td>
+        <td>${modalityBadge(item.modality, item.voiceTurnCount, item.textTurnCount)}</td>
         <td>${escapeHtml(item.promptVersion || 'unknown')}</td>
-        <td>${escapeHtml(item.turnCount || 0)}</td>
+        <td class="admin-num">${escapeHtml(item.turnCount || 0)}</td>
+        <td class="admin-num">${escapeHtml(item.totalToolCalls || 0)}</td>
+        <td class="admin-num">${escapeHtml(fmtDuration(item.totalVoiceDurationMs || 0))}</td>
         <td>${item.reviewed ? 'Yes' : 'No'}</td>
         <td>${escapeHtml(flagNames.join(', ') || '—')}</td>
       </tr>
@@ -351,12 +492,21 @@ function renderChatDetail(item) {
   }
 
   const flagNames = CHAT_FLAGS.filter((flag) => item.flags?.[flag]).map(flagLabel)
+  const transportsList = Object.entries(item.transports || {})
+    .map(([t, n]) => `${t}=${n}`).join(', ') || '—'
   chatMetaEl.innerHTML = `
     <div><dt>ID</dt><dd>${escapeHtml(item.id)}</dd></div>
+    <div><dt>Modality</dt><dd>${modalityBadge(item.modality, item.voiceTurnCount, item.textTurnCount)}</dd></div>
     <div><dt>Prompt version</dt><dd>${escapeHtml(item.promptVersion || 'unknown')}</dd></div>
+    <div><dt>Provider · Model</dt><dd>${escapeHtml((item.provider || '—') + ' · ' + (item.model || '—'))}</dd></div>
     <div><dt>Reviewed</dt><dd>${item.reviewed ? 'Yes' : 'No'}</dd></div>
     <div><dt>Updated</dt><dd>${escapeHtml(formatDate(item.updatedAt || item.createdAt))}</dd></div>
-    <div><dt>Turns</dt><dd>${escapeHtml(item.turnCount || 0)}</dd></div>
+    <div><dt>Turns (voice/text)</dt><dd>${escapeHtml(item.turnCount || 0)} · ${escapeHtml(item.voiceTurnCount || 0)} voice / ${escapeHtml(item.textTurnCount || 0)} text</dd></div>
+    <div><dt>Tool calls</dt><dd>${escapeHtml(item.totalToolCalls || 0)}</dd></div>
+    <div><dt>Voice airtime</dt><dd>${escapeHtml(fmtDuration(item.totalVoiceDurationMs || 0))}</dd></div>
+    <div><dt>Audio bytes</dt><dd>mic ${escapeHtml(fmtBytes(item.totalAudioInBytes || 0))} · model ${escapeHtml(fmtBytes(item.totalAudioOutBytes || 0))}</dd></div>
+    <div><dt>Transports</dt><dd>${escapeHtml(transportsList)}</dd></div>
+    <div><dt>Interruptions</dt><dd>${escapeHtml(item.interruptedTurns || 0)}</dd></div>
     <div><dt>Flags</dt><dd>${escapeHtml(flagNames.join(', ') || '—')}</dd></div>
   `
   chatNoteEl.value = item.adminNotes || ''
@@ -371,8 +521,20 @@ function renderChatDetail(item) {
       .filter((m) => m.role === 'user')
       .map((m) => `- ${m.content}`)
       .join('\n')
+    const m = turn.modality || (turn.transport || turn.audioInBytes ? 'voice' : 'text')
+    const meta = []
+    meta.push(`[${m}]`)
+    if (turn.transport) meta.push(`transport=${turn.transport}`)
+    if (turn.intent) meta.push(`intent=${turn.intent}`)
+    if (Number.isFinite(turn.turnDurationMs)) meta.push(`dur=${fmtDuration(turn.turnDurationMs)}`)
+    if (Number.isFinite(turn.latencyMs)) meta.push(`latency=${fmtDuration(turn.latencyMs)}`)
+    if (Number.isFinite(turn.audioInBytes)) meta.push(`micIn=${fmtBytes(turn.audioInBytes)}`)
+    if (Number.isFinite(turn.audioOutBytes)) meta.push(`modelOut=${fmtBytes(turn.audioOutBytes)}`)
+    if (turn.interrupted) meta.push('interrupted')
+    const tools = (turn.toolCalls || []).map((c) => c?.name).filter(Boolean)
+    if (tools.length) meta.push(`tools=${tools.join(',')}`)
     return [
-      `Turn ${idx + 1} (${formatDate(turn.capturedAt)})`,
+      `Turn ${idx + 1} (${formatDate(turn.capturedAt)})  ${meta.join('  ')}`,
       'User messages:',
       userMessages || '- (none)',
       'Assistant:',

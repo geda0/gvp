@@ -143,6 +143,59 @@ h2 {
   background: var(--surface);
 }
 
+/* Voice telemetry row + supporting bits — accent card highlights the headline
+ * "voice sessions" number, hint is the small grey subtitle, modality badge
+ * tags each transcript row. */
+.admin-grid--cards--voice {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-top: 0.4rem;
+}
+
+.admin-card--accent {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent, #5da4ff) 14%, var(--surface, #fff)),
+    var(--surface, #fff));
+  border-color: color-mix(in srgb, var(--accent, #5da4ff) 40%, var(--border-subtle, transparent));
+}
+
+.admin-card__hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, #6c7686);
+  line-height: 1.35;
+}
+
+.admin-modality {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.12rem 0.46rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  text-transform: uppercase;
+}
+
+.admin-modality--voice {
+  color: #1f7a3d;
+  background: color-mix(in srgb, #1f7a3d 12%, transparent);
+}
+
+.admin-modality--text {
+  color: #555c66;
+  background: color-mix(in srgb, #555c66 10%, transparent);
+}
+
+.admin-modality--mixed {
+  color: #8a5400;
+  background: color-mix(in srgb, #8a5400 12%, transparent);
+}
+
+.admin-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .admin-card__header {
   display: flex;
   justify-content: space-between;

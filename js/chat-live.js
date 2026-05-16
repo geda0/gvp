@@ -582,6 +582,16 @@ export function bindChatLiveVoice(opts) {
   let userDraft = ''
   let assistantDraft = ''
   let turnToolCalls = []
+  /** Per-turn telemetry — drains into persistVoiceTurn so the admin dashboard
+   *  can show audio bytes / duration / interrupt-rate without reconstructing
+   *  from server logs. Reset in resetDraftState alongside the text drafts. */
+  let turnStartedAt = 0
+  let turnAudioInBytes = 0
+  let turnAudioOutBytes = 0
+  let turnInterrupted = false
+  const markTurnStart = () => {
+    if (!turnStartedAt) turnStartedAt = Date.now()
+  }
 
   /** Voice intent for the current session. 'warm' = mic auto-attached after the
    *  greeting (permission was already granted); 'cold' = greeting plays, mic
@@ -652,9 +662,13 @@ export function bindChatLiveVoice(opts) {
     userDraft = ''
     assistantDraft = ''
     turnToolCalls = []
+    turnStartedAt = 0
+    turnAudioInBytes = 0
+    turnAudioOutBytes = 0
+    turnInterrupted = false
   }
 
-  const persistVoiceTurn = (userText, assistantText, toolCalls) => {
+  const persistVoiceTurn = (userText, assistantText, toolCalls, telemetry = {}) => {
     const trimmedUser = (userText || '').trim()
     const trimmedAssistant = (assistantText || '').trim()
     if (!trimmedUser && !trimmedAssistant) return
@@ -666,8 +680,16 @@ export function bindChatLiveVoice(opts) {
       assistantText: trimmedAssistant,
       capturedAt: new Date().toISOString(),
       transport: lastLiveVoiceTransport || 'live',
-      toolCalls: Array.isArray(toolCalls) ? toolCalls : []
+      toolCalls: Array.isArray(toolCalls) ? toolCalls : [],
+      intent: typeof telemetry.intent === 'string' ? telemetry.intent : sessionIntent,
+      turnDurationMs: Number.isFinite(telemetry.turnDurationMs) ? telemetry.turnDurationMs : undefined,
+      audioInBytes: Number.isFinite(telemetry.audioInBytes) ? telemetry.audioInBytes : undefined,
+      audioOutBytes: Number.isFinite(telemetry.audioOutBytes) ? telemetry.audioOutBytes : undefined,
+      interrupted: typeof telemetry.interrupted === 'boolean' ? telemetry.interrupted : undefined,
     }
+    // Strip undefined keys so the POST body stays tight and the backend's
+    // pydantic validator skips them rather than seeing nulls.
+    Object.keys(body).forEach((k) => { if (body[k] === undefined) delete body[k] })
     // Best-effort. Use keepalive so a turn fired right before close still ships.
     try {
       void fetch(url, {
@@ -798,6 +820,7 @@ export function bindChatLiveVoice(opts) {
 
   const patchUserText = (fragment) => {
     if (!fragment) return
+    markTurnStart()
     userDraft = `${userDraft}${fragment}`.trimStart()
     const el = ensureUserBubble().querySelector('.chat-msg__text')
     if (el) el.textContent = userDraft.trim()
@@ -806,6 +829,7 @@ export function bindChatLiveVoice(opts) {
 
   const patchAssistantText = (fragment) => {
     if (!fragment) return
+    markTurnStart()
     assistantDraft = `${assistantDraft}${fragment}`
     const el = ensureAssistantBubble().querySelector('.chat-msg__text')
     if (el) el.textContent = assistantDraft.trim()
@@ -817,7 +841,13 @@ export function bindChatLiveVoice(opts) {
     if (assistantBubble) finalizeBubble(assistantBubble, assistantDraft.trim())
     // Fire-and-forget persist before clearing drafts. Mirrors the text-chat
     // persistence path so the admin panel sees voice turns alongside text turns.
-    persistVoiceTurn(userDraft, assistantDraft, turnToolCalls)
+    persistVoiceTurn(userDraft, assistantDraft, turnToolCalls, {
+      intent: sessionIntent,
+      turnDurationMs: turnStartedAt ? Math.max(0, Date.now() - turnStartedAt) : undefined,
+      audioInBytes: turnAudioInBytes || undefined,
+      audioOutBytes: turnAudioOutBytes || undefined,
+      interrupted: turnInterrupted || undefined,
+    })
     resetDraftState()
     scrollMessagesToBottom()
   }
@@ -871,6 +901,7 @@ export function bindChatLiveVoice(opts) {
     const sc = msg.serverContent || msg.server_content
     if (sc) {
       if (sc.interrupted) {
+        turnInterrupted = true
         player?.interrupt()
       }
 
@@ -888,6 +919,9 @@ export function bindChatLiveVoice(opts) {
           const mime = inline?.mimeType || inline?.mime_type || ''
           const data = inline?.data
           if (mime.includes('audio/pcm') && data && player) {
+            // Approximate decoded byte count from the base64 string length
+            // (~3 bytes per 4 base64 chars). Cheap, off by a few bytes at most.
+            turnAudioOutBytes += Math.floor((String(data).length * 3) / 4)
             const { floats, rate } = decodePcmBase64(data, mime)
             player.enqueue(floats, rate).catch(() => {})
           }
@@ -1142,6 +1176,9 @@ export function bindChatLiveVoice(opts) {
             }
           }
         }))
+        // Count raw decoded bytes (pre-base64-encode) so the admin dashboard
+        // can show a comparable mic vs model audio volume.
+        turnAudioInBytes += bytes.length
       } catch (_) {}
     }
 
