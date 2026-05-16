@@ -19,6 +19,12 @@ body.chat-dialog-open {
 /* Tighter band under Ask row (label + mic); launcher pill is below in `#agentSlotHero`. */
 #home .hero-chat__label-wrap {
     margin-bottom: 0.18rem;
+    align-items: center;
+}
+
+#home .hero-chat__hint {
+    margin-top: 0.2rem;
+    margin-bottom: 0.55rem;
 }
 
 #home .hero-chat__suggestions {
@@ -573,11 +579,19 @@ html[data-gvp-chat-voice='1'] .hero-chat:has(#agentNodeMic:focus) .agent-slot--h
 @media (min-width: 720px) {
     #home .hero-chat__ask {
         align-items: stretch;
+        justify-content: center;
     }
 
     #home .hero-chat__ask .hero-chat__label-wrap {
         justify-content: flex-start;
+        align-items: center;
         width: 100%;
+    }
+
+    #home .hero-chat__hint {
+        margin-top: 0.15rem;
+        margin-bottom: 0.5rem;
+        text-align: center;
     }
 
     #home .hero-chat__ask .hero-chat__suggestions {
