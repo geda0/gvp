@@ -123,9 +123,9 @@ const SECTION_PROMPT_CHIPS = {
 
 /** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio / Playground). */
 const CHAT_EMPTY_HINT_BY_SECTION = {
-  home: 'Home prompts: my services, where I fit, and how I work.',
-  portfolio: 'Portfolio prompts: my shipped work as proof.',
-  playground: 'Playground prompts: experiments and what I can build.'
+  home: 'Pick a suggestion below, or type your question. Ask about my services and projects.',
+  portfolio: 'Pick a suggestion below, or type your question. Ask about my roles, what I shipped, how I work',
+  playground: 'Pick a suggestion below, or type your question. Ask about my experiments and what I can build.'
 }
 
 function replaceSectionPresetChips(container, chips, chipClassName) {

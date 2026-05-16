@@ -1159,6 +1159,7 @@ section#portfolioProjects.visible.content-section-reveal {
     margin-bottom: 0;
 }
 
+.cta-primary,
 .cta-secondary {
     display: inline-block;
     padding: 0.65rem 1.35rem;
