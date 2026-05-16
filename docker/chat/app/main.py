@@ -805,10 +805,22 @@ async def live_probe(request: Request) -> JSONResponse:
 
     prompt_src = app.state.voice_system_prompt or app.state.system_prompt
     instruction = build_live_system_instruction(prompt_src, app.state.knowledge_pack)
+    greet_text = (request.query_params.get('greet') or '').strip() or None
+    if greet_text == '1':
+        # Default ("cold") greeting the FE plays when mic permission is not yet
+        # granted — short, single-action: tap the mic. ?greet=warm exercises
+        # the variant for visitors whose permission was already granted on a
+        # previous session (we attach the mic immediately and only speak the
+        # first half of the greeting, then let the user fill the silence).
+        greet_text = (
+            "Hi! I'm your AI Assistant. Just tap the mic to talk."
+        )
+    elif greet_text == 'warm':
+        greet_text = "Hi! I'm your AI Assistant."
     try:
         result = await asyncio.wait_for(
-            _lg.probe_live_session(instruction),
-            timeout=60,
+            _lg.probe_live_session(instruction, greet_text=greet_text),
+            timeout=90 if greet_text else 60,
         )
     except asyncio.TimeoutError:
         return JSONResponse(

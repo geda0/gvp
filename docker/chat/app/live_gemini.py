@@ -202,8 +202,19 @@ async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
     }
 
 
-async def probe_live_session(system_instruction: str) -> dict[str, Any]:
+async def probe_live_session(
+    system_instruction: str,
+    *,
+    greet_text: str | None = None,
+) -> dict[str, Any]:
     """Mint a token, open the upstream WS, send the setup, wait for setupComplete.
+
+    When ``greet_text`` is provided, additionally fire a ``clientContent`` turn
+    that instructs the model to speak it verbatim (no mic input ever attached),
+    then collect frames until the model's ``turnComplete`` or a timeout. This
+    is the proof that the "agent greets first before mic permission" flow Phase
+    1 depends on actually works — it's the only piece in the revamped UX where
+    we are sending input without ever sending audio frames.
 
     Returns timing per step + the first inbound frame's keys (so we can tell
     setupComplete vs error). Mints a fresh single-use token each call — safe to
@@ -270,10 +281,104 @@ async def probe_live_session(system_instruction: str) -> dict[str, Any]:
                 result['setup_complete'] = False
             if not result['setup_complete']:
                 result['first_frame'] = first
+
+            if result['setup_complete'] and greet_text:
+                # Drive the "agent greets first" path: a clientContent text turn
+                # with no mic input attached. Collect until turnComplete or a
+                # 20s ceiling. Report what came back: did the model produce
+                # audio (modelTurn parts with inlineData), an outputTranscription,
+                # both, neither?
+                greet_steps: dict[str, Any] = {}
+                t0 = time.perf_counter()
+                await upstream.send(json.dumps({
+                    'clientContent': {
+                        'turns': [{
+                            'role': 'user',
+                            'parts': [{'text': f'Say this verbatim to the visitor and then stop: "{greet_text}"'}],
+                        }],
+                        'turnComplete': True,
+                    }
+                }))
+                greet_steps['greet_send_ms'] = int((time.perf_counter() - t0) * 1000)
+
+                audio_chunks = 0
+                audio_bytes = 0
+                transcription_chars = 0
+                model_text_chars = 0
+                turn_complete = False
+                first_audio_ms: int | None = None
+                first_transcription_ms: int | None = None
+                t_turn = time.perf_counter()
+                try:
+                    while True:
+                        elapsed = time.perf_counter() - t_turn
+                        if elapsed > 20:
+                            break
+                        try:
+                            raw = await asyncio.wait_for(upstream.recv(), timeout=20 - elapsed)
+                        except asyncio.TimeoutError:
+                            break
+                        try:
+                            msg = json.loads(raw if isinstance(raw, str) else raw.decode('utf-8'))
+                        except Exception:
+                            continue
+                        if not isinstance(msg, dict):
+                            continue
+                        sc = msg.get('serverContent') or msg.get('server_content') or {}
+                        if isinstance(sc, dict):
+                            out_t = sc.get('outputTranscription') or sc.get('output_transcription')
+                            if isinstance(out_t, dict) and isinstance(out_t.get('text'), str):
+                                transcription_chars += len(out_t['text'])
+                                if first_transcription_ms is None:
+                                    first_transcription_ms = int((time.perf_counter() - t_turn) * 1000)
+                            model_turn = sc.get('modelTurn') or sc.get('model_turn') or {}
+                            parts = (model_turn.get('parts') or []) if isinstance(model_turn, dict) else []
+                            for p in parts:
+                                if not isinstance(p, dict):
+                                    continue
+                                inline = p.get('inlineData') or p.get('inline_data') or {}
+                                if isinstance(inline, dict):
+                                    mime = str(inline.get('mimeType') or inline.get('mime_type') or '')
+                                    if mime.startswith('audio/'):
+                                        audio_chunks += 1
+                                        data = inline.get('data') or ''
+                                        if isinstance(data, str):
+                                            audio_bytes += (len(data) * 3) // 4
+                                        if first_audio_ms is None:
+                                            first_audio_ms = int((time.perf_counter() - t_turn) * 1000)
+                                if isinstance(p.get('text'), str):
+                                    model_text_chars += len(p['text'])
+                            if sc.get('turnComplete') or sc.get('turn_complete'):
+                                turn_complete = True
+                                break
+                        if msg.get('error'):
+                            greet_steps['error_frame'] = msg
+                            break
+                except websockets.exceptions.ConnectionClosed as exc:
+                    greet_steps['ws_closed'] = f'{getattr(exc, "code", "?")}: {getattr(exc, "reason", "")[:200]}'
+
+                greet_steps.update({
+                    'turn_complete': turn_complete,
+                    'audio_chunks': audio_chunks,
+                    'audio_bytes': audio_bytes,
+                    'transcription_chars': transcription_chars,
+                    'model_text_chars': model_text_chars,
+                    'first_audio_ms': first_audio_ms,
+                    'first_transcription_ms': first_transcription_ms,
+                    'turn_ms': int((time.perf_counter() - t_turn) * 1000),
+                })
+                result['greet'] = greet_steps
     except Exception as exc:
         result['error'] = f'upstream_failed: {type(exc).__name__}: {exc}'
         return result
 
     result['ok'] = bool(result.get('setup_complete'))
+    if greet_text and isinstance(result.get('greet'), dict):
+        # "Greeting ok" = the model produced audible audio AND closed the turn
+        # cleanly. Anything less and Phase 1 is shipping with a broken voice
+        # greeting that strands the visitor.
+        g = result['greet']
+        result['greet_ok'] = bool(g.get('turn_complete') and g.get('audio_chunks', 0) > 0)
+        result['ok'] = bool(result['ok'] and result['greet_ok'])
     result['total_ms'] = int((time.perf_counter() - t_total) * 1000)
     return result

@@ -1069,7 +1069,7 @@ export function initChat() {
     return { error: `unknown_tool: ${name}` }
   }
 
-  const disposeChatLiveVoice = bindChatLiveVoice({
+  const liveVoice = bindChatLiveVoice({
     micButtons: chatVoiceFeatureEnabled ? [composerMic, agentNodeMic].filter(Boolean) : [],
     messagesEl,
     statusEl,
@@ -1082,7 +1082,12 @@ export function initChat() {
     isPanelOpen: isOpen,
     patchLiveUi,
     onToolCall: applyVoiceToolCall
-  })
+  }) || {}
+
+  // Compat: old call sites expected a dispose function. Keep that shape too.
+  const disposeChatLiveVoice = typeof liveVoice === 'function'
+    ? liveVoice
+    : (liveVoice.dispose || (() => {}))
 
   reconcileComposerControls()
 
@@ -1101,9 +1106,19 @@ export function initChat() {
   return {
     bindAgentNode,
     disposeChatLiveVoice,
+    liveVoice,
     openPanel: () => openPanel(),
     openPanelWithMessage: (text, source = resolveLauncherSource(), options) => openPanelWithMessage(text, source, options),
     openPanelWithDraft: (text, source = resolveLauncherSource(), options) => openPanelWithDraft(text, source, options),
+    /** Open dialog with voice intent: starts the live session immediately so
+     *  the greeting plays as the dialog mounts. Phase 2's chooser big-mic and
+     *  Phase 4's hero mic both come through here. */
+    openPanelForVoice: ({ intent = 'auto' } = {}) => {
+      openPanel()
+      if (liveVoice && typeof liveVoice.startVoice === 'function') {
+        void liveVoice.startVoice({ intent })
+      }
+    },
     closePanelImmediate: ({ restoreFocus = false } = {}) => closePanel({ restoreFocus, immediate: true }),
     isOpen
   }

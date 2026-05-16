@@ -54,7 +54,7 @@ async def test_probe_setup_complete_ok(client: AsyncClient, monkeypatch: pytest.
     monkeypatch.setenv('CHAT_READY_VERBOSE', '1')
     monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
 
-    async def fake_probe(_instr: str) -> dict:
+    async def fake_probe(_instr: str, *, greet_text: str | None = None) -> dict:
         return {
             'ok': True,
             'model': 'models/gemini-3.1-flash-live-preview',
@@ -75,12 +75,44 @@ async def test_probe_setup_complete_ok(client: AsyncClient, monkeypatch: pytest.
 
 
 @pytest.mark.asyncio
+async def test_probe_greet_path_passes_default_greeting(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """?greet=1 should pass the production greeting text into probe_live_session."""
+    monkeypatch.setenv('CHAT_READY_VERBOSE', '1')
+    monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
+
+    seen: dict[str, str | None] = {'greet_text': None}
+
+    async def fake_probe(_instr: str, *, greet_text: str | None = None) -> dict:
+        seen['greet_text'] = greet_text
+        return {
+            'ok': True,
+            'model': 'models/gemini-3.1-flash-live-preview',
+            'setup_complete': True,
+            'greet_ok': True,
+            'first_frame_keys': ['setupComplete'],
+            'steps': {'mint_ms': 100, 'ws_open_ms': 50, 'setup_send_ms': 0, 'first_frame_ms': 200},
+            'greet': {'turn_complete': True, 'audio_chunks': 12, 'audio_bytes': 48000,
+                      'transcription_chars': 90, 'turn_ms': 1800, 'first_audio_ms': 400,
+                      'first_transcription_ms': 450, 'greet_send_ms': 0, 'model_text_chars': 0},
+            'total_ms': 2500,
+        }
+
+    monkeypatch.setattr('app.live_gemini.probe_live_session', fake_probe)
+    r = await client.get('/api/live/probe?greet=1')
+    assert r.status_code == 200
+    assert "tap the mic" in (seen['greet_text'] or '').lower(), seen
+    body = r.json()
+    assert body['greet_ok'] is True
+    assert body['greet']['audio_chunks'] > 0
+
+
+@pytest.mark.asyncio
 async def test_probe_reports_upstream_failure(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Failure path returns 502 with the upstream error captured for triage."""
     monkeypatch.setenv('CHAT_READY_VERBOSE', '1')
     monkeypatch.setenv('GEMINI_API_KEY', 'unit-test-key')
 
-    async def fake_probe(_instr: str) -> dict:
+    async def fake_probe(_instr: str, *, greet_text: str | None = None) -> dict:
         return {
             'ok': False,
             'error': 'upstream_failed: ConnectionClosed: 1011',
