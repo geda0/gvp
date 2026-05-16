@@ -1172,6 +1172,18 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     color: var(--text-muted);
 }
 
+/* Mobile sizing for both chooser and voice pane — keep them dominant but not
+ * overflowing on a 360-wide phone. */
+@media (max-width: 640px) {
+    .chat-chooser { padding: 1.5rem 1rem 0.5rem; }
+    .chat-chooser__mic { width: 108px; height: 108px; }
+    .chat-chooser__mic-icon { width: 44px; height: 44px; }
+    .chat-chooser__caption { font-size: 0.96rem; }
+    .chat-voice-pane { padding: 1rem 1rem 0.75rem; }
+    .chat-voice-pane__mic { width: 78px; height: 78px; }
+    .chat-voice-pane__mic-icon { width: 34px; height: 34px; }
+}
+
 .chat-dialog__suggestions {
     display: flex;
     flex-wrap: wrap;

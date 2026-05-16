@@ -722,6 +722,12 @@ export function initChat() {
     clearPlaceholderHighlightTimer()
     dialogSuggestions?.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)
       ?.classList.remove('chat-dialog__chip--new-highlight')
+    // Phase 5: closing the dialog mid-voice would otherwise leave the live
+    // session running invisibly (no UI, but billing / audio output keeps
+    // going). Silent stop — no extra error chip; user explicitly closed.
+    if (liveVoice?.isSessionOpen?.()) {
+      liveVoice.stopVoice?.({ silent: true })
+    }
     setDialogVisible(false)
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -850,6 +856,9 @@ export function initChat() {
     if (liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
       liveVoice.stopVoice({ silent: true })
     }
+    // Re-arm the greeting so the next voice session in this fresh conversation
+    // says hello again (Phase 5).
+    liveVoice?.resetGreet?.()
     syncEmptyState()
     state.history = []
     state.sessionId = renewSessionId()
@@ -1129,8 +1138,16 @@ export function initChat() {
   // agent within ~1s of clicking. The "or type a question" link below opens
   // the dialog into text mode (no greeting, no chooser big mic) and focuses
   // the composer textarea.
+  const heroVoiceBlock = document.getElementById('heroVoice')
   const heroVoiceBtn = document.getElementById('heroVoiceMic')
   const heroTypeBtn = document.getElementById('heroVoiceType')
+  // Hide the entire voice-first block when voice is disabled at the meta level.
+  // Falls back to the legacy agent-node bar (still visible below). The block
+  // would be misleading otherwise — "Talk to my AI assistant" with no voice.
+  if (heroVoiceBlock && !chatVoiceFeatureEnabled) {
+    heroVoiceBlock.hidden = true
+    heroVoiceBlock.setAttribute('aria-hidden', 'true')
+  }
   if (heroVoiceBtn) {
     heroVoiceBtn.addEventListener('click', () => {
       trackEvent('hero_voice_mic', {})

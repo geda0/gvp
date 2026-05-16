@@ -588,6 +588,12 @@ export function bindChatLiveVoice(opts) {
   let sessionIntent = 'cold'
   let greetingTurnComplete = false
   let userSpokeAfterGreeting = false
+  /** True once this conversation has been greeted. Subsequent voice sessions
+   *  in the SAME conversation skip the greeting and go straight to
+   *  listening — re-hearing "Hi, I'm your AI Assistant" every time the
+   *  visitor pauses and restarts voice is grating. chat.js calls resetGreet()
+   *  from resetConversation() so Start Over re-arms the greeting. */
+  let conversationGreeted = false
   /** Closes a session that opened but never had its mic attached. */
   let noMicIdleTimer = null
   /** Fires the "tell them what they can ask" follow-up on warm sessions. */
@@ -1233,18 +1239,21 @@ export function bindChatLiveVoice(opts) {
     try {
       await openVoiceSessionInternal()
 
-      // Session is open and setupComplete arrived. Speak the greeting now —
-      // before the mic is attached, before any visitor input. The model output
-      // plays through PcmJitterPlayer over the speakers; no mic needed.
+      // Greet only the first time per conversation. Subsequent voice sessions
+      // in the same conversation just listen — the visitor already knows what
+      // we are and a repeat "Hi, I'm your AI Assistant" mid-thread is grating.
+      const shouldGreet = !conversationGreeted
       const greetText = resolvedIntent === 'warm' ? GREETING_TEXT_WARM : GREETING_TEXT_COLD
-      greetingTurnComplete = false
+      greetingTurnComplete = !shouldGreet  // skip the warm follow-up if we didn't greet
       userSpokeAfterGreeting = false
-      const greetSent = sendGreetingClientContent(greetText)
-      if (!greetSent) {
-        // Greeting send failed (WS not open). Caller will see status; bail.
-        throw new Error('Could not send greeting to voice service.')
+      if (shouldGreet) {
+        const greetSent = sendGreetingClientContent(greetText)
+        if (!greetSent) {
+          throw new Error('Could not send greeting to voice service.')
+        }
+        conversationGreeted = true
+        chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
       }
-      chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
 
       if (resolvedIntent === 'warm') {
         // Permission previously granted: attach mic right after greeting starts.
@@ -1352,6 +1361,9 @@ export function bindChatLiveVoice(opts) {
     startVoice,
     attachMicrophone,
     stopVoice: ({ silent } = {}) => stopVoiceInternal({ silent }),
+    /** Re-arm the greeting (Phase 5). Called from chat.js resetConversation so
+     *  Start Over makes the agent say hello again. */
+    resetGreet: () => { conversationGreeted = false },
     isActive: () => active,
     isSessionOpen: () => voiceSessionOpen && setupDone,
     getSessionIntent: () => sessionIntent,
