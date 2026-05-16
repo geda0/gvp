@@ -94,7 +94,26 @@
 
                                 </div>
                                 <div class="hero-chat">
-                                    <div class="hero-chat__label-wrap">
+                                    <!-- Phase 4: voice-first hero CTA. Click → opens the chat dialog
+                                         in voice intent (chooser + auto greeting). The legacy
+                                         agent-node text bar stays below as the secondary path. -->
+                                    <div class="hero-voice" id="heroVoice">
+                                        <button type="button" id="heroVoiceMic" class="hero-voice__mic"
+                                            aria-label="Talk to the AI assistant — agent greets you first"
+                                            data-track="hero_voice_mic">
+                                            <span class="hero-voice__halo hero-voice__halo--outer" aria-hidden="true"></span>
+                                            <span class="hero-voice__halo hero-voice__halo--inner" aria-hidden="true"></span>
+                                            <svg class="hero-voice__mic-icon" width="56" height="56" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                                                <path d="M12 1c-1.66 0-3 1.34-3 3v8c0 1.66 1.34 3 3 3s3-1.34 3-3V4c0-1.66-1.34-3-3-3zm6 11c0 3.31-2.69 6-6 6s-6-2.69-6-6H4c0 4.08 3.05 7.44 7 7.93V23h2v-3.07c3.95-.49 7-3.85 7-7.93h-2z" />
+                                            </svg>
+                                        </button>
+                                        <p class="hero-voice__caption">Talk to my AI assistant</p>
+                                        <button type="button" id="heroVoiceType" class="hero-voice__type-link"
+                                            data-track="hero_voice_type_instead">
+                                            or type a question
+                                        </button>
+                                    </div>
+                                    <div class="hero-chat__label-wrap hero-chat__label-wrap--secondary">
                                         <p class="hero-chat__label">
                                             <span class="hero-chat__dot" aria-hidden="true"></span>
                                             Ask about my work

@@ -1124,6 +1124,42 @@ export function initChat() {
     })
   }
 
+  // Phase 4: hero voice CTA. Opens the dialog with voice intent — the chooser
+  // appears with the greeting playing immediately so the visitor hears the
+  // agent within ~1s of clicking. The "or type a question" link below opens
+  // the dialog into text mode (no greeting, no chooser big mic) and focuses
+  // the composer textarea.
+  const heroVoiceBtn = document.getElementById('heroVoiceMic')
+  const heroTypeBtn = document.getElementById('heroVoiceType')
+  if (heroVoiceBtn) {
+    heroVoiceBtn.addEventListener('click', () => {
+      trackEvent('hero_voice_mic', {})
+      if (!chatVoiceFeatureEnabled || !liveVoice || typeof liveVoice.startVoice !== 'function') {
+        // Voice not available — degrade to opening the dialog in text mode so
+        // the visitor can still ask their question.
+        chooserDismissed = true
+        openPanel()
+        return
+      }
+      openPanel()
+      void liveVoice.startVoice({ intent: 'auto' })
+    })
+  }
+  if (heroTypeBtn) {
+    heroTypeBtn.addEventListener('click', () => {
+      trackEvent('hero_voice_type_instead', {})
+      // Text intent: collapse the chooser before openPanel runs syncEmptyState
+      // so the panel opens straight into the regular text layout — no chooser
+      // flash, no auto greeting.
+      chooserDismissed = true
+      openPanel()
+      requestAnimationFrame(() => {
+        if (!isOpen()) return
+        composerInput.focus()
+      })
+    })
+  }
+
   backdrop?.addEventListener('click', () => closePanel())
   closeBtn?.addEventListener('click', () => closePanel())
 

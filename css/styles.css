@@ -1048,6 +1048,115 @@ section#portfolioProjects.visible.content-section-reveal {
     align-items: stretch;
 }
 
+/* ── Phase 4: voice-first hero CTA ── */
+.hero-voice {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0.25rem auto 1.5rem;
+    text-align: center;
+}
+
+.hero-voice__mic {
+    position: relative;
+    width: 156px;
+    height: 156px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--chat-launcher-glow-chrome, #5da4ff) 70%, transparent);
+    background: radial-gradient(circle at 30% 30%,
+        color-mix(in srgb, var(--chat-launcher-glow-chrome, #5da4ff) 28%, transparent),
+        color-mix(in srgb, var(--chat-launcher-glow-chrome, #5da4ff) 9%, transparent) 70%);
+    color: var(--chat-launcher-glow-chrome, #5da4ff);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    padding: 0;
+    transition: transform 180ms ease, background 220ms ease, box-shadow 260ms ease;
+}
+
+.hero-voice__mic:hover,
+.hero-voice__mic:focus-visible {
+    transform: scale(1.04);
+    background: radial-gradient(circle at 30% 30%,
+        color-mix(in srgb, var(--chat-launcher-glow-chrome, #5da4ff) 42%, transparent),
+        color-mix(in srgb, var(--chat-launcher-glow-chrome, #5da4ff) 14%, transparent) 70%);
+    box-shadow: 0 24px 50px -16px color-mix(in srgb, var(--chat-launcher-glow-chrome, #5da4ff) 55%, transparent);
+    outline: none;
+}
+
+.hero-voice__mic:active { transform: scale(0.98); }
+
+.hero-voice__mic-icon {
+    position: relative;
+    z-index: 1;
+    display: block;
+}
+
+.hero-voice__halo {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    pointer-events: none;
+    animation: gvp-hero-voice-halo 2.6s ease-out infinite;
+}
+
+.hero-voice__halo--outer { inset: -10px; opacity: 0.32; animation-delay: 0s; }
+.hero-voice__halo--inner { inset: -2px; opacity: 0.5; animation-delay: 0.7s; }
+
+@keyframes gvp-hero-voice-halo {
+    0%   { opacity: 0.55; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero-voice__halo { animation: none; opacity: 0.4; transform: none; }
+}
+
+.hero-voice__caption {
+    margin: 0;
+    font-family: var(--font-display, inherit);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text, inherit);
+}
+
+.hero-voice__type-link {
+    background: none;
+    border: 0;
+    padding: 0.1rem 0.2rem;
+    margin: 0;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.84rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition: color 150ms ease;
+}
+
+.hero-voice__type-link:hover,
+.hero-voice__type-link:focus-visible {
+    color: var(--text, inherit);
+    outline: none;
+}
+
+/* Demote the legacy text bar when the voice CTA is on top — keep it usable
+ * but visually clearly the secondary path. */
+.hero-chat__label-wrap--secondary {
+    opacity: 0.78;
+}
+.hero-chat__label-wrap--secondary .hero-chat__label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+    .hero-voice__mic { width: 124px; height: 124px; }
+    .hero-voice__mic-icon { width: 44px; height: 44px; }
+}
+
 /* Source order wins: identity (name + tagline + CTAs) reads first, then the
    launcher card. Previously this rule lifted `.hero-chat` above `.hero-copy`
    on desktop via `order: -1`, which pushed the name below the fold. */
