@@ -26,14 +26,6 @@
     <!-- API base URLs: set meta content to your deployed URLs. CI: scripts/sync-site-api-urls.mjs. Runtime: js/site-config.js (imported first from js/app.js). -->
     <meta name="gvp:contact-api-url" content="https://fvfqpef8kb.execute-api.us-east-2.amazonaws.com/api/contact" />
     <meta name="gvp:chat-api-url" content="https://chat-api-stage.marwanelgendy.link/api/chat" />
-    <meta name="gvp:chat-voice-enabled" content="1" />
-    <script>
-        (function () {
-            var m = document.querySelector('meta[name="gvp:chat-voice-enabled"]')
-            var v = m && (m.getAttribute('content') || '').trim().toLowerCase()
-            document.documentElement.dataset.gvpChatVoice = (v === '1' || v === 'true') ? '1' : '0'
-        })()
-    </script>
 </head>
 
 <body>

@@ -10,13 +10,13 @@
 #
 # Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
 # (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
-# HTML chat voice (browser mic): optional GVP_CHAT_VOICE=1|true|yes during meta sync sets
-#   <meta name="gvp:chat-voice-enabled" content="1">; otherwise content=0. Unset defaults to off.
-# When GVP_CHAT_VOICE=1 (explicit, before auto-resolve): bootstraps ECR repo
-#   name gvp-chat (or CHAT_ECR_REPO_NAME), CHAT_ECR_REPOSITORY_URI, default CHAT_ECS_SAM_STACK_NAME_* when unset,
-#   and CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS via EC2 describe, then optional aws ec2 create-default-vpc when unset
-#   CHAT_ECS_CREATE_DEFAULT_VPC defaults to 1 here (set CHAT_ECS_CREATE_DEFAULT_VPC=0 to forbid create; needs ec2:CreateDefaultVpc).
-# SAM-managed ECS (CHAT_ECS_SAM_STACK_NAME_* + image push): same describe + optional create when CHAT_ECS_CREATE_DEFAULT_VPC=1.
+# Voice (browser mic) is always on in the FE; voice transport needs the chat API on a WebSocket-capable host
+# (ECS+ALB image defaults CHAT_LIVE_RELAY=1). Lambda execute-api hosts will fail voice with 1011.
+# Auto ECS prereq bootstrap (enabled by default, opt out with CHAT_VOICE_ECS_BOOTSTRAP=0): when the deploy
+#   detects no chat URL override and ECR/VPC/subnets aren't pinned, it auto-creates ECR repo gvp-chat
+#   (or CHAT_ECR_REPO_NAME) → CHAT_ECR_REPOSITORY_URI, defaults CHAT_ECS_SAM_STACK_NAME_* (gvp-chat-ecs-{stage,prod}),
+#   and resolves CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS via EC2 describe — then optional `aws ec2 create-default-vpc`
+#   when CHAT_ECS_CREATE_DEFAULT_VPC=1 (default on; needs IAM ec2:CreateDefaultVpc; set =0 to forbid).
 # Chat on Lambda (Gemini): set CHAT_SAM_STACK_NAME (legacy fallback), or CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD per deploy env, plus GEMINI_API_KEY; template aws/chat-template.yaml
 
 set -euo pipefail
@@ -34,8 +34,8 @@ usage() {
   echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
   echo "  Auto-runs Secrets Manager seed/push when .secrets/manifest.json + config.manifest.json exist (SKIP_SECRETS_MANAGER=1 to skip)." >&2
   echo "  When CHAT_PROD_CHAT_API_URL / CHAT_STAGE_CHAT_API_URL are unset, derives gvp:chat-api-url from ECS ALB DNS (CHAT_ECS_* cluster+service). Opt out: CHAT_ECS_AUTO_SYNC_CHAT_URL=0." >&2
-  echo "  Optional GVP_CHAT_VOICE=1|true|yes: sets HTML meta gvp:chat-voice-enabled=1 (browser mic); default off." >&2
-  echo "  SAM-managed ECS: CHAT_ECS_SAM_STACK_NAME_* + GEMINI + ECR; VPC/subnets via describe + optional create-default-vpc (CHAT_ECS_CREATE_DEFAULT_VPC=1, IAM ec2:CreateDefaultVpc). GVP_CHAT_VOICE=1 bootstraps ECR + default stack names and defaults CHAT_ECS_CREATE_DEFAULT_VPC=1. CHAT_VOICE_ECS_BOOTSTRAP=0 disables auto networking." >&2
+  echo "  Voice is always on in the FE — chat host must be WebSocket-capable (ECS+ALB, CHAT_LIVE_RELAY=1) for voice to work." >&2
+  echo "  SAM-managed ECS auto-bootstrap (default on; CHAT_VOICE_ECS_BOOTSTRAP=0 to opt out): creates ECR repo + default CHAT_ECS_SAM_STACK_NAME_*, resolves VPC/subnets via describe + optional create-default-vpc (CHAT_ECS_CREATE_DEFAULT_VPC=1, default on; IAM ec2:CreateDefaultVpc)." >&2
   exit 1
 }
 
@@ -154,19 +154,16 @@ _chat_ecs_require_two_az_subnets_or_exit() {
   fi
 }
 
-# When GVP_CHAT_VOICE=1 is set explicitly in env (e.g. chat-deploy.env), wire boring ECS prereqs so the
-# SAM-managed path (CHAT_ECS_SAM_STACK_NAME_*) is not skipped for lack of VPC/ECR/stack name.
+# Voice (browser mic) is always on in the FE — wire ECS chat prereqs by default so the SAM-managed ECS
+# path (CHAT_ECS_SAM_STACK_NAME_*) is not silently skipped for lack of VPC/ECR/stack name. Opt out with
+# CHAT_VOICE_ECS_BOOTSTRAP=0 (Lambda-only chat: voice will fail, FE still works for text).
 _chat_voice_prereq_bootstrap() {
   [[ "${CHAT_VOICE_ECS_BOOTSTRAP:-1}" == "0" ]] && return 0
-  case "${GVP_CHAT_VOICE:-}" in
-    1|true|TRUE|True|yes|YES|Yes|on|ON) ;;
-    *) return 0 ;;
-  esac
   if ! command -v aws >/dev/null 2>&1; then
-    echo "warning: GVP_CHAT_VOICE=1 but aws CLI missing; cannot auto-bootstrap VPC/ECR." >&2
+    echo "warning: aws CLI missing; cannot auto-bootstrap ECS chat prereqs (set CHAT_VOICE_ECS_BOOTSTRAP=0 to silence)." >&2
     return 0
   fi
-  echo "note: GVP_CHAT_VOICE=1 — bootstrapping ECS chat prereqs (VPC/subnets: describe or create-default-vpc, ECR, SAM stack name when unset)…" >&2
+  echo "note: bootstrapping ECS chat prereqs for voice (VPC/subnets: describe or create-default-vpc, ECR, SAM stack name when unset; CHAT_VOICE_ECS_BOOTSTRAP=0 to opt out)…" >&2
   if [[ -z "${CHAT_ECS_CREATE_DEFAULT_VPC+x}" ]]; then
     export CHAT_ECS_CREATE_DEFAULT_VPC=1
   fi
@@ -189,16 +186,17 @@ _chat_voice_prereq_bootstrap() {
   fi
   if [[ -z "${CHAT_ECS_VPC_ID:-}" || -z "${CHAT_ECS_SUBNET_IDS:-}" ]]; then
     if ! _chat_ecs_resolve_missing_vpc_subnets "${REGION}"; then
-      echo "error: GVP_CHAT_VOICE=1 could not resolve CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS in ${REGION}." >&2
+      echo "error: could not resolve CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS in ${REGION}." >&2
       echo "       Describe found no VPC with ≥2 subnets in different AZs, and create-default-vpc did not help or is disabled (CHAT_ECS_CREATE_DEFAULT_VPC=0)." >&2
       echo "       IAM needs ec2:CreateDefaultVpc when auto-create is on; some orgs block default VPC creation." >&2
       echo "       Fix: set CHAT_ECS_VPC_ID + CHAT_ECS_SUBNET_IDS in chat-deploy.env, or bash scripts/chat-ecs-discover-env.sh with CHAT_ECS_CREATE_DEFAULT_VPC=1." >&2
+      echo "       Or set CHAT_VOICE_ECS_BOOTSTRAP=0 to skip ECS entirely (voice will not work, text chat still works)." >&2
       exit 1
     fi
     echo "  CHAT_ECS_VPC_ID=${CHAT_ECS_VPC_ID}" >&2
     echo "  CHAT_ECS_SUBNET_IDS=${CHAT_ECS_SUBNET_IDS}" >&2
   fi
-  _chat_ecs_require_two_az_subnets_or_exit "GVP_CHAT_VOICE=1 bootstrap"
+  _chat_ecs_require_two_az_subnets_or_exit "voice ECS bootstrap"
   if [[ "${DEPLOY_ENV}" == "stage" ]]; then
     export CHAT_ECS_SAM_STACK_NAME_STAGE="${CHAT_ECS_SAM_STACK_NAME_STAGE:-gvp-chat-ecs-stage}"
     echo "  CHAT_ECS_SAM_STACK_NAME_STAGE=${CHAT_ECS_SAM_STACK_NAME_STAGE}" >&2
@@ -413,7 +411,7 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
       echo "note: CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS unset — resolving for SAM ECS (describe; optional CHAT_ECS_CREATE_DEFAULT_VPC=1 create-default-vpc; CHAT_VOICE_ECS_BOOTSTRAP=0 skips)…" >&2
       if ! _chat_ecs_resolve_missing_vpc_subnets "${REGION}"; then
         echo "ERROR: SAM ECS stack is set but CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS could not be resolved." >&2
-        echo "       Set both in chat-deploy.env, or export CHAT_ECS_CREATE_DEFAULT_VPC=1 for aws ec2 create-default-vpc when describe fails (IAM ec2:CreateDefaultVpc). GVP_CHAT_VOICE=1 defaults CHAT_ECS_CREATE_DEFAULT_VPC=1 during its bootstrap." >&2
+        echo "       Set both in chat-deploy.env, or export CHAT_ECS_CREATE_DEFAULT_VPC=1 for aws ec2 create-default-vpc when describe fails (IAM ec2:CreateDefaultVpc). CHAT_VOICE_ECS_BOOTSTRAP=1 (default) sets CHAT_ECS_CREATE_DEFAULT_VPC=1 unless you've overridden it." >&2
         exit 1
       fi
       echo "  CHAT_ECS_VPC_ID=${CHAT_ECS_VPC_ID}" >&2
@@ -634,48 +632,25 @@ else:
   esac
 }
 
-# Voice meta flag: explicit GVP_CHAT_VOICE wins (1/true/yes → on, anything else → off).
-# When unset, auto-decide from CHAT_SYNC_CHAT_URL:
-#   - WSS-capable host (ECS/ALB)  → gvp:chat-voice-enabled=1
-#   - Lambda execute-api host     → gvp:chat-voice-enabled=0 (FE blocks direct_google)
-# Warn loudly when the user explicitly enabled voice but pointed at a Lambda host.
-if [[ -z "${GVP_CHAT_VOICE:-}" ]]; then
-  if [[ -n "${CHAT_SYNC_CHAT_URL}" ]] && ! _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL}"; then
-    GVP_CHAT_VOICE=1
-    CHAT_VOICE_REASON="auto (chat URL is WSS-capable)"
-  else
-    GVP_CHAT_VOICE=0
-    if [[ -z "${CHAT_SYNC_CHAT_URL}" ]]; then
-      CHAT_VOICE_REASON="auto (no chat URL)"
-    else
-      CHAT_VOICE_REASON="auto (chat URL is Lambda execute-api)"
-    fi
-  fi
-else
-  CHAT_VOICE_REASON="explicit GVP_CHAT_VOICE=${GVP_CHAT_VOICE}"
-fi
-
-CHAT_VOICE_META=0
-case "${GVP_CHAT_VOICE:-0}" in
-  1|true|TRUE|True|yes|YES|Yes) CHAT_VOICE_META=1 ;;
-esac
-
-if [[ "${CHAT_VOICE_META}" == "1" ]] && _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL:-}"; then
-  echo "WARNING: gvp:chat-voice-enabled=1 but chat URL is Lambda execute-api; the browser FE will refuse voice (direct_google blocked)." >&2
+# Voice (browser mic) is always on in the FE. The browser-to-relay path requires a WebSocket-capable
+# chat host (ECS image defaults CHAT_LIVE_RELAY=1). Lambda execute-api hosts cannot proxy the Live socket
+# and will fail voice with 1011 — fail loudly so prod never ships into that footgun.
+if [[ -n "${CHAT_SYNC_CHAT_URL}" ]] && _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL}"; then
+  echo "WARNING: chat URL is Lambda execute-api (${CHAT_SYNC_CHAT_URL}); voice will fail (no WebSocket relay). Text chat still works." >&2
   if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-    echo "         Fix: set CHAT_STAGE_CHAT_API_URL to your ECS/ALB host, or CHAT_ECS_SAM_STACK_NAME_STAGE (+ GEMINI) for SAM ECS, or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB URL auto-derive." >&2
+    echo "         Fix for voice: point CHAT_STAGE_CHAT_API_URL at your ECS/ALB host, or set CHAT_ECS_SAM_STACK_NAME_STAGE (+ GEMINI) for SAM ECS, or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB URL auto-derive." >&2
   else
-    echo "         Fix: set CHAT_PROD_CHAT_API_URL to your ECS/ALB host, or CHAT_ECS_SAM_STACK_NAME_PROD (+ GEMINI) for SAM ECS, or CHAT_ECS_CLUSTER_PROD+CHAT_ECS_SERVICE_PROD for ALB URL auto-derive." >&2
+    echo "         Fix for voice: point CHAT_PROD_CHAT_API_URL at your ECS/ALB host, or set CHAT_ECS_SAM_STACK_NAME_PROD (+ GEMINI) for SAM ECS, or CHAT_ECS_CLUSTER_PROD+CHAT_ECS_SERVICE_PROD for ALB URL auto-derive." >&2
   fi
 fi
 
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
   if [[ -n "${CHAT_SYNC_CHAT_URL}" ]]; then
-    env GVP_CHAT_VOICE="${CHAT_VOICE_META}" node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_SYNC_CHAT_URL}"
-    echo "Patched index.html and admin/index.html (gvp:contact-api-url, gvp:chat-api-url, gvp:chat-voice-enabled=${CHAT_VOICE_META})."
+    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}" "${CHAT_SYNC_CHAT_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url, gvp:chat-api-url)."
   else
-    env GVP_CHAT_VOICE="${CHAT_VOICE_META}" node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
-    echo "Patched index.html and admin/index.html (gvp:contact-api-url; gvp:chat-voice-enabled=${CHAT_VOICE_META})."
+    node "${ROOT}/scripts/sync-site-api-urls.mjs" "${CONTACT_URL}"
+    echo "Patched index.html and admin/index.html (gvp:contact-api-url)."
   fi
   if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_SYNC_CHAT_URL}" ]]; then
     echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL, or CHAT_ECS_SAM_STACK_NAME_STAGE + GEMINI (+ ECR URI; VPC/subnets auto-resolve in deploy), or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB discovery, or Lambda chat (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY)." >&2
@@ -685,20 +660,17 @@ fi
 echo
 echo "=== Voice readiness (${DEPLOY_ENV}) ==="
 echo "  chat URL          : ${CHAT_SYNC_CHAT_URL:-<unset>}"
-echo "  gvp:chat-voice    : ${CHAT_VOICE_META}  (${CHAT_VOICE_REASON})"
-if [[ "${CHAT_VOICE_META}" == "1" ]]; then
-  if _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL:-}"; then
-    echo "  status            : ⚠ chat URL is Lambda; browser voice will be blocked by FE"
-  else
-    echo "  status            : OK — ECS image defaults CHAT_LIVE_RELAY=1, FE will accept relay transport"
-  fi
+if [[ -z "${CHAT_SYNC_CHAT_URL:-}" ]]; then
+  echo "  status            : ⚠ no chat URL — text chat will fail until gvp:chat-api-url is patched"
+elif _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL}"; then
+  echo "  status            : ⚠ chat URL is Lambda — text chat works, voice will fail (need ECS+ALB with CHAT_LIVE_RELAY=1)"
 else
-  echo "  status            : voice OFF — mic UI hidden on the static site"
+  echo "  status            : OK — chat host is WebSocket-capable; ECS image defaults CHAT_LIVE_RELAY=1 for voice relay"
 fi
 
 _voice_probe_chat_health "${CHAT_SYNC_CHAT_URL:-}"
 
-if [[ "${CHAT_VOICE_META}" == "1" ]] && [[ -n "${CHAT_SYNC_CHAT_URL:-}" ]] && { [[ "${SYNC_API_URLS:-1}" == "1" ]] || [[ "${SYNC_API_URLS:-}" == true ]]; }; then
+if [[ -n "${CHAT_SYNC_CHAT_URL:-}" ]] && { [[ "${SYNC_API_URLS:-1}" == "1" ]] || [[ "${SYNC_API_URLS:-}" == true ]]; }; then
   echo "  publish           : push/sync patched index.html + admin to hosting (Amplify, etc.) — browsers need gvp:chat-api-url on the live static site"
 fi
 

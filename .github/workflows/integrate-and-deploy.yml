@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy_environment:
-        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY deploys Lambda chat. SAM ECS (voice): CHAT_ECS_SAM_STACK_NAME_* + VPC/subnets + GEMINI; GVP_CHAT_VOICE=1 can auto-fill default VPC, ECR, stack names (see chat-deploy.env.example). Optional repo vars: CHAT_ECS_AUTO_SYNC_CHAT_URL, CHAT_LIVE_VOICE_STRICT (503 when Lambda relay off).'
+        description: 'AWS target — stage: separate contact stack; optional CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY deploys Lambda chat. SAM ECS (voice always on): CHAT_ECS_SAM_STACK_NAME_* + VPC/subnets + GEMINI; CHAT_VOICE_ECS_BOOTSTRAP=1 (default) auto-fills default VPC, ECR, stack names (see chat-deploy.env.example). Optional repo vars: CHAT_ECS_AUTO_SYNC_CHAT_URL, CHAT_LIVE_VOICE_STRICT (503 when Lambda relay off).'
         required: true
         default: prod
         type: choice
@@ -82,7 +82,7 @@ jobs:
       CHAT_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_SAM_STACK_NAME_STAGE }}
       CHAT_SAM_STACK_NAME_PROD: ${{ vars.CHAT_SAM_STACK_NAME_PROD }}
       CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
-      GVP_CHAT_VOICE: ${{ vars.GVP_CHAT_VOICE }}
+      CHAT_VOICE_ECS_BOOTSTRAP: ${{ vars.CHAT_VOICE_ECS_BOOTSTRAP }}
       CHAT_ECS_AUTO_SYNC_CHAT_URL: ${{ vars.CHAT_ECS_AUTO_SYNC_CHAT_URL }}
       CHAT_LIVE_VOICE_STRICT: ${{ vars.CHAT_LIVE_VOICE_STRICT }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

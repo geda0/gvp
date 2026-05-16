@@ -5,7 +5,7 @@
 # Usage:
 #   eval "$(bash scripts/chat-ecs-discover-env.sh)"
 #   bash scripts/chat-ecs-discover-env.sh >> .secrets/chat-deploy.env   # then chmod 600; review before commit
-# Sourced by scripts/integrate-and-deploy.sh for SAM ECS deploy and GVP_CHAT_VOICE=1 bootstrap.
+# Sourced by scripts/integrate-and-deploy.sh for SAM ECS deploy and the default voice ECS bootstrap (CHAT_VOICE_ECS_BOOTSTRAP=0 to opt out).
 #
 # Env: AWS_REGION or AWS_DEFAULT_REGION (default us-east-2); optional CHAT_ECR_REPO_NAME (default gvp-chat).
 # CHAT_ECS_CREATE_DEFAULT_VPC=1|true|yes|on: if describe finds no usable VPC, run aws ec2 create-default-vpc (needs ec2:CreateDefaultVpc), then pick subnets.

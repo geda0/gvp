@@ -1,7 +1,7 @@
 import { trackEvent } from './analytics.js'
 import { openContactDialog } from './contact.js'
 import { chatBus } from './chat-bus.js'
-import { chatApiUrl, chatVoiceFeatureEnabled } from './site-config.js'
+import { chatApiUrl } from './site-config.js'
 import { normalizeSection } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
@@ -363,7 +363,6 @@ export function initChat() {
         agentNodeSubmit.setAttribute('data-track', 'hero_chat_submit')
       }
     }
-    if (!chatVoiceFeatureEnabled) return
     if (source === 'header') {
       if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'header_agent_node_mic')
     } else {
@@ -464,7 +463,6 @@ export function initChat() {
   let voiceAwaitingStart = false
   let voiceStartRequested = false
   const getEffectiveDockMode = () => {
-    if (!chatVoiceFeatureEnabled) return 'text'
     if (liveUi.active || liveUi.connecting) return 'voice'
     // Pre-start / empty: same text dock (chips + composer) whether opened from bar or mic.
     if (voiceAwaitingStart || voiceStartRequested) return 'text'
@@ -491,9 +489,7 @@ export function initChat() {
   }
 
   const setDockMode = (mode, { awaitingVoice = false, focus = null } = {}) => {
-    if (!chatVoiceFeatureEnabled) {
-      dockMode = 'text'
-    } else if (awaitingVoice && !liveUi.active && !liveUi.connecting) {
+    if (awaitingVoice && !liveUi.active && !liveUi.connecting) {
       voiceAwaitingStart = true
       dockMode = 'text'
     } else {
@@ -514,19 +510,17 @@ export function initChat() {
   }
 
   const isVoiceAwaitingStartUi = () => Boolean(
-    chatVoiceFeatureEnabled
-    && (voiceAwaitingStart || voiceStartRequested)
+    (voiceAwaitingStart || voiceStartRequested)
     && !liveUi.active
     && !liveUi.connecting
   )
 
   const isVoiceSessionUi = () => Boolean(
-    chatVoiceFeatureEnabled
-    && (liveUi.active || liveUi.connecting || liveUi.sessionOpen)
+    liveUi.active || liveUi.connecting || liveUi.sessionOpen
   )
 
   const syncVoiceStartCta = () => {
-    if (!voiceStartBtn || !chatVoiceFeatureEnabled) return
+    if (!voiceStartBtn) return
 
     const hasMessages = messagesEl.children.length > 0
     const showLive = Boolean(liveUi.active)
@@ -719,34 +713,10 @@ export function initChat() {
 
   const reconcileComposerControls = () => {
     const textBusy = state.pending
-    const voiceBusy =
-      chatVoiceFeatureEnabled && (liveUi.active || liveUi.connecting)
+    const voiceBusy = liveUi.active || liveUi.connecting
     const showTypePeek = isVoiceAwaitingStartUi()
     composerInput.disabled = textBusy || (voiceBusy && !showTypePeek)
     if (composerSend) composerSend.disabled = textBusy || (voiceBusy && !showTypePeek)
-    if (!chatVoiceFeatureEnabled) {
-      if (voiceStartBtn) {
-        voiceStartBtn.hidden = true
-        voiceStartBtn.disabled = true
-        voiceStartBtn.setAttribute('inert', '')
-        voiceStartBtn.setAttribute('aria-hidden', 'true')
-        voiceStartBtn.removeAttribute('aria-pressed')
-      }
-      if (voiceStartHeaderSlot) {
-        voiceStartHeaderSlot.hidden = true
-        voiceStartHeaderSlot.setAttribute('aria-hidden', 'true')
-      }
-      if (agentNodeMic) {
-        agentNodeMic.hidden = true
-        agentNodeMic.disabled = true
-        agentNodeMic.setAttribute('inert', '')
-        agentNodeMic.setAttribute('aria-hidden', 'true')
-        agentNodeMic.removeAttribute('aria-pressed')
-        agentNodeMic.removeAttribute('data-gvp-launcher')
-      }
-      syncAgentLauncherChrome(launcherState.section)
-      return
-    }
     if (voiceStartBtn || agentNodeMic) {
       prepareVoiceLauncherButtons(agentNodeMic)
       const micBusy = (textBusy && !liveUi.active) || (liveUi.connecting && !liveUi.active)
@@ -788,8 +758,7 @@ export function initChat() {
     const showVoiceUi = isVoiceSessionUi()
 
     const showStartGate = Boolean(
-      chatVoiceFeatureEnabled
-      && (voiceAwaitingStart || voiceStartRequested || showConnecting)
+      (voiceAwaitingStart || voiceStartRequested || showConnecting)
       && !showLive
     )
 
@@ -906,7 +875,7 @@ export function initChat() {
   }
 
   const openPanel = ({ mode = 'text' } = {}) => {
-    const wantVoice = mode === 'voice' && chatVoiceFeatureEnabled
+    const wantVoice = mode === 'voice'
     if (isOpen()) {
       setDockMode(wantVoice ? 'voice' : 'text', {
         awaitingVoice: wantVoice,
@@ -1286,21 +1255,14 @@ export function initChat() {
   })
 
   // Hero voice CTA (below text bar). Opens dialog in voice intent.
-  const heroVoiceBlock = document.getElementById('heroVoice')
   const heroVoiceBtn = document.getElementById('heroVoiceMic')
-  // Hide the entire voice-first block when voice is disabled at the meta level.
-  // Falls back to the legacy agent-node bar (still visible below). The block
-  // would be misleading otherwise — "Talk to my AI assistant" with no voice.
-  if (heroVoiceBlock && !chatVoiceFeatureEnabled) {
-    heroVoiceBlock.hidden = true
-    heroVoiceBlock.setAttribute('aria-hidden', 'true')
-  }
   if (heroVoiceBtn) {
     heroVoiceBtn.addEventListener('click', () => {
       trackEvent('hero_voice_mic', {})
-      if (!chatVoiceFeatureEnabled || !liveVoice || typeof liveVoice.startVoice !== 'function') {
-        // Voice not available — degrade to opening the dialog in text mode so
-        // the visitor can still ask their question.
+      if (!liveVoice || typeof liveVoice.startVoice !== 'function') {
+        // Live binding refused (e.g. mic permission denied at construct time) —
+        // open the dialog in text mode so the visitor can still ask their
+        // question instead of getting a dead button.
         openPanel()
         return
       }
@@ -1354,9 +1316,6 @@ export function initChat() {
     }
   })
 
-  if (dockEl) {
-    dockEl.classList.toggle('chat-dialog__dock--text-only', !chatVoiceFeatureEnabled)
-  }
   autosizeComposer()
   syncEmptyState()
   agentInput.readOnly = launcherReadOnlyForDevice()
@@ -1406,7 +1365,7 @@ export function initChat() {
   }
 
   const liveVoice = bindChatLiveVoice({
-    micButtons: chatVoiceFeatureEnabled ? [agentNodeMic, voicePaneMicBtn].filter(Boolean) : [],
+    micButtons: [agentNodeMic, voicePaneMicBtn].filter(Boolean),
     messagesEl,
     statusEl,
     syncEmptyState,
