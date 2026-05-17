@@ -288,6 +288,16 @@ def _compact_bio(bio: dict[str, Any]) -> dict[str, Any]:
         speaking_out = [_truncate_text(str(x), 280) for x in speaking[:8]]
     else:
         speaking_out = []
+    services = bio.get('services') or []
+    if isinstance(services, list):
+        services_out = [_truncate_text(str(x), 240) for x in services[:10]]
+    else:
+        services_out = []
+    targets = bio.get('engagement_targets') or []
+    if isinstance(targets, list):
+        targets_out = [_truncate_text(str(x), 200) for x in targets[:6]]
+    else:
+        targets_out = []
     out: dict[str, Any] = {
         'name': bio.get('name'),
         'current_status': _truncate_text(str(bio.get('current_status', '')), 240),
@@ -297,6 +307,10 @@ def _compact_bio(bio: dict[str, Any]) -> dict[str, Any]:
         'tech_at_glance': tech_out,
         'contact_preference': _truncate_text(str(bio.get('contact_preference', '')), 200),
     }
+    if services_out:
+        out['services'] = services_out
+    if targets_out:
+        out['engagement_targets'] = targets_out
     if speaking_out:
         out['speaking_points'] = speaking_out
     return out

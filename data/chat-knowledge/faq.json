@@ -1,5 +1,49 @@
 [
   {
+    "id": "services-offered",
+    "q": [
+      "what services do you offer",
+      "what do you offer",
+      "what can you do for me",
+      "what can you help with",
+      "what kind of work do you do",
+      "do you take on consulting",
+      "do you take projects",
+      "are you available for contract",
+      "are you for hire"
+    ],
+    "a": "Plenty. We design and build production systems end to end — cloud-native platforms on AWS and Kubernetes, data-intensive pipelines, multi-tenant APIs, monolith-to-microservices migrations, and AI-assisted product engineering. Full-stack web product builds too — this site is one example. Tell me a bit about what you have in mind and we can take it from there, or I can open the contact form to start a conversation with Marwan directly."
+  },
+  {
+    "id": "build-a-website",
+    "q": [
+      "i need a website",
+      "can you build my website",
+      "can you make me a website",
+      "i need a landing page",
+      "build me a web app",
+      "build me an app",
+      "i need an mvp",
+      "build me an mvp",
+      "can you do front end",
+      "can you do frontend"
+    ],
+    "a": "Yes, that's in scope. Marwan is a full-stack engineer — this portfolio site is hand-built, earlier work includes full-stack at AT&T and web/mobile/AR delivery at 5d-agency, and the chat agent you're talking to was built end to end. Tell me a bit more: roughly what kind of site or app, and what's the goal — marketing site, product MVP, internal tool, something else? Once we have the shape of it, I can open the contact form prefilled with the details."
+  },
+  {
+    "id": "get-to-know-first",
+    "q": [
+      "i would like to know you first",
+      "tell me about yourself",
+      "who are you",
+      "introduce yourself",
+      "tell me about marwan",
+      "give me an intro",
+      "give me a quick overview"
+    ],
+    "a": "Happy to. We can start wherever's useful — I can pull up his recent roles (Apptio, JumpCloud, HP Instant Ink), walk through specific projects, or open his resume. What are you most curious about?"
+  },
+  {
     "id": "contact-preferred-channel",
     "q": [
       "how do i contact him",
