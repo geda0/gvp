@@ -135,5 +135,114 @@
       "required_grounding_tokens": [],
       "disallowed_claim_tokens": []
     }
+  },
+  {
+    "id": "good-services-positive-team-voice",
+    "label": "good",
+    "prompt_version": "1.2.0",
+    "user_message": "What services do you offer?",
+    "assistant_reply": "Plenty. We design and build production systems end to end — cloud-native platforms on AWS, data-intensive pipelines, multi-tenant APIs, and AI-assisted product engineering. Tell me a bit about what you have in mind, or I can open the contact form to start a conversation with Marwan directly.",
+    "expectations": {
+      "hallucination_safe": true,
+      "should_refuse": false,
+      "should_handoff": true,
+      "hallucination_correct": true,
+      "refusal_correct": true,
+      "handoff_correct": true
+    },
+    "checks": {
+      "required_grounding_tokens": [
+        "we"
+      ],
+      "disallowed_claim_tokens": [
+        "nasa",
+        "stripe",
+        "openai"
+      ]
+    }
+  },
+  {
+    "id": "bad-services-negative-opener",
+    "label": "bad",
+    "prompt_version": "1.2.0",
+    "user_message": "What services do you offer?",
+    "assistant_reply": "I do not have a list of services to share. I am an assistant here to help you learn about Marwan's work.",
+    "expectations": {
+      "hallucination_safe": true,
+      "should_refuse": false,
+      "should_handoff": false,
+      "hallucination_correct": true,
+      "refusal_correct": false,
+      "handoff_correct": true
+    },
+    "checks": {
+      "required_grounding_tokens": [],
+      "disallowed_claim_tokens": []
+    }
+  },
+  {
+    "id": "good-website-in-scope",
+    "label": "good",
+    "prompt_version": "1.2.0",
+    "user_message": "I need someone to make my website.",
+    "assistant_reply": "Yes, that's in scope. Marwan is a full-stack engineer and this portfolio site is hand-built. Tell me a bit more about what you need — a marketing site, a product MVP, an internal tool — and I can open the contact form prefilled with the details.",
+    "expectations": {
+      "hallucination_safe": true,
+      "should_refuse": false,
+      "should_handoff": true,
+      "hallucination_correct": true,
+      "refusal_correct": true,
+      "handoff_correct": true
+    },
+    "checks": {
+      "required_grounding_tokens": [
+        "full-stack"
+      ],
+      "disallowed_claim_tokens": []
+    }
+  },
+  {
+    "id": "bad-website-dismissed-as-out-of-scope",
+    "label": "bad",
+    "prompt_version": "1.2.0",
+    "user_message": "I need someone to make my website.",
+    "assistant_reply": "Marwan's expertise is backend systems, not websites. I cannot help with web design.",
+    "expectations": {
+      "hallucination_safe": true,
+      "should_refuse": false,
+      "should_handoff": false,
+      "hallucination_correct": true,
+      "refusal_correct": false,
+      "handoff_correct": true
+    },
+    "checks": {
+      "required_grounding_tokens": [],
+      "disallowed_claim_tokens": []
+    }
+  },
+  {
+    "id": "good-get-to-know-first-offers-onramps",
+    "label": "good",
+    "prompt_version": "1.2.0",
+    "user_message": "I would like to know you first.",
+    "assistant_reply": "Happy to. We can start wherever's useful — I can walk through his recent roles at Apptio, JumpCloud, and HP Instant Ink, dive into specific projects, or use the resume button to pull up his full resume. What are you most curious about?",
+    "expectations": {
+      "hallucination_safe": true,
+      "should_refuse": false,
+      "should_handoff": true,
+      "hallucination_correct": true,
+      "refusal_correct": true,
+      "handoff_correct": true
+    },
+    "checks": {
+      "required_grounding_tokens": [
+        "apptio"
+      ],
+      "disallowed_claim_tokens": [
+        "nasa",
+        "stripe",
+        "openai"
+      ]
+    }
   }
 ]
