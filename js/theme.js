@@ -6,10 +6,10 @@ const PREFS = ['space', 'garden', 'studio', 'auto'];
 // Garden theme gradient (matches styles.css --bg-primary)
 const GARDEN_GRADIENT = 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%)';
 
-// Keep in sync with --bg-space-gradient in styles.css
+// Keep in sync with --bg-space-gradient in styles.css (mirrored horizontally)
 const SPACE_SCENE_GRADIENT =
-  'radial-gradient(ellipse 95% 70% at 18% 8%, rgba(190, 78, 102, 0.14) 0%, transparent 48%), ' +
-  'radial-gradient(ellipse 90% 65% at 82% 88%, rgba(58, 98, 178, 0.16) 0%, transparent 50%), ' +
+  'radial-gradient(ellipse 95% 70% at 82% 8%, rgba(190, 78, 102, 0.14) 0%, transparent 48%), ' +
+  'radial-gradient(ellipse 90% 65% at 18% 88%, rgba(58, 98, 178, 0.16) 0%, transparent 50%), ' +
   'radial-gradient(ellipse 110% 80% at 50% -5%, #1c2a4a 0%, #121a32 38%, #0a1020 62%, #06080f 100%)';
 
 // Keep in sync with --bg-studio-gradient in styles.css

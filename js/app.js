@@ -43,7 +43,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     space:  { icon: '🚀', label: 'Space',  desc: 'Deep ink + nebula' },
     garden: { icon: '🦸', label: 'Garden', desc: 'Sky, trees, snow'  },
     studio: { icon: '📜', label: 'Studio', desc: 'Paper, low distraction' },
-    auto:   { icon: '🌓', label: 'Auto',   desc: 'Match system'      }
+    // ◐ is a geometric glyph (not an emoji) so it inherits the menu font/color
+    // and matches the half-and-half "auto" swatch exactly.
+    auto:   { icon: '◐',  label: 'Auto',   desc: 'Match system'      }
   }
   let menuOpen = false
 
@@ -58,6 +60,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const buildMenu = () => {
     if (!themeMenu) return
     themeMenu.innerHTML = ''
+    const title = document.createElement('li')
+    title.className = 'theme-menu__title'
+    title.id = 'themeMenuTitle'
+    title.setAttribute('role', 'presentation')
+    title.textContent = 'Change theme'
+    themeMenu.appendChild(title)
+    themeMenu.setAttribute('aria-labelledby', 'themeMenuTitle')
     for (const pref of PREF_ORDER) {
       const meta = PREF_META[pref]
       const item = document.createElement('li')
@@ -68,7 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       item.innerHTML = `
         <span class="theme-menu__swatch theme-menu__swatch--${pref}" aria-hidden="true"></span>
         <span class="theme-menu__text">
-          <span class="theme-menu__label">${meta.icon} ${meta.label}</span>
+          <span class="theme-menu__label"><span class="theme-menu__icon" aria-hidden="true">${meta.icon}</span>${meta.label}</span>
           <span class="theme-menu__desc">${meta.desc}</span>
         </span>
         <span class="theme-menu__check" aria-hidden="true">✓</span>
