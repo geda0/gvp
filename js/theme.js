@@ -41,7 +41,7 @@ function resolveAuto() {
 export function getThemePreference() {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (PREFS.includes(stored)) return stored;
-  return 'space';
+  return 'auto';
 }
 
 export function getTheme() {
