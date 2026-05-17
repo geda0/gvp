@@ -884,6 +884,10 @@ body:not(.content-open) section#home {
     margin-top: 2rem;
 }
 
+#playgroundContent > section#projects + section#playgroundBeta {
+    margin-top: 2.5rem;
+}
+
 #portfolioContent,
 #playgroundContent {
     z-index: 50;
@@ -904,6 +908,7 @@ body:not(.content-open) section#home {
    instead of stacking in one narrow column with dead space on wide viewports.
    The section-label header spans the full row; cards auto-fit below it. */
 section#projects,
+section#playgroundBeta,
 section#portfolioProjects {
     margin-top: 5rem;
     padding-bottom: 60px;
@@ -924,18 +929,21 @@ section#portfolioProjects {
 }
 
 section#projects > .section-label,
+section#playgroundBeta > .section-label,
 section#portfolioProjects > .section-label {
     grid-column: 1 / -1;
     margin-bottom: 0;
 }
 
 section#projects > .projects-load-error,
+section#playgroundBeta > .projects-load-error,
 section#portfolioProjects > .projects-load-error {
     grid-column: 1 / -1;
 }
 
 /* Cards stretch to fill their grid track; lone card stays comfortably capped. */
 section#projects .project,
+section#playgroundBeta .project,
 section#portfolioProjects .project {
     margin: 0;
     max-width: 100%;
@@ -944,12 +952,14 @@ section#portfolioProjects .project {
 
 /* A single card should not stretch full-bleed — keep it centered and capped. */
 section#projects:has(> .project:only-of-type),
+section#playgroundBeta:has(> .project:only-of-type),
 section#portfolioProjects:has(> .project:only-of-type) {
     grid-template-columns: minmax(0, 48rem);
 }
 
 @media (max-width: 767px) {
     section#projects,
+    section#playgroundBeta,
     section#portfolioProjects {
         grid-template-columns: 1fr;
         gap: 1rem;
@@ -981,6 +991,7 @@ section#portfolioProjects:has(> .project:only-of-type) {
 
 /* `both` fill-mode: first keyframe applies on first paint so `.visible { opacity: 1 }` does not flash before the bloom */
 section#projects.visible.content-section-reveal,
+section#playgroundBeta.visible.content-section-reveal,
 section#portfolioProjects.visible.content-section-reveal {
     animation: contentSectionBloom 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -988,6 +999,7 @@ section#portfolioProjects.visible.content-section-reveal {
 @media (prefers-reduced-motion: reduce) {
 
     section#projects.content-section-reveal,
+    section#playgroundBeta.content-section-reveal,
     section#portfolioProjects.content-section-reveal {
         animation: none;
         opacity: 1;

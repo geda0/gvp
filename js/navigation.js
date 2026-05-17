@@ -20,6 +20,7 @@ export function initNavigation(options = {}) {
     playgroundContent: document.getElementById('playgroundContent'),
     portfolioContent: document.getElementById('portfolioContent'),
     projects: document.getElementById('projects'),
+    playgroundBeta: document.getElementById('playgroundBeta'),
     portfolioProjects: document.getElementById('portfolioProjects')
   }
 
@@ -30,6 +31,7 @@ export function initNavigation(options = {}) {
     'playgroundContent',
     'portfolioContent',
     'projects',
+    'playgroundBeta',
     'portfolioProjects'
   ]
   if (navRequired.some((key) => !elements[key])) {
@@ -93,18 +95,22 @@ export function initNavigation(options = {}) {
 }
 
 function goHome(el, event) {
-  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
+  if (!el?.projects || !el?.playgroundBeta || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
   el.projects.classList.remove('content-section-reveal')
+  el.playgroundBeta.classList.remove('content-section-reveal')
   el.portfolioProjects.classList.remove('content-section-reveal')
   el.playgroundContent.classList.remove('visible')
   el.playgroundContent.classList.add('hidden')
   el.projects.classList.remove('visible')
   el.projects.classList.add('hidden')
+  el.playgroundBeta.classList.remove('visible')
+  el.playgroundBeta.classList.add('hidden')
   el.playgroundNav.classList.remove('section-invisible')
   el.portfolioNav.classList.remove('section-invisible')
   el.homeNav.classList.add('section-invisible')
   el.projects.classList.add('section-invisible')
+  el.playgroundBeta.classList.add('section-invisible')
   el.portfolioProjects.classList.remove('visible')
   el.portfolioProjects.classList.add('hidden')
   el.portfolioContent.classList.remove('visible')
@@ -113,10 +119,11 @@ function goHome(el, event) {
 }
 
 function goPlay(el, event) {
-  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
+  if (!el?.projects || !el?.playgroundBeta || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
   el.portfolioProjects.classList.remove('content-section-reveal')
   el.projects.classList.remove('content-section-reveal')
+  el.playgroundBeta.classList.remove('content-section-reveal')
   el.portfolioContent.classList.remove('visible')
   el.portfolioContent.classList.add('hidden')
   el.portfolioProjects.classList.remove('visible')
@@ -131,19 +138,25 @@ function goPlay(el, event) {
   el.projects.classList.remove('section-invisible')
   el.projects.classList.remove('hidden')
   el.projects.classList.add('visible', 'content-section-reveal')
+  el.playgroundBeta.classList.remove('section-invisible')
+  el.playgroundBeta.classList.remove('hidden')
+  el.playgroundBeta.classList.add('visible', 'content-section-reveal')
 
   if (event) trackClick(event)
 }
 
 function goPortfolio(el, event) {
-  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
+  if (!el?.projects || !el?.playgroundBeta || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
   el.projects.classList.remove('content-section-reveal')
+  el.playgroundBeta.classList.remove('content-section-reveal')
   el.portfolioProjects.classList.remove('content-section-reveal')
   el.playgroundContent.classList.remove('visible')
   el.playgroundContent.classList.add('hidden')
   el.projects.classList.remove('visible')
   el.projects.classList.add('hidden')
+  el.playgroundBeta.classList.remove('visible')
+  el.playgroundBeta.classList.add('hidden')
 
   el.portfolioContent.classList.remove('hidden')
   el.portfolioContent.classList.add('visible')

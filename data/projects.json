@@ -12,7 +12,9 @@
       "tech": ["Raspberry Pi", "Python", "OpenCV", "Computer Vision", "Embedded"],
       "hidden": false,
       "role": "Robotics + computer vision on Raspberry Pi"
-    },
+    }
+  ],
+  "playgroundBeta": [
     {
       "id": "gvp",
       "title": "Generative Video Platform",

@@ -52,7 +52,7 @@ def _chunks_from_resume(data: dict[str, Any]) -> list[str]:
 
 def _chunks_from_projects(data: dict[str, Any]) -> list[str]:
     chunks: list[str] = []
-    for section in ("playground", "portfolio"):
+    for section in ("playground", "playgroundBeta", "portfolio"):
         for item in data.get(section) or []:
             title = item.get("title", "")
             cid = item.get("id", "")
@@ -60,8 +60,9 @@ def _chunks_from_projects(data: dict[str, Any]) -> list[str]:
             desc = _strip_html(item.get("description", "") or "")
             tech = item.get("tech") or []
             tech_s = ", ".join(str(t) for t in tech)
+            section_label = "playground beta" if section == "playgroundBeta" else section
             chunks.append(
-                f"Site {section} project {title} ({cid}). {card} {desc} Tech: {tech_s}"
+                f"Site {section_label} project {title} ({cid}). {card} {desc} Tech: {tech_s}"
             )
     return [c for c in chunks if c.strip()]
 

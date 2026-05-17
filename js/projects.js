@@ -55,42 +55,48 @@ export async function loadProjects(url) {
     const data = raw ? JSON.parse(raw) : {}
     return {
       playground: Array.isArray(data.playground) ? data.playground : [],
+      playgroundBeta: Array.isArray(data.playgroundBeta) ? data.playgroundBeta : [],
       portfolio: Array.isArray(data.portfolio) ? data.portfolio : [],
       loadFailed: false
     }
   } catch (error) {
     console.error('Failed to load projects:', error);
-    return { playground: [], portfolio: [], loadFailed: true };
+    return { playground: [], playgroundBeta: [], portfolio: [], loadFailed: true };
   }
 }
 
 /**
  * Show a visible error when project JSON failed to load (network or parse).
  */
-export function renderProjectsSectionError(containerId) {
+export function renderProjectsSectionError(containerId, sectionId) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const section = container.querySelector('section');
-  if (!section) return;
+  const sections = sectionId
+    ? [container.querySelector(`#${sectionId}`)].filter(Boolean)
+    : [...container.querySelectorAll('section')];
 
-  const header = section.querySelector('h2, h3');
-  const headerHTML = header ? header.outerHTML : '';
+  sections.forEach((section) => {
+    const header = section.querySelector('h2, h3');
+    const headerHTML = header ? header.outerHTML : '';
 
-  section.innerHTML = headerHTML;
+    section.innerHTML = headerHTML;
 
-  const p = document.createElement('p');
-  p.className = 'projects-load-error';
-  p.setAttribute('role', 'alert');
-  p.textContent = PROJECTS_LOAD_FAILURE_TEXT;
-  section.appendChild(p);
+    const p = document.createElement('p');
+    p.className = 'projects-load-error';
+    p.setAttribute('role', 'alert');
+    p.textContent = PROJECTS_LOAD_FAILURE_TEXT;
+    section.appendChild(p);
+  });
 }
 
-export function renderProjects(containerId, projects) {
+export function renderProjects(containerId, projects, sectionId) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const section = container.querySelector('section');
+  const section = sectionId
+    ? container.querySelector(`#${sectionId}`)
+    : container.querySelector('section');
   if (!section) return;
 
   const header = section.querySelector('h2, h3');
