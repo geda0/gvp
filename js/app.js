@@ -34,25 +34,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   initStarfield('canvas', { getTheme })
   initContactForm()
 
-  // Theme toggle — cycles through prefs: garden → studio → space → auto → garden.
-  // data-target / icon / aria-label always describe the NEXT preference (what a click switches to).
+  // Theme switcher — dropdown with all four prefs. Trigger button shows the
+  // current theme; menu lets the user pick any of them or "Auto" (system).
   const themeToggle = document.getElementById('themeToggle')
-  const PREF_CYCLE = ['space', 'garden', 'studio', 'auto']
+  const themeMenu = document.getElementById('themeMenu')
+  const PREF_ORDER = ['space', 'garden', 'studio', 'auto']
   const PREF_META = {
-    garden:  { icon: '🦸', label: 'Switch to Garden theme' },
-    studio:  { icon: '📜', label: 'Switch to Studio (paper) theme' },
-    space:   { icon: '🚀', label: 'Switch to Space theme' },
-    auto:    { icon: '🌓', label: 'Match system theme automatically' }
+    space:  { icon: '🚀', label: 'Space',  desc: 'Deep ink + nebula' },
+    garden: { icon: '🦸', label: 'Garden', desc: 'Sky, trees, snow'  },
+    studio: { icon: '📜', label: 'Studio', desc: 'Paper, low distraction' },
+    auto:   { icon: '🌓', label: 'Auto',   desc: 'Match system'      }
   }
-  const nextPref = (current) => {
-    const idx = PREF_CYCLE.indexOf(current)
-    return PREF_CYCLE[(idx + 1) % PREF_CYCLE.length]
+  let menuOpen = false
+
+  const setExpanded = (open) => {
+    menuOpen = open
+    themeToggle?.setAttribute('aria-expanded', String(open))
+    if (!themeMenu) return
+    themeMenu.hidden = !open
+    themeToggle?.classList.toggle('theme-toggle--open', open)
   }
-  const updateToggleLabel = () => {
-    if (!themeToggle) return;
-    const target = nextPref(getThemePreference())
-    const meta = PREF_META[target]
-    themeToggle.dataset.target = target
+
+  const buildMenu = () => {
+    if (!themeMenu) return
+    themeMenu.innerHTML = ''
+    for (const pref of PREF_ORDER) {
+      const meta = PREF_META[pref]
+      const item = document.createElement('li')
+      item.className = 'theme-menu__item'
+      item.setAttribute('role', 'menuitemradio')
+      item.dataset.pref = pref
+      item.tabIndex = -1
+      item.innerHTML = `
+        <span class="theme-menu__swatch theme-menu__swatch--${pref}" aria-hidden="true"></span>
+        <span class="theme-menu__text">
+          <span class="theme-menu__label">${meta.icon} ${meta.label}</span>
+          <span class="theme-menu__desc">${meta.desc}</span>
+        </span>
+        <span class="theme-menu__check" aria-hidden="true">✓</span>
+      `
+      item.addEventListener('click', () => {
+        transitionToPreference(pref)
+        closeMenu(true)
+      })
+      themeMenu.appendChild(item)
+    }
+  }
+
+  const syncMenuSelection = () => {
+    if (!themeMenu || !themeToggle) return
+    const pref = getThemePreference()
+    const resolved = getTheme()
+    themeToggle.dataset.current = resolved
+    themeToggle.dataset.pref = pref
+    const meta = PREF_META[pref]
     let iconEl = themeToggle.querySelector('.theme-toggle-icon')
     if (!iconEl) {
       iconEl = document.createElement('span')
@@ -61,17 +96,101 @@ document.addEventListener('DOMContentLoaded', async () => {
       themeToggle.appendChild(iconEl)
     }
     iconEl.textContent = meta.icon
-    themeToggle.setAttribute('aria-label', meta.label)
-    themeToggle.setAttribute('title', meta.label)
-  };
-  if (themeToggle) {
-    updateToggleLabel()
-    themeToggle.addEventListener('click', () => {
-      transitionToPreference(nextPref(getThemePreference()))
+    const labelText = pref === 'auto'
+      ? `Theme: Auto (${resolved}) — change theme`
+      : `Theme: ${meta.label} — change theme`
+    themeToggle.setAttribute('aria-label', labelText)
+    themeToggle.setAttribute('title', labelText)
+    themeMenu.querySelectorAll('.theme-menu__item').forEach((el) => {
+      const checked = el.dataset.pref === pref
+      el.setAttribute('aria-checked', String(checked))
+      el.classList.toggle('theme-menu__item--checked', checked)
     })
   }
+
+  const menuItems = () =>
+    Array.from(themeMenu?.querySelectorAll('.theme-menu__item') || [])
+
+  const focusItem = (index) => {
+    const items = menuItems()
+    if (!items.length) return
+    const idx = (index + items.length) % items.length
+    items[idx].focus()
+  }
+
+  const positionMenu = () => {
+    if (!themeToggle || !themeMenu) return
+    const rect = themeToggle.getBoundingClientRect()
+    // Anchor under the trigger. Keep 8px margin from viewport edges.
+    const margin = 8
+    const menuWidth = themeMenu.offsetWidth || 200
+    let left = rect.left
+    if (left + menuWidth > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - menuWidth - margin)
+    }
+    themeMenu.style.setProperty('--theme-menu-x', `${Math.round(left)}px`)
+    themeMenu.style.setProperty('--theme-menu-y', `${Math.round(rect.bottom + 6)}px`)
+  }
+
+  const openMenu = () => {
+    setExpanded(true)
+    positionMenu()
+    // Focus the currently-selected item, or the first
+    const items = menuItems()
+    const currentIdx = items.findIndex((el) => el.dataset.pref === getThemePreference())
+    focusItem(currentIdx >= 0 ? currentIdx : 0)
+  }
+
+  const closeMenu = (restoreFocus) => {
+    setExpanded(false)
+    if (restoreFocus) themeToggle?.focus()
+  }
+
+  if (themeToggle && themeMenu) {
+    buildMenu()
+    syncMenuSelection()
+
+    themeToggle.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (menuOpen) closeMenu(false); else openMenu()
+    })
+
+    themeMenu.addEventListener('keydown', (e) => {
+      const items = menuItems()
+      const idx = items.indexOf(document.activeElement)
+      if (e.key === 'ArrowDown') { e.preventDefault(); focusItem(idx + 1) }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); focusItem(idx - 1) }
+      else if (e.key === 'Home') { e.preventDefault(); focusItem(0) }
+      else if (e.key === 'End') { e.preventDefault(); focusItem(items.length - 1) }
+      else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        document.activeElement?.click?.()
+      } else if (e.key === 'Escape' || e.key === 'Tab') {
+        if (e.key === 'Escape') e.preventDefault()
+        closeMenu(true)
+      }
+    })
+
+    themeToggle.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        if (!menuOpen) openMenu()
+      }
+    })
+
+    document.addEventListener('click', (e) => {
+      if (!menuOpen) return
+      if (themeToggle.contains(e.target) || themeMenu.contains(e.target)) return
+      closeMenu(false)
+    })
+
+    // Reposition on viewport changes while the menu is open.
+    const repositionIfOpen = () => { if (menuOpen) positionMenu() }
+    window.addEventListener('resize', repositionIfOpen)
+    window.addEventListener('scroll', repositionIfOpen, { passive: true })
+  }
   window.addEventListener('themechange', (event) => {
-    updateToggleLabel()
+    syncMenuSelection()
     trackThemeChange(event?.detail?.theme || getTheme())
   })
 
