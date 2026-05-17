@@ -1,15 +1,20 @@
 :root {
   --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
   --font-body: "Source Sans 3", system-ui, -apple-system, sans-serif;
-  --bg-primary: #0a0e14;
-  --surface-elevated: rgba(20, 26, 36, 0.96);
-  --surface: rgba(255, 255, 255, 0.04);
-  --border-subtle: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --text-primary: #e8eaef;
-  --text-muted: rgba(232, 234, 239, 0.72);
-  --accent: #3d73c4;
-  --accent-hover: #5d8fd8;
+  --space-deep: #06080f;
+  --bg-primary: var(--space-deep);
+  --bg-space-gradient:
+    radial-gradient(ellipse 95% 70% at 18% 8%, rgba(190, 78, 102, 0.14) 0%, transparent 48%),
+    radial-gradient(ellipse 90% 65% at 82% 88%, rgba(58, 98, 178, 0.16) 0%, transparent 50%),
+    radial-gradient(ellipse 110% 80% at 50% -5%, #1c2a4a 0%, #121a32 38%, #0a1020 62%, var(--space-deep) 100%);
+  --surface-elevated: rgba(26, 34, 56, 0.97);
+  --surface: rgba(180, 200, 255, 0.06);
+  --border-subtle: rgba(148, 175, 220, 0.15);
+  --border-strong: rgba(175, 198, 240, 0.24);
+  --text-primary: #e9ecf7;
+  --text-muted: rgba(233, 236, 247, 0.76);
+  --accent: #4e84dc;
+  --accent-hover: #6a9ae8;
   --radius-md: 10px;
   --radius-lg: 14px;
   --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
@@ -25,7 +30,9 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg-primary);
+  background-color: var(--space-deep);
+  background-image: var(--bg-space-gradient);
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font-body);
 }

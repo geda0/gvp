@@ -1,52 +1,63 @@
-/* Design tokens — space (default) */
+/* Design tokens — space (default): deep ink + blue nebula + warm red hints */
 :root,
 [data-theme="space"] {
     --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
     --font-body: "Source Sans 3", system-ui, -apple-system, sans-serif;
     --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
 
-    --bg-primary: #0a0e14;
-    --text-primary: #e8eaef;
-    --text-muted: rgba(232, 234, 239, 0.72);
-    --text-muted-plus: rgba(232, 234, 239, 0.88);
-    --text-muted-extra: rgba(232, 234, 239, 0.61);
-    --text-subtle: rgba(232, 234, 239, 0.5);
+    --space-deep: #06080f;
+    --space-mid: #10182c;
+    --bg-primary: var(--space-deep);
+    /* Keep in sync with SPACE_SCENE_GRADIENT in theme.js */
+    --bg-space-gradient:
+        radial-gradient(ellipse 95% 70% at 18% 8%, rgba(190, 78, 102, 0.14) 0%, transparent 48%),
+        radial-gradient(ellipse 90% 65% at 82% 88%, rgba(58, 98, 178, 0.16) 0%, transparent 50%),
+        radial-gradient(ellipse 110% 80% at 50% -5%, #1c2a4a 0%, #121a32 38%, #0a1020 62%, var(--space-deep) 100%);
 
-    --surface: rgba(255, 255, 255, 0.04);
-    --surface-elevated: rgba(20, 26, 36, 0.96);
-    --border-subtle: rgba(255, 255, 255, 0.09);
-    --border-strong: rgba(255, 255, 255, 0.16);
+    --text-primary: #e9ecf7;
+    --text-muted: rgba(233, 236, 247, 0.76);
+    --text-muted-plus: rgba(233, 236, 247, 0.9);
+    --text-muted-extra: rgba(233, 236, 247, 0.64);
+    --text-subtle: rgba(233, 236, 247, 0.54);
 
-    --accent: #3d73c4;
-    --accent-hover: #5d8fd8;
+    --surface: rgba(180, 200, 255, 0.06);
+    --surface-elevated: rgba(26, 34, 56, 0.97);
+    --border-subtle: rgba(148, 175, 220, 0.15);
+    --border-strong: rgba(175, 198, 240, 0.24);
+
+    --accent: #4e84dc;
+    --accent-hover: #6a9ae8;
     --on-accent: #ffffff;
 
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
+    --shadow-sm: 0 1px 3px rgba(4, 6, 16, 0.45), 0 0 0 1px rgba(90, 130, 210, 0.05);
+    --shadow-md: 0 12px 32px rgba(4, 6, 18, 0.5), 0 0 40px rgba(70, 110, 200, 0.06);
 
-    --nav-bg: rgba(10, 14, 20, 0.9);
+    --nav-bg: rgba(12, 16, 30, 0.91);
     --nav-inner-bg: transparent;
-    --footer-bg: rgba(8, 11, 16, 0.96);
-    --navbar-bg: rgba(10, 14, 20, 0.78);
-    --navbar-link: #e8eaef;
+    --footer-bg: rgba(10, 12, 24, 0.96);
+    --navbar-bg: rgba(14, 18, 34, 0.82);
+    --navbar-link: #e9ecf7;
     --navbar-link-hover-bg: transparent;
     --navbar-link-hover-color: var(--accent-hover);
-    --link-color: #9db0cc;
-    --link-visited: #aab8d4;
+    --link-color: #a8bce8;
+    --link-visited: #b8a8d8;
     --link-hover: var(--accent-hover);
     --footer-link-color: var(--link-color);
     --footer-link-visited: var(--link-visited);
     --footer-link-hover: var(--accent-hover);
-    --overlay-gradient: radial-gradient(ellipse 90% 55% at 50% 15%, rgba(61, 115, 196, 0.07), transparent 58%);
-    --heading-shadow: none;
+    --overlay-gradient:
+        radial-gradient(ellipse 75% 50% at 12% 18%, rgba(210, 90, 115, 0.11) 0%, transparent 52%),
+        radial-gradient(ellipse 80% 55% at 88% 72%, rgba(70, 120, 210, 0.13) 0%, transparent 55%),
+        radial-gradient(ellipse 100% 60% at 50% 8%, rgba(90, 140, 220, 0.09) 0%, transparent 58%);
+    --heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.05);
 
-    /* Chat: accent ring + cool blue chrome (halo, hero bar, dialog) — avoid lavender */
+    /* Chat: blue chrome with a touch of warm nebula */
     --chat-launcher-ring: var(--accent);
-    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 40%, #b2cff0 60%);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 38%, #b8c8f0 42%, #e8a0b0 20%);
     --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 58%, var(--border-subtle));
     --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
     --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
@@ -230,9 +241,15 @@ body {
     /* Reserve vertical space for the fixed footer so trailing content (e.g. the About
        paragraph on the home page) is not occluded. */
     padding: 0 0 var(--site-footer-height) 0;
-    transition: color 0.4s ease, background-color 0.4s ease;
+    transition: color 0.55s ease, background-color 0.55s ease;
     font-size: 16px;
     line-height: 1.6;
+}
+
+html:not([data-theme="garden"]) body {
+    background-color: var(--space-deep);
+    background-image: var(--bg-space-gradient);
+    background-attachment: fixed;
 }
 
 [data-theme="garden"] body {
@@ -259,8 +276,8 @@ body {
     z-index: 1;
     opacity: 0;
     pointer-events: none;
-    /* Keep in sync with SCENE_OVERLAY_TRANSITION in theme.js */
-    transition: opacity 0.52s cubic-bezier(0.4, 0, 0.2, 1);
+    /* Keep in sync with SCENE_OVERLAY_* in theme.js */
+    transition: opacity 0.78s cubic-bezier(0.33, 0, 0.18, 1);
 }
 
 #sceneTransitionOverlay.transitioning {
@@ -489,7 +506,7 @@ body.project-dialog-open {
 .project-dialog__backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(2, 5, 10, 0.82);
+    background: rgba(8, 10, 22, 0.78);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     z-index: 0;
@@ -511,7 +528,7 @@ body.project-dialog-open {
     padding: 1.5rem 1.35rem 1.25rem;
     padding-inline-end: 2.75rem;
     border-radius: var(--radius-lg);
-    background: rgb(18, 24, 32);
+    background: rgb(24, 30, 52);
     border: 1px solid var(--border-subtle);
     color: var(--text-primary);
     box-shadow: var(--shadow-md);
@@ -1953,9 +1970,12 @@ body.contact-dialog-open {
 }
 
 .theme-toggle[data-target="space"] {
-    background: #0a0e14;
-    color: #e8eaef;
-    border-color: rgba(255, 255, 255, 0.1);
+    background:
+        radial-gradient(ellipse 120% 100% at 20% 0%, rgba(200, 90, 110, 0.35) 0%, transparent 55%),
+        radial-gradient(ellipse 100% 90% at 90% 100%, rgba(70, 110, 200, 0.4) 0%, transparent 50%),
+        linear-gradient(165deg, #1a2848 0%, #0e1428 55%, #06080f 100%);
+    color: #e9ecf7;
+    border-color: rgba(148, 175, 220, 0.22);
 }
 
 .theme-toggle:hover,
@@ -1971,8 +1991,11 @@ body.contact-dialog-open {
 
 .theme-toggle[data-target="space"]:hover,
 .theme-toggle[data-target="space"]:focus-visible {
-    background: #121820;
-    color: #e8eaef;
+    background:
+        radial-gradient(ellipse 120% 100% at 20% 0%, rgba(210, 100, 120, 0.42) 0%, transparent 55%),
+        radial-gradient(ellipse 100% 90% at 90% 100%, rgba(80, 120, 210, 0.48) 0%, transparent 50%),
+        linear-gradient(165deg, #223058 0%, #121a34 55%, #080a14 100%);
+    color: #e9ecf7;
 }
 
 .theme-toggle:focus-visible {

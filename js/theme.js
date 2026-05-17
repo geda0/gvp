@@ -5,8 +5,15 @@ const THEMES = ['space', 'garden'];
 // Garden theme gradient (matches styles.css --bg-primary)
 const GARDEN_GRADIENT = 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%)';
 
-// Must match #sceneTransitionOverlay in styles.css (duration + easing)
-const SCENE_OVERLAY_TRANSITION = 'opacity 0.52s cubic-bezier(0.4, 0, 0.2, 1)';
+// Keep in sync with --bg-space-gradient in styles.css
+const SPACE_SCENE_GRADIENT =
+  'radial-gradient(ellipse 95% 70% at 18% 8%, rgba(190, 78, 102, 0.14) 0%, transparent 48%), ' +
+  'radial-gradient(ellipse 90% 65% at 82% 88%, rgba(58, 98, 178, 0.16) 0%, transparent 50%), ' +
+  'radial-gradient(ellipse 110% 80% at 50% -5%, #1c2a4a 0%, #121a32 38%, #0a1020 62%, #06080f 100%)';
+
+// Softer cross-fade: lower peak opacity + longer ease (sync #sceneTransitionOverlay in styles.css)
+const SCENE_OVERLAY_TRANSITION = 'opacity 0.78s cubic-bezier(0.33, 0, 0.18, 1)';
+const SCENE_OVERLAY_MAX_OPACITY = 0.86;
 
 let isTransitioning = false;
 
@@ -51,15 +58,14 @@ export function transitionToTheme(theme) {
   isTransitioning = true;
   overlay.classList.add('transitioning');
   
-  // Set overlay background to target theme
-  overlay.style.background = theme === 'garden' ? GARDEN_GRADIENT : '#0a0e14';
+  // Set overlay background to target theme (gradient eases the jump vs flat fill)
+  overlay.style.background = theme === 'garden' ? GARDEN_GRADIENT : SPACE_SCENE_GRADIENT;
   
   // Ensure overlay is ready (inline wins over stylesheet; keep in sync with CSS)
   overlay.style.transition = SCENE_OVERLAY_TRANSITION;
 
   // Timeout fallback: reset flag if transitions don't complete
-  // 2.5s = enough for both fades (~0.52s each) + buffer
-  const TRANSITION_TIMEOUT = 2500;
+  const TRANSITION_TIMEOUT = 3200;
   let timeoutId = setTimeout(() => {
     // Emergency reset: ensure flag is cleared and overlay is reset
     isTransitioning = false;
@@ -85,7 +91,7 @@ export function transitionToTheme(theme) {
   // Fade in overlay
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      overlay.style.opacity = '1';
+      overlay.style.opacity = String(SCENE_OVERLAY_MAX_OPACITY);
     });
   });
   

@@ -138,8 +138,13 @@ export function initStarfield(canvasId, options = {}) {
     };
   }
 
+  /** Comic-leaning nebula palette: cool blues + warm reds/golds (not full-spectrum random). */
   function randomColor() {
-    return 'hsl(' + Math.random() * 360 + ', 100%, ' + (Math.random() * 22 + 56) + '%)';
+    const hues = [218, 235, 268, 340, 12, 45];
+    const h = hues[(Math.random() * hues.length) | 0] + (Math.random() * 18 - 9);
+    const s = Math.random() * 12 + 88;
+    const l = Math.random() * 16 + 64;
+    return `hsl(${h}, ${s}%, ${l}%)`;
   }
 
   function calculateNumStars(width, height, coresCount) {
@@ -209,9 +214,9 @@ export function initStarfield(canvasId, options = {}) {
 
   function drawSpace() {
     // Subtle trail: fade each frame so it disappears completely (keeps look clean, no buildup)
-    // Dark navy tint for a richer space background (matches --bg-primary #060c1a = rgb(6, 12, 26))
+    // Deep-space ink fade (matches --space-deep / starfield under nebula gradient)
     const trail = spaceTrailAlphaForPreference(prefersReducedMotion);
-    c.fillStyle = `rgba(3, 6, 12, ${trail})`;
+    c.fillStyle = `rgba(8, 10, 22, ${trail})`;
     c.fillRect(0, 0, canvas.width, canvas.height);
     starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
     for (var i = 0; i < numStars; i++) {
