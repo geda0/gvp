@@ -5,60 +5,67 @@
     --font-body: "Source Sans 3", system-ui, -apple-system, sans-serif;
     --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
 
-    --space-deep: #06080f;
-    --space-mid: #10182c;
+    /* Calmer base: slightly warmer blue-gray ink (not pure black) — avoids OLED
+       halation and feels less harsh than the previous #06080f. */
+    --space-deep: #0c111c;
+    --space-mid: #141a2a;
     --bg-primary: var(--space-deep);
-    /* Keep in sync with SPACE_SCENE_GRADIENT in theme.js — mirrored horizontally:
-       warm red nebula now top-right, cool blue now bottom-left. */
+    /* Keep in sync with SPACE_SCENE_GRADIENT in theme.js — mirrored horizontally
+       and dialed back ~45%: nebulas are atmospheric, not decorative. */
     --bg-space-gradient:
-        radial-gradient(ellipse 95% 70% at 82% 8%, rgba(190, 78, 102, 0.14) 0%, transparent 48%),
-        radial-gradient(ellipse 90% 65% at 18% 88%, rgba(58, 98, 178, 0.16) 0%, transparent 50%),
-        radial-gradient(ellipse 110% 80% at 50% -5%, #1c2a4a 0%, #121a32 38%, #0a1020 62%, var(--space-deep) 100%);
+        radial-gradient(ellipse 100% 75% at 82% 6%, rgba(170, 92, 110, 0.075) 0%, transparent 50%),
+        radial-gradient(ellipse 95% 70% at 18% 90%, rgba(78, 110, 175, 0.09) 0%, transparent 52%),
+        radial-gradient(ellipse 120% 85% at 50% -5%, #1a2238 0%, #131a2b 40%, #0e1422 65%, var(--space-deep) 100%);
 
-    --text-primary: #e9ecf7;
-    --text-muted: rgba(233, 236, 247, 0.76);
-    --text-muted-plus: rgba(233, 236, 247, 0.9);
-    --text-muted-extra: rgba(233, 236, 247, 0.64);
-    --text-subtle: rgba(233, 236, 247, 0.54);
+    /* Text contrast slightly reduced so the brightest reading band isn't a
+       glaring near-white on dark — easier on the eye for long sessions. */
+    --text-primary: #dde3ee;
+    --text-muted: rgba(221, 227, 238, 0.7);
+    --text-muted-plus: rgba(221, 227, 238, 0.86);
+    --text-muted-extra: rgba(221, 227, 238, 0.58);
+    --text-subtle: rgba(221, 227, 238, 0.48);
 
-    --surface: rgba(180, 200, 255, 0.06);
-    --surface-elevated: rgba(26, 34, 56, 0.97);
-    --border-subtle: rgba(148, 175, 220, 0.15);
-    --border-strong: rgba(175, 198, 240, 0.24);
+    --surface: rgba(165, 185, 230, 0.05);
+    --surface-elevated: rgba(24, 31, 48, 0.96);
+    --border-subtle: rgba(140, 165, 210, 0.13);
+    --border-strong: rgba(165, 188, 225, 0.22);
 
-    --accent: #4e84dc;
-    --accent-hover: #6a9ae8;
-    --on-accent: #ffffff;
+    /* Desaturated periwinkle — still clearly an accent but doesn't vibrate. */
+    --accent: #7a99cf;
+    --accent-hover: #93afdb;
+    --on-accent: #0c111c;
 
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
 
-    --shadow-sm: 0 1px 3px rgba(4, 6, 16, 0.45), 0 0 0 1px rgba(90, 130, 210, 0.05);
-    --shadow-md: 0 12px 32px rgba(4, 6, 18, 0.5), 0 0 40px rgba(70, 110, 200, 0.06);
+    --shadow-sm: 0 1px 3px rgba(4, 6, 16, 0.4), 0 0 0 1px rgba(90, 130, 210, 0.04);
+    --shadow-md: 0 12px 32px rgba(4, 6, 18, 0.45), 0 0 40px rgba(70, 110, 200, 0.04);
 
-    --nav-bg: rgba(12, 16, 30, 0.91);
+    --nav-bg: rgba(14, 19, 32, 0.9);
     --nav-inner-bg: transparent;
-    --footer-bg: rgba(10, 12, 24, 0.96);
-    --navbar-bg: rgba(14, 18, 34, 0.82);
-    --navbar-link: #e9ecf7;
+    --footer-bg: rgba(12, 16, 26, 0.95);
+    --navbar-bg: rgba(16, 21, 36, 0.82);
+    --navbar-link: #dde3ee;
     --navbar-link-hover-bg: transparent;
     --navbar-link-hover-color: var(--accent-hover);
-    --link-color: #a8bce8;
-    --link-visited: #b8a8d8;
+    --link-color: #9caed4;
+    --link-visited: #a8a0c8;
     --link-hover: var(--accent-hover);
     --footer-link-color: var(--link-color);
     --footer-link-visited: var(--link-visited);
     --footer-link-hover: var(--accent-hover);
+    /* Overlay nebula on top of content — toned right down so it reads as a
+       quiet wash, not a colored corner light. */
     --overlay-gradient:
-        radial-gradient(ellipse 75% 50% at 88% 18%, rgba(210, 90, 115, 0.11) 0%, transparent 52%),
-        radial-gradient(ellipse 80% 55% at 12% 72%, rgba(70, 120, 210, 0.13) 0%, transparent 55%),
-        radial-gradient(ellipse 100% 60% at 50% 8%, rgba(90, 140, 220, 0.09) 0%, transparent 58%);
-    --heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.05);
+        radial-gradient(ellipse 80% 55% at 88% 18%, rgba(190, 95, 115, 0.055) 0%, transparent 55%),
+        radial-gradient(ellipse 85% 60% at 12% 72%, rgba(80, 120, 195, 0.07) 0%, transparent 58%),
+        radial-gradient(ellipse 105% 65% at 50% 6%, rgba(95, 130, 195, 0.055) 0%, transparent 60%);
+    --heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
 
-    /* Chat: blue chrome with a touch of warm nebula */
+    /* Chat: cool periwinkle chrome with the merest hint of warmth */
     --chat-launcher-ring: var(--accent);
-    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 38%, #b8c8f0 42%, #e8a0b0 20%);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 50%, #b2c2e0 42%, #d8a6b2 8%);
     --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 58%, var(--border-subtle));
     --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
     --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
@@ -412,8 +419,9 @@ html:not([data-theme="garden"]):not([data-theme="studio"]) body {
 }
 
 @keyframes space-nebula-drift {
-    0%   { opacity: 0.88; transform: translate3d(0, 0, 0) scale(1); }
-    100% { opacity: 1;    transform: translate3d(1.6%, -0.9%, 0) scale(1.035); }
+    /* Very subtle parallax — the nebula should breathe, not move. */
+    0%   { opacity: 0.94; transform: translate3d(0, 0, 0) scale(1); }
+    100% { opacity: 1;    transform: translate3d(0.8%, -0.45%, 0) scale(1.015); }
 }
 
 /* Scene transition overlay */
@@ -657,7 +665,7 @@ body.project-dialog-open {
 .project-dialog__backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(8, 10, 22, 0.78);
+    background: rgba(10, 14, 24, 0.72);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     z-index: 0;
@@ -685,7 +693,7 @@ body.project-dialog-open {
     padding: 1.5rem 1.35rem 1.25rem;
     padding-inline-end: 2.75rem;
     border-radius: var(--radius-lg);
-    background: rgb(24, 30, 52);
+    background: rgb(22, 28, 42);
     border: 1px solid var(--border-subtle);
     color: var(--text-primary);
     box-shadow: var(--shadow-md);
@@ -2157,11 +2165,11 @@ body.contact-dialog-open {
    button itself is a small preview of the active scene. */
 .theme-toggle[data-current="space"] {
     background:
-        radial-gradient(ellipse 120% 100% at 80% 0%, rgba(200, 90, 110, 0.35) 0%, transparent 55%),
-        radial-gradient(ellipse 100% 90% at 10% 100%, rgba(70, 110, 200, 0.4) 0%, transparent 50%),
-        linear-gradient(195deg, #1a2848 0%, #0e1428 55%, #06080f 100%);
-    color: #e9ecf7;
-    border-color: rgba(148, 175, 220, 0.22);
+        radial-gradient(ellipse 120% 100% at 80% 0%, rgba(180, 110, 130, 0.22) 0%, transparent 55%),
+        radial-gradient(ellipse 100% 90% at 10% 100%, rgba(90, 125, 195, 0.28) 0%, transparent 50%),
+        linear-gradient(195deg, #1a2238 0%, #131a2b 55%, #0c111c 100%);
+    color: #dde3ee;
+    border-color: rgba(140, 165, 210, 0.2);
 }
 
 .theme-toggle[data-current="garden"] {
@@ -2180,7 +2188,7 @@ body.contact-dialog-open {
    resolved-current swatch so the user can see they're on auto. */
 .theme-toggle[data-pref="auto"] {
     background:
-        linear-gradient(110deg, #06080f 0%, #06080f 48%, #f4ede0 52%, #f4ede0 100%);
+        linear-gradient(110deg, #0c111c 0%, #0c111c 48%, #f4ede0 52%, #f4ede0 100%);
     color: var(--navbar-link);
     border-color: var(--border-subtle);
 }
@@ -2291,9 +2299,9 @@ body.contact-dialog-open {
 
 .theme-menu__swatch--space {
     background:
-        radial-gradient(circle at 70% 30%, rgba(200, 90, 110, 0.6), transparent 60%),
-        radial-gradient(circle at 30% 70%, rgba(70, 110, 200, 0.7), transparent 60%),
-        linear-gradient(200deg, #1a2848 0%, #06080f 100%);
+        radial-gradient(circle at 70% 30%, rgba(180, 110, 130, 0.4), transparent 60%),
+        radial-gradient(circle at 30% 70%, rgba(90, 125, 195, 0.5), transparent 60%),
+        linear-gradient(200deg, #1a2238 0%, #0c111c 100%);
 }
 
 .theme-menu__swatch--garden {
@@ -2305,7 +2313,7 @@ body.contact-dialog-open {
 }
 
 .theme-menu__swatch--auto {
-    background: linear-gradient(110deg, #06080f 0%, #06080f 48%, #f4ede0 52%, #f4ede0 100%);
+    background: linear-gradient(110deg, #0c111c 0%, #0c111c 48%, #f4ede0 52%, #f4ede0 100%);
 }
 
 .theme-menu__text {
