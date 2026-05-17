@@ -72,6 +72,64 @@
     --home-hero-pad-bottom: clamp(1.2rem, 3.2vh, 1.85rem);
 }
 
+/* Design tokens — studio (paper / low-distraction reading mode) */
+[data-theme="studio"] {
+    --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --font-body: "Source Sans 3", system-ui, -apple-system, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+
+    --studio-paper: #f4ede0;
+    --studio-paper-deep: #e2d6bf;
+    --bg-primary: var(--studio-paper);
+    /* Keep in sync with STUDIO_SCENE_GRADIENT in theme.js */
+    --bg-studio-gradient:
+        radial-gradient(ellipse 80% 60% at 14% 12%, rgba(212, 188, 156, 0.32) 0%, transparent 55%),
+        radial-gradient(ellipse 70% 55% at 88% 86%, rgba(170, 158, 188, 0.22) 0%, transparent 60%),
+        linear-gradient(180deg, #f4ede0 0%, #ece3d2 60%, #e2d6bf 100%);
+
+    --text-primary: #1b1f26;
+    --text-muted: rgba(27, 31, 38, 0.72);
+    --text-muted-plus: rgba(27, 31, 38, 0.86);
+    --text-muted-extra: rgba(27, 31, 38, 0.6);
+    --text-subtle: rgba(27, 31, 38, 0.48);
+
+    --surface: rgba(255, 250, 240, 0.55);
+    --surface-elevated: rgba(252, 247, 236, 0.96);
+    --border-subtle: rgba(82, 65, 40, 0.14);
+    --border-strong: rgba(82, 65, 40, 0.24);
+
+    --accent: #3d4f7a;
+    --accent-hover: #51648f;
+    --on-accent: #fbf7ef;
+
+    --shadow-sm: 0 1px 2px rgba(60, 40, 18, 0.08);
+    --shadow-md: 0 10px 28px rgba(60, 40, 18, 0.12), 0 2px 6px rgba(60, 40, 18, 0.06);
+
+    --nav-bg: rgba(244, 237, 224, 0.92);
+    --nav-inner-bg: transparent;
+    --footer-bg: rgba(232, 222, 200, 0.96);
+    --navbar-bg: rgba(244, 237, 224, 0.85);
+    --navbar-link: #1b1f26;
+    --navbar-link-hover-bg: transparent;
+    --navbar-link-hover-color: var(--accent-hover);
+    --link-color: #3d4f7a;
+    --link-visited: #5a4a78;
+    --link-hover: var(--accent-hover);
+    --footer-link-color: var(--link-color);
+    --footer-link-visited: var(--link-visited);
+    --footer-link-hover: var(--accent-hover);
+    --overlay-gradient: radial-gradient(ellipse 85% 50% at 50% 12%, rgba(255, 250, 235, 0.4), transparent 60%);
+    --heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+
+    --chat-launcher-ring: var(--accent);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 50%, #c4b89f 50%);
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 52%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
+    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
+}
+
 [data-theme="garden"] {
     --bg-primary: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
     --text-primary: #0d1a12;
@@ -246,7 +304,7 @@ body {
     line-height: 1.6;
 }
 
-html:not([data-theme="garden"]) body {
+html:not([data-theme="garden"]):not([data-theme="studio"]) body {
     background-color: var(--space-deep);
     background-image: var(--bg-space-gradient);
     background-attachment: fixed;
@@ -255,6 +313,12 @@ html:not([data-theme="garden"]) body {
 [data-theme="garden"] body {
     background: var(--bg-primary);
     background-color: transparent;
+    background-attachment: fixed;
+}
+
+[data-theme="studio"] body {
+    background-color: var(--studio-paper);
+    background-image: var(--bg-studio-gradient);
     background-attachment: fixed;
 }
 
@@ -267,6 +331,18 @@ html:not([data-theme="garden"]) body {
     left: 0;
     z-index: 0;
     pointer-events: none;
+    will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    [data-theme="space"] #light {
+        animation: space-nebula-drift 38s ease-in-out infinite alternate;
+    }
+}
+
+@keyframes space-nebula-drift {
+    0%   { opacity: 0.88; transform: translate3d(0, 0, 0) scale(1); }
+    100% { opacity: 1;    transform: translate3d(1.6%, -0.9%, 0) scale(1.035); }
 }
 
 /* Scene transition overlay */
@@ -448,6 +524,10 @@ h3 {
     background: rgba(255, 255, 255, 0.42);
 }
 
+[data-theme="studio"] .project__tag {
+    background: rgba(255, 250, 240, 0.7);
+}
+
 .projects-load-error {
     color: var(--text-muted);
     font-size: 0.95rem;
@@ -518,6 +598,12 @@ body.project-dialog-open {
     -webkit-backdrop-filter: blur(14px);
 }
 
+[data-theme="studio"] .project-dialog__backdrop {
+    background: rgba(60, 48, 28, 0.42);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
 .project-dialog__panel {
     position: relative;
     z-index: 1;
@@ -537,6 +623,11 @@ body.project-dialog-open {
 
 [data-theme="garden"] .project-dialog__panel {
     background: rgb(252, 253, 250);
+    box-shadow: var(--shadow-md);
+}
+
+[data-theme="studio"] .project-dialog__panel {
+    background: var(--surface-elevated);
     box-shadow: var(--shadow-md);
 }
 
@@ -1755,6 +1846,25 @@ body.contact-dialog-open {
     border-color: var(--border-subtle);
 }
 
+[data-theme="studio"] .highlight {
+    background: rgba(255, 250, 240, 0.55);
+    border-color: var(--border-subtle);
+}
+
+[data-theme="studio"] .experience-summary,
+[data-theme="studio"] .playground-intro,
+[data-theme="studio"] .portfolio-earlier-career {
+    background: rgba(255, 250, 240, 0.55);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.85rem;
+    padding: 1.4rem 1.5rem;
+}
+
+[data-theme="studio"] .portfolio-earlier-career {
+    margin-top: 1.5rem;
+    padding-bottom: 1.4rem;
+}
+
 /* Garden theme: running text otherwise sits directly over the ocean stripe and tree
    silhouettes, which kills contrast (most visible on mobile where the ocean band
    crosses portfolio intro and playground intro). Give the prose blocks the same translucent panel
@@ -1998,6 +2108,31 @@ body.contact-dialog-open {
     color: #e9ecf7;
 }
 
+.theme-toggle[data-target="studio"] {
+    background: linear-gradient(180deg, #f4ede0 0%, #ece3d2 60%, #e2d6bf 100%);
+    color: #1b1f26;
+    border-color: rgba(82, 65, 40, 0.22);
+}
+
+.theme-toggle[data-target="studio"]:hover,
+.theme-toggle[data-target="studio"]:focus-visible {
+    background: linear-gradient(180deg, #f7f1e6 0%, #efe7d8 60%, #e5dac5 100%);
+    color: #1b1f26;
+}
+
+.theme-toggle[data-target="auto"] {
+    background:
+        linear-gradient(110deg, #06080f 0%, #06080f 48%, #f4ede0 52%, #f4ede0 100%);
+    color: var(--navbar-link);
+    border-color: var(--border-subtle);
+}
+
+.theme-toggle[data-target="auto"]:hover,
+.theme-toggle[data-target="auto"]:focus-visible {
+    background:
+        linear-gradient(110deg, #0d1224 0%, #0d1224 48%, #f7f1e6 52%, #f7f1e6 100%);
+}
+
 .theme-toggle:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
@@ -2105,4 +2240,47 @@ h6 {
     .read-more {
         font-size: 0.8em;
     }
+}
+
+/* Per-section accent shifts.
+   Scoped to `main` so the chrome (nav, footer, chat launcher) keeps the base
+   theme accent — only in-content links / focus rings / read-more pick up the
+   playground (warmer) or portfolio (deeper) variant. Subtle by design. */
+[data-theme="space"] body[data-section="playground"] main {
+    --accent: #e08c4a;
+    --accent-hover: #f0a25e;
+    --link-color: #f0b88a;
+    --link-hover: var(--accent-hover);
+}
+[data-theme="space"] body[data-section="portfolio"] main {
+    --accent: #6a98e8;
+    --accent-hover: #82adf0;
+    --link-color: #b6cdf2;
+    --link-hover: var(--accent-hover);
+}
+
+[data-theme="garden"] body[data-section="playground"] main {
+    --accent: #9a6328;
+    --accent-hover: #b07a3a;
+    --link-color: #6b3f12;
+    --link-hover: var(--accent-hover);
+}
+[data-theme="garden"] body[data-section="portfolio"] main {
+    --accent: #144a2a;
+    --accent-hover: #1f6b3d;
+    --link-color: #103b22;
+    --link-hover: var(--accent-hover);
+}
+
+[data-theme="studio"] body[data-section="playground"] main {
+    --accent: #b8593a;
+    --accent-hover: #cf6e4d;
+    --link-color: #8e3f23;
+    --link-hover: var(--accent-hover);
+}
+[data-theme="studio"] body[data-section="portfolio"] main {
+    --accent: #2f3f63;
+    --accent-hover: #43577f;
+    --link-color: #2a3958;
+    --link-hover: var(--accent-hover);
 }

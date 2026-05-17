@@ -2253,3 +2253,43 @@ body.content-open .agent-slot--navbar .agent-node__submit {
         opacity: 0;
     }
 }
+
+/* Studio (paper) theme chat overrides — mirrors the garden pattern with warm paper tones */
+[data-theme='studio'] .contact-dialog.chat-dialog .contact-dialog__backdrop.chat-dialog__backdrop {
+    background:
+        radial-gradient(120% 85% at 50% 0%, color-mix(in srgb, var(--chat-launcher-glow-chrome) 14%, transparent), transparent 52%),
+        linear-gradient(180deg, rgba(60, 48, 28, 0.28) 0%, rgba(60, 48, 28, 0.5) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+[data-theme='studio'] .contact-dialog.chat-dialog .contact-dialog__panel.chat-dialog__panel {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-md);
+}
+
+[data-theme='studio'] .contact-dialog.chat-dialog .chat-dialog__header,
+[data-theme='studio'] .contact-dialog.chat-dialog .chat-composer,
+[data-theme='studio'] .contact-dialog.chat-dialog .chat-status,
+[data-theme='studio'] .contact-dialog.chat-dialog .chat-dialog__footer,
+[data-theme='studio'] .contact-dialog.chat-dialog .chat-voice-pane {
+    background: var(--surface-elevated);
+    border-top-color: var(--border-subtle);
+    border-bottom-color: var(--border-subtle);
+}
+
+[data-theme='studio'] .contact-dialog.chat-dialog .chat-dialog__scroll,
+[data-theme='studio'] .contact-dialog.chat-dialog .chat-messages {
+    background: var(--surface-elevated);
+}
+
+[data-theme='studio'] .chat-msg--assistant .chat-msg__bubble {
+    background: rgba(255, 250, 240, 0.85);
+    border-color: var(--border-subtle);
+}
+
+[data-theme='studio'] .chat-status[data-tone='error'] {
+    color: #a83333;
+}
+

@@ -6,7 +6,7 @@ import {
   trackThemeChange
 } from './analytics.js'
 import { initNavigation } from './navigation.js'
-import { initTheme, getTheme, transitionToTheme } from './theme.js'
+import { initTheme, getTheme, getThemePreference, transitionToPreference } from './theme.js'
 import { initStarfield } from './starfield.js'
 import {
   loadProjects,
@@ -34,14 +34,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   initStarfield('canvas', { getTheme })
   initContactForm()
 
-  // Theme toggle — emoji; data-target + CSS set button background to the theme you switch *to*
+  // Theme toggle — cycles through prefs: garden → studio → space → auto → garden.
+  // data-target / icon / aria-label always describe the NEXT preference (what a click switches to).
   const themeToggle = document.getElementById('themeToggle')
+  const PREF_CYCLE = ['space', 'garden', 'studio', 'auto']
+  const PREF_META = {
+    garden:  { icon: '🦸', label: 'Switch to Garden theme' },
+    studio:  { icon: '📜', label: 'Switch to Studio (paper) theme' },
+    space:   { icon: '🚀', label: 'Switch to Space theme' },
+    auto:    { icon: '🌓', label: 'Match system theme automatically' }
+  }
+  const nextPref = (current) => {
+    const idx = PREF_CYCLE.indexOf(current)
+    return PREF_CYCLE[(idx + 1) % PREF_CYCLE.length]
+  }
   const updateToggleLabel = () => {
     if (!themeToggle) return;
-    const target = getTheme() === 'space' ? 'garden' : 'space'
+    const target = nextPref(getThemePreference())
+    const meta = PREF_META[target]
     themeToggle.dataset.target = target
-    const isSpace = getTheme() === 'space'
-    const icon = isSpace ? '🦸' : '🚀'
     let iconEl = themeToggle.querySelector('.theme-toggle-icon')
     if (!iconEl) {
       iconEl = document.createElement('span')
@@ -49,16 +60,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       iconEl.setAttribute('aria-hidden', 'true')
       themeToggle.appendChild(iconEl)
     }
-    iconEl.textContent = icon
-    themeToggle.setAttribute(
-      'aria-label',
-      target === 'garden' ? 'Switch to Garden theme' : 'Switch to Space theme'
-    )
+    iconEl.textContent = meta.icon
+    themeToggle.setAttribute('aria-label', meta.label)
+    themeToggle.setAttribute('title', meta.label)
   };
   if (themeToggle) {
     updateToggleLabel()
     themeToggle.addEventListener('click', () => {
-      transitionToTheme(getTheme() === 'space' ? 'garden' : 'space')
+      transitionToPreference(nextPref(getThemePreference()))
     })
   }
   window.addEventListener('themechange', (event) => {

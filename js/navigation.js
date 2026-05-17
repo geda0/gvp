@@ -44,6 +44,7 @@ export function initNavigation(options = {}) {
     state.activeTab = nextSection !== 'home'
     state.section = nextSection
     document.body.classList.toggle('content-open', nextSection !== 'home')
+    document.body.dataset.section = nextSection
     if (nextSection === 'playground') {
       goPlay(elements, event)
     } else if (nextSection === 'portfolio') {
