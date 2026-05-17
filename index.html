@@ -33,8 +33,12 @@
         <nav class="navbar">
             <div class="navbar-left">
                 <a href="./" id="homeNav" class="section-invisible">Home</a>
-                <button type="button" id="themeToggle" class="theme-toggle" data-target="garden"
-                    aria-label="Switch to Garden theme"><span class="theme-toggle-icon" aria-hidden="true">🦸</span></button>
+                <div class="theme-switcher">
+                    <button type="button" id="themeToggle" class="theme-toggle" data-current="space"
+                        aria-haspopup="menu" aria-expanded="false" aria-controls="themeMenu"
+                        aria-label="Theme: Space — change theme"><span class="theme-toggle-icon" aria-hidden="true">🚀</span></button>
+                    <ul id="themeMenu" class="theme-menu" role="menu" aria-labelledby="themeToggle" hidden></ul>
+                </div>
             </div>
             <div class="navbar-center">
                 <div class="navbar-center__chat">

@@ -2056,9 +2056,14 @@ body.contact-dialog-open {
     outline-offset: 3px;
 }
 
-/* Theme switch — original styling; background = target theme (Garden gradient | Space base) */
+/* Theme switcher: trigger button shows the current theme's swatch; clicking
+   opens a dropdown menu with all four prefs. */
+.theme-switcher {
+    position: relative;
+    display: inline-flex;
+}
+
 .theme-toggle {
-    background: transparent;
     border: 1px solid var(--border-subtle);
     color: var(--navbar-link);
     padding: 0.28rem 0.42rem;
@@ -2067,19 +2072,19 @@ body.contact-dialog-open {
     font-size: 0.72em;
     font-weight: 500;
     font-family: var(--font-body);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
     transition:
         border-color 0.2s ease,
         color 0.2s ease,
         background 0.2s ease;
+    background: transparent;
 }
 
-.theme-toggle[data-target="garden"] {
-    background: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
-    color: #0d1a12;
-    border-color: rgba(13, 26, 18, 0.18);
-}
-
-.theme-toggle[data-target="space"] {
+/* Trigger background reflects the CURRENT theme (not the next one) so the
+   button itself is a small preview of the active scene. */
+.theme-toggle[data-current="space"] {
     background:
         radial-gradient(ellipse 120% 100% at 20% 0%, rgba(200, 90, 110, 0.35) 0%, transparent 55%),
         radial-gradient(ellipse 100% 90% at 90% 100%, rgba(70, 110, 200, 0.4) 0%, transparent 50%),
@@ -2088,54 +2093,169 @@ body.contact-dialog-open {
     border-color: rgba(148, 175, 220, 0.22);
 }
 
-.theme-toggle:hover,
-.theme-toggle:focus-visible {
-    border-color: var(--border-strong);
-}
-
-.theme-toggle[data-target="garden"]:hover,
-.theme-toggle[data-target="garden"]:focus-visible {
-    background: linear-gradient(180deg, #8ab8cf 0%, #b5d4b9 48%, #558864 100%);
+.theme-toggle[data-current="garden"] {
+    background: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
     color: #0d1a12;
+    border-color: rgba(13, 26, 18, 0.18);
 }
 
-.theme-toggle[data-target="space"]:hover,
-.theme-toggle[data-target="space"]:focus-visible {
-    background:
-        radial-gradient(ellipse 120% 100% at 20% 0%, rgba(210, 100, 120, 0.42) 0%, transparent 55%),
-        radial-gradient(ellipse 100% 90% at 90% 100%, rgba(80, 120, 210, 0.48) 0%, transparent 50%),
-        linear-gradient(165deg, #223058 0%, #121a34 55%, #080a14 100%);
-    color: #e9ecf7;
-}
-
-.theme-toggle[data-target="studio"] {
+.theme-toggle[data-current="studio"] {
     background: linear-gradient(180deg, #f4ede0 0%, #ece3d2 60%, #e2d6bf 100%);
     color: #1b1f26;
     border-color: rgba(82, 65, 40, 0.22);
 }
 
-.theme-toggle[data-target="studio"]:hover,
-.theme-toggle[data-target="studio"]:focus-visible {
-    background: linear-gradient(180deg, #f7f1e6 0%, #efe7d8 60%, #e5dac5 100%);
-    color: #1b1f26;
-}
-
-.theme-toggle[data-target="auto"] {
+/* When pref is "auto" the trigger shows a half-and-half hint, overriding the
+   resolved-current swatch so the user can see they're on auto. */
+.theme-toggle[data-pref="auto"] {
     background:
         linear-gradient(110deg, #06080f 0%, #06080f 48%, #f4ede0 52%, #f4ede0 100%);
     color: var(--navbar-link);
     border-color: var(--border-subtle);
 }
 
-.theme-toggle[data-target="auto"]:hover,
-.theme-toggle[data-target="auto"]:focus-visible {
-    background:
-        linear-gradient(110deg, #0d1224 0%, #0d1224 48%, #f7f1e6 52%, #f7f1e6 100%);
+.theme-toggle:hover,
+.theme-toggle:focus-visible,
+.theme-toggle--open {
+    border-color: var(--border-strong);
 }
 
 .theme-toggle:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+}
+
+.theme-toggle::after {
+    content: '▾';
+    font-size: 0.7em;
+    opacity: 0.7;
+    margin-left: 0.05rem;
+    line-height: 1;
+}
+
+.theme-toggle--open::after {
+    transform: translateY(-1px) rotate(180deg);
+}
+
+.theme-menu {
+    /* position:fixed so the menu escapes the fixed <header>'s clipping (the
+       header has overflow-x:hidden which also affects overflow-y). JS sets
+       --theme-menu-x / --theme-menu-y from the trigger's bounding rect. */
+    position: fixed;
+    top: var(--theme-menu-y, 3rem);
+    left: var(--theme-menu-x, 1rem);
+    margin: 0;
+    padding: 0.3rem;
+    list-style: none;
+    min-width: 12.5rem;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    /* Subtle slide-in */
+    animation: theme-menu-in 0.14s ease-out;
+}
+
+.theme-menu[hidden] {
+    display: none;
+}
+
+@keyframes theme-menu-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.theme-menu__item {
+    display: grid;
+    grid-template-columns: 1.4rem 1fr auto;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 0.86em;
+    line-height: 1.2;
+    outline: none;
+}
+
+.theme-menu__item:hover,
+.theme-menu__item:focus {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.theme-menu__item:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.theme-menu__item--checked {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.theme-menu__swatch {
+    width: 1.2rem;
+    height: 1.2rem;
+    border-radius: 50%;
+    border: 1px solid var(--border-subtle);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.theme-menu__swatch--space {
+    background:
+        radial-gradient(circle at 30% 30%, rgba(200, 90, 110, 0.6), transparent 60%),
+        radial-gradient(circle at 70% 70%, rgba(70, 110, 200, 0.7), transparent 60%),
+        linear-gradient(160deg, #1a2848 0%, #06080f 100%);
+}
+
+.theme-menu__swatch--garden {
+    background: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
+}
+
+.theme-menu__swatch--studio {
+    background: linear-gradient(180deg, #f4ede0 0%, #e2d6bf 100%);
+}
+
+.theme-menu__swatch--auto {
+    background: linear-gradient(110deg, #06080f 0%, #06080f 48%, #f4ede0 52%, #f4ede0 100%);
+}
+
+.theme-menu__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.theme-menu__label {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.theme-menu__desc {
+    font-size: 0.78em;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.theme-menu__check {
+    color: var(--accent);
+    font-size: 0.95em;
+    line-height: 1;
+    visibility: hidden;
+}
+
+.theme-menu__item--checked .theme-menu__check {
+    visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .theme-menu {
+        animation: none;
+    }
 }
 
 h1 {
