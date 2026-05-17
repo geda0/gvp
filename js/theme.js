@@ -35,13 +35,13 @@ function backgroundForTheme(theme) {
 function resolveAuto() {
   // Light → studio (paper, low distraction). Dark → space.
   const mql = window.matchMedia('(prefers-color-scheme: dark)');
-  return mql.matches ? 'space' : 'studio';
+  return mql.matches ? 'space' : 'garden';
 }
 
 export function getThemePreference() {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (PREFS.includes(stored)) return stored;
-  return 'auto';
+  return 'space';
 }
 
 export function getTheme() {
