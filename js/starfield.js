@@ -106,7 +106,8 @@ export function initStarfield(canvasId, options = {}) {
           // Create linear gradient along the streak: transparent at tail, star color at head
           const streakGradient = c.createLinearGradient(this.px, this.py, x, y);
           // Convert HSL color to HSLA with opacity (hsl(360, 100%, 50%) -> hsla(360, 100%, 50%, 0.5))
-          const colorWithOpacity = this.color.replace('hsl(', 'hsla(').replace(')', ', 0.58)');
+          // Lower opacity than before — streaks should suggest motion, not draw the eye.
+          const colorWithOpacity = this.color.replace('hsl(', 'hsla(').replace(')', ', 0.38)');
           streakGradient.addColorStop(0, 'transparent');
           streakGradient.addColorStop(1, colorWithOpacity);
 
@@ -138,12 +139,24 @@ export function initStarfield(canvasId, options = {}) {
     };
   }
 
-  /** Comic-leaning nebula palette: cool blues + warm reds/golds (not full-spectrum random). */
+  /** Elegant night-sky palette: mostly cool whites + soft periwinkles, rare warm
+   *  sparks. Saturation kept low (~35–55%) so stars feel like distant suns, not
+   *  colored dots. */
   function randomColor() {
-    const hues = [218, 235, 268, 340, 12, 45];
-    const h = hues[(Math.random() * hues.length) | 0] + (Math.random() * 18 - 9);
-    const s = Math.random() * 12 + 88;
-    const l = Math.random() * 16 + 64;
+    const r = Math.random();
+    let h;
+    if (r < 0.7) {
+      // 70% — cool whites / periwinkles (210–245°)
+      h = 210 + Math.random() * 35;
+    } else if (r < 0.92) {
+      // 22% — soft lilac / dusky violet
+      h = 250 + Math.random() * 30;
+    } else {
+      // 8% — rare warm spark (amber / soft red)
+      h = (Math.random() < 0.5 ? 30 : 350) + Math.random() * 14 - 7;
+    }
+    const s = Math.random() * 22 + 32;   // 32–54% (was 88–100%)
+    const l = Math.random() * 14 + 74;   // 74–88% (slightly brighter to stay visible)
     return `hsl(${h}, ${s}%, ${l}%)`;
   }
 
@@ -216,9 +229,9 @@ export function initStarfield(canvasId, options = {}) {
 
   function drawSpace() {
     // Subtle trail: fade each frame so it disappears completely (keeps look clean, no buildup)
-    // Deep-space ink fade (matches --space-deep / starfield under nebula gradient)
+    // Match the new --space-deep #0c111c so the trail wash blends with the body bg.
     const trail = spaceTrailAlphaForPreference(prefersReducedMotion);
-    c.fillStyle = `rgba(8, 10, 22, ${trail})`;
+    c.fillStyle = `rgba(12, 17, 28, ${trail})`;
     c.fillRect(0, 0, canvas.width, canvas.height);
     starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
     for (var i = 0; i < numStars; i++) {
