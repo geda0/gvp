@@ -191,12 +191,14 @@ export function initStarfield(canvasId, options = {}) {
     centerX = w / 2;
     centerY = h / 2;
     fl = w;
-    if (getTheme() === 'space') {
+    const theme = getTheme();
+    if (theme === 'space') {
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
-    } else {
+    } else if (theme === 'garden') {
       initSnow();
     }
+    // studio: no allocation, drawStudio() just clears the canvas
   }
 
   let resizeDebounceTimer = null;
@@ -258,9 +260,18 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
+  function drawStudio() {
+    // Studio (paper) theme: no canvas animation. Clear once per frame so any
+    // leftover space trails or snowflakes fade out cleanly on theme switch.
+    c.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
   function draw() {
-    if (getTheme() === 'garden') {
+    const theme = getTheme();
+    if (theme === 'garden') {
       drawSnow();
+    } else if (theme === 'studio') {
+      drawStudio();
     } else {
       drawSpace();
     }
@@ -291,9 +302,15 @@ export function initStarfield(canvasId, options = {}) {
   document.addEventListener('visibilitychange', onVisibilityChange);
 
   window.addEventListener('themechange', () => {
-    if (getTheme() === 'space') {
+    const theme = getTheme();
+    if (theme === 'space') {
       snowflakes = [];
+    } else if (theme === 'garden') {
+      stars = [];
+      numStars = 0;
     } else {
+      // studio: drop both pools so we don't keep allocating idle objects
+      snowflakes = [];
       stars = [];
       numStars = 0;
     }
