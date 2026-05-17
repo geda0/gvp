@@ -26,7 +26,7 @@
             var k = 'gvp-theme', prefs = ['space', 'garden', 'studio', 'auto'], p = localStorage.getItem(k);
             if (!p || prefs.indexOf(p) === -1) p = 'auto';
             var t = p === 'auto'
-                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'space' : 'studio')
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'space' : 'garden')
                 : p;
             document.documentElement.setAttribute('data-theme', t);
             document.documentElement.setAttribute('data-theme-pref', p);
