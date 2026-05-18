@@ -9,6 +9,14 @@ import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
 
+/** Avoid popping the on-screen keyboard when opening chat on touch devices. */
+function shouldAutofocusChatInput() {
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches
+}
+
+/** Ignore stray click synthesis on dialog chips right after open (mobile ghost tap). */
+const DIALOG_CHIP_ACTIVATION_GUARD_MS = 500
+
 /** Preset prompts per route — Home = capability pitch; Portfolio / Playground = page-native depth. */
 const SECTION_PROMPT_CHIPS = {
   home: {
@@ -274,6 +282,7 @@ export function initChat() {
   const PLACEHOLDER_DIALOG_CHIP_ATTR = 'data-gvp-dialog-placeholder'
   const PLACEHOLDER_HIGHLIGHT_MS = 2800
   let placeholderHighlightTimer = null
+  let suppressDialogChipActivationUntil = 0
 
   const clearPlaceholderHighlightTimer = () => {
     if (placeholderHighlightTimer == null) return
@@ -295,7 +304,7 @@ export function initChat() {
     }, PLACEHOLDER_HIGHLIGHT_MS)
   }
 
-  const renderDialogPlaceholderChips = (detail) => {
+  const mountDialogPlaceholderChip = (detail) => {
     if (!dialogSuggestions) return
     if (messagesEl.children.length > 0) return
     const teaser = String(detail?.teaser || '').trim()
@@ -313,6 +322,15 @@ export function initChat() {
     btn.setAttribute('data-track', 'chat_dialog_chip_placeholder')
     dialogSuggestions.appendChild(btn)
     flashPlaceholderSuggestionHighlight()
+  }
+
+  const renderDialogPlaceholderChips = (detail) => {
+    const waitMs = suppressDialogChipActivationUntil - Date.now()
+    if (waitMs > 0) {
+      setTimeout(() => mountDialogPlaceholderChip(detail), waitMs)
+      return
+    }
+    mountDialogPlaceholderChip(detail)
   }
 
   const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
@@ -477,6 +495,7 @@ export function initChat() {
   }
 
   const focusDockTarget = (target) => {
+    if (!shouldAutofocusChatInput()) return
     if (target === 'voice') voiceStartBtn?.focus()
     else composerInput?.focus()
   }
@@ -874,15 +893,19 @@ export function initChat() {
     })
   }
 
+  const armDialogChipActivationGuard = () => {
+    suppressDialogChipActivationUntil = Date.now() + DIALOG_CHIP_ACTIVATION_GUARD_MS
+  }
+
   const openPanel = ({ mode = 'text' } = {}) => {
     const wantVoice = mode === 'voice'
     if (isOpen()) {
       setDockMode(wantVoice ? 'voice' : 'text', {
-        awaitingVoice: wantVoice,
-        focus: wantVoice ? 'voice' : 'text'
+        awaitingVoice: wantVoice
       })
       return
     }
+    armDialogChipActivationGuard()
     if (wantVoice) {
       dockMode = 'text'
       voiceAwaitingStart = true
@@ -919,8 +942,6 @@ export function initChat() {
       autosizeComposer()
       reconcileComposerControls()
       reconcileVoicePane()
-      if (wantVoice) voiceStartBtn?.focus()
-      else composerInput.focus()
     })
   }
 
@@ -1000,11 +1021,11 @@ export function initChat() {
     setStatus('Started over with a fresh chat session.')
     composerInput.value = ''
     autosizeComposer()
-    if (focusTarget === 'hero') {
+    if (focusTarget === 'hero' && shouldAutofocusChatInput()) {
       agentInput.focus()
       return
     }
-    if (isOpen()) {
+    if (isOpen() && shouldAutofocusChatInput()) {
       composerInput.focus()
     }
   }
@@ -1157,13 +1178,14 @@ export function initChat() {
       scheduleIdleLifecycle(ERROR_IDLE_DELAY_MS, { source })
     } finally {
       setComposerBusy(false)
-      if (source === 'composer') {
+      if (source === 'composer' && shouldAutofocusChatInput()) {
         composerInput.focus()
       }
     }
   }
 
   const openPanelWithMessage = (text, source = 'hero', _options = {}) => {
+    if (source === 'composer' && Date.now() < suppressDialogChipActivationUntil) return
     openPanel()
     void sendMessage(text, source)
   }
@@ -1175,6 +1197,7 @@ export function initChat() {
     composerInput.value = body
     autosizeComposer()
     reconcileComposerControls()
+    if (!shouldAutofocusChatInput()) return
     requestAnimationFrame(() => {
       if (!isOpen()) return
       composerInput.focus()
@@ -1214,6 +1237,7 @@ export function initChat() {
   })
 
   dialogSuggestions?.addEventListener('click', (event) => {
+    if (Date.now() < suppressDialogChipActivationUntil) return
     const chip = event.target.closest('[data-prompt]')
     if (!chip) return
     const prompt = String(chip.getAttribute('data-prompt') || '').trim()

@@ -21,11 +21,22 @@
     <link rel="stylesheet" href="css/styles.css" />
     <link rel="stylesheet" href="css/chat.css" />
     <link rel="stylesheet" href="css/spaceman.css" />
+    <script>
+        (function () {
+            var k = 'gvp-theme', prefs = ['space', 'garden', 'studio', 'auto'], p = localStorage.getItem(k);
+            if (!p || prefs.indexOf(p) === -1) p = 'auto';
+            var t = p === 'auto'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'space' : 'garden')
+                : p;
+            document.documentElement.setAttribute('data-theme', t);
+            document.documentElement.setAttribute('data-theme-pref', p);
+        })();
+    </script>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYTRKC93DL"></script>
     <!-- API base URLs: set meta content to your deployed URLs. CI: scripts/sync-site-api-urls.mjs. Runtime: js/site-config.js (imported first from js/app.js). -->
-    <meta name="gvp:contact-api-url" content="https://fvfqpef8kb.execute-api.us-east-2.amazonaws.com/api/contact" />
-    <meta name="gvp:chat-api-url" content="https://chat-api-stage.marwanelgendy.link/api/chat" />
+    <meta name="gvp:contact-api-url" content="https://lwi0vmdpb5.execute-api.us-east-2.amazonaws.com/api/contact" />
+    <meta name="gvp:chat-api-url" content="https://chat-api.marwanelgendy.link/api/chat" />
 </head>
 
 <body>
@@ -34,9 +45,9 @@
             <div class="navbar-left">
                 <a href="./" id="homeNav" class="section-invisible">Home</a>
                 <div class="theme-switcher">
-                    <button type="button" id="themeToggle" class="theme-toggle" data-current="space"
+                    <button type="button" id="themeToggle" class="theme-toggle" data-pref="auto" data-current="space"
                         aria-haspopup="menu" aria-expanded="false" aria-controls="themeMenu"
-                        aria-label="Theme: Space — change theme"><span class="theme-toggle-icon" aria-hidden="true">🚀</span></button>
+                        aria-label="Theme: Auto — change theme"></button>
                     <ul id="themeMenu" class="theme-menu" role="menu" aria-labelledby="themeToggle" hidden></ul>
                 </div>
             </div>
