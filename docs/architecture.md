@@ -123,14 +123,18 @@ flowchart LR
     end
 
     subgraph Visual["Visual layer"]
-        SF["starfield.js<br/>canvas: stars / rain / snow"]
+        SF["starfield.js<br/>canvas: stars / snow"]
         SP["spaceman.js<br/>state machine + typed messages"]
         SPP["spaceman-position.js<br/>observers + drag"]
     end
 
+    subgraph Telemetry["Telemetry"]
+        AN_JS["analytics.js<br/>gtag + outbound tracking"]
+    end
+
     subgraph Content["Content"]
         PROJ["projects.js<br/>data/projects.json"]
-        SPC["spaceman-project-context.js"]
+        SPC["spaceman-project-context.js<br/>playground/portfolio card context"]
     end
 
     subgraph ChatUI["Chat surface"]
@@ -153,10 +157,11 @@ flowchart LR
     end
 
     HTML --> APP
-    APP --> SC & NAV & THEME & SF & SP & SPP & PROJ & CF & CH & AN
+    APP --> SC & NAV & THEME & SF & SP & SPP & PROJ & SPC & CF & CH & AN & AN_JS
     CH --> CL & CB
     SP --> SM & RS
     PROJ --> PJ
+    SPC --> PJ
     CH -.->|"grounded answers"| CK
 
     classDef entry fill:#6366F1,stroke:#4338CA,color:#fff
@@ -164,12 +169,14 @@ flowchart LR
     classDef visual fill:#14B8A6,stroke:#0D9488,color:#fff
     classDef chat fill:#EC4899,stroke:#DB2777,color:#fff
     classDef data fill:#F59E0B,stroke:#D97706,color:#000
+    classDef tel fill:#94A3B8,stroke:#64748B,color:#fff
 
     class HTML,APP entry
     class SC,NAV,THEME,PROJ,CF core
     class SF,SP,SPP,SPC visual
     class AN,CH,CL,CB chat
     class PJ,SM,RS,CK data
+    class AN_JS tel
 ```
 
 ### Boot order (`app.js`)
@@ -191,9 +198,9 @@ flowchart LR
 | Preference | Resolved theme | Canvas / scene |
 |------------|----------------|----------------|
 | `space` | Space | 3D starfield, motion streaks |
-| `garden` | Garden | Rain + DOM garden scene (trees, ocean) |
+| `garden` | Garden | Snow + DOM garden scene (sky, trees, ocean) |
 | `studio` | Studio | Paper-like, low distraction |
-| `auto` | `space` or `garden` | Follows `prefers-color-scheme` |
+| `auto` | `space` (dark) or `garden` (light) | Follows `prefers-color-scheme` via `resolveAuto()` in [`js/theme.js`](../js/theme.js) |
 
 ### API URL resolution (`site-config.js`)
 
@@ -371,7 +378,8 @@ flowchart TB
 |-----|-----------------|---------|
 | Text primary | `GEMINI_MODEL` | `gemini-3.1-flash-lite` |
 | Text fallback | `GEMINI_FALLBACK_MODEL` | `gemma-4-26b-a4b-it` |
-| Live voice | `GEMINI_LIVE_MODEL` / `CHAT_VOICE_MODEL` | `gemini-3.1-flash-live-preview` |
+| Live voice | `GEMINI_LIVE_MODEL` | `gemini-3.1-flash-live-preview` |
+| Live voice override | `CHAT_VOICE_MODEL` | _(empty — when set, overrides `GEMINI_LIVE_MODEL` at runtime)_ |
 
 ### Voice behavior
 

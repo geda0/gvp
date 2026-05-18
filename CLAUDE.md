@@ -11,7 +11,7 @@ Personal portfolio website for Marwan Elgendy ("The Computerist"). A static site
 - **HTML5** — single `index.html` entry point
 - **CSS3** — CSS custom properties for theming, keyframe animations, responsive design
 - **Vanilla JavaScript (ES6 modules)** — `<script type="module">` loading from `js/app.js`
-- **Canvas API** — starfield (space theme) and rain (garden theme) animations
+- **Canvas API** — starfield (space theme) and snow (garden theme) animations
 - **External CDN only**: Google Fonts (Source Serif 4, Source Sans 3), Google Analytics (gtag.js)
 
 ## Directory Structure
@@ -131,7 +131,7 @@ The `Spaceman` class manages:
 ### Canvas Background (`starfield.js`)
 
 - **Space theme**: 3D starfield with perspective projection, motion streaks, color gradients
-- **Garden theme**: falling rain drops
+- **Garden theme**: falling snowflakes over the DOM garden scene (sky, trees, ocean)
 - Star count scales with viewport area and `navigator.hardwareConcurrency`
 - Reinitializes on theme change and window resize
 

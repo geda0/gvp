@@ -338,7 +338,6 @@
 .garden-scene .tree-left .tree-foliage {
     border-width: 0 min(12vw, 90px) min(38vh, 260px) min(12vw, 90px);
     border-color: transparent transparent #1e4d1e transparent;
-    filter: drop-shadow(4px 2px 6px rgba(0, 0, 0, 0.2));
 }
 
 .garden-scene .tree-right {
@@ -354,7 +353,6 @@
 .garden-scene .tree-right .tree-foliage {
     border-width: 0 min(11vw, 85px) min(34vh, 230px) min(11vw, 85px);
     border-color: transparent transparent #2d5a2d transparent;
-    filter: drop-shadow(-4px 2px 6px rgba(0, 0, 0, 0.2));
 }
 
 .garden-scene .tree-center {
@@ -371,7 +369,6 @@
 .garden-scene .tree-center .tree-foliage {
     border-width: 0 min(10vw, 70px) min(30vh, 200px) min(10vw, 70px);
     border-color: transparent transparent #256b25 transparent;
-    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15));
 }
 
 body {

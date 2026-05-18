@@ -36,6 +36,28 @@ export function initStarfield(canvasId, options = {}) {
   const snowRadiusMax = 3;
   const snowDriftAmplitude = 0.3;
 
+  // Snowflake sprite — render the radial gradient once at max radius, then
+  // drawImage it per flake. Previously we built a fresh createRadialGradient
+  // per flake per frame (~6k allocations/sec at 100 flakes × 60fps).
+  const SNOW_SPRITE_RADIUS = snowRadiusMax;
+  const SNOW_SPRITE_SIZE = SNOW_SPRITE_RADIUS * 2;
+  const snowSprite = document.createElement('canvas');
+  snowSprite.width = SNOW_SPRITE_SIZE;
+  snowSprite.height = SNOW_SPRITE_SIZE;
+  {
+    const sc = snowSprite.getContext('2d');
+    const cx = SNOW_SPRITE_RADIUS;
+    const cy = SNOW_SPRITE_RADIUS;
+    const g = sc.createRadialGradient(cx, cy, 0, cx, cy, SNOW_SPRITE_RADIUS);
+    g.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+    g.addColorStop(0.6, 'rgba(255, 255, 255, 0.5)');
+    g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    sc.fillStyle = g;
+    sc.beginPath();
+    sc.arc(cx, cy, SNOW_SPRITE_RADIUS, 0, Math.PI * 2);
+    sc.fill();
+  }
+
   const reducedMotionMql = window.matchMedia('(prefers-reduced-motion: reduce)');
   let prefersReducedMotion = reducedMotionMql.matches;
   reducedMotionMql.addEventListener('change', () => {
@@ -262,14 +284,8 @@ export function initStarfield(canvasId, options = {}) {
       if (d.x < -d.r) d.x = w + d.r;
       if (d.x > w + d.r) d.x = -d.r;
 
-      const gradient = c.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
-      gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.5)');
-      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      c.beginPath();
-      c.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-      c.fillStyle = gradient;
-      c.fill();
+      const size = d.r * 2;
+      c.drawImage(snowSprite, d.x - d.r, d.y - d.r, size, size);
     }
   }
 
