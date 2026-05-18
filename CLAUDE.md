@@ -87,6 +87,8 @@ Then open `http://localhost:8000` in a browser.
 
 ## Architecture
 
+See [`docs/architecture.md`](docs/architecture.md) for Mermaid diagrams (Amplify static site, contact SAM, chat Lambda/ECS, deploy).
+
 ### Module System
 
 `app.js` is the orchestrator. It imports all modules and initializes them in order on `DOMContentLoaded`:

@@ -1,5 +1,7 @@
 # gvp
 
+**Architecture (diagrams):** [`docs/architecture.md`](docs/architecture.md) — system overview, frontend modules, contact/chat flows, deploy topology.
+
 ## Local Docker
 
 Run the static site plus mock APIs on a single origin (`http://localhost:8080`).
