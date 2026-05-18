@@ -54,7 +54,7 @@ const PROJECT_FRAMES = {
 const FAQ = [
   {
     q: ['how do i contact him', 'can i reach out', 'how do i get in touch', 'is he hiring', 'is he available'],
-    a: "The contact form on this site is the preferred channel. Marwan reads every submission. Want me to open it for you, prefilled with what we've discussed?",
+    a: "The contact form on this site is the preferred channel. Marwan reads every submission. Want me to open it for you, prefilled with what you've discussed?",
     trigger_tool: 'open_contact_form'
   },
   {

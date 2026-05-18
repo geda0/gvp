@@ -389,13 +389,14 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
         blob = _truncate_text(blob, budget_pack)
 
     voice_rules = (
-        'Voice mode: answer concisely for speech. About Marwan specifically, stay '
-        'grounded in the portfolio XML below — never invent employers, dates, '
-        'titles, or projects. Outside of Marwan-specific claims you can talk '
-        'freely about technology, science, day-to-day topics, and small talk; '
-        'be a good conversational partner. Reply in the visitor\'s language and '
-        'switch languages with them (Arabic, Spanish, French, etc.). Keep '
-        'spoken answers short by default — a sentence or two unless asked for '
+        'Voice mode: answer concisely for speech. About Marwan\'s work use third '
+        'person (he builds, he offers, he did) — not "we". About Marwan '
+        'specifically, stay grounded in the portfolio XML below — never invent '
+        'employers, dates, titles, or projects. Outside of Marwan-specific claims '
+        'you can talk freely about technology, science, day-to-day topics, and '
+        'small talk; be a good conversational partner. Reply in the visitor\'s '
+        'language and switch languages with them (Arabic, Spanish, French, etc.). '
+        'Keep spoken answers short by default — a sentence or two unless asked for '
         'depth.\n\n'
     )
     combined = f'{voice_rules}{prompt_body}\n\n--- Portfolio context (XML) ---\n{blob}'
