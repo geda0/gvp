@@ -38,14 +38,21 @@ class SpacemanPosition {
     this.agentNode = document.getElementById('agentNode')
     /** Measured `body > header` height for bounds; refreshed each `_update`. */
     this._navChromeHeight = null
+    /**
+     * Per-pass rect cache. Populated at the top of `_update` / `_clampStayingIfNeeded`
+     * and consumed by `_getBounds`, `_getDockClearance`, etc. Cleared at the end of the
+     * pass. Prevents the same `getBoundingClientRect()` being called 3–5× per layout.
+     */
+    this._layoutCache = null
 
     this.init();
   }
 
   _readSiteHeaderHeightPx() {
-    const header = document.querySelector('body > header')
-    if (!header) return this.options.navHeight
-    const h = header.getBoundingClientRect().height
+    const cached = this._layoutCache?.siteHeaderRect
+    const rect = cached || document.querySelector('body > header')?.getBoundingClientRect?.()
+    if (!rect) return this.options.navHeight
+    const h = rect.height
     if (!Number.isFinite(h) || h < 8) return this.options.navHeight
     return Math.max(56, Math.round(h))
   }
@@ -60,8 +67,10 @@ class SpacemanPosition {
    * stand-in (~36rem max) for navbar nudges on subpages.
    */
   _readHeroContentWidthPx(vw) {
-    const el = document.querySelector('#home .hero-copy') || document.querySelector('.hero-copy')
-    const r = el?.getBoundingClientRect?.()
+    const r =
+      this._layoutCache?.heroCopyRect
+      ?? (document.querySelector('#home .hero-copy') || document.querySelector('.hero-copy'))
+          ?.getBoundingClientRect?.()
     if (r && r.width > 48) return Math.round(r.width)
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
     return Math.round(Math.min(Math.max(280, vw - 40), 36 * rem))
@@ -377,13 +386,46 @@ class SpacemanPosition {
       parseFloat(this.movable.style.getPropertyValue('--ss')) || this.currentScale || 0.75;
     const sx = parseFloat(this.movable.style.getPropertyValue('--sx')) || 0;
     const sy = parseFloat(this.movable.style.getPropertyValue('--sy')) || 0;
+    this._beginLayoutPass();
     const b = this._getBounds(vw, vh, scale);
+    this._endLayoutPass();
     const nx = Math.max(b.minX, Math.min(b.maxX, sx));
     const ny = Math.max(b.minY, Math.min(b.maxY, sy));
     if (nx !== sx || ny !== sy) {
       this.movable.style.setProperty('--sx', `${nx}px`);
       this.movable.style.setProperty('--sy', `${ny}px`);
     }
+  }
+
+  /**
+   * Snapshot every rect this layout pass needs once, so downstream helpers
+   * (`_getBounds`, `_getDockClearance`, branches in `_update`) can read from
+   * the cache instead of re-asking the DOM 3–5 times per pass.
+   */
+  _beginLayoutPass() {
+    const dockedAgent = document.getElementById('agentNode')
+    const heroCopy = document.querySelector('.hero-copy')
+    const heroSlot = document.getElementById('agentSlotHero')
+    const heroChatDock = document.getElementById('heroChatDock')
+    const siteHeader = document.querySelector('body > header')
+    this._layoutCache = {
+      dockedAgent,
+      heroCopy,
+      heroSlot,
+      containerRect: this.container.getBoundingClientRect(),
+      dockedAgentRect: dockedAgent?.getBoundingClientRect?.() || null,
+      heroCopyRect: heroCopy?.getBoundingClientRect?.() || null,
+      heroSlotRect: heroSlot?.getBoundingClientRect?.() || null,
+      heroChatDockRect:
+        heroChatDock && !heroChatDock.hidden
+          ? heroChatDock.getBoundingClientRect()
+          : null,
+      siteHeaderRect: siteHeader?.getBoundingClientRect?.() || null
+    }
+  }
+
+  _endLayoutPass() {
+    this._layoutCache = null
   }
 
   setStaying(stay) {
@@ -406,11 +448,20 @@ class SpacemanPosition {
 
   _update() {
     this._syncBodyContentOpen();
-    this._navChromeHeight = this._readSiteHeaderHeightPx()
     if (this.isStaying) {
       this._clampStayingIfNeeded();
       return;
     }
+    this._beginLayoutPass();
+    try {
+      this._runUpdatePass();
+    } finally {
+      this._endLayoutPass();
+    }
+  }
+
+  _runUpdatePass() {
+    this._navChromeHeight = this._readSiteHeaderHeightPx()
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const isMobile = vw < 768;
@@ -442,13 +493,14 @@ class SpacemanPosition {
         scale = isMobile ? (vw < 480 ? 0.4 : 0.46) : isTablet ? 0.5 : 0.54;
         let bounds = this._getBounds(vw, vh, scale);
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-        const heroCopy = document.querySelector('.hero-copy')
-        const heroSlot = document.getElementById('agentSlotHero')
-        const dockedAgent = document.getElementById('agentNode')
+        const cache = this._layoutCache
+        const heroCopy = cache?.heroCopy ?? document.querySelector('.hero-copy')
+        const heroSlot = cache?.heroSlot ?? document.getElementById('agentSlotHero')
+        const dockedAgent = cache?.dockedAgent ?? document.getElementById('agentNode')
         const slotRect = (heroSlot && dockedAgent?.parentElement === heroSlot)
-          ? heroSlot.getBoundingClientRect()
+          ? (cache?.heroSlotRect || heroSlot.getBoundingClientRect())
           : null
-        const rect = this.container.getBoundingClientRect()
+        const rect = cache?.containerRect || this.container.getBoundingClientRect()
         const baseW = (rect.width / (this.currentScale || 1)) || 200
         const baseH = (rect.height / (this.currentScale || 1)) || 320
         const w = baseW * scale
@@ -466,7 +518,7 @@ class SpacemanPosition {
           const b = this._getBounds(vw, vh, scale, { looserMobileHeroEdges: true })
           let ref = null
           if (slotRect && slotRect.width > 8 && slotRect.height > 8) {
-            const nr = dockedAgent?.getBoundingClientRect?.()
+            const nr = cache?.dockedAgentRect || dockedAgent?.getBoundingClientRect?.()
             ref = (nr && nr.width > 8 && nr.height > 8) ? nr : slotRect
           }
           if (ref) {
@@ -478,7 +530,7 @@ class SpacemanPosition {
             placedHome = true
             bounds = b
           } else if (heroCopy) {
-            const r = heroCopy.getBoundingClientRect()
+            const r = cache?.heroCopyRect || heroCopy.getBoundingClientRect()
             if (r.width > 0 && r.height > 0) {
               x = clamp(r.left - vw / 2 + 8, b.minX, b.maxX)
               y = b.minY
@@ -491,7 +543,7 @@ class SpacemanPosition {
           ? (vw < 768 ? 7 : 5)
           : (vw < 768 ? 8 : 6)
         if (agentNavBar) {
-          const nr = dockedAgent.getBoundingClientRect()
+          const nr = cache?.dockedAgentRect || dockedAgent.getBoundingClientRect()
           const { nudge, relax } = this._navbarGlueVerticalTuning(nr, vw)
           const hx = this._navbarGlueHorizontalNudgePx(vw)
           const g = this._glueLeftOfAgentRect(vw, vh, scale, nr, navGlue, nudge, relax, hx)
@@ -519,7 +571,7 @@ class SpacemanPosition {
           const barRef =
             slotRect && slotRect.width > 40 && slotRect.height > 8
               ? slotRect
-              : dockedAgent?.getBoundingClientRect?.()
+              : (cache?.dockedAgentRect || dockedAgent?.getBoundingClientRect?.())
           let cx = null
           let cy = null
           if (
@@ -558,7 +610,7 @@ class SpacemanPosition {
           && slotRect.width > 40
           && slotRect.height > 8
         ) {
-          const nodeRect = dockedAgent?.getBoundingClientRect?.()
+          const nodeRect = cache?.dockedAgentRect || dockedAgent?.getBoundingClientRect?.()
           const ref =
             nodeRect && nodeRect.width > 8 && nodeRect.height > 8 ? nodeRect : slotRect
           /* Tight horizontal glue: right edge of figure ≈ ref.left − heroGlueGap */
@@ -580,7 +632,7 @@ class SpacemanPosition {
           }
         }
         if (!placedHome && heroCopy && !isMobile) {
-          const r = heroCopy.getBoundingClientRect()
+          const r = cache?.heroCopyRect || heroCopy.getBoundingClientRect()
           if (r.width > 0 && r.height > 0) {
             const edgePad = vw < 768 ? 12 : this.options.edgePad
             const fitsLeft = r.left - heroPad - w >= edgePad
@@ -619,7 +671,7 @@ class SpacemanPosition {
     if (!ref || ref.width < 8 || ref.height < 8) return null
     const bounds = this._getBounds(vw, vh, scale, vw < 768 ? { looserMobileHeroEdges: true } : {})
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-    const rect = this.container.getBoundingClientRect()
+    const rect = this._layoutCache?.containerRect || this.container.getBoundingClientRect()
     const baseW = (rect.width / (this.currentScale || 1)) || 200
     const baseH = (rect.height / (this.currentScale || 1)) || 320
     const w = baseW * scale
@@ -634,19 +686,25 @@ class SpacemanPosition {
   }
 
   _getDockClearance() {
-    const node = document.getElementById('agentNode')
+    const cache = this._layoutCache
+    const node = cache?.dockedAgent ?? document.getElementById('agentNode')
     if (!node || node.dataset.slot !== 'hero') return 0
-    const nRect = node.getBoundingClientRect()
+    const nRect = cache?.dockedAgentRect || node.getBoundingClientRect()
     if (nRect.height > 8 && nRect.width > 0) return nRect.height + 10
-    const heroSlot = document.getElementById('agentSlotHero')
+    const heroSlot = cache?.heroSlot ?? document.getElementById('agentSlotHero')
     if (heroSlot) {
-      const r = heroSlot.getBoundingClientRect()
+      const r = cache?.heroSlotRect || heroSlot.getBoundingClientRect()
       if (r.height > 0 && r.width > 0) return r.height + 8
     }
-    const legacyDock = document.getElementById('heroChatDock')
-    if (legacyDock && !legacyDock.hidden) {
-      const r = legacyDock.getBoundingClientRect()
-      if (r.height > 0 && r.width > 0) return r.height + 8
+    const legacyDockRect = cache
+      ? cache.heroChatDockRect
+      : (() => {
+          const legacyDock = document.getElementById('heroChatDock')
+          if (legacyDock && !legacyDock.hidden) return legacyDock.getBoundingClientRect()
+          return null
+        })()
+    if (legacyDockRect && legacyDockRect.height > 0 && legacyDockRect.width > 0) {
+      return legacyDockRect.height + 8
     }
     return 0
   }
@@ -657,7 +715,7 @@ class SpacemanPosition {
     const loose = Boolean(opts.looserMobileHeroEdges && vw < 768)
     const edgePad = loose ? 8 : (vw < 768 ? 12 : this.options.edgePad);
     const bubbleSafetyPad = loose ? 12 : (vw < 768 ? 22 : 10);
-    const rect = this.container.getBoundingClientRect();
+    const rect = this._layoutCache?.containerRect || this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;
     const w = baseW * scale;
@@ -692,10 +750,11 @@ class SpacemanPosition {
     const bounds = this._getBounds(vw, vh, scale);
     const { minX, maxX, minY, maxY } = bounds;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const cache = this._layoutCache;
 
-    const dockedAgent = document.getElementById('agentNode')
+    const dockedAgent = cache?.dockedAgent ?? document.getElementById('agentNode')
     if (dockedAgent?.dataset?.slot === 'navbar') {
-      const br = dockedAgent.getBoundingClientRect()
+      const br = cache?.dockedAgentRect || dockedAgent.getBoundingClientRect()
       if (br.width >= 8 && br.height >= 8) {
         const navGap = vw < 768 ? 7 : 5
         const { nudge, relax } = this._navbarGlueVerticalTuning(br, vw)
@@ -705,7 +764,7 @@ class SpacemanPosition {
       }
     }
 
-    const rect = this.container.getBoundingClientRect();
+    const rect = cache?.containerRect || this.container.getBoundingClientRect();
     const baseW = (rect.width / (this.currentScale || 1)) || 200;
     const baseH = (rect.height / (this.currentScale || 1)) || 320;
     const w = baseW * scale;
