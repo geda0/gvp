@@ -47,6 +47,21 @@
   --hero-cape-bg: linear-gradient(180deg, #b91c1c 0%, #dc2626 30%, #991b1b 100%);
 }
 
+/* Studio (paper) — cool ion thruster, subtler on warm paper */
+[data-theme="studio"] {
+  --spaceman-flame-bg: linear-gradient(
+    180deg,
+    rgba(224, 236, 255, 0.98) 0%,
+    #bfdbfe 18%,
+    #60a5fa 42%,
+    #3d4f7a 68%,
+    rgba(61, 79, 122, 0.42) 86%,
+    transparent 100%
+  );
+  --spaceman-flame-shadow: 0 0 5px #60a5fa, 0 0 10px #93c5fd, 0 0 16px rgba(96, 165, 250, 0.28);
+  --spaceman-legs-glow: drop-shadow(0 5px 8px rgba(61, 79, 122, 0.2));
+}
+
 /* Outer flex shell; limbs + torso paint inside `.spaceman-body` (120×200) like main. */
 .spaceman {
   position: relative;
@@ -495,6 +510,24 @@
   box-shadow: var(--spaceman-flame-shadow);
 }
 
+[data-theme="studio"] .flame {
+  width: 10px;
+  height: 30px;
+}
+
+[data-theme="studio"] .flames-container {
+  gap: 12px;
+  top: 52px;
+}
+
+[data-theme="studio"] .spaceman.boost .flame {
+  height: 42px;
+}
+
+[data-theme="studio"] .spaceman.thrust .flame {
+  height: 36px;
+}
+
 /* ===== HERO CAPE (garden theme – replaces thrust/jetpack) ===== */
 .hero-cape {
   display: none;
@@ -787,6 +820,16 @@
 @keyframes moveTilt {
   0% { filter: none; }
   50% { filter: drop-shadow(0 0 20px rgba(251, 146, 60, 0.5)); }
+  100% { filter: none; }
+}
+
+[data-theme="studio"] .spaceman.moving {
+  animation: moveTiltStudio 0.5s ease-out;
+}
+
+@keyframes moveTiltStudio {
+  0% { filter: none; }
+  50% { filter: drop-shadow(0 0 14px rgba(96, 165, 250, 0.38)); }
   100% { filter: none; }
 }
 
