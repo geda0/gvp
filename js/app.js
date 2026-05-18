@@ -288,28 +288,54 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mobileViewportMql = window.matchMedia('(max-width: 767px)')
   const isGarden = () => getTheme() === 'garden'
 
-  function syncGardenSceneToVisualViewport() {
+  // Cache last-applied values so scroll events that don't change anything
+  // (most of them, once the URL bar settles) skip the style writes entirely.
+  let lastVvTop = NaN
+  let lastVvLeft = NaN
+  let lastVvWidth = NaN
+  let lastVvHeight = NaN
+  let vvSyncRafId = 0
+
+  function applyVisualViewportSync() {
+    vvSyncRafId = 0
     if (!gardenScene || !vv || !mobileViewportMql.matches || !isGarden()) {
       if (gardenScene && !mobileViewportMql.matches) {
-        gardenScene.style.top = '';
-        gardenScene.style.left = '';
-        gardenScene.style.width = '';
-        gardenScene.style.height = '';
+        gardenScene.style.top = ''
+        gardenScene.style.left = ''
+        gardenScene.style.width = ''
+        gardenScene.style.height = ''
+        lastVvTop = lastVvLeft = lastVvWidth = lastVvHeight = NaN
       }
-      return;
+      return
     }
-    gardenScene.style.top = `${vv.offsetTop}px`;
-    gardenScene.style.left = `${vv.offsetLeft}px`;
-    gardenScene.style.width = `${vv.width}px`;
-    gardenScene.style.height = `${vv.height}px`;
+    const top = vv.offsetTop
+    const left = vv.offsetLeft
+    const width = vv.width
+    const height = vv.height
+    if (top === lastVvTop && left === lastVvLeft && width === lastVvWidth && height === lastVvHeight) {
+      return
+    }
+    lastVvTop = top
+    lastVvLeft = left
+    lastVvWidth = width
+    lastVvHeight = height
+    gardenScene.style.top = `${top}px`
+    gardenScene.style.left = `${left}px`
+    gardenScene.style.width = `${width}px`
+    gardenScene.style.height = `${height}px`
+  }
+
+  function syncGardenSceneToVisualViewport() {
+    if (vvSyncRafId) return
+    vvSyncRafId = window.requestAnimationFrame(applyVisualViewportSync)
   }
 
   if (gardenScene && vv) {
-    syncGardenSceneToVisualViewport();
-    vv.addEventListener('resize', syncGardenSceneToVisualViewport);
-    vv.addEventListener('scroll', syncGardenSceneToVisualViewport);
-    window.addEventListener('resize', syncGardenSceneToVisualViewport);
-    window.addEventListener('themechange', syncGardenSceneToVisualViewport);
+    applyVisualViewportSync()
+    vv.addEventListener('resize', syncGardenSceneToVisualViewport)
+    vv.addEventListener('scroll', syncGardenSceneToVisualViewport, { passive: true })
+    window.addEventListener('resize', syncGardenSceneToVisualViewport)
+    window.addEventListener('themechange', syncGardenSceneToVisualViewport)
   }
 })
 
