@@ -13,10 +13,19 @@ aws/.env
 **/*-credentials.json
 *.pem
 
-# Local Netlify folder
-.netlify
 DNS_A
 .aws-sam
+
+# OS / editor noise
+.DS_Store
+**/.DS_Store
+
+# Python bytecode
+*.pyc
+**/__pycache__/
+
+# Local installers (never commit)
+AWSCLIV2.pkg
 
 # Optional local overrides
 config.local.js
@@ -26,4 +35,3 @@ config.local.js
 docker/chat/.venv/
 docker/chat/.venv-ci/
 docker/chat/.venv-samtest/
-**/__pycache__/
