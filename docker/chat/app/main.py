@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
 
@@ -254,6 +254,22 @@ def _reply_text_from_result(result: Any) -> str:
                 lines.append(part['text'])
         return '\n'.join(line for line in lines if line).strip()
     return str(content)
+
+
+def _chunk_text(chunk: Any) -> str:
+    """Extract the text delta from a streamed chunk (AIMessageChunk or AIMessage)."""
+    content = getattr(chunk, 'content', '')
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        out: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                out.append(part)
+            elif isinstance(part, dict) and isinstance(part.get('text'), str):
+                out.append(part['text'])
+        return ''.join(out)
+    return ''
 
 
 def _normalize_tool_args(args: Any) -> dict[str, Any]:
@@ -595,17 +611,54 @@ def ready(request: Request) -> JSONResponse:
     return JSONResponse(status_code=200 if is_ready else 503, content=body)
 
 
-@app.post("/api/chat")
-async def chat(payload: ChatRequest) -> JSONResponse:
-    if payload.stream:
-        return JSONResponse(
-            status_code=501,
-            content={
-                "error": "Streaming is not implemented yet",
-                "code": "stream_not_supported",
-            },
-        )
+async def _persist_text_turn(
+    payload: ChatRequest,
+    lc_messages: list[HumanMessage | AIMessage | SystemMessage],
+    reply_text: str,
+    actions: list[dict[str, Any]],
+    tool_calls: list[dict[str, Any]],
+    model_used: str,
+    elapsed_ms: int,
+) -> None:
+    store = app.state.transcript_store
+    if store is None:
+        return
+    retrieval = _get_retrieval_snapshot(lc_messages)
+    flags = _build_flags(payload.messages, reply_text, retrieval, actions)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    turn = {
+        'capturedAt': now_iso,
+        'promptVersion': app.state.prompt_version,
+        # Tag every text turn so the admin dashboard can split voice vs
+        # text without pattern-matching on which fields are present.
+        'modality': 'text',
+        'requestMessages': [row.model_dump() for row in payload.messages],
+        'reply': reply_text,
+        'retrieval': retrieval,
+        'toolCalls': tool_calls,
+        'actions': actions,
+        'flags': flags,
+        'latencyMs': elapsed_ms,
+    }
+    await store.persist_turn(
+        session_id=payload.sessionId,
+        created_at=now_iso,
+        prompt_version=app.state.prompt_version,
+        provider=app.state.provider_name,
+        model=model_used,
+        turn=turn,
+        flags=flags,
+    )
 
+
+def _sse_frame(event: str, data: Any) -> bytes:
+    if not isinstance(data, str):
+        data = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {data}\n\n".encode("utf-8")
+
+
+@app.post("/api/chat")
+async def chat(payload: ChatRequest) -> Any:
     if app.state.chain is None:
         msg = app.state.provider_error or "Chat backend is not configured"
         return JSONResponse(
@@ -631,6 +684,18 @@ async def chat(payload: ChatRequest) -> JSONResponse:
         )
 
     lc_messages = _to_lc_messages(payload.messages)
+
+    if payload.stream:
+        return StreamingResponse(
+            _chat_stream(payload, lc_messages),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                # Disable proxy buffering (nginx, ALB) so tokens flush in real time.
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     t0 = time.perf_counter()
     try:
         result = await asyncio.wait_for(
@@ -655,38 +720,90 @@ async def chat(payload: ChatRequest) -> JSONResponse:
     actions = _actions_from_result(result)
     tool_calls = _tool_calls_from_result(result)
     model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
-    retrieval = _get_retrieval_snapshot(lc_messages)
-    flags = _build_flags(payload.messages, reply_text, retrieval, actions)
 
-    store = app.state.transcript_store
-    if store is not None:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        turn = {
-            'capturedAt': now_iso,
-            'promptVersion': app.state.prompt_version,
-            # Tag every text turn so the admin dashboard can split voice vs
-            # text without pattern-matching on which fields are present.
-            'modality': 'text',
-            'requestMessages': [row.model_dump() for row in payload.messages],
-            'reply': reply_text,
-            'retrieval': retrieval,
-            'toolCalls': tool_calls,
-            'actions': actions,
-            'flags': flags,
-            'latencyMs': elapsed_ms,
-        }
-        await store.persist_turn(
-            session_id=payload.sessionId,
-            created_at=now_iso,
-            prompt_version=app.state.prompt_version,
-            provider=app.state.provider_name,
-            model=model_used,
-            turn=turn,
-            flags=flags,
-        )
+    await _persist_text_turn(
+        payload, lc_messages, reply_text, actions, tool_calls, model_used, elapsed_ms,
+    )
 
     logger.info("chat ok model=%s latency_ms=%s", model_used, elapsed_ms)
     return JSONResponse(content={"reply": reply_text, "model": model_used, "actions": actions})
+
+
+async def _chat_stream(
+    payload: ChatRequest,
+    lc_messages: list[HumanMessage | AIMessage | SystemMessage],
+):
+    """Yield Server-Sent Events for the assistant turn.
+
+    Events:
+      - token: {"delta": "..."}    one or more per turn
+      - done:  {"reply": "...", "model": "...", "actions": [...]}
+      - error: {"error": "...", "code": "..."}  terminal, sent in place of done
+    """
+    t0 = time.perf_counter()
+    aggregated: Any = None
+    chain = app.state.chain
+    timeout_s = app.state.provider_timeout_seconds
+    deadline = time.monotonic() + timeout_s
+
+    # Per-chunk wait_for keeps a single end-to-end budget while supporting
+    # Python 3.10 (asyncio.timeout is 3.11+).
+    iterator = chain.astream({"messages": lc_messages}).__aiter__()
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
+            try:
+                chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
+            except StopAsyncIteration:
+                break
+            if aggregated is None:
+                aggregated = chunk
+            else:
+                try:
+                    aggregated = aggregated + chunk
+                except TypeError:
+                    # Non-chunk runnables (e.g. mock) yield a final
+                    # AIMessage that can't be concatenated — keep the
+                    # latest as the source of truth.
+                    aggregated = chunk
+            delta = _chunk_text(chunk)
+            if delta:
+                yield _sse_frame("token", {"delta": delta})
+    except asyncio.TimeoutError:
+        logger.warning("Chat stream timed out after %ss", timeout_s)
+        yield _sse_frame("error", {
+            "error": "Upstream model timed out",
+            "code": "upstream_timeout",
+        })
+        return
+    except Exception as exc:
+        logger.exception("Chat stream failed")
+        _status, content = upstream_error_body(exc)
+        yield _sse_frame("error", content)
+        return
+
+    reply_text = _reply_text_from_result(aggregated) if aggregated is not None else ''
+    actions = _actions_from_result(aggregated) if aggregated is not None else []
+    tool_calls = _tool_calls_from_result(aggregated) if aggregated is not None else []
+    model_used = getattr(chain, "last_model_id", None) or app.state.model_id
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    try:
+        await _persist_text_turn(
+            payload, lc_messages, reply_text, actions, tool_calls, model_used, elapsed_ms,
+        )
+    except Exception:
+        # Persistence failures should not break the user-visible response.
+        logger.exception("Chat stream transcript persist failed")
+
+    yield _sse_frame("done", {
+        "reply": reply_text,
+        "model": model_used,
+        "actions": actions,
+    })
+    logger.info("chat stream ok model=%s latency_ms=%s", model_used, elapsed_ms)
 
 
 @app.post("/api/live/session")
