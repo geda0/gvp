@@ -1043,15 +1043,85 @@ export function initChat() {
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-  const postChatOnce = async (history) => {
+  const readSseChat = async (stream, onDelta) => {
+    const reader = stream.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let reply = ''
+    let model = ''
+    let actions = []
+    let sawDone = false
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        let sepIdx
+        while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, sepIdx)
+          buffer = buffer.slice(sepIdx + 2)
+
+          let event = 'message'
+          let dataLines = []
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) {
+              event = line.slice(6).trim()
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice(5).replace(/^ /, ''))
+            }
+          }
+          const raw = dataLines.join('\n').trim()
+          if (!raw) continue
+
+          let parsed
+          try { parsed = JSON.parse(raw) } catch (_) { parsed = null }
+          if (!parsed || typeof parsed !== 'object') continue
+
+          if (event === 'token' && typeof parsed.delta === 'string') {
+            reply += parsed.delta
+            if (typeof onDelta === 'function') onDelta(parsed.delta, reply)
+          } else if (event === 'done') {
+            sawDone = true
+            if (typeof parsed.reply === 'string' && parsed.reply.trim()) {
+              reply = parsed.reply
+            }
+            if (exposeModelInfo && typeof parsed.model === 'string') {
+              model = parsed.model
+            }
+            if (Array.isArray(parsed.actions)) actions = parsed.actions
+          } else if (event === 'error') {
+            const detail = parsed.error || parsed.message
+            const message = typeof detail === 'string' && detail.trim()
+              ? detail.trim()
+              : 'The chat service hit an error. Try again shortly.'
+            throw new Error(message)
+          }
+        }
+      }
+    } finally {
+      try { reader.releaseLock() } catch (_) { /* ignore */ }
+    }
+
+    if (!sawDone && !reply) {
+      throw new Error('The chat service returned an unexpected reply. Try again.')
+    }
+    return { reply, model, actions }
+  }
+
+  const postChatOnce = async (history, { onDelta } = {}) => {
     let response
     try {
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream, application/json'
+        },
         body: JSON.stringify({
           messages: history,
-          stream: false,
+          stream: true,
           sessionId: state.sessionId
         })
       })
@@ -1064,25 +1134,14 @@ export function initChat() {
     }
 
     const contentType = response.headers.get('content-type') || ''
-    const text = await response.text()
-    const wantsJson = contentType.includes('application/json')
-    const unexpectedReply = () => new Error(
-      'The chat service returned an unexpected reply. Try again.'
-    )
-    let body = {}
-    if (wantsJson && text.trim()) {
-      try {
-        body = JSON.parse(text)
-      } catch (_) {
-        body = null
-      }
-    }
 
     if (!response.ok) {
-      if (body === null) {
-        throw unexpectedReply()
+      const text = await response.text()
+      const wantsJson = contentType.includes('application/json')
+      let body = null
+      if (wantsJson && text.trim()) {
+        try { body = JSON.parse(text) } catch (_) { body = null }
       }
-      const detail = body?.detail || body?.error
       if (response.status === 429) {
         throw makeRetryableError('Service is busy. Try again in a moment.')
       }
@@ -1091,32 +1150,43 @@ export function initChat() {
         // surface them specifically rather than as a generic message.
         throw new Error('The chat service hit an error. Try again shortly.')
       }
+      const detail = body?.detail || body?.error
       if (typeof detail === 'string' && detail.trim()) {
         throw new Error(detail.trim())
       }
       throw new Error('Chat request failed. Try again.')
     }
 
-    if (body === null || typeof body !== 'object') {
-      throw unexpectedReply()
-    }
-    if (!wantsJson && text.trim()) {
-      throw unexpectedReply()
+    if (contentType.includes('text/event-stream') && response.body) {
+      return await readSseChat(response.body, onDelta)
     }
 
+    // Fallback: legacy JSON response (e.g. Lambda buffering, or hosts that
+    // downgraded stream=true to a buffered response).
+    const text = await response.text()
+    const wantsJson = contentType.includes('application/json')
+    if (!wantsJson || !text.trim()) {
+      throw new Error('The chat service returned an unexpected reply. Try again.')
+    }
+    let body
+    try { body = JSON.parse(text) } catch (_) { body = null }
+    if (body === null || typeof body !== 'object') {
+      throw new Error('The chat service returned an unexpected reply. Try again.')
+    }
     const reply = typeof body?.reply === 'string' ? body.reply : ''
     const model = exposeModelInfo && typeof body?.model === 'string'
       ? body.model
       : ''
     const actions = Array.isArray(body?.actions) ? body.actions : []
+    if (reply && typeof onDelta === 'function') onDelta(reply, reply)
     return { reply, model, actions }
   }
 
-  const postChat = async (history) => {
+  const postChat = async (history, opts = {}) => {
     let lastError = null
     for (let attempt = 0; attempt <= CHAT_MAX_RETRIES; attempt++) {
       try {
-        return await postChatOnce(history)
+        return await postChatOnce(history, opts)
       } catch (error) {
         lastError = error
         if (!error || !error.retryable || attempt === CHAT_MAX_RETRIES) {
@@ -1158,14 +1228,25 @@ export function initChat() {
 
     setComposerBusy(true)
     const pendingAssistant = appendMessage('assistant', '', { streaming: true, forceScroll: true })
+    const pendingTextEl = pendingAssistant.querySelector('.chat-msg__text')
+    let firstDeltaSeen = false
+
+    const onDelta = (_delta, accumulated) => {
+      if (pendingTextEl) pendingTextEl.textContent = accumulated
+      if (!firstDeltaSeen) {
+        firstDeltaSeen = true
+        chatBus.emit('streaming', { source })
+      }
+      scrollMessagesToBottom(false)
+    }
 
     try {
       chatBus.emit('thinking', { source })
-      const { reply, model, actions } = await postChat(state.history)
+      const { reply, model, actions } = await postChat(state.history, { onDelta })
       if (actions.length > 0) {
         chatBus.emit('tool_call', { source, actions })
       }
-      chatBus.emit('streaming', { source, model })
+      if (!firstDeltaSeen) chatBus.emit('streaming', { source, model })
       const safeReply = String(reply || '').trim() || 'I do not have a response yet. Please try again.'
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
       finalizeAssistantMessage(pendingAssistant, safeReply, actions)
