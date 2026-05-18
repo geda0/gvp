@@ -550,7 +550,6 @@ def _readiness_payload() -> tuple[bool, dict[str, Any]]:
             # the env var is set. Distinct from configured=false (no env).
             'disabled': bool(s.get('disabled')),
             'table_name': s.get('table_name'),
-            'ttl_days': s.get('ttl_days'),
             'writes_attempted': s.get('writes_attempted', 0),
             'writes_succeeded': s.get('writes_succeeded', 0),
             'writes_failed': s.get('writes_failed', 0),

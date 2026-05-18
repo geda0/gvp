@@ -254,7 +254,7 @@ sequenceDiagram
 |----------|------|
 | `ContactApi` | HTTP API, CORS, throttling (stricter on admin routes) |
 | `ContactMessagesTable` | Primary store; GSI `byCreatedAt` (`listPk` + `createdAt`) |
-| `ChatTranscriptsTable` | Chat logs; TTL on `expiresAt`; same GSI pattern |
+| `ChatTranscriptsTable` | Chat logs; same GSI pattern as contact messages |
 | `ContactDeliveryQueue` | Async delivery; redrive to DLQ after 5 receives |
 | `ContactIngressFunction` | `POST /api/contact` |
 | `ContactSenderFunction` | SQS trigger → Resend |
@@ -330,7 +330,7 @@ flowchart TB
 
     subgraph Store["Persistence"]
         TS["transcript_store.py"]
-        TBL[("ChatTranscripts<br/>DynamoDB + TTL")]
+        TBL[("ChatTranscripts<br/>DynamoDB")]
     end
 
     HERO --> DIALOG
@@ -517,7 +517,6 @@ flowchart LR
 | Lambda has no WS upgrade | Voice fails on `execute-api` URLs |
 | No bundler | Must serve over HTTP (`file://` breaks module imports) |
 | Shared admin API | Contact + chat transcript admin use same `x-admin-key` |
-| Transcript TTL | `ChatTranscripts` table has `expiresAt` enabled |
 | Throttling | HTTP API stage limits (e.g. 5 req/s) on public routes |
 
 ---

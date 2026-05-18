@@ -126,9 +126,6 @@ Resources:
       KeySchema:
         - AttributeName: id
           KeyType: HASH
-      TimeToLiveSpecification:
-        AttributeName: expiresAt
-        Enabled: true
       GlobalSecondaryIndexes:
         - IndexName: byCreatedAt
           KeySchema:
