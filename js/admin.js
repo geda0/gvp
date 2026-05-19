@@ -75,7 +75,19 @@ const chatSummaryEls = {
   voiceInterrupted: document.getElementById('voiceSummaryInterrupted'),
   voiceToolHistogram: document.getElementById('voiceToolHistogramTable'),
   voiceTransportSplit: document.getElementById('voiceTransportSplit'),
-  voiceAudioBytes: document.getElementById('voiceAudioBytes')
+  voiceAudioBytes: document.getElementById('voiceAudioBytes'),
+  streamSessions: document.getElementById('streamSummarySessions'),
+  streamSessionsHint: document.getElementById('streamSummarySessionsHint'),
+  streamFirstToken: document.getElementById('streamSummaryFirstToken'),
+  streamFirstTokenHint: document.getElementById('streamSummaryFirstTokenHint'),
+  streamFailures: document.getElementById('streamSummaryFailures'),
+  streamFailuresHint: document.getElementById('streamSummaryFailuresHint'),
+  streamFallback: document.getElementById('streamSummaryFallback'),
+  streamFallbackHint: document.getElementById('streamSummaryFallbackHint'),
+  streamErrorsByCode: document.getElementById('streamErrorsByCodeTable'),
+  streamRecentFailures: document.getElementById('streamRecentFailuresTable'),
+  activitySparkline: document.getElementById('chatActivitySparkline'),
+  activitySparklineCaption: document.getElementById('chatActivitySparklineCaption')
 }
 const chatLimitEl = document.getElementById('chatAdminLimit')
 const chatTable = document.getElementById('chatTranscriptsTable')
@@ -441,6 +453,131 @@ function renderChatSummary(summary) {
       <div><dt>From model (24 kHz PCM)</dt><dd>${fmtBytes(Number(v.audioOutBytes || 0))}</dd></div>
     `
   }
+
+  renderStreamSummary(summary)
+  renderActivitySparkline(summary.activityByDay || {})
+}
+
+function renderStreamSummary(summary) {
+  const s = (summary && typeof summary.stream === 'object' && summary.stream) || {}
+  const total = Number(summary.total || 0)
+  const textTurns = Number(summary.voice?.textTurns || 0)
+
+  if (chatSummaryEls.streamSessions) {
+    chatSummaryEls.streamSessions.textContent = fmtCount(s.streamedSessions || 0)
+  }
+  if (chatSummaryEls.streamSessionsHint) {
+    chatSummaryEls.streamSessionsHint.textContent =
+      `${fmtCount(s.streamedTurns || 0)} turns · ${pct(s.streamedSessions || 0, total)} of conversations`
+  }
+  if (chatSummaryEls.streamFirstToken) {
+    chatSummaryEls.streamFirstToken.textContent = fmtDuration(s.avgFirstTokenLatencyMs || 0)
+  }
+  if (chatSummaryEls.streamFirstTokenHint) {
+    chatSummaryEls.streamFirstTokenHint.textContent =
+      `avg output: ${fmtCount(s.avgOutputChars || 0)} chars/turn`
+  }
+  if (chatSummaryEls.streamFailures) {
+    const failures = Number(s.streamFailures || 0)
+    const timeouts = Number(s.streamTimeouts || 0)
+    chatSummaryEls.streamFailures.textContent = fmtCount(failures)
+    chatSummaryEls.streamFailures.classList.toggle('admin-num--bad', failures > 0)
+    if (chatSummaryEls.streamFailuresHint) {
+      const denom = textTurns + failures
+      chatSummaryEls.streamFailuresHint.textContent =
+        `${timeouts} timeout · failure rate ${pct(failures, denom)}`
+    }
+  }
+  if (chatSummaryEls.streamFallback) {
+    chatSummaryEls.streamFallback.textContent = fmtCount(s.fallbackTurns || 0)
+    if (chatSummaryEls.streamFallbackHint) {
+      chatSummaryEls.streamFallbackHint.textContent =
+        `${pct(s.fallbackTurns || 0, textTurns)} of text turns ran on the fallback model`
+    }
+  }
+
+  if (chatSummaryEls.streamErrorsByCode) {
+    const entries = Object.entries(s.errorsByCode || {}).sort((a, b) => b[1] - a[1])
+    const tbody = chatSummaryEls.streamErrorsByCode.querySelector('tbody')
+    if (tbody) {
+      tbody.innerHTML = entries.length
+        ? entries.map(([code, n]) => `
+            <tr>
+              <td><code>${escapeHtml(code)}</code></td>
+              <td class="admin-num">${escapeHtml(String(n))}</td>
+            </tr>`).join('')
+        : '<tr><td colspan="2">No errors recorded.</td></tr>'
+    }
+  }
+
+  if (chatSummaryEls.streamRecentFailures) {
+    const rows = Array.isArray(s.recentFailures) ? s.recentFailures : []
+    const tbody = chatSummaryEls.streamRecentFailures.querySelector('tbody')
+    if (tbody) {
+      tbody.innerHTML = rows.length
+        ? rows.slice(0, 10).map((row) => `
+            <tr data-id="${escapeHtml(row.sessionId || '')}" class="admin-failures__row">
+              <td>${escapeHtml(formatDate(row.capturedAt))}</td>
+              <td><code>${escapeHtml(row.errorCode || 'unknown')}</code></td>
+              <td>${escapeHtml(row.status || '')}</td>
+              <td>${row.stream ? 'stream' : 'sync'}</td>
+              <td class="admin-num">${escapeHtml(Number.isFinite(row.latencyMs) ? fmtDuration(row.latencyMs) : '—')}</td>
+              <td title="${escapeHtml(row.errorMessage || '')}">${escapeHtml((row.errorMessage || '').slice(0, 80))}</td>
+            </tr>`).join('')
+        : '<tr><td colspan="6">No failed turns recorded.</td></tr>'
+    }
+  }
+}
+
+function renderActivitySparkline(activityByDay) {
+  const canvas = chatSummaryEls.activitySparkline
+  if (!canvas || typeof canvas.getContext !== 'function') return
+
+  // Build a contiguous last-30-day series so the bar order is uniform
+  // regardless of whether some days are missing from the source map.
+  const today = new Date()
+  const days = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today)
+    d.setUTCDate(today.getUTCDate() - i)
+    const key = d.toISOString().slice(0, 10)
+    days.push({ key, count: Number(activityByDay[key] || 0) })
+  }
+  const max = Math.max(1, ...days.map((d) => d.count))
+
+  const cssW = canvas.clientWidth || 320
+  const cssH = canvas.clientHeight || 60
+  const dpr = window.devicePixelRatio || 1
+  canvas.width = Math.floor(cssW * dpr)
+  canvas.height = Math.floor(cssH * dpr)
+  const ctx = canvas.getContext('2d')
+  ctx.scale(dpr, dpr)
+  ctx.clearRect(0, 0, cssW, cssH)
+
+  const padTop = 4
+  const padBottom = 4
+  const usableH = cssH - padTop - padBottom
+  const gap = 2
+  const barW = Math.max(2, (cssW - gap * (days.length - 1)) / days.length)
+  const fill = getComputedStyle(canvas).getPropertyValue('color').trim() || '#3b82f6'
+  ctx.fillStyle = fill
+
+  for (let i = 0; i < days.length; i++) {
+    const d = days[i]
+    const h = d.count > 0 ? Math.max(2, Math.round((d.count / max) * usableH)) : 0
+    const x = i * (barW + gap)
+    const y = padTop + (usableH - h)
+    ctx.globalAlpha = d.count > 0 ? 1 : 0.18
+    ctx.fillRect(x, y, barW, h || 2)
+  }
+  ctx.globalAlpha = 1
+
+  if (chatSummaryEls.activitySparklineCaption) {
+    const total = days.reduce((acc, d) => acc + d.count, 0)
+    const last = days[days.length - 1]
+    chatSummaryEls.activitySparklineCaption.textContent =
+      `Last 30d · ${fmtCount(total)} sessions · peak ${max}/day · today ${last.count}`
+  }
 }
 
 function refreshPromptVersionFilter(summary) {
@@ -535,6 +672,19 @@ function renderChatDetail(item) {
     if (turn.intent) meta.push(`intent=${turn.intent}`)
     if (Number.isFinite(turn.turnDurationMs)) meta.push(`dur=${fmtDuration(turn.turnDurationMs)}`)
     if (Number.isFinite(turn.latencyMs)) meta.push(`latency=${fmtDuration(turn.latencyMs)}`)
+    if (turn.stream === true) {
+      meta.push('stream')
+      if (Number.isFinite(turn.firstTokenLatencyMs)) {
+        meta.push(`firstToken=${fmtDuration(turn.firstTokenLatencyMs)}`)
+      }
+      if (Number.isFinite(turn.streamChunkCount)) meta.push(`chunks=${turn.streamChunkCount}`)
+    }
+    if (turn.fallbackUsed === true) meta.push('fallback=secondary')
+    if (Number.isFinite(turn.outputCharCount)) meta.push(`out=${turn.outputCharCount}c`)
+    if (turn.status && turn.status !== 'ok') {
+      meta.push(`status=${turn.status}`)
+      if (turn.errorCode) meta.push(`code=${turn.errorCode}`)
+    }
     if (Number.isFinite(turn.audioInBytes)) meta.push(`micIn=${fmtBytes(turn.audioInBytes)}`)
     if (Number.isFinite(turn.audioOutBytes)) meta.push(`modelOut=${fmtBytes(turn.audioOutBytes)}`)
     if (turn.interrupted) meta.push('interrupted')
@@ -667,6 +817,19 @@ chatTable?.addEventListener('click', async (event) => {
   if (!row) return
   chatSelectedId = row.dataset.id
   renderChatTable(chatCurrentItems)
+  try {
+    renderChatDetail(await requestChat(`/transcripts/${encodeURIComponent(chatSelectedId)}`))
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not load transcript detail.', 'error')
+  }
+})
+
+// Click a failure row to jump straight to the conversation it came from.
+chatSummaryEls.streamRecentFailures?.addEventListener('click', async (event) => {
+  const row = event.target.closest('tr[data-id]')
+  if (!row || !row.dataset.id) return
+  chatSelectedId = row.dataset.id
+  setActiveTab('transcripts')
   try {
     renderChatDetail(await requestChat(`/transcripts/${encodeURIComponent(chatSelectedId)}`))
   } catch (error) {
