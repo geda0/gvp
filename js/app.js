@@ -271,7 +271,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderProjectsSectionError('portfolioContent')
   } else {
     renderProjects('playgroundContent', data.playground, 'projects')
-    renderProjects('playgroundContent', data.playgroundBeta, 'playgroundBeta')
     renderProjects('portfolioContent', data.portfolio, 'portfolioProjects')
   }
   initProjectDetailDialog()

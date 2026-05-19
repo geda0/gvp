@@ -53,15 +53,20 @@ export async function loadProjects(url) {
       throw new Error('Projects response was not JSON')
     }
     const data = raw ? JSON.parse(raw) : {}
+    // Legacy `playgroundBeta` rows (if any old JSON still ships them) are
+    // folded back into `playground` so the single-section view captures them.
+    const playground = [
+      ...(Array.isArray(data.playground) ? data.playground : []),
+      ...(Array.isArray(data.playgroundBeta) ? data.playgroundBeta : [])
+    ]
     return {
-      playground: Array.isArray(data.playground) ? data.playground : [],
-      playgroundBeta: Array.isArray(data.playgroundBeta) ? data.playgroundBeta : [],
+      playground,
       portfolio: Array.isArray(data.portfolio) ? data.portfolio : [],
       loadFailed: false
     }
   } catch (error) {
     console.error('Failed to load projects:', error);
-    return { playground: [], playgroundBeta: [], portfolio: [], loadFailed: true };
+    return { playground: [], portfolio: [], loadFailed: true };
   }
 }
 
