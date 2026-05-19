@@ -261,7 +261,7 @@ sequenceDiagram
 |----------|------|
 | `ContactApi` | HTTP API, CORS, throttling (stricter on admin routes) |
 | `ContactMessagesTable` | Primary store; GSI `byCreatedAt` (`listPk` + `createdAt`) |
-| `ChatTranscriptsTable` | Chat logs; TTL on `expiresAt`; same GSI pattern |
+| `ChatTranscriptsTable` | Chat logs; same GSI pattern as contact messages |
 | `ContactDeliveryQueue` | Async delivery; redrive to DLQ after 5 receives |
 | `ContactIngressFunction` | `POST /api/contact` |
 | `ContactSenderFunction` | SQS trigger → Resend |
@@ -375,7 +375,7 @@ flowchart TB
 
     subgraph Store["Persistence (every turn — ok / error / timeout)"]
         TS["transcript_store.py<br/>writes_attempted / _succeeded / _failed"]
-        TBL[("ChatTranscripts<br/>DynamoDB + TTL")]
+        TBL[("ChatTranscripts<br/>DynamoDB")]
         HOST["GET /api/chat/host-status<br/>(x-admin-key)"]
     end
 
@@ -602,7 +602,6 @@ flowchart LR
 | No bundler | Must serve over HTTP (`file://` breaks module imports) |
 | Shared admin API | Contact + chat transcript admin use same `x-admin-key` |
 | Host-status endpoint needs key in chat env | Until `ADMIN_API_KEY` is set on the chat container the diagnostic returns 401; the admin panel just falls back to DDB-only rollups |
-| Transcript TTL | `ChatTranscripts` table has `expiresAt` enabled |
 | Throttling | HTTP API stage limits (e.g. 5 req/s) on public routes |
 
 ### Frontend performance notes

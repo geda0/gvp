@@ -81,7 +81,7 @@ def test_build_transcript_store_requires_table(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_transcript_store_updates_defaults() -> None:
     table = FakeTable()
-    store = TranscriptStore('ChatTranscripts', ttl_days=30)
+    store = TranscriptStore('ChatTranscripts')
     store._table = table
 
     await store.persist_turn(
@@ -102,13 +102,15 @@ async def test_transcript_store_updates_defaults() -> None:
     assert values[':listPk'] == 'CHAT_TRANSCRIPT'
     assert values[':reviewedDefault'] is False
     assert values[':adminNotesDefault'] == ''
+    assert ':expiresAt' not in values
+    assert 'expiresAt' not in update['UpdateExpression']
 
 
 @pytest.mark.asyncio
 async def test_persist_turn_increments_success_counter() -> None:
     """writes_succeeded must reflect actual DynamoDB writes, not silent no-ops."""
     table = FakeTable()
-    store = TranscriptStore('ChatTranscripts', ttl_days=30)
+    store = TranscriptStore('ChatTranscripts')
     store._table = table
 
     await store.persist_turn(
@@ -131,7 +133,7 @@ async def test_persist_turn_disabled_counts_as_failure_not_success() -> None:
     — making the chat host falsely report persistence working while no
     DynamoDB write occurred. Now: writes_failed increments + last_error is
     populated so /ready surfaces the disabled state immediately."""
-    store = TranscriptStore('ChatTranscripts', ttl_days=30)
+    store = TranscriptStore('ChatTranscripts')
     store._disabled = True  # simulate boto3 import failure
 
     await store.persist_turn(

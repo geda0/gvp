@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -15,9 +15,8 @@ CHAT_LIST_PK = 'CHAT_TRANSCRIPT'
 
 
 class TranscriptStore:
-    def __init__(self, table_name: str, ttl_days: int = 30) -> None:
+    def __init__(self, table_name: str) -> None:
         self.table_name = table_name
-        self.ttl_days = max(1, ttl_days)
         self._table = None
         self._disabled = False
         # Live counters surfaced via /ready (Phase 7 — production diagnostics).
@@ -34,7 +33,6 @@ class TranscriptStore:
     def stats(self) -> dict[str, Any]:
         return {
             'table_name': self.table_name,
-            'ttl_days': self.ttl_days,
             'disabled': self._disabled,
             'writes_attempted': self.writes_attempted,
             'writes_succeeded': self.writes_succeeded,
@@ -78,16 +76,12 @@ class TranscriptStore:
                 'transcript_store is disabled (boto3 import failed at startup; '
                 'check requirements.txt and rebuild the chat image)'
             )
-        expires_at = int(
-            (datetime.now(timezone.utc) + timedelta(days=self.ttl_days)).timestamp()
-        )
         table.update_item(
             Key={'id': session_id},
             UpdateExpression=(
                 'SET listPk = :listPk, '
                 'createdAt = if_not_exists(createdAt, :createdAt), '
                 'updatedAt = :updatedAt, '
-                'expiresAt = :expiresAt, '
                 'promptVersion = :promptVersion, '
                 'provider = :provider, '
                 'model = :model, '
@@ -102,7 +96,6 @@ class TranscriptStore:
                 ':listPk': CHAT_LIST_PK,
                 ':createdAt': created_at,
                 ':updatedAt': created_at,
-                ':expiresAt': expires_at,
                 ':promptVersion': prompt_version,
                 ':provider': provider,
                 ':model': model,
@@ -155,9 +148,4 @@ def build_transcript_store() -> TranscriptStore | None:
     table_name = (os.environ.get('CHAT_TRANSCRIPTS_TABLE') or '').strip()
     if not table_name:
         return None
-    ttl_days_raw = (os.environ.get('CHAT_TRANSCRIPT_TTL_DAYS') or '30').strip()
-    try:
-        ttl_days = int(ttl_days_raw)
-    except ValueError:
-        ttl_days = 30
-    return TranscriptStore(table_name=table_name, ttl_days=ttl_days)
+    return TranscriptStore(table_name=table_name)
