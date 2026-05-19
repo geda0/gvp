@@ -98,10 +98,10 @@ flowchart TB
 
 | Path | Host | Why |
 |------|------|-----|
-| **Text** (`POST /api/chat`, SSE) | ECS + ALB (prod) or Lambda (optional / dev) | Streaming HTTP; Lambda works but ECS is the primary prod host when voice is required |
+| **Text** (`POST /api/chat`, SSE) | ECS + ALB (prod) | Streaming HTTP — token-by-token UX requires unbuffered responses. Lambda accepts the same requests but Mangum buffers the SSE generator, so the user sees the full reply at once. Use Lambda only for dev or as a degraded fallback. |
 | **Voice** (`POST /api/live/session`, `WS /api/live/relay/{id}`) | **ECS + ALB only** | API Gateway HTTP API cannot upgrade browser WebSockets for Gemini Live relay |
 
-Contact admin and chat transcript admin routes live on the **same** contact HTTP API and use the same `x-admin-key` (`ADMIN_API_KEY`).
+Contact admin and chat transcript admin routes live on the **same** contact HTTP API and use the same `x-admin-key` (`ADMIN_API_KEY`). The chat host also exposes a gated diagnostic at `GET /api/chat/host-status` for the admin SPA — same secret, but checked inside the FastAPI app rather than the admin Lambda.
 
 ---
 
@@ -275,6 +275,7 @@ sequenceDiagram
 flowchart TB
     subgraph Admin["🔐 admin/index.html"]
         AUI["admin.js<br/>x-admin-key header"]
+        UI_CARDS["Cards: streamed sessions ·<br/>avg first-token · stream failures ·<br/>fallback model · activity sparkline ·<br/>recent failures (clickable)"]
     end
 
     subgraph Routes["Admin API routes"]
@@ -282,6 +283,8 @@ flowchart TB
         MSG["GET /api/contact/admin/messages?cursor"]
         RET["POST /api/contact/admin/retry/{id}"]
         TRN["GET /api/chat/admin/transcripts"]
+        TRN_SUM["GET /api/chat/admin/transcripts/summary<br/>(stream rollups + recentFailures)"]
+        HOST["GET /api/chat/host-status<br/>(chat ECS, x-admin-key)"]
     end
 
     subgraph Ops["Background ops"]
@@ -289,8 +292,10 @@ flowchart TB
         ALM["CloudWatch → SNS → email<br/>DLQ alarm"]
     end
 
+    AUI --> UI_CARDS
     AUI --> Routes
     Routes --> DDB[("DynamoDB<br/>GSI byCreatedAt")]
+    HOST --> CHATHOST["chat ECS<br/>TranscriptStore.stats()"]
     RPT --> DDB
     ALM --> DLQ["SQS DLQ"]
 
@@ -298,14 +303,45 @@ flowchart TB
     classDef route fill:#F97316,stroke:#EA580C,color:#fff
     classDef ops fill:#84CC16,stroke:#65A30D,color:#000
 
-    class AUI admin
-    class SUM,MSG,RET,TRN route
+    class AUI,UI_CARDS admin
+    class SUM,MSG,RET,TRN,TRN_SUM,HOST route
     class RPT,ALM ops
 ```
 
 **Contact admin routes:** `summary`, `messages` (paginated `?limit` + `?cursor`), `messages/{id}`, `health`, `retry/{id}`, `suppress-report`.
 
 **Chat admin routes (same API):** `transcripts`, `transcripts/{id}`, `note`, `reviewed`, `transcripts/summary`.
+
+**Chat host diagnostic (separate origin):** `GET /api/chat/host-status` on the chat ECS task. Returns provider name, configured/primary/fallback/last model ids, prompt version, provider timeout, and live `TranscriptStore` counters (`writes_attempted`, `_succeeded`, `_failed`, `last_error`, `last_success_at`). Gated by `ADMIN_API_KEY` env on the chat container; degrades gracefully when unset (401, panel keeps working off the DDB rollups).
+
+#### Chat transcripts summary payload
+
+The `/api/chat/admin/transcripts/summary` response is what the dashboard renders into cards and the sparkline. Top-level shape:
+
+```json
+{
+  "tableName": "...", "total": 7, "reviewed": 1, "unreviewed": 6, "flagged": 0,
+  "byPromptVersion": { "1.4.0": 7 },
+  "byFlag": { "no_retrieval_match": 0, "negative_feedback": 0, ... },
+  "voice":  { "sessions": 2, "voiceTurns": 8, "textTurns": 14, "avgTextLatencyMs": 5800, ... },
+  "stream": {
+    "streamedSessions": 5, "streamedTurns": 12,
+    "streamFailures": 2, "streamTimeouts": 1,
+    "fallbackTurns": 3,
+    "avgFirstTokenLatencyMs": 610, "avgOutputChars": 145,
+    "errorsByCode": { "upstream_timeout": 1, "model_error": 1 },
+    "recentFailures": [
+      { "capturedAt": "...", "errorCode": "upstream_timeout",
+        "errorMessage": "...", "status": "timeout", "stream": true,
+        "latencyMs": 28000, "sessionId": "..." }
+    ]
+  },
+  "activityByDay": { "YYYY-MM-DD": <count>, ... },
+  "activeDays": 30
+}
+```
+
+`recentFailures` is capped at 20 (newest first); each row is clickable in the panel and jumps to the originating transcript.
 
 ---
 
@@ -321,11 +357,13 @@ flowchart TB
         VOICE["chat-live.js<br/>mic + halos"]
     end
 
-    subgraph TextPath["📝 Text chat path"]
-        POST["POST /api/chat<br/>JSON messages[]"]
-        SSE["SSE stream tokens"]
+    subgraph TextPath["📝 Text chat path (SSE)"]
+        POST["POST /api/chat<br/>{ messages[], stream:true }"]
+        ROUTE["gemini_routing.py<br/>astream — primary,<br/>fallback on rate limit"]
         KC["knowledge_context.py<br/>bio · roles · projects · faq"]
-        LLM["Gemini via LangChain<br/>primary + fallback model"]
+        EV_TOK["event: token<br/>{ delta }"]
+        EV_DONE["event: done<br/>{ reply, model, actions }"]
+        EV_ERR["event: error<br/>{ error, code }"]
     end
 
     subgraph VoicePath["🎙️ Voice path (ECS only)"]
@@ -335,29 +373,35 @@ flowchart TB
         LIVE["Gemini Live model<br/>gemini-3.1-flash-live-preview"]
     end
 
-    subgraph Store["Persistence"]
-        TS["transcript_store.py"]
+    subgraph Store["Persistence (every turn — ok / error / timeout)"]
+        TS["transcript_store.py<br/>writes_attempted / _succeeded / _failed"]
         TBL[("ChatTranscripts<br/>DynamoDB + TTL")]
+        HOST["GET /api/chat/host-status<br/>(x-admin-key)"]
     end
 
     HERO --> DIALOG
     DIALOG --> POST
     VOICE --> SESS --> WS
 
-    POST --> KC --> LLM --> SSE
+    POST --> KC --> ROUTE
+    ROUTE -->|"per chunk"| EV_TOK
+    ROUTE -->|"complete"| EV_DONE
+    ROUTE -->|"timeout/upstream error"| EV_ERR
     WS --> RELAY --> LIVE
 
-    POST --> TS --> TBL
+    EV_DONE --> TS --> TBL
+    EV_ERR --> TS
     WS --> TS
+    TS -.->|"stats()"| HOST
 
     subgraph Hosts["Where it runs"]
-        LAMBDA["Lambda container<br/>aws/chat-template.yaml<br/>CHAT_LIVE_RELAY=0"]
-        FARGATE["ECS Fargate + ALB<br/>aws/chat-ecs-template.yaml<br/>CHAT_LIVE_RELAY=1"]
+        LAMBDA["Lambda container<br/>aws/chat-template.yaml<br/>CHAT_LIVE_RELAY=0<br/>(buffers SSE)"]
+        FARGATE["ECS Fargate + ALB<br/>aws/chat-ecs-template.yaml<br/>CHAT_LIVE_RELAY=1<br/>(true streaming)"]
     end
 
     POST -.->|"production"| FARGATE
     WS --> FARGATE
-    POST -.->|"optional / dev"| LAMBDA
+    POST -.->|"degraded / dev"| LAMBDA
 
     classDef fe fill:#6366F1,stroke:#4338CA,color:#fff
     classDef text fill:#06B6D4,stroke:#0891B2,color:#fff
@@ -366,11 +410,41 @@ flowchart TB
     classDef host fill:#64748B,stroke:#475569,color:#fff
 
     class HERO,DIALOG,VOICE fe
-    class POST,SSE,KC,LLM text
+    class POST,ROUTE,KC,EV_TOK,EV_DONE,EV_ERR text
     class SESS,WS,RELAY,LIVE voice
-    class TS,TBL store
+    class TS,TBL,HOST store
     class LAMBDA,FARGATE host
 ```
+
+### Streaming behavior
+
+- **Request:** `{ messages, stream: true, sessionId }`. Backwards-compat: `stream: false` returns a single JSON body (used by Lambda fallback and existing callers).
+- **Response when `stream:true`:** `text/event-stream` with `Cache-Control: no-cache` and `X-Accel-Buffering: no` so nginx/ALB pass tokens straight through.
+- **Routing:** `GeminiRoutingChain.astream` tries the primary model; if the *first* chunk fails with a rate-limit, it transparently retries on the fallback. Once any chunk has flushed, the chain is committed — mid-stream errors propagate as `event: error`.
+- **Budget:** single `astream` deadline (`provider_timeout_seconds`, default 28s for Gemini) wrapped with per-chunk `asyncio.wait_for` so the streaming path stays portable to Python 3.10 (`asyncio.timeout` is 3.11+).
+- **Failure persistence:** every turn — success, timeout, or upstream error — writes a row before returning. The error variants carry `status`, `errorCode`, `errorMessage`, and any partial reply so the admin panel can see what happened.
+
+### Turn telemetry (DynamoDB `turns[]` entries)
+
+Each `persist_turn` call appends one element to the session's `turns` list. Fields populated for text:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `capturedAt` | ISO-8601 | When the turn was persisted |
+| `modality` | `text` / `voice` | Splits the table without sniffing fields |
+| `stream` | bool | Was SSE used? |
+| `status` | `ok` / `error` / `timeout` | Terminal state of the attempt |
+| `firstTokenLatencyMs` | int | Wall-clock to first non-empty delta (streaming only) |
+| `streamChunkCount` | int | Number of chunks the chain yielded |
+| `latencyMs` | int | Total round-trip the chat host observed |
+| `outputCharCount` | int | `len(reply)` — cheap proxy for output tokens |
+| `fallbackUsed` | bool | True when the secondary model produced the answer |
+| `errorCode` / `errorMessage` | str | Set only on non-`ok` turns (truncated to 400 chars) |
+| `toolCalls` / `actions` | list | Surfaced model tool invocations |
+| `retrieval` | object | FAQ id + role/project ids the knowledge pack matched |
+| `flags` | object | Heuristic flags (`no_retrieval_match`, etc.) |
+
+Voice turns carry `transport`, `audioInBytes`, `audioOutBytes`, `turnDurationMs`, `interrupted`, `intent` instead of the stream fields (see [`live_relay.py`](../docker/chat/app/live_relay.py) + `POST /api/live/transcript`).
 
 ### Models (defaults in SAM)
 
@@ -513,20 +587,29 @@ flowchart LR
 ### Strengths
 
 1. **Durable contact** — persist before enqueue; async delivery with DLQ and daily failure report.
-2. **No frontend bundler** — ES modules, fast iteration; meta tags for API URLs.
-3. **Split chat hosting** — Lambda optional for text; ECS where WebSockets are required.
-4. **Grounded AI** — answers tied to resume/project knowledge pack, not generic fluff.
-5. **Single-origin local dev** — nginx mirrors production CORS and proxy paths on `:8080`.
+2. **Durable chat telemetry** — every text turn (success, error, or timeout) writes a row before the user-visible response returns, so failed attempts surface in the admin panel instead of vanishing into ECS logs.
+3. **No frontend bundler** — ES modules, fast iteration; meta tags for API URLs.
+4. **Split chat hosting** — Lambda optional for text; ECS where WebSockets are required.
+5. **Grounded AI** — answers tied to resume/project knowledge pack, not generic fluff.
+6. **Single-origin local dev** — nginx mirrors production CORS and proxy paths on `:8080`.
 
 ### Constraints
 
 | Constraint | Impact |
 |------------|--------|
 | Lambda has no WS upgrade | Voice fails on `execute-api` URLs |
+| Lambda + Mangum buffer SSE | Streaming works but the client sees the full reply at once, not token-by-token |
 | No bundler | Must serve over HTTP (`file://` breaks module imports) |
 | Shared admin API | Contact + chat transcript admin use same `x-admin-key` |
+| Host-status endpoint needs key in chat env | Until `ADMIN_API_KEY` is set on the chat container the diagnostic returns 401; the admin panel just falls back to DDB-only rollups |
 | Transcript TTL | `ChatTranscripts` table has `expiresAt` enabled |
 | Throttling | HTTP API stage limits (e.g. 5 req/s) on public routes |
+
+### Frontend performance notes
+
+- **Garden snow** uses a pre-rendered radial-gradient sprite in `js/starfield.js`; the snow loop is one `drawImage` per flake (~3–5× cheaper than the previous per-frame `createRadialGradient`).
+- **Visual-viewport sync** (mobile garden scene) is RAF-coalesced and skips style writes when nothing changed — see `applyVisualViewportSync` in [`js/app.js`](../js/app.js).
+- **Garden trees** rely on trunk box-shadows + color contrast rather than `filter: drop-shadow()` on the foliage triangles (drop-shadow forces a composited layer per element).
 
 ---
 
@@ -536,15 +619,17 @@ flowchart LR
 |------|------|
 | Site entry | `index.html`, `js/app.js` |
 | API config | `js/site-config.js`, meta tags in `index.html` |
+| Chat FE | `js/chat.js` (SSE parser `readSseChat`), `js/agent-node.js`, `js/chat-live.js`, `js/chat-bus.js` |
 | Contact SAM | `aws/template.yaml`, `aws/src/contact-*.js` |
 | Chat Lambda SAM | `aws/chat-template.yaml` |
 | Chat ECS SAM | `aws/chat-ecs-template.yaml` |
-| Chat app | `docker/chat/app/main.py`, `knowledge_context.py`, `live_relay.py` |
+| Chat app | `docker/chat/app/main.py` (SSE `_chat_stream` + `_persist_text_turn`), `gemini_routing.py` (`astream` w/ fallback), `transcript_store.py`, `knowledge_context.py`, `live_relay.py` |
 | Deploy | `scripts/integrate-and-deploy.sh`, `scripts/sync-site-api-urls.mjs` |
 | Local stack | `docker-compose.yml`, `docker/nginx.conf` |
-| Admin UI | `admin/index.html`, `js/admin.js` |
+| Admin UI | `admin/index.html`, `js/admin.js` (renders cards + sparkline + recent failures), `css/admin.css` |
+| Admin Lambda | `aws/src/contact-admin.js` (`normalizeChatItem` + `getChatSummary` build the stream rollups) |
 | Knowledge build | `scripts/build-chat-knowledge.mjs`, `data/chat-knowledge/` |
 
 ---
 
-*Last updated: May 2026 — aligned with repo layout after static hosting on AWS Amplify (no Netlify).*
+*Last updated: May 2026 — streaming SSE + per-turn telemetry + admin stream-rollups added; static hosting on AWS Amplify.*

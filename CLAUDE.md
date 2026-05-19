@@ -148,6 +148,18 @@ The `Spaceman` class manages:
 - **Admin** `GET /messages` queries GSI `byCreatedAt` with `?limit` and optional `?cursor` (opaque); response includes `nextCursor`. **Summary** aggregates status counts via a paginated `Scan` with projected attributes.
 - **Failure report** uses a paginated `Scan` with a filter for failed, non-suppressed rows.
 
+### Chat backend (`docker/chat/app/`)
+
+- **Streaming** — `POST /api/chat` with `stream: true` returns `text/event-stream` (events: `token`, `done`, `error`); `stream: false` returns the legacy JSON body. Frontend (`js/chat.js` → `readSseChat`) parses SSE and updates the assistant bubble per `token` delta. Headers `Cache-Control: no-cache` + `X-Accel-Buffering: no` keep proxies from buffering.
+- **Routing** — `gemini_routing.py` `GeminiRoutingChain` exposes both `ainvoke` and `astream`; on first-chunk rate-limit it transparently falls back to the secondary model. Once any chunk has flushed, the chain is committed.
+- **Failure persistence** — `_persist_text_turn` runs after every turn (`ok` / `error` / `timeout`). Each row carries `stream`, `firstTokenLatencyMs`, `streamChunkCount`, `outputCharCount`, `fallbackUsed`, `status`, and `errorCode` / `errorMessage` so the admin panel surfaces failed attempts.
+- **Diagnostic** — `GET /api/chat/host-status` (gated by `ADMIN_API_KEY` env on the chat container) returns `TranscriptStore.stats()` + provider/model info.
+- **Voice** — `POST /api/live/session` mints a bridge token; `WS /api/live/relay/{id}` proxies browser ↔ Google Live API. ECS only (Lambda can't upgrade WebSockets).
+
+### Chat admin telemetry (`aws/src/contact-admin.js` + `js/admin.js`)
+
+`/api/chat/admin/transcripts/summary` rolls stream/voice fields into top-level `stream` and `voice` blocks plus `activityByDay` (30-day series for the sparkline) and `recentFailures` (up to 20, newest first, clickable in the panel). `normalizeChatItem` aggregates per-session; list rows carry `streamedTurns`, `streamFailures`, `fallbackTurns` so failing sessions are visible without opening the detail view.
+
 ## Code Conventions
 
 ### JavaScript
