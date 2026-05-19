@@ -191,7 +191,6 @@ class SpacemanPosition {
       document.getElementById('playgroundContent'),
       document.getElementById('portfolioContent'),
       document.getElementById('projects'),
-      document.getElementById('playgroundBeta'),
       document.getElementById('portfolioProjects')
     ].filter(Boolean);
 
