@@ -17,7 +17,8 @@ function shouldAutofocusChatInput() {
 /** Ignore stray click synthesis on dialog chips right after open (mobile ghost tap). */
 const DIALOG_CHIP_ACTIVATION_GUARD_MS = 500
 
-/** Preset prompts per route — Home = capability pitch; Portfolio / Playground = page-native depth. */
+/** Preset prompts per route — Home = capability pitch; Portfolio = page-native depth.
+ *  (Playground was folded into Portfolio, so there's no dedicated playground bucket.) */
 const SECTION_PROMPT_CHIPS = {
   home: {
     hero: [
@@ -91,55 +92,18 @@ const SECTION_PROMPT_CHIPS = {
       }
     ]
   },
-  playground: {
-    hero: [
-      {
-        prompt: 'Show me what you can build.',
-        label: 'What can you build?',
-        track: 'hero_chat_chip_what_can_you_build'
-      },
-      {
-        prompt: 'How would you build production AI?',
-        label: 'How would you build AI?',
-        track: 'hero_chat_chip_production_ai_pg'
-      },
-      {
-        prompt: 'Show me your hardware and vision work.',
-        label: 'Hardware + vision?',
-        track: 'hero_chat_chip_hardware'
-      }
-    ],
-    dialog: [
-      {
-        prompt: 'How do you take experiments to production?',
-        label: 'Experiment to production?',
-        track: 'chat_dialog_chip_experiment_to_product'
-      },
-      {
-        prompt: 'Tell me about the Generative Video Platform.',
-        label: 'Generative Video Platform?',
-        track: 'chat_dialog_chip_gvp'
-      },
-      {
-        prompt: 'How do you build under tight constraints?',
-        label: 'Tight constraints?',
-        track: 'chat_dialog_chip_constraints'
-      }
-    ]
-  }
 }
 
-/** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio / Playground). */
+/** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio).
+ *  Playground was folded into Portfolio, so its dedicated bucket is gone. */
 const CHAT_EMPTY_HINT_BY_SECTION = {
-  home: 'Pick a suggestion below, or type your question. Ask about my services, projects, and what I do.',
-  portfolio: 'Pick a suggestion below, or type your question. Ask about my roles, what I shipped, how I work.',
-  playground: 'Pick a suggestion below, or type your question. Ask about my experiments and what I can build.'
+  home: "Pick a suggestion below, or type your question. Ask about Marwan's services, projects, and how he works.",
+  portfolio: "Pick a suggestion below, or type your question. Ask about his roles, what he shipped, and his personal builds."
 }
 
 const CHAT_VOICE_EMPTY_HINT_BY_SECTION = {
-  home: 'Start live chat to ask about my services, projects, and what I do — or type below and pick a suggestion.',
-  portfolio: 'Start live chat to ask about my roles, what I shipped, and how I work — or type below and pick a suggestion.',
-  playground: 'Start live chat to ask about my experiments and what I can build — or type below and pick a suggestion.'
+  home: "Start live chat to ask about Marwan's services, projects, and how he works — or type below and pick a suggestion.",
+  portfolio: "Start live chat to ask about his roles, what he shipped, and his personal builds — or type below and pick a suggestion."
 }
 
 function replaceSectionPresetChips(container, chips, chipClassName) {
@@ -335,6 +299,35 @@ export function initChat() {
 
   const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
   const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
+
+  // Language selector — value sent with every /api/chat request so the
+  // backend can instruct the model to respond in that language. Persisted in
+  // localStorage so reload keeps the choice; initial pick prefers the
+  // browser's primary language if it's in the supported list, else English.
+  const LANG_STORAGE_KEY = 'gvp-chat-language'
+  const languageSelect = document.getElementById('chatLanguageSelect')
+  const SUPPORTED_LANGS = languageSelect
+    ? Array.from(languageSelect.options).map((opt) => opt.value)
+    : ['en']
+  const detectInitialLanguage = () => {
+    try {
+      const stored = localStorage.getItem(LANG_STORAGE_KEY)
+      if (stored && SUPPORTED_LANGS.includes(stored)) return stored
+    } catch (_) { /* localStorage blocked — fall through */ }
+    const navLang = (navigator.language || 'en').toLowerCase().split('-')[0]
+    return SUPPORTED_LANGS.includes(navLang) ? navLang : 'en'
+  }
+  let currentLanguage = detectInitialLanguage()
+  if (languageSelect) {
+    languageSelect.value = currentLanguage
+    languageSelect.addEventListener('change', () => {
+      const next = languageSelect.value
+      if (!SUPPORTED_LANGS.includes(next)) return
+      currentLanguage = next
+      try { localStorage.setItem(LANG_STORAGE_KEY, next) } catch (_) {}
+    })
+  }
+
   const state = {
     history: [],
     pending: false,
@@ -1122,7 +1115,8 @@ export function initChat() {
         body: JSON.stringify({
           messages: history,
           stream: true,
-          sessionId: state.sessionId
+          sessionId: state.sessionId,
+          language: currentLanguage
         })
       })
     } catch (_) {
@@ -1456,7 +1450,8 @@ export function initChat() {
         history.replaceState(null, '', './')
         window.dispatchEvent(new HashChangeEvent('hashchange'))
       } else if (section === 'portfolio' || section === 'playground') {
-        window.location.hash = `#${section}`
+        // Playground was folded into the portfolio page; route both to #portfolio.
+        window.location.hash = '#portfolio'
       } else {
         return { error: `unknown_section: ${section}` }
       }

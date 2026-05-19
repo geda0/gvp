@@ -16,7 +16,7 @@ export function initSpacemanProjectContext({
   spaceman,
   spacemanPosition
 }) {
-  const projectCards = document.querySelectorAll('#playgroundContent .project, #portfolioContent .project')
+  const projectCards = document.querySelectorAll('#portfolioContent .project')
   const projectObserver = initProjectObserver(projectCards, {
     getCurrentSection,
     onVisibleChange: (card) => {

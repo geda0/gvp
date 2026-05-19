@@ -1079,23 +1079,15 @@ body:not(.content-open) section#home {
     margin-top: 2rem;
 }
 
-#playgroundContent > .playground-intro {
-    max-width: 44rem;
-    margin: clamp(3rem, 10vh, 5rem) auto 0;
-    padding: 0 1.25rem;
-    text-align: center;
-    font-family: var(--font-body);
-    font-size: 0.95rem;
-    line-height: 1.6;
-    color: var(--text-muted);
+#portfolioContent > .portfolio-earlier-career + .playground-intro {
+    margin-top: clamp(2.5rem, 8vh, 4rem);
 }
 
-#playgroundContent > .playground-intro + section#projects {
+#portfolioContent > .playground-intro + section#projects {
     margin-top: 2rem;
 }
 
-#portfolioContent,
-#playgroundContent {
+#portfolioContent {
     z-index: 50;
 }
 
@@ -2495,13 +2487,8 @@ h6 {
 /* Per-section accent shifts.
    Scoped to `main` so the chrome (nav, footer, chat launcher) keeps the base
    theme accent — only in-content links / focus rings / read-more pick up the
-   playground (warmer) or portfolio (deeper) variant. Subtle by design. */
-[data-theme="space"] body[data-section="playground"] main {
-    --accent: #e08c4a;
-    --accent-hover: #f0a25e;
-    --link-color: #f0b88a;
-    --link-hover: var(--accent-hover);
-}
+   portfolio variant. Subtle by design. (The former 'playground' section was
+   folded into portfolio, so its accent block was removed.) */
 [data-theme="space"] body[data-section="portfolio"] main {
     --accent: #6a98e8;
     --accent-hover: #82adf0;
@@ -2509,12 +2496,6 @@ h6 {
     --link-hover: var(--accent-hover);
 }
 
-[data-theme="garden"] body[data-section="playground"] main {
-    --accent: #9a6328;
-    --accent-hover: #b07a3a;
-    --link-color: #6b3f12;
-    --link-hover: var(--accent-hover);
-}
 [data-theme="garden"] body[data-section="portfolio"] main {
     --accent: #144a2a;
     --accent-hover: #1f6b3d;
@@ -2522,12 +2503,6 @@ h6 {
     --link-hover: var(--accent-hover);
 }
 
-[data-theme="studio"] body[data-section="playground"] main {
-    --accent: #b8593a;
-    --accent-hover: #cf6e4d;
-    --link-color: #8e3f23;
-    --link-hover: var(--accent-hover);
-}
 [data-theme="studio"] body[data-section="portfolio"] main {
     --accent: #2f3f63;
     --accent-hover: #43577f;

@@ -47,6 +47,10 @@ SYNONYMS: dict[str, set[str]] = {
     'mongodb': {'mongodb', 'mongo db', 'mongo'},
     'microservices': {'microservices', 'microservice', 'service oriented', 'soa'},
     'mentoring': {'mentoring', 'mentor', 'leadership', 'led teams', 'team lead'},
+    # AI / this-site retrieval — lets visitors asking "how does this chat work"
+    # or "tell me about the assistant" pull the chatbot project entry up.
+    'ai': {'ai', 'gen ai', 'genai', 'llm', 'llms', 'gemini', 'chatbot', 'agent', 'assistant', 'gpt', 'claude'},
+    'this-site': {'this site', 'this chat', 'this chatbot', 'this assistant', 'this agent', 'this bot', 'the chat agent'},
 }
 
 

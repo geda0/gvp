@@ -113,14 +113,10 @@ class SpacemanPosition {
     this._hooks = { ...this._hooks, ...hooks };
   }
 
-  /** Keep `body.content-open` in sync with visible playground/portfolio (hero CSS) even when `isStaying` skips layout `_update`. */
+  /** Keep `body.content-open` in sync with visible portfolio (hero CSS) even when `isStaying` skips layout `_update`. */
   _syncBodyContentOpen() {
-    const pg = document.getElementById('playgroundContent');
     const pf = document.getElementById('portfolioContent');
     const wrapperOpen =
-      !!(pg &&
-        pg.classList.contains('visible') &&
-        !pg.classList.contains('hidden')) ||
       !!(pf &&
         pf.classList.contains('visible') &&
         !pf.classList.contains('hidden'));
@@ -188,15 +184,15 @@ class SpacemanPosition {
       { id: 'contactDialog', panelSelector: '.contact-dialog__panel' }
     ];
     const contentEls = [
-      document.getElementById('playgroundContent'),
       document.getElementById('portfolioContent'),
       document.getElementById('projects'),
       document.getElementById('portfolioProjects')
     ].filter(Boolean);
 
-    // Class changes -> reposition
+    // Class changes -> reposition (only the top-level portfolio wrapper toggles
+    // hidden/visible; the inner sections are static once revealed).
     this._mutationObs = new MutationObserver(() => this.updatePosition());
-    contentEls.slice(0, 2).forEach(el => {
+    contentEls.slice(0, 1).forEach(el => {
       this._mutationObs.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
     dialogs
@@ -741,7 +737,8 @@ class SpacemanPosition {
       return (rect.width > 0 && rect.height > 0) ? rect : null;
     };
 
-    return check('playgroundContent', 'projects') || check('portfolioContent', 'portfolioProjects');
+    // Portfolio holds both the professional cards and the playground subsection.
+    return check('portfolioContent', 'portfolioProjects') || check('portfolioContent', 'projects');
   }
 
   _calcPosition(vw, vh, content, scale) {

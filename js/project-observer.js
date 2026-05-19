@@ -12,7 +12,7 @@ export const PROJECT_CARD_INTERSECTION_THRESHOLD_STEPS = [0, 0.05, 0.1, 0.25, 0.
  *
  * @param {NodeList|Array} cards - project card elements to observe
  * @param {object} opts
- * @param {() => string} opts.getCurrentSection - returns 'playground' | 'portfolio' | other
+ * @param {() => string} opts.getCurrentSection - returns 'portfolio' or other
  * @param {(card: Element|null) => void} opts.onVisibleChange - called with the best card (or null)
  * @returns {{ recompute: () => void, disconnect: () => void }}
  */
@@ -24,11 +24,9 @@ export function initProjectObserver(cards, { getCurrentSection, onVisibleChange 
     let best = { ratio: 0, card: null }
     ratios.forEach((ratio, card) => {
       if (ratio > best.ratio) {
-        const section = card.closest('#playgroundContent')
-          ? 'playground'
-          : card.closest('#portfolioContent')
-            ? 'portfolio'
-            : null
+        // All project cards now live under #portfolioContent (portfolio cards
+        // proper + the playground subsection). One section, one match.
+        const section = card.closest('#portfolioContent') ? 'portfolio' : null
         if (section === getCurrentSection()) best = { ratio, card }
       }
     })

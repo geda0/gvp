@@ -157,11 +157,7 @@ export function initProjectDetailDialog() {
     const data = projectDetailsById.get(id);
     if (!data) return;
     dialog.setAttribute('data-project-id', id)
-    const section = window.location.hash === '#portfolio'
-      ? 'portfolio'
-      : window.location.hash === '#playground'
-        ? 'playground'
-        : 'home'
+    const section = window.location.hash === '#portfolio' ? 'portfolio' : 'home'
     trackProjectInteraction('open_details', id, section)
 
     lastFocus = document.activeElement;
@@ -237,9 +233,10 @@ export function initProjectDetailDialog() {
     openDialog(id);
   }
 
-  ['playgroundContent', 'portfolioContent'].forEach((cid) => {
-    const wrap = document.getElementById(cid);
-    if (!wrap) return;
+  // Both portfolio cards and playground subsection cards live inside
+  // #portfolioContent now, so a single delegate covers them.
+  const wrap = document.getElementById('portfolioContent');
+  if (wrap) {
     wrap.addEventListener('click', onActivateProject);
     wrap.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -249,17 +246,13 @@ export function initProjectDetailDialog() {
       const id = card.getAttribute('data-project-id');
       if (id) openDialog(id);
     });
-  });
+  }
 
   closeBtn?.addEventListener('click', closeDialog);
   backdrop?.addEventListener('click', closeDialog);
   linkEl?.addEventListener('click', () => {
     const id = dialog.getAttribute('data-project-id') || ''
-    const section = window.location.hash === '#portfolio'
-      ? 'portfolio'
-      : window.location.hash === '#playground'
-        ? 'playground'
-        : 'home'
+    const section = window.location.hash === '#portfolio' ? 'portfolio' : 'home'
     trackProjectInteraction('open_link', id, section)
   })
 

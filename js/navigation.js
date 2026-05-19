@@ -15,9 +15,7 @@ export function initNavigation(options = {}) {
 
   const elements = {
     portfolioNav: document.getElementById('portfolioNav'),
-    playgroundNav: document.getElementById('playgroundNav'),
     homeNav: document.getElementById('homeNav'),
-    playgroundContent: document.getElementById('playgroundContent'),
     portfolioContent: document.getElementById('portfolioContent'),
     projects: document.getElementById('projects'),
     portfolioProjects: document.getElementById('portfolioProjects')
@@ -25,9 +23,7 @@ export function initNavigation(options = {}) {
 
   const navRequired = [
     'homeNav',
-    'playgroundNav',
     'portfolioNav',
-    'playgroundContent',
     'portfolioContent',
     'projects',
     'portfolioProjects'
@@ -43,9 +39,7 @@ export function initNavigation(options = {}) {
     state.section = nextSection
     document.body.classList.toggle('content-open', nextSection !== 'home')
     document.body.dataset.section = nextSection
-    if (nextSection === 'playground') {
-      goPlay(elements, event)
-    } else if (nextSection === 'portfolio') {
+    if (nextSection === 'portfolio') {
       goPortfolio(elements, event)
     } else {
       goHome(elements, event)
@@ -61,9 +55,8 @@ export function initNavigation(options = {}) {
 
   function navigateByHash() {
     const hash = window.location.hash
-    if (hash === '#playground') {
-      applySection('playground', null, true)
-    } else if (hash === '#portfolio') {
+    // Treat legacy '#playground' bookmarks as portfolio so old links keep working.
+    if (hash === '#portfolio' || hash === '#playground') {
       applySection('portfolio', null, true)
     } else {
       applySection('home', null, true)
@@ -74,12 +67,6 @@ export function initNavigation(options = {}) {
     e.preventDefault()
     history.replaceState(null, '', '#portfolio')
     applySection('portfolio', e, true)
-  })
-
-  elements.playgroundNav?.addEventListener('click', (e) => {
-    e.preventDefault()
-    history.replaceState(null, '', '#playground')
-    applySection('playground', e, true)
   })
 
   elements.homeNav?.addEventListener('click', (e) => {
@@ -94,15 +81,12 @@ export function initNavigation(options = {}) {
 }
 
 function goHome(el, event) {
-  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
+  if (!el?.projects || !el?.portfolioProjects || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
   el.projects.classList.remove('content-section-reveal')
   el.portfolioProjects.classList.remove('content-section-reveal')
-  el.playgroundContent.classList.remove('visible')
-  el.playgroundContent.classList.add('hidden')
   el.projects.classList.remove('visible')
   el.projects.classList.add('hidden')
-  el.playgroundNav.classList.remove('section-invisible')
   el.portfolioNav.classList.remove('section-invisible')
   el.homeNav.classList.add('section-invisible')
   el.projects.classList.add('section-invisible')
@@ -113,48 +97,21 @@ function goHome(el, event) {
   if (event) trackClick(event)
 }
 
-function goPlay(el, event) {
-  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-  el.portfolioProjects.classList.remove('content-section-reveal')
-  el.projects.classList.remove('content-section-reveal')
-  el.portfolioContent.classList.remove('visible')
-  el.portfolioContent.classList.add('hidden')
-  el.portfolioProjects.classList.remove('visible')
-  el.portfolioProjects.classList.add('hidden')
-
-  el.playgroundContent.classList.remove('hidden')
-  el.playgroundContent.classList.add('visible')
-  el.playgroundNav.classList.add('section-invisible')
-  el.portfolioNav.classList.remove('section-invisible')
-  el.homeNav.classList.remove('section-invisible')
-
-  el.projects.classList.remove('section-invisible')
-  el.projects.classList.remove('hidden')
-  el.projects.classList.add('visible', 'content-section-reveal')
-
-  if (event) trackClick(event)
-}
-
 function goPortfolio(el, event) {
-  if (!el?.projects || !el?.portfolioProjects || !el?.playgroundContent || !el?.portfolioContent) return
+  if (!el?.projects || !el?.portfolioProjects || !el?.portfolioContent) return
   window.scrollTo({ top: 0, behavior: 'smooth' })
-  el.projects.classList.remove('content-section-reveal')
-  el.portfolioProjects.classList.remove('content-section-reveal')
-  el.playgroundContent.classList.remove('visible')
-  el.playgroundContent.classList.add('hidden')
-  el.projects.classList.remove('visible')
-  el.projects.classList.add('hidden')
 
   el.portfolioContent.classList.remove('hidden')
   el.portfolioContent.classList.add('visible')
   el.portfolioNav.classList.add('section-invisible')
   el.homeNav.classList.remove('section-invisible')
-  el.playgroundNav.classList.remove('section-invisible')
 
-  el.portfolioProjects.classList.remove('section-invisible')
-  el.portfolioProjects.classList.remove('hidden')
+  el.portfolioProjects.classList.remove('section-invisible', 'hidden')
   el.portfolioProjects.classList.add('visible', 'content-section-reveal')
+
+  // Playground subsection lives inside the portfolio page now — reveal it too.
+  el.projects.classList.remove('section-invisible', 'hidden')
+  el.projects.classList.add('visible', 'content-section-reveal')
 
   if (event) trackClick(event)
 }
