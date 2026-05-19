@@ -295,9 +295,10 @@ function createProjectCard(project) {
   div.setAttribute('data-project-description', cardDescription);
   div.setAttribute('role', 'button');
   div.setAttribute('tabindex', '0');
+  const labelSuffix = project.label ? ` (${project.label})` : '';
   div.setAttribute(
     'aria-label',
-    `${project.title || 'Project'} — open details${project.link ? ' and link' : ''}`
+    `${project.title || 'Project'}${labelSuffix} — open details${project.link ? ' and link' : ''}`
   );
 
   if (project.image) {
@@ -309,9 +310,18 @@ function createProjectCard(project) {
     div.appendChild(img);
   }
 
+  const head = document.createElement('div');
+  head.className = 'project__head';
   const title = document.createElement('h4');
   title.textContent = project.title || '';
-  div.appendChild(title);
+  head.appendChild(title);
+  if (project.label) {
+    const badge = document.createElement('span');
+    badge.className = 'project__label';
+    badge.textContent = project.label;
+    head.appendChild(badge);
+  }
+  div.appendChild(head);
 
   if (project.role) {
     const role = document.createElement('p');
