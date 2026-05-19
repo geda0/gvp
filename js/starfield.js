@@ -251,9 +251,9 @@ export function initStarfield(canvasId, options = {}) {
 
   function drawSpace() {
     // Subtle trail: fade each frame so it disappears completely (keeps look clean, no buildup)
-    // Match the new --space-deep #0c111c so the trail wash blends with the body bg.
+    // Match --space-deep #141926 so the trail wash blends with the body bg.
     const trail = spaceTrailAlphaForPreference(prefersReducedMotion);
-    c.fillStyle = `rgba(12, 17, 28, ${trail})`;
+    c.fillStyle = `rgba(20, 25, 38, ${trail})`;
     c.fillRect(0, 0, canvas.width, canvas.height);
     starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
     for (var i = 0; i < numStars; i++) {
