@@ -637,6 +637,13 @@ def chat_host_status(request: Request) -> JSONResponse:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
     store = app.state.transcript_store
     chain = app.state.chain
+    # Surface the live voice preset so the admin can confirm at a glance which
+    # voice every minted Live session is locked to (default Charon — deep male).
+    try:
+        from app.live_gemini import _live_voice_name
+        live_voice = _live_voice_name()
+    except Exception:
+        live_voice = None
     return JSONResponse(content={
         "provider": app.state.provider_name,
         "providerConfigured": chain is not None,
@@ -647,6 +654,7 @@ def chat_host_status(request: Request) -> JSONResponse:
         "lastModelUsed": getattr(chain, 'last_model_id', None),
         "providerTimeoutSeconds": app.state.provider_timeout_seconds,
         "promptVersion": app.state.prompt_version,
+        "liveVoiceName": live_voice,
         "transcriptStore": store.stats() if store is not None else {
             'configured': False,
         },
