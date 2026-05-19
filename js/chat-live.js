@@ -1287,7 +1287,7 @@ export function bindChatLiveVoice(opts) {
       // in the same conversation just listen — the visitor already knows what
       // we are and a repeat "Hi, I'm your AI Assistant" mid-thread is grating.
       const shouldGreet = !conversationGreeted
-      const greetText = resolvedIntent === 'warm' ? GREETING_TEXT_WARM : GREETING_TEXT_COLD
+      const greetText = resolvedIntent === 'warm' ? GREETING_TEXT_WARM : GREETING_TEXT_WARM // always greet with the same text
       greetingTurnComplete = !shouldGreet  // skip the warm follow-up if we didn't greet
       userSpokeAfterGreeting = false
       if (shouldGreet) {
