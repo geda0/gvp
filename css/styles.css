@@ -5,52 +5,53 @@
     --font-body: "Source Sans 3", system-ui, -apple-system, sans-serif;
     --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
 
-    /* Calmer base: slightly warmer blue-gray ink (not pure black) — avoids OLED
-       halation and feels less harsh than the previous #06080f. */
-    --space-deep: #0c111c;
-    --space-mid: #141a2a;
+    /* Calmer base: slightly warmer blue-gray ink, lifted off true black so the
+       page reads as dusk rather than void — easier on eyes and OLEDs. */
+    --space-deep: #141926;
+    --space-mid: #1c2334;
     --bg-primary: var(--space-deep);
     /* Keep in sync with SPACE_SCENE_GRADIENT in theme.js — mirrored horizontally
-       and dialed back ~45%: nebulas are atmospheric, not decorative. */
+       and dialed back: nebulas are atmospheric, not decorative. */
     --bg-space-gradient:
-        radial-gradient(ellipse 100% 75% at 82% 6%, rgba(170, 92, 110, 0.075) 0%, transparent 50%),
-        radial-gradient(ellipse 95% 70% at 18% 90%, rgba(78, 110, 175, 0.09) 0%, transparent 52%),
-        radial-gradient(ellipse 120% 85% at 50% -5%, #1a2238 0%, #131a2b 40%, #0e1422 65%, var(--space-deep) 100%);
+        radial-gradient(ellipse 100% 75% at 82% 6%, rgba(150, 130, 170, 0.03) 0%, transparent 50%),
+        radial-gradient(ellipse 95% 70% at 18% 90%, rgba(78, 110, 175, 0.075) 0%, transparent 52%),
+        radial-gradient(ellipse 120% 85% at 50% -5%, #222a40 0%, #1b2235 40%, #171d2c 65%, var(--space-deep) 100%);
 
-    /* Text contrast slightly reduced so the brightest reading band isn't a
-       glaring near-white on dark — easier on the eye for long sessions. */
-    --text-primary: #dde3ee;
-    --text-muted: rgba(221, 227, 238, 0.7);
-    --text-muted-plus: rgba(221, 227, 238, 0.86);
-    --text-muted-extra: rgba(221, 227, 238, 0.58);
-    --text-subtle: rgba(221, 227, 238, 0.48);
+    /* Text contrast reduced — the brightest reading band sits well below pure
+       white so it never glares against the warm-dark base. */
+    --text-primary: #ccd2dd;
+    --text-muted: rgba(204, 210, 221, 0.68);
+    --text-muted-plus: rgba(204, 210, 221, 0.82);
+    --text-muted-extra: rgba(204, 210, 221, 0.56);
+    --text-subtle: rgba(204, 210, 221, 0.46);
 
     --surface: rgba(165, 185, 230, 0.05);
-    --surface-elevated: rgba(24, 31, 48, 0.96);
-    --border-subtle: rgba(140, 165, 210, 0.13);
-    --border-strong: rgba(165, 188, 225, 0.22);
+    --surface-elevated: rgba(28, 35, 52, 0.96);
+    --border-subtle: rgba(140, 165, 210, 0.12);
+    --border-strong: rgba(165, 188, 225, 0.2);
 
-    /* Desaturated periwinkle — still clearly an accent but doesn't vibrate. */
-    --accent: #7a99cf;
-    --accent-hover: #93afdb;
-    --on-accent: #0c111c;
+    /* Softer periwinkle — desaturated so it sits beside the text rather than
+       jumping forward. */
+    --accent: #8197bd;
+    --accent-hover: #9badcb;
+    --on-accent: #141926;
 
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
 
-    --shadow-sm: 0 1px 3px rgba(4, 6, 16, 0.4), 0 0 0 1px rgba(90, 130, 210, 0.04);
-    --shadow-md: 0 12px 32px rgba(4, 6, 18, 0.45), 0 0 40px rgba(70, 110, 200, 0.04);
+    --shadow-sm: 0 1px 3px rgba(4, 6, 16, 0.35), 0 0 0 1px rgba(90, 130, 210, 0.035);
+    --shadow-md: 0 12px 32px rgba(4, 6, 18, 0.38), 0 0 40px rgba(70, 110, 200, 0.035);
 
-    --nav-bg: rgba(14, 19, 32, 0.9);
+    --nav-bg: rgba(20, 25, 38, 0.9);
     --nav-inner-bg: transparent;
-    --footer-bg: rgba(12, 16, 26, 0.95);
-    --navbar-bg: rgba(16, 21, 36, 0.82);
-    --navbar-link: #dde3ee;
+    --footer-bg: rgba(18, 23, 36, 0.95);
+    --navbar-bg: rgba(24, 30, 46, 0.82);
+    --navbar-link: #ccd2dd;
     --navbar-link-hover-bg: transparent;
     --navbar-link-hover-color: var(--accent-hover);
-    --link-color: #9caed4;
-    --link-visited: #a8a0c8;
+    --link-color: #a0adc4;
+    --link-visited: #ada5c2;
     --link-hover: var(--accent-hover);
     --footer-link-color: var(--link-color);
     --footer-link-visited: var(--link-visited);
@@ -58,19 +59,15 @@
     /* Overlay nebula on top of content — toned right down so it reads as a
        quiet wash, not a colored corner light. */
     --overlay-gradient:
-        radial-gradient(ellipse 80% 55% at 88% 18%, rgba(190, 95, 115, 0.055) 0%, transparent 55%),
-        radial-gradient(ellipse 85% 60% at 12% 72%, rgba(80, 120, 195, 0.07) 0%, transparent 58%),
-        radial-gradient(ellipse 105% 65% at 50% 6%, rgba(95, 130, 195, 0.055) 0%, transparent 60%);
+        radial-gradient(ellipse 80% 55% at 88% 18%, rgba(160, 140, 180, 0.028) 0%, transparent 55%),
+        radial-gradient(ellipse 85% 60% at 12% 72%, rgba(80, 120, 195, 0.055) 0%, transparent 58%),
+        radial-gradient(ellipse 105% 65% at 50% 6%, rgba(95, 130, 195, 0.045) 0%, transparent 60%);
     --heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
 
-    /* Chat: blue chrome with a touch of warm nebula (color-mix is two-color only — nest mixes) */
+    /* Chat: cool blue chrome — kept neutral so it doesn't read warm against the dusk base. */
     --chat-launcher-ring: var(--accent);
-    --chat-panel-bg: #181e32;
-    --chat-launcher-glow-chrome: color-mix(
-        in srgb,
-        color-mix(in srgb, var(--accent) 48%, #b8c8f0 52%),
-        #e8a0b0 22%
-    );
+    --chat-panel-bg: #1e2536;
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 48%, #b8c8f0 52%);
     --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 58%, var(--border-subtle));
     --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
     --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
@@ -2156,11 +2153,11 @@ body.contact-dialog-open {
    button itself is a small preview of the active scene. */
 .theme-toggle[data-current="space"] {
     background:
-        radial-gradient(ellipse 120% 100% at 80% 0%, rgba(180, 110, 130, 0.22) 0%, transparent 55%),
-        radial-gradient(ellipse 100% 90% at 10% 100%, rgba(90, 125, 195, 0.28) 0%, transparent 50%),
-        linear-gradient(195deg, #1a2238 0%, #131a2b 55%, #0c111c 100%);
-    color: #dde3ee;
-    border-color: rgba(140, 165, 210, 0.2);
+        radial-gradient(ellipse 120% 100% at 80% 0%, rgba(150, 145, 185, 0.14) 0%, transparent 55%),
+        radial-gradient(ellipse 100% 90% at 10% 100%, rgba(90, 125, 195, 0.22) 0%, transparent 50%),
+        linear-gradient(195deg, #222a40 0%, #1b2235 55%, #141926 100%);
+    color: #ccd2dd;
+    border-color: rgba(140, 165, 210, 0.18);
 }
 
 .theme-toggle[data-current="garden"] {
@@ -2286,9 +2283,9 @@ body.contact-dialog-open {
 
 .theme-menu__swatch--space {
     background:
-        radial-gradient(circle at 70% 30%, rgba(180, 110, 130, 0.4), transparent 60%),
-        radial-gradient(circle at 30% 70%, rgba(90, 125, 195, 0.5), transparent 60%),
-        linear-gradient(200deg, #1a2238 0%, #0c111c 100%);
+        radial-gradient(circle at 70% 30%, rgba(150, 145, 185, 0.28), transparent 60%),
+        radial-gradient(circle at 30% 70%, rgba(90, 125, 195, 0.42), transparent 60%),
+        linear-gradient(200deg, #222a40 0%, #141926 100%);
 }
 
 .theme-menu__swatch--garden {
@@ -2300,7 +2297,7 @@ body.contact-dialog-open {
 }
 
 .theme-menu__swatch--auto {
-    background: linear-gradient(90deg, #06080f 0%, #06080f 50%, #f4ede0 50%, #f4ede0 100%);
+    background: linear-gradient(90deg, #141926 0%, #141926 50%, #f4ede0 50%, #f4ede0 100%);
 }
 
 .theme-menu__text {

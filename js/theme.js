@@ -8,9 +8,9 @@ const GARDEN_GRADIENT = 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a5
 
 // Keep in sync with --bg-space-gradient in styles.css (mirrored + toned down)
 const SPACE_SCENE_GRADIENT =
-  'radial-gradient(ellipse 100% 75% at 82% 6%, rgba(170, 92, 110, 0.075) 0%, transparent 50%), ' +
-  'radial-gradient(ellipse 95% 70% at 18% 90%, rgba(78, 110, 175, 0.09) 0%, transparent 52%), ' +
-  'radial-gradient(ellipse 120% 85% at 50% -5%, #1a2238 0%, #131a2b 40%, #0e1422 65%, #0c111c 100%)';
+  'radial-gradient(ellipse 100% 75% at 82% 6%, rgba(150, 130, 170, 0.03) 0%, transparent 50%), ' +
+  'radial-gradient(ellipse 95% 70% at 18% 90%, rgba(78, 110, 175, 0.075) 0%, transparent 52%), ' +
+  'radial-gradient(ellipse 120% 85% at 50% -5%, #222a40 0%, #1b2235 40%, #171d2c 65%, #141926 100%)';
 
 // Keep in sync with --bg-studio-gradient in styles.css
 const STUDIO_SCENE_GRADIENT =
