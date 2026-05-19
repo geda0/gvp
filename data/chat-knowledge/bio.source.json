@@ -26,6 +26,20 @@
     "Kafka",
     "Ruby on Rails (legacy migration context)"
   ],
+  "services": [
+    "Platform architecture and end-to-end delivery for cloud-native, data-intensive products on AWS and Kubernetes — from system design through production operability.",
+    "Monolith-to-microservices evolution with Domain-Driven Design and Test-Driven Development, including reconciliation-based safe cutovers (HP Instant Ink, Apptio).",
+    "High-volume and financial-grade data pipelines on Spark, EMR, and Databricks where correctness is non-negotiable.",
+    "Multi-tenant APIs and hybrid data stores (PostgreSQL plus MongoDB) at tens of thousands of tenants, GraphQL where it earns its keep (JumpCloud M365 integration).",
+    "AWS serverless and workflow automation: Lambda, Step Functions, SQS, SNS, DynamoDB, API Gateway, SAM/CloudFormation.",
+    "AI-assisted product engineering: planning with Claude, prototyping in Cursor, building real user-facing AI features. This site's chat and voice agent is one example.",
+    "Full-stack web product builds — this portfolio is hand-built (HTML, CSS, vanilla JS modules, AWS SAM backend); earlier full-stack work at AT&T and web/mobile/AR delivery at 5d-agency."
+  ],
+  "engagement_targets": [
+    "Senior or staff full-time roles with direct technical ownership of architecture and platform.",
+    "Hands-on consulting or contract engagements where a senior engineer can lead a system through design, build, and operation — not just whiteboard.",
+    "Project-shaped work: an MVP, an AI feature, a migration, a platform rebuild, a hardening pass on something already in production."
+  ],
   "speaking_points": [
     "At HP Instant Ink Marwan planned and executed scaling the subscription service from thousands of customers to millions, globally, by transforming a Ruby on Rails monolith into cloud-native microservices and data pipelines using Domain-Driven Design and Test-Driven Development — completed in a matter of months across four geographically distributed teams with service reliability maintained throughout.",
     "At Apptio he migrated Kubernetes and Java workloads to EMR Spark with Scala to solve a scaling and cost problem — pipelines were running for days and getting expensive. The hard part was correctness: financial datasets have zero tolerance for drift. He built a reconciliation pipeline that ran both systems in parallel and flagged discrepancies, which gave the team confidence to cut over incrementally rather than all at once. The result was roughly 10x faster processing with zero correctness drift.",

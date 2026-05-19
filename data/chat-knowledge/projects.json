@@ -1,15 +1,52 @@
 [
   {
+    "id": "ai-assistant-chatbot",
+    "name": "AI assistant & chatbot",
+    "summary": "Grounded AI assistant — SSE-streaming text chat, Gemini Live voice, automatic model fallback, and durable per-turn telemetry behind an admin dashboard. AI assistant & chatbot — the AI you can talk to on this site, built around honest production constraints: latency, cost, model rate-limits, and observability. Streaming text chat. FastAPI + LangChain on ECS Fargate behind an ALB. POST /api/chat with stream: true returns text/event-stream — event: token per chunk, event: done on completion, event: error on failure. Headers ( Cache-Control: no-cache , X-Accel-Buffering: no ) keep nginx/ALB from buffering. The first token typically lands in under a second. Grounded answers. A knowledge pack built from resume, project, and bio sources is injected into every turn so the model answers from real history, not generic AI fluff. Retrieval snapshot (matched FAQ id, role ids, project ids) is persisted with each turn for review. Automatic model fallback. A custom GeminiRoutingChain exposes both ainvoke and astream . On primary rate-limit, it transparently retries on the secondary model — but only if no chunk has flushed yet. Once any token has reached the client, the chain commits and mid-stream errors propagate as event: error . Voice (Gemini Live). Mic always-on in the UI. POST /api/live/session mints a short-lived bridge token; WS /api/live/relay/{id} proxies the browser ↔ Google Live API on the same FastAPI app. WebSocket upgrade requires ECS — Lambda + API Gateway can't carry the upgrade. Durable per-turn telemetry. Every text turn — success, upstream error, OR timeout — writes a row to DynamoDB before the user-visible response returns. Per-turn fields: stream , firstTokenLatencyMs , streamChunkCount , outputCharCount , fallbackUsed , status ( ok / error / timeout ), errorCode , errorMessage , plus toolCalls , actions , retrieval snapshot, and heuristic flags. Admin observability. Private dashboard with cards for streamed sessions, average first-token latency, stream failures, and fallback model usage. A 30-day activity sparkline, errors-by-code table, and a clickable recent-failures list jump straight to the originating transcript. A separate GET /api/chat/host-status diagnostic on the chat host returns live TranscriptStore counters (writes attempted/succeeded/failed, last error) so persistence health is visible without reading ECS logs. What it demonstrates. The engineering reality of production AI. The model is rarely the hard part. Streaming UX, fallback routing, durable failure capture, and observability — that's where the work actually lives. Same habits I bring to production systems, applied to a personal site where every choice is visible.",
+    "why_it_matters": "Production AI reality: the model is rarely the hard part. Streaming UX, fallback routing, durable failure capture, and observability are where the work lives. Demonstrates Marwan's habits applied to a personal site where every choice is visible.",
+    "tech": [
+      "Gemini",
+      "Gemini Live",
+      "LangChain",
+      "FastAPI",
+      "SSE Streaming",
+      "WebSockets",
+      "AWS ECS Fargate",
+      "ALB",
+      "Lambda",
+      "DynamoDB",
+      "AWS SAM",
+      "Python"
+    ],
+    "links": [
+      {
+        "label": "View source on GitHub",
+        "url": "https://github.com/geda0/gvp"
+      }
+    ],
+    "relevance_tags": [
+      "ai",
+      "this-site",
+      "platform architecture",
+      "aws",
+      "python",
+      "data pipelines",
+      "frontend",
+      "serverless",
+      "playground"
+    ]
+  },
+  {
     "id": "monday-rover",
     "name": "Monday Rover (Raspberry Pi)",
-    "summary": "Monday Rover is a Raspberry Pi robotics project focused on fast iteration across perception and control loops. Marwan built computer-vision-assisted behaviors in prototype form, handled hardware bring-up and sensor/actuator integration, and debugged on-device with tight feedback cycles and observability.",
+    "summary": "Real-time computer vision on constrained hardware — a Raspberry Pi rover. Monday Rover (Raspberry Pi) — a personal exploration of real-time computer vision on constrained hardware. A Raspberry Pi rover with motor control, camera capture, and an on-device vision loop. Built with version control, clear module boundaries, and a reproducible setup. What it demonstrates. Latency budgeting and reliable behavior under motion on hardware that can't paper over inefficiency. Edge-device thinking with production habits attached. Scope: exploration, not product — single-purpose, not hardened beyond a controlled environment.",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Raspberry Pi",
       "Python",
-      "Linux",
-      "GPIO / robotics",
-      "OpenCV"
+      "OpenCV",
+      "Computer Vision",
+      "Embedded"
     ],
     "links": [
       {
@@ -28,13 +65,13 @@
   {
     "id": "gvp",
     "name": "Generative Video Platform",
-    "summary": "Generative Video Platform (GVP) explores how generative AI fits real video workflows where latency, repeatability, and UX all matter. Marwan prototypes product UX and pipeline behavior together: inputs, generation, review, and publish with clear boundaries as the system evolves.",
+    "summary": "End-to-end generative AI for video — product UX, orchestration, and the slow/expensive/variable paths. Generative Video Platform — an end-to-end exploration of generative AI applied to video workflows. A working prototype with a prompt UX, an orchestration layer, and the plumbing to handle paths that are slow, expensive, and high-variance — which is most of generative AI in production. What it demonstrates. The engineering reality of production AI. The model is rarely the hard part. Latency, cost, output variability, and product UX are where the work actually lives. Scope: learning prototype — not load-tested, not cost-optimized for production.",
     "why_it_matters": "Demonstrates how Marwan combines product UX with clear service boundaries for AI-enabled workflows.",
     "tech": [
-      "Video / streaming",
-      "Web front-end",
-      "Backend services",
-      "Generative media pipeline"
+      "Generative AI",
+      "Video",
+      "Platform Orchestration",
+      "Product UX"
     ],
     "links": [
       {
@@ -52,17 +89,19 @@
   },
   {
     "id": "apptio",
-    "name": "Apptio (IBM)",
-    "summary": "Apptio (IBM) is enterprise TBM and IT financial management SaaS where correctness is non-negotiable. Marwan led a migration to solve scaling and cost: pipelines were running for days on Kubernetes and Java; he moved heavy workloads to EMR Spark with Scala and built a parallel reconciliation pipeline so legacy and new systems ran on the same inputs and flagged discrepancies in real time — roughly 10x faster processing with zero correctness drift and incremental cutover.",
+    "name": "Apptio (an IBM company)",
+    "summary": "Migrated financial pipelines to a 10× faster architecture with zero correctness drift. Apptio (an IBM company) — Senior Software Engineer · 2023–2025. Migrated Apptio's financial-data pipelines from Java/Kubernetes to EMR Spark with Scala — and proved every byte still added up. The hard part. Financial datasets have zero tolerance for drift. A 10× faster migration with even small discrepancies would be worse than the original. A big-bang cutover would have made any discrepancy impossible to isolate. What I did. Migrated the heavy workloads to EMR Spark with Scala for throughput on large datasets. Built a parallel reconciliation pipeline: legacy and new ran side-by-side on the same inputs, and the pipeline flagged any difference in real time. That turned a risky migration into an incremental one — each workload cut over independently, verified against the system it replaced, then retired. Automated operations with Python, Lambda, and Step Functions; managed AWS infrastructure with Terraform. Outcome. Roughly 10× faster processing. Zero correctness drift on financial datasets. Service availability held throughout. What it demonstrates. On correctness-critical systems, the migration is the easy half. The proof of correctness is the half that matters. Build the reconciliation harness first.",
     "why_it_matters": "Shows Marwan's approach to platform modernization in data-intensive SaaS with strong operability guardrails.",
     "tech": [
-      "Enterprise SaaS",
-      "Java / JVM",
+      "Java",
       "Scala",
-      "EMR",
-      "FinOps",
-      "Cloud operations",
-      "Data platforms"
+      "EMR Spark",
+      "Kubernetes",
+      "AWS Lambda",
+      "Step Functions",
+      "Terraform",
+      "Databricks",
+      "Snowflake"
     ],
     "links": [
       {
@@ -78,20 +117,23 @@
       "spark",
       "kubernetes",
       "java",
+      "serverless",
       "portfolio"
     ]
   },
   {
     "id": "jumpcloud",
     "name": "JumpCloud",
-    "summary": "JumpCloud is a cloud directory platform. Marwan directed end-to-end technical design of a Microsoft M365 integration exposed through GraphQL for 50,000+ tenants, with a hybrid PostgreSQL plus MongoDB layer so relational identity-graph queries stayed fast while per-tenant custom attributes and hierarchies absorbed high write volume.",
+    "summary": "M365 integration on a hybrid Postgres/Mongo + GraphQL layer for 50,000+ tenants. JumpCloud — Senior Software Engineer · 2022–2023. Directed end-to-end technical design for a Microsoft M365 integration on JumpCloud's cloud directory platform — 50,000+ tenants in production. The hard part. The data layer had to do two things that pull opposite directions: serve fast relational queries over the core identity graph, and absorb high write volume of per-tenant custom attributes with flexible, variable shapes. A pure relational store strained under writes. A pure document store gave up the relational performance the identity graph depended on. What I did. Architected a hybrid data layer — PostgreSQL for the identity graph (relational, consistent, fast), MongoDB for per-tenant attributes (variable, write-heavy). Designed the multi-tenant GraphQL schema and resolvers. Built the integration end to end with Docker, Go, gRPC, and Node.js. Outcome. Shipped to 50,000+ production tenants. Both requirements satisfied — each routed to the store suited to it. What it demonstrates. When the problem genuinely has two shapes, don't force one. A hybrid means more moving parts; it also means you stop fighting the data.",
     "why_it_matters": "Reflects Marwan's work in identity-critical systems where reliability and safe rollout matter.",
     "tech": [
-      "Cloud directory",
-      "Identity & access",
-      "Device management",
-      "APIs & integrations",
-      "Security at scale"
+      "Golang",
+      "gRPC",
+      "Node.js",
+      "PostgreSQL",
+      "MongoDB",
+      "GraphQL",
+      "Docker"
     ],
     "links": [
       {
@@ -106,19 +148,29 @@
       "graphql",
       "kubernetes",
       "mongodb",
+      "node.js",
       "portfolio"
     ]
   },
   {
     "id": "instant-ink",
-    "name": "Instant Ink (HP)",
-    "summary": "Instant Ink (HP) is HP's printer-ink subscription service. Marwan planned and led transforming a Ruby on Rails monolith into cloud-native microservices and AWS data pipelines using Domain-Driven Design and TDD, scaling from thousands to millions of subscribers globally in months while coordinating four distributed teams and maintaining reliability.",
+    "name": "Hewlett Packard (HP)",
+    "summary": "Scaled HP Instant Ink thousands → millions via DDD-driven cloud migration. Hewlett Packard (HP) — Specialist Software Engineer · 2018–2021. Scaled HP's Instant Ink subscription service from thousands of subscribers to millions, globally, in months. The hard part. Instant Ink ran on a Ruby on Rails monolith — fine at its original scale, structurally unfit for orders-of-magnitude growth. The work was not a tuning exercise; it was a structural transformation that had to happen on a live, revenue-generating service, without disrupting customers, across four geographically distributed teams. What I did. Planned and led the transformation. Applied Domain-Driven Design to decompose the Rails monolith into cloud-native microservices and data pipelines on AWS — Lambda, API Gateway, SNS, SQS, DynamoDB, Redshift, CloudFormation. Drove TDD and agile practices across the four teams, working closely with DevOps, QA, and Product Management. Outcome. Thousands to millions of subscribers worldwide. Months, not years. Reliability and stability held throughout — customers experienced growth, not disruption. What it demonstrates. Domain-Driven Design doubles as architecture and as an organizational tool. The service boundaries it drew were the same boundaries four distributed teams could work along — which is why the migration could move quickly without the teams colliding.",
     "why_it_matters": "Highlights experience evolving subscription systems to larger scale while protecting reliability.",
     "tech": [
-      "Subscription commerce",
-      "Fulfillment systems",
-      "Consumer IoT / print",
-      "High-volume services"
+      "Ruby on Rails",
+      "ReactJS",
+      "AWS Lambda",
+      "API Gateway",
+      "SNS",
+      "SQS",
+      "DynamoDB",
+      "Redshift",
+      "CloudFormation",
+      "Docker",
+      "Jenkins",
+      "Chef",
+      "Splunk"
     ],
     "links": [
       {
@@ -130,19 +182,23 @@
       "subscriptions",
       "saas",
       "backend",
+      "aws",
+      "serverless",
       "portfolio"
     ]
   },
   {
     "id": "att",
     "name": "AT&T",
-    "summary": "At AT&T, Marwan built full-stack pieces on a service-oriented single-page application for ticket and task management, designed RESTful APIs and async JavaScript modules, and created TQL — a SQL-like query language for ticket search and operational analytics; he mentored new developers and raised code-quality standards.",
+    "summary": "TQL — a SQL-like query language for ticket search and operational analytics. AT&amp;T — Full Stack Engineer · 2017–2018. Built TQL: a SQL-like query language for ticket search and operational analytics on a service-oriented single-page application. The hard part. Support and ops teams needed fast, repeatable search and analytics over ticket data. Ad-hoc filters and one-off scripts didn't scale with ticket volume — or with analysts who needed predictable query semantics and bounded execution. What I did. Designed and built TQL — grammar, validation, and a test-covered execution path. Built front-end and back-end components, designed RESTful APIs, and developed async JavaScript modules. Mentored new developers and raised code-quality standards across the team. Outcome. Production SOA application with a usable query surface for real support workflows. What it demonstrates. Expressiveness and safety move together, not against each other. A query language has to be useful to analysts and predictable for operators in the same design.",
     "why_it_matters": "Shows foundational backend work where query semantics and operational usefulness were both central.",
     "tech": [
-      "Domain-specific language",
-      "Query engines",
-      "Java / enterprise stack",
-      "Ticketing & analytics"
+      "JavaScript",
+      "Ember.js",
+      "Perl",
+      "PHP",
+      "MySQL",
+      "SOA"
     ],
     "links": [],
     "relevance_tags": [
@@ -155,7 +211,7 @@
   {
     "id": "miu",
     "name": "Master's in Computer Science",
-    "summary": "Marwan's M.S. in Computer Science emphasized machine learning, data science, and software engineering discipline. Graduate projects focused on turning ML and data foundations into production-oriented decisions under practical constraints with strong SDLC rigor.",
+    "summary": "M.S. CS focus: machine learning, data science, and software engineering practice. Master's in Computer Science (MIU) — applied graduate work in machine learning, data science, and disciplined software engineering. Turned ML and data-science foundations into production-oriented engineering decisions Applied algorithmic and systems thinking to design under practical constraints SDLC rigor and implementation quality treated as first-class outcomes",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Machine learning",
@@ -176,7 +232,7 @@
   {
     "id": "sunrise",
     "name": "Sunrise Resorts & Cruises",
-    "summary": "At Sunrise Resorts & Cruises, Marwan worked on infrastructure and operations for business-critical hospitality systems. Responsibilities included datacenter and VPN/network architecture plus internal tooling for asset tracking and operational visibility, with emphasis on reliability, security controls, and pragmatic automation.",
+    "summary": "Multi-site hospitality infrastructure — datacenters, VPN/networking, and ops tooling. Sunrise Resorts &amp; Cruises — infrastructure and operations for business-critical hospitality systems. Datacenter and VPN/network architecture for always-on workflows across sites Internal tooling for asset tracking and operational visibility Reliability, security, and pragmatic automation over unnecessary complexity",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Datacenters",
@@ -199,7 +255,7 @@
   {
     "id": "campus-party",
     "name": "Campus Party Milenio (Spain)",
-    "summary": "Community + collaboration: technical exchange with an international builder community. Campus Party Milenio (Spain) — international technical collaboration focused on rapid experimentation and cross-discipline exchange. Projects and demos were developed in builder-heavy environments with fast feedback loops Emerging technology ideas were pressure-tested through hands-on iteration and peer review The working model emphasized shipping early, learning publicly, and refining quickly",
+    "summary": "Cross-discipline technical exchange with an international builder community. Campus Party Milenio (Spain) — international technical collaboration around rapid experimentation and cross-discipline exchange. Built and demoed projects in builder-heavy environments with fast feedback loops Pressure-tested emerging-tech ideas through hands-on iteration and peer review Shipped early, learned publicly, refined quickly",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Events & community",
@@ -219,7 +275,7 @@
   {
     "id": "5d-agency",
     "name": "5d-agency (SWI)",
-    "summary": "Client delivery across web/mobile, AR, and Unity-powered experiences. 5d-agency (SWI) — multi-platform client delivery across web, mobile, AR, and Unity-based interactive products. Delivery flows balanced creative product goals with fixed timelines and implementation constraints Interactive and AR experiences were engineered for usability, performance, and maintainability Execution cadence prioritized shipping, stabilization, and iterative quality improvements",
+    "summary": "Multi-platform client delivery — web, mobile, AR, and Unity-based products. 5d-agency (SWI) — multi-platform client delivery across web, mobile, AR, and Unity-based interactive products. Balanced creative product goals against fixed timelines and platform constraints Engineered interactive and AR experiences for usability, performance, and maintainability Shipping, stabilization, and iterative quality as the working cadence",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Unity / game dev",
@@ -243,7 +299,7 @@
   {
     "id": "early",
     "name": "Early Startups",
-    "summary": "Early-stage work across web apps, embedded Linux, and research tooling. Early startups — cross-domain product engineering across ad-tech, embedded Linux, and research-oriented web tooling. DDA Advertising : ad-tech and web systems focused on rapid product iteration OIG OS : Linux-based embedded systems under hardware and platform constraints QREO : web applications and research tooling designed for exploratory workflows",
+    "summary": "Early-stage work — ad-tech, embedded Linux, and research-oriented web tooling. Early startups — cross-domain product engineering across ad-tech, embedded Linux, and research-oriented web tooling. DDA Advertising: ad-tech and web systems with rapid product iteration OIG OS: Linux-based embedded systems under hardware and platform constraints QREO: web applications and research tooling for exploratory workflows",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Embedded Linux",

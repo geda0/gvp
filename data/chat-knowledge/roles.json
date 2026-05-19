@@ -3,17 +3,27 @@
     "id": "apptio-ibm",
     "company": "Apptio (IBM)",
     "product": "TBM / IT Financial Management",
-    "tenure": "Recent",
+    "tenure": "2023–2025",
     "team": "TBM / IT Financial Management",
     "summary": "Data-intensive SaaS for IT financial planning and cost transparency at enterprise scale.",
     "highlights": [
-      "Marwan led a migration to solve a scaling and cost problem: Kubernetes and Java pipelines were running for days and getting expensive as data volume grew.",
-      "He migrated targeted heavy workloads to EMR Spark with Scala for throughput on large datasets.",
-      "He built a parallel reconciliation pipeline so legacy and new systems ran side by side on the same inputs and flagged discrepancies in real time — enabling incremental cutover with zero correctness drift on financial datasets.",
-      "The migration delivered roughly 10x faster processing while maintaining service availability.",
-      "He reduced manual operations using Python, AWS Lambda, Step Functions, and Terraform-managed AWS infrastructure."
+      "Data-intensive SaaS for IT financial planning and cost transparency at enterprise scale.",
+      "Migrated Java and Kubernetes batch workloads to EMR Spark with Scala for scale and cost; roughly an order-of-magnitude faster processing while keeping services available.",
+      "Built a parallel reconciliation pipeline that ran legacy and new systems together, flagged discrepancies, and enabled incremental cutover with no correctness drift on financial datasets.",
+      "Reduced manual operations using Python, AWS Lambda, and Step Functions."
     ],
-    "tech": [],
+    "tech": [
+      "Java",
+      "Scala",
+      "EMR Spark",
+      "Kubernetes",
+      "AWS Lambda",
+      "Step Functions",
+      "Terraform",
+      "Databricks",
+      "Snowflake",
+      "Python"
+    ],
     "relevance_tags": [
       "aws",
       "platform architecture",
@@ -24,24 +34,30 @@
       "finops",
       "cloudability",
       "spark",
-      "kubernetes",
-      "python",
-      "java"
+      "kubernetes"
     ]
   },
   {
     "id": "jumpcloud",
     "company": "JumpCloud",
     "product": "Directory & Device Management",
-    "tenure": "Cloud",
+    "tenure": "2022–2023",
     "team": "Directory & Device Management",
     "summary": "Cloud directory and device management at organizational scale.",
     "highlights": [
-      "Marwan directed end-to-end technical design and delivery of a GraphQL-based Microsoft M365 integration serving more than 50,000 tenants.",
-      "He designed a multi-tenant GraphQL schema and production resolvers, the API layer, and a hybrid PostgreSQL plus MongoDB architecture: the core identity graph in Postgres for fast relational queries, per-tenant custom attributes isolated in MongoDB for variability and high write volume.",
-      "He delivered the integration end to end using Docker, Golang, gRPC, JavaScript, and Node.js."
+      "Cloud directory and device management at organizational scale.",
+      "Owned end-to-end technical design and delivery of a GraphQL-based Microsoft M365 integration serving more than 50,000 tenants.",
+      "Designed a multi-tenant GraphQL schema and production resolvers, the API layer, and a hybrid PostgreSQL plus MongoDB architecture balancing relational query performance with high write volume."
     ],
-    "tech": [],
+    "tech": [
+      "Golang",
+      "gRPC",
+      "Node.js",
+      "PostgreSQL",
+      "MongoDB",
+      "GraphQL",
+      "Docker"
+    ],
     "relevance_tags": [
       "identity",
       "platform architecture",
@@ -58,57 +74,79 @@
     "id": "instant-ink-hp",
     "company": "Instant Ink (HP)",
     "product": "Subscription & Financial Services",
-    "tenure": "SaaS",
+    "tenure": "2018–2021",
     "team": "Subscription & Financial Services",
     "summary": "Subscription commerce and service delivery for consumer printing at global scale.",
     "highlights": [
-      "Marwan planned and executed scaling HP's Instant Ink subscription service from thousands of customers to millions, globally.",
-      "He transformed a Ruby on Rails monolith into cloud-native microservices and event-driven data pipelines on AWS using Domain-Driven Design and Test-Driven Development — Lambda, API Gateway, SNS, SQS, DynamoDB, Redshift, CloudFormation — coordinating engineering, DevOps, QA, and product across four geographically distributed teams.",
-      "The program completed in a matter of months with service reliability and stability maintained throughout."
+      "Subscription commerce and service delivery for consumer printing at global scale.",
+      "Led transformation of a Ruby on Rails monolith into cloud-native, event-driven microservices using Domain-Driven Design and disciplined automated testing, scaling Instant Ink from thousands to millions of customers.",
+      "Coordinated engineering, DevOps, QA, and product across four geographically distributed teams while maintaining stability, availability, and reliability during rapid growth."
     ],
-    "tech": [],
+    "tech": [
+      "Ruby on Rails",
+      "ReactJS",
+      "AWS Lambda",
+      "API Gateway",
+      "SNS",
+      "SQS",
+      "DynamoDB",
+      "Redshift",
+      "CloudFormation",
+      "Docker",
+      "Jenkins",
+      "Chef",
+      "Splunk"
+    ],
     "relevance_tags": [
       "subscriptions",
       "saas",
       "platform architecture",
-      "aws",
+      "high-scale systems",
       "kubernetes",
-      "cloud",
-      "microservices",
-      "mentoring"
+      "cloud"
     ]
   },
   {
     "id": "at-t",
     "company": "AT&T",
     "product": "Full-stack Developer",
-    "tenure": "Past",
+    "tenure": "2017–2018",
     "team": "Full-stack Developer",
     "summary": "TQL — SQL-like ticketing query language for operations",
     "highlights": [
-      "Built front-end and back-end components on a service-oriented single-page application for ticket and task management.",
-      "Designed RESTful APIs, async JavaScript modules, and custom query languages for unstructured operational data.",
-      "Mentored new developers and helped raise code-quality standards across the team."
+      "TQL — SQL-like ticketing query language for operations"
     ],
-    "tech": [],
+    "tech": [
+      "JavaScript",
+      "Ember.js",
+      "Perl",
+      "PHP",
+      "MySQL",
+      "SOA"
+    ],
     "relevance_tags": [
       "backend",
       "data systems",
-      "java",
-      "operations"
+      "query systems"
     ]
   },
   {
     "id": "sunrise-resorts-cruises",
     "company": "Sunrise Resorts & Cruises",
     "product": "Datacenters & Infrastructure",
-    "tenure": "Past",
+    "tenure": "2011–2016",
     "team": "Datacenters & Infrastructure",
     "summary": "Datacenters, VPNs, asset and operations tooling",
     "highlights": [
       "Datacenters, VPNs, asset and operations tooling"
     ],
-    "tech": [],
+    "tech": [
+      "Linux",
+      "VPN / networking",
+      "Datacenters",
+      "Asset management",
+      "IT operations"
+    ],
     "relevance_tags": [
       "infrastructure",
       "operations",
@@ -119,13 +157,20 @@
     "id": "5d-agency-swi",
     "company": "5d-agency (SWI)",
     "product": "Games & AR",
-    "tenure": "Past",
+    "tenure": "2011–2016",
     "team": "Games & AR",
     "summary": "Web and mobile games, AR, Unity 3D",
     "highlights": [
       "Web and mobile games, AR, Unity 3D"
     ],
-    "tech": [],
+    "tech": [
+      "Unity 3D",
+      "C#",
+      "JavaScript",
+      "AR",
+      "Web",
+      "Mobile"
+    ],
     "relevance_tags": [
       "frontend",
       "games",
@@ -136,13 +181,18 @@
     "id": "dda-oig-qreo",
     "company": "DDA / OIG / QREO",
     "product": "Early Startups",
-    "tenure": "Past",
+    "tenure": "2011–2016",
     "team": "Early Startups",
     "summary": "Web apps, Linux embedded systems, research tooling",
     "highlights": [
       "Web apps, Linux embedded systems, research tooling"
     ],
-    "tech": [],
+    "tech": [
+      "Embedded Linux",
+      "Web apps",
+      "Advertising tech",
+      "Research tooling"
+    ],
     "relevance_tags": [
       "startups",
       "full-stack",
