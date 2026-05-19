@@ -173,6 +173,11 @@ class ChatRequest(BaseModel):
 
 class LiveSessionRequest(BaseModel):
     sessionId: str | None = Field(default=None, max_length=128)
+    # Optional BCP-47 tag (`ar`, `es`, `ar-EG`, …). When set, the live system
+    # instruction pins the spoken greeting + every reply to that language —
+    # see build_live_system_instruction. Capped so a crafted client can't
+    # smuggle a giant string into the prompt.
+    language: str | None = Field(default=None, max_length=16)
 
 
 class LiveTranscriptTurn(BaseModel):
@@ -190,6 +195,43 @@ class LiveTranscriptTurn(BaseModel):
     audioInBytes: int | None = Field(default=None, ge=0, le=200 * 1024 * 1024)
     audioOutBytes: int | None = Field(default=None, ge=0, le=200 * 1024 * 1024)
     interrupted: bool | None = Field(default=None)
+
+
+# BCP-47 primary subtag → human-readable name passed verbatim into the live
+# system instruction ("Always speak {name}..."). Kept small to align with what
+# Gemini Live voices speak well; unknown codes fall through to the default
+# "match the visitor" behavior rather than asserting a wrong language.
+_LIVE_LANGUAGE_NAMES: dict[str, str] = {
+    'ar': 'Arabic',
+    'de': 'German',
+    'en': '',           # English = default match-visitor behavior
+    'es': 'Spanish',
+    'fr': 'French',
+    'hi': 'Hindi',
+    'it': 'Italian',
+    'ja': 'Japanese',
+    'ko': 'Korean',
+    'nl': 'Dutch',
+    'pl': 'Polish',
+    'pt': 'Portuguese',
+    'ru': 'Russian',
+    'sv': 'Swedish',
+    'tr': 'Turkish',
+    'zh': 'Chinese',
+}
+
+
+def _live_language_name(raw: str | None) -> str | None:
+    """Map BCP-47 (`ar`, `ar-EG`, `ar_eg`) → human language name, or None."""
+    if not raw:
+        return None
+    code = raw.strip().lower().replace('_', '-')
+    if not code:
+        return None
+    # Try the full tag first (lets region-specific names land cleanly when added),
+    # fall back to the primary subtag (`ar-EG` → `ar`).
+    name = _LIVE_LANGUAGE_NAMES.get(code) or _LIVE_LANGUAGE_NAMES.get(code.split('-', 1)[0])
+    return name or None
 
 
 def _live_relay_bridge_ttl_sec() -> float:
@@ -987,9 +1029,19 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
     mint_timeout = float(os.environ.get('GEMINI_LIVE_MINT_TIMEOUT_SEC', '50'))
     try:
         prompt_src = app.state.voice_system_prompt or app.state.system_prompt
+        # Map the FE language code → human name. Unknown / unset / English
+        # falls back to "match the visitor's language" inside
+        # build_live_system_instruction, so an unsupported code stays safe.
+        language_name = _live_language_name(payload.language) if payload.language else None
+        if payload.language:
+            logger.info(
+                "live session language=%s -> %s",
+                payload.language, language_name or '(default match-visitor)'
+            )
         instruction = build_live_system_instruction(
             prompt_src,
             app.state.knowledge_pack,
+            language_name=language_name,
         )
         session_payload = await asyncio.wait_for(
             mint_live_session_async(instruction),

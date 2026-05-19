@@ -77,14 +77,26 @@ const isVoiceRetryableSetupFailure = (error, isRelayWsPath) => {
   return Boolean(isRelayWsPath)
 }
 
+/** Read the language pinned via the `?lang=ar` deep-link (site-config.js
+ *  writes localStorage on page boot). Returns '' when unset / inaccessible. */
+function readPinnedChatLanguage() {
+  try {
+    const value = localStorage.getItem('gvp-chat-language')
+    return typeof value === 'string' ? value.trim() : ''
+  } catch (_) {
+    return ''
+  }
+}
+
 async function postLiveVoiceSession(postUrl, sessionId, { onRetry } = {}) {
   let lastError = null
   const maxAttempts = LIVE_SESSION_MAX_RETRIES + 1
+  const language = readPinnedChatLanguage()
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const fetchOpts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId })
+      body: JSON.stringify(language ? { sessionId, language } : { sessionId })
     }
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       fetchOpts.signal = AbortSignal.timeout(LIVE_SESSION_ATTEMPT_MS)

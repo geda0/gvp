@@ -361,12 +361,23 @@ def _compact_project(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> str:
+def build_live_system_instruction(
+    system_prompt: str,
+    pack: dict[str, Any],
+    *,
+    language_name: str | None = None,
+) -> str:
     """Compact portfolio grounding + voice instructions for Gemini Live setup.
 
     ``system_prompt`` uses the same markdown shape as text chat (including a
     ``prompt-version`` first line): either the main ``CHAT_SYSTEM_PROMPT_PATH``
     file body or optional ``CHAT_VOICE_SYSTEM_PROMPT_PATH`` loaded at app startup.
+
+    ``language_name`` is the human-readable name the visitor pinned in the
+    chat header (e.g. ``"Spanish"``, ``"Arabic"``). When set, the default
+    "match the visitor's language" rule is replaced with a hard pin so the
+    bot answers in that language even if the visitor speaks another one.
+    Pass ``None`` (or English) to keep the existing match-the-visitor behavior.
 
     Optional ``CHAT_VOICE_SYSTEM_APPEND`` appends a short block after the
     portfolio XML (truncated in code); use for small posture tweaks without a
@@ -388,6 +399,25 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
     if len(blob) > budget_pack:
         blob = _truncate_text(blob, budget_pack)
 
+    # Language rule: when the visitor pins a language in the chat header,
+    # swap the default "match visitor's language" line for a hard pin so the
+    # very first spoken word (greeting) is in that language — the bot has no
+    # prior audio to lock onto at session start.
+    if language_name and language_name.strip() and language_name.lower() != 'english':
+        language_rule = (
+            f'Always speak {language_name} in every reply, including the opening '
+            f'greeting, even if the visitor writes or speaks in another language. '
+            f'Translate English source material (resume, project descriptions, '
+            f'knowledge pack below) into {language_name} aloud. Keep proper '
+            f'nouns (company names, product names, technical terms) in their '
+            f'original form. '
+        )
+    else:
+        language_rule = (
+            'Reply in the visitor\'s language and switch languages with them '
+            '(Arabic, Spanish, French, etc.). '
+        )
+
     voice_rules = (
         'Voice mode: answer concisely for speech. Past work and biography: third '
         'person ("he built", "he led"). Services and new engagements: team voice '
@@ -395,10 +425,10 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
         'portfolio XML below — never invent employers, dates, titles, or projects. '
         'Outside of Marwan-specific claims you can talk '
         'freely about technology, science, day-to-day topics, and small talk; '
-        'be a good conversational partner. Reply in the visitor\'s language and '
-        'switch languages with them (Arabic, Spanish, French, etc.). Keep '
-        'spoken answers short by default — a sentence or two unless asked for '
-        'depth.\n\n'
+        'be a good conversational partner. '
+        + language_rule +
+        'Keep spoken answers short by default — a sentence or two unless asked '
+        'for depth.\n\n'
     )
     combined = f'{voice_rules}{prompt_body}\n\n--- Portfolio context (XML) ---\n{blob}'
     append = (os.environ.get('CHAT_VOICE_SYSTEM_APPEND') or '').strip()
