@@ -84,15 +84,37 @@ _LIVE_TOOLS = types.Tool(
 )
 
 
+def _live_voice_name() -> str:
+    """Gemini Live prebuilt voice. Defaults to Charon — the deepest, most
+    measured male preset (slow-paced spoken delivery is added via the
+    system instruction in build_live_system_instruction).
+
+    Override per environment with CHAT_LIVE_VOICE. Common male choices:
+      Charon — deep, calm, informational
+      Orus   — firm, low-pitched, business-tone
+      Fenrir — lower-toned, masculine
+      Puck   — upbeat, lighter male
+    Female options exist too (Kore, Aoede, Leda, Zephyr); see Gemini Live docs.
+    """
+    return (os.environ.get('CHAT_LIVE_VOICE') or 'Charon').strip() or 'Charon'
+
+
 def _live_connect_config(system_instruction: str) -> types.LiveConnectConfig:
     # Gemini Live accepts exactly one modality per session (an AUDIO+TEXT
     # combination is invalid and the upstream silently rejects the setup,
     # surfacing on the client as a 45-60s wait for setupComplete that never
     # arrives). We pick AUDIO and rely on input/output_audio_transcription for
     # the running transcript bubbles.
+    voice_name = _live_voice_name()
+    speech_config = types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name),
+        ),
+    )
     return types.LiveConnectConfig(
         system_instruction=system_instruction,
         response_modalities=[types.Modality.AUDIO],
+        speech_config=speech_config,
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         tools=[_LIVE_TOOLS],
@@ -187,8 +209,9 @@ async def mint_live_session_async(system_instruction: str) -> dict[str, Any]:
     si_chars = len((setup.get('systemInstruction') or {}).get('parts', [{}])[0].get('text', '') or '')
     n_tools = sum(len((t or {}).get('functionDeclarations') or []) for t in setup.get('tools') or [])
     logger.info(
-        'live mint ok model=%s system_instruction_chars=%s tools=%s modalities=%s',
+        'live mint ok model=%s voice=%s system_instruction_chars=%s tools=%s modalities=%s',
         transformed_model,
+        _live_voice_name(),
         si_chars,
         n_tools,
         (setup.get('generationConfig') or {}).get('responseModalities'),
