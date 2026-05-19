@@ -215,24 +215,42 @@ require CONTACT_FROM_EMAIL
 require ALARM_EMAIL
 require ADMIN_API_KEY
 
+if [[ "${CONTACT_FROM_EMAIL}" != *@* ]]; then
+  echo "error: CONTACT_FROM_EMAIL must include an address (e.g. noreply@yourdomain.com or 'Site <noreply@yourdomain.com>')." >&2
+  echo "  Current value looks truncated — if it contains spaces, redeploy with an updated integrate-and-deploy.sh (SAM splits unquoted values on spaces)." >&2
+  exit 1
+fi
+
+# SAM shorthand splits Key=Value on spaces unless the value is double-quoted.
+sam_param_override() {
+  local key="$1"
+  local value="$2"
+  if [[ "${value}" == *" "* || "${value}" == *$'\t'* ]]; then
+    local escaped="${value//\"/\\\"}"
+    printf '%s="%s"' "${key}" "${escaped}"
+  else
+    printf '%s=%s' "${key}" "${value}"
+  fi
+}
+
 export AWS_DEFAULT_REGION="${REGION}"
 
 _chat_voice_prereq_bootstrap
 
 PO=(
-  "ResendApiKey=${RESEND_API_KEY}"
-  "ContactToEmail=${CONTACT_TO_EMAIL}"
-  "ContactFromEmail=${CONTACT_FROM_EMAIL}"
-  "AlarmEmail=${ALARM_EMAIL}"
-  "AdminApiKey=${ADMIN_API_KEY}"
+  "$(sam_param_override ResendApiKey "${RESEND_API_KEY}")"
+  "$(sam_param_override ContactToEmail "${CONTACT_TO_EMAIL}")"
+  "$(sam_param_override ContactFromEmail "${CONTACT_FROM_EMAIL}")"
+  "$(sam_param_override AlarmEmail "${ALARM_EMAIL}")"
+  "$(sam_param_override AdminApiKey "${ADMIN_API_KEY}")"
 )
 
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
-  PO+=("ContactReportEmail=${CONTACT_REPORT_EMAIL}")
+  PO+=("$(sam_param_override ContactReportEmail "${CONTACT_REPORT_EMAIL}")")
 fi
 
 if [[ -n "${CONTACT_CORS_ORIGINS:-}" ]]; then
-  PO+=("ContactCorsOrigins=${CONTACT_CORS_ORIGINS}")
+  PO+=("$(sam_param_override ContactCorsOrigins "${CONTACT_CORS_ORIGINS}")")
 fi
 
 SHORT_SHA="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo local)"
