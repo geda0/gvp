@@ -1,7 +1,7 @@
-// theme.js - Theme system (space | garden | studio) + auto pref following system color-scheme
+// theme.js - Theme system (space | garden | studio | pyramids) + auto pref following system color-scheme
 const STORAGE_KEY = 'gvp-theme';
-const THEMES = ['space', 'garden', 'studio'];
-const PREFS = ['space', 'garden', 'studio', 'auto'];
+const THEMES = ['space', 'garden', 'studio', 'pyramids'];
+const PREFS = ['space', 'garden', 'studio', 'pyramids', 'auto'];
 
 // Garden theme gradient (matches styles.css --bg-primary)
 const GARDEN_GRADIENT = 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%)';
@@ -18,6 +18,11 @@ const STUDIO_SCENE_GRADIENT =
   'radial-gradient(ellipse 70% 55% at 88% 86%, rgba(170, 158, 188, 0.22) 0%, transparent 60%), ' +
   'linear-gradient(180deg, #f4ede0 0%, #ece3d2 60%, #e2d6bf 100%)';
 
+// Keep in sync with --bg-pyramids-gradient in styles.css (warm daytime desert)
+const PYRAMIDS_SCENE_GRADIENT =
+  'radial-gradient(circle 380px at 78% 14%, rgba(255, 230, 170, 0.55) 0%, transparent 65%), ' +
+  'linear-gradient(180deg, #f1cf95 0%, #e9b67a 38%, #d39a5a 62%, #b27637 100%)';
+
 // Softer cross-fade: lower peak opacity + longer ease (sync #sceneTransitionOverlay in styles.css)
 const SCENE_OVERLAY_TRANSITION = 'opacity 0.78s cubic-bezier(0.33, 0, 0.18, 1)';
 const SCENE_OVERLAY_MAX_OPACITY = 0.86;
@@ -29,6 +34,7 @@ let systemMqlListener = null;
 function backgroundForTheme(theme) {
   if (theme === 'garden') return GARDEN_GRADIENT;
   if (theme === 'studio') return STUDIO_SCENE_GRADIENT;
+  if (theme === 'pyramids') return PYRAMIDS_SCENE_GRADIENT;
   return SPACE_SCENE_GRADIENT;
 }
 

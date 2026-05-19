@@ -143,6 +143,55 @@
     --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
 }
 
+[data-theme="pyramids"] {
+    /* Keep in sync with PYRAMIDS_SCENE_GRADIENT in theme.js */
+    --bg-pyramids-gradient:
+        radial-gradient(circle 380px at 78% 14%, rgba(255, 230, 170, 0.55) 0%, transparent 65%),
+        linear-gradient(180deg, #f1cf95 0%, #e9b67a 38%, #d39a5a 62%, #b27637 100%);
+    --bg-primary: var(--bg-pyramids-gradient);
+    --text-primary: #2c1808;
+    --text-muted: rgba(44, 24, 8, 0.76);
+    --text-muted-plus: rgba(44, 24, 8, 0.86);
+    --text-muted-extra: rgba(44, 24, 8, 0.62);
+    --text-subtle: rgba(44, 24, 8, 0.5);
+
+    --surface: rgba(255, 245, 220, 0.25);
+    --surface-elevated: rgba(255, 248, 230, 0.96);
+    --border-subtle: rgba(85, 50, 18, 0.16);
+    --border-strong: rgba(85, 50, 18, 0.28);
+
+    --accent: #8a4a14;
+    --accent-hover: #a85e22;
+    --on-accent: #fff5e0;
+
+    --shadow-sm: 0 1px 2px rgba(85, 50, 18, 0.12);
+    --shadow-md: 0 10px 28px rgba(85, 50, 18, 0.18), 0 2px 6px rgba(85, 50, 18, 0.08);
+
+    --nav-bg: rgba(74, 42, 18, 0.88);
+    --nav-inner-bg: transparent;
+    --footer-bg: rgba(66, 38, 16, 0.95);
+    --navbar-bg: rgba(74, 42, 18, 0.8);
+    --navbar-link: #fbe6c0;
+    --navbar-link-hover-bg: transparent;
+    --navbar-link-hover-color: #ffd28a;
+    --link-color: #6a3410;
+    --link-visited: #7a4422;
+    --link-hover: var(--accent-hover);
+    --footer-link-color: #f3d49a;
+    --footer-link-visited: #e8c280;
+    --footer-link-hover: #fff0c8;
+    --overlay-gradient: radial-gradient(ellipse 85% 50% at 50% 12%, rgba(255, 244, 210, 0.45), transparent 60%);
+    --heading-shadow: 0 1px 2px rgba(85, 50, 18, 0.12);
+
+    --chat-launcher-ring: var(--accent);
+    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 55%, #e6c084 45%);
+    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 52%, var(--border-subtle));
+    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
+    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
+    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 30%, transparent);
+    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
+}
+
 [data-theme="garden"] {
     --bg-primary: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
     --text-primary: #0d1a12;
@@ -371,6 +420,153 @@
     border-color: transparent transparent #256b25 transparent;
 }
 
+/* Pyramid scene: visible only in the pyramids theme. Same fixed full-viewport
+ * pattern as .garden-scene so canvas (camels) and DOM (pyramids) layer cleanly. */
+.pyramid-scene {
+    opacity: 0;
+    visibility: hidden;
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+}
+
+[data-theme="pyramids"] .pyramid-scene {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Hot, hazy sun high in the sky */
+.pyramid-sun {
+    position: absolute;
+    top: 8%;
+    right: 16%;
+    width: 14vmin;
+    height: 14vmin;
+    max-width: 120px;
+    max-height: 120px;
+    background: radial-gradient(circle,
+        rgba(255, 240, 200, 0.92) 0%,
+        rgba(255, 220, 160, 0.65) 28%,
+        rgba(255, 200, 130, 0.22) 55%,
+        transparent 75%);
+    border-radius: 50%;
+    filter: blur(0.5px);
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Haze band along the horizon — softens the line where sand meets sky */
+.pyramid-horizon {
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* Sit just above where the sand band starts (matches .pyramid-sand bottom + height) */
+    bottom: calc(22vh - 4vh);
+    height: 8vh;
+    background: linear-gradient(180deg,
+        transparent 0%,
+        rgba(232, 196, 144, 0.45) 45%,
+        rgba(208, 168, 112, 0.6) 100%);
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Foreground sand band */
+.pyramid-sand {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 22vh;
+    min-height: 110px;
+    background: linear-gradient(180deg, #d39a5a 0%, #b27637 50%, #8a5824 100%);
+    z-index: 3;
+    box-shadow: 0 -3px 10px rgba(60, 32, 8, 0.18);
+}
+
+/* Pyramids: CSS triangle silhouettes with a light + shaded face for depth.
+ * Same border-triangle trick as the garden trees, but with two facets so the
+ * silhouette reads as a 3D solid rather than a flat 2D shape. */
+.pyramid-scene .pyramid {
+    position: absolute;
+    bottom: 21vh;                /* base sits on top of the sand band */
+    z-index: 2;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.pyramid-scene .pyramid-face {
+    position: absolute;
+    bottom: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+}
+
+.pyramid-scene .pyramid-face--light {
+    /* Right half: brighter side catching sunlight */
+    border-color: transparent transparent #c08148 transparent;
+}
+
+.pyramid-scene .pyramid-face--shade {
+    /* Left half: shaded side */
+    border-color: transparent transparent #7a4a1f transparent;
+}
+
+/* Big center pyramid */
+.pyramid-scene .pyramid--center {
+    left: 50%;
+    transform: translateX(-50%);
+}
+.pyramid-scene .pyramid--center .pyramid-face--light {
+    left: 0;
+    border-width: 0 0 min(36vh, 240px) min(11vw, 110px);
+}
+.pyramid-scene .pyramid--center .pyramid-face--shade {
+    right: 0;
+    border-width: 0 min(11vw, 110px) min(36vh, 240px) 0;
+}
+
+/* Back-left pyramid: smaller, slightly behind */
+.pyramid-scene .pyramid--back-left {
+    left: 8%;
+    bottom: 21vh;
+    opacity: 0.92;
+}
+.pyramid-scene .pyramid--back-left .pyramid-face--light {
+    left: 0;
+    border-width: 0 0 min(24vh, 170px) min(8vw, 80px);
+    border-bottom-color: #b07640;
+}
+.pyramid-scene .pyramid--back-left .pyramid-face--shade {
+    right: 0;
+    border-width: 0 min(8vw, 80px) min(24vh, 170px) 0;
+    border-bottom-color: #6f421b;
+}
+
+/* Back-right pyramid: smaller still, far behind */
+.pyramid-scene .pyramid--back-right {
+    right: 6%;
+    bottom: 21vh;
+    opacity: 0.85;
+}
+.pyramid-scene .pyramid--back-right .pyramid-face--light {
+    left: 0;
+    border-width: 0 0 min(20vh, 145px) min(7vw, 68px);
+    border-bottom-color: #a76e3b;
+}
+.pyramid-scene .pyramid--back-right .pyramid-face--shade {
+    right: 0;
+    border-width: 0 min(7vw, 68px) min(20vh, 145px) 0;
+    border-bottom-color: #674017;
+}
+
 body {
     background-color: var(--bg-primary);
     font-family: var(--font-body);
@@ -384,13 +580,19 @@ body {
     line-height: 1.6;
 }
 
-html:not([data-theme="garden"]):not([data-theme="studio"]) body {
+html:not([data-theme="garden"]):not([data-theme="studio"]):not([data-theme="pyramids"]) body {
     background-color: var(--space-deep);
     background-image: var(--bg-space-gradient);
     background-attachment: fixed;
 }
 
 [data-theme="garden"] body {
+    background: var(--bg-primary);
+    background-color: transparent;
+    background-attachment: fixed;
+}
+
+[data-theme="pyramids"] body {
     background: var(--bg-primary);
     background-color: transparent;
     background-attachment: fixed;
@@ -2293,6 +2495,10 @@ body.contact-dialog-open {
 
 .theme-menu__swatch--garden {
     background: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
+}
+
+.theme-menu__swatch--pyramids {
+    background: linear-gradient(180deg, #f1cf95 0%, #e9b67a 38%, #d39a5a 62%, #b27637 100%);
 }
 
 .theme-menu__swatch--studio {

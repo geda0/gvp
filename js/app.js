@@ -38,17 +38,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   // current theme; menu lets the user pick any of them or "Auto" (system).
   const themeToggle = document.getElementById('themeToggle')
   const themeMenu = document.getElementById('themeMenu')
-  const PREF_ORDER = ['space', 'garden', 'studio', 'auto']
+  const PREF_ORDER = ['space', 'garden', 'pyramids', 'studio', 'auto']
   /** Horizontal light/dark split — reads as “follow system appearance”. */
   const AUTO_ICON_HTML =
     '<svg class="theme-icon theme-icon--auto" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">' +
     '<circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.25"/>' +
     '<path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>'
   const PREF_META = {
-    space:  { icon: '🚀', label: 'Space',  desc: 'Deep ink + nebula' },
-    garden: { icon: '🦸', label: 'Garden', desc: 'Sky, trees, snow'  },
-    studio: { icon: '📜', label: 'Studio', desc: 'Paper, low distraction' },
-    auto:   { iconHtml: AUTO_ICON_HTML, label: 'Auto', desc: 'Match system' }
+    space:    { icon: '🚀', label: 'Space',    desc: 'Deep ink + nebula' },
+    garden:   { icon: '🦸', label: 'Garden',   desc: 'Sky, trees, snow'  },
+    pyramids: { icon: '🐪', label: 'Pyramids', desc: 'Desert, pyramids, drifting camels' },
+    studio:   { icon: '📜', label: 'Studio',   desc: 'Paper, low distraction' },
+    auto:     { iconHtml: AUTO_ICON_HTML, label: 'Auto', desc: 'Match system' }
   }
   let menuOpen = false
 

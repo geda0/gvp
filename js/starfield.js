@@ -58,6 +58,88 @@ export function initStarfield(canvasId, options = {}) {
     sc.fill();
   }
 
+  // ----- Pyramids theme: small camels drifting across the horizon -----
+  let camels = [];
+  const CAMEL_COUNT_DESKTOP = 7;
+  const CAMEL_COUNT_MOBILE = 4;
+  const camelSpeedMin = 0.06;   // px/frame at base scale — very slow ("at a distance")
+  const camelSpeedMax = 0.22;
+  const camelScaleMin = 0.6;
+  const camelScaleMax = 1.05;
+
+  // Pre-rendered camel sprite (24×14 px logical, drawn at smaller sizes per
+  // camel). One drawImage per camel per frame — same cheap pattern as snow.
+  const CAMEL_SPRITE_W = 24;
+  const CAMEL_SPRITE_H = 14;
+  const camelSprite = document.createElement('canvas');
+  camelSprite.width = CAMEL_SPRITE_W;
+  camelSprite.height = CAMEL_SPRITE_H;
+  {
+    const cs = camelSprite.getContext('2d');
+    // Dark warm silhouette — reads as a camel against the warm sand band.
+    cs.fillStyle = 'rgba(58, 32, 12, 0.92)';
+    // Body
+    cs.beginPath();
+    cs.ellipse(11, 9, 6, 2, 0, 0, Math.PI * 2);
+    cs.fill();
+    // Hump 1 (rear, taller)
+    cs.beginPath();
+    cs.ellipse(9, 7, 3, 2.4, 0, Math.PI, 0);
+    cs.fill();
+    // Hump 2 (front, smaller — dromedary-ish overlap reads at small sizes)
+    cs.beginPath();
+    cs.ellipse(13, 7, 2.4, 1.9, 0, Math.PI, 0);
+    cs.fill();
+    // Neck up + head
+    cs.beginPath();
+    cs.moveTo(16, 7.5);
+    cs.lineTo(19, 4.5);
+    cs.lineTo(20.5, 4.5);
+    cs.lineTo(21.5, 5.2);
+    cs.lineTo(20, 6);
+    cs.lineTo(17, 8.5);
+    cs.closePath();
+    cs.fill();
+    // Legs — 4 short verticals
+    cs.fillRect(6.4, 10.5, 1, 3);
+    cs.fillRect(9, 10.5, 1, 3);
+    cs.fillRect(13, 10.5, 1, 3);
+    cs.fillRect(15.5, 10.5, 1, 3);
+  }
+
+  function camelCountForViewport(w) {
+    if (w < 768) return CAMEL_COUNT_MOBILE;
+    return CAMEL_COUNT_DESKTOP;
+  }
+
+  function initCamels() {
+    camels = [];
+    const w = canvas.width;
+    const h = canvas.height;
+    if (w === 0 || h === 0) return;
+    const count = camelCountForViewport(w);
+    // Camels walk along the horizon — CSS .pyramid-sand sits at bottom 22vh
+    // and .pyramid-horizon sits just above it. Spread camels across that
+    // band so they read as a caravan in the middle distance, not on top of
+    // the foreground sand.
+    const horizonTop = h * 0.66;
+    const horizonBottom = h * 0.74;
+    for (let i = 0; i < count; i++) {
+      const scale = camelScaleMin + Math.random() * (camelScaleMax - camelScaleMin);
+      camels.push({
+        x: Math.random() * w,
+        y: horizonTop + Math.random() * (horizonBottom - horizonTop),
+        scale,
+        // Smaller (farther) camels move slower — depth cue.
+        speed: (camelSpeedMin + Math.random() * (camelSpeedMax - camelSpeedMin)) * scale,
+        phase: Math.random() * Math.PI * 2,
+        bob: 0.12 + Math.random() * 0.18   // vertical bob amplitude in px
+      });
+    }
+    // Sort back-to-front (smaller scale = farther) so closer camels render on top.
+    camels.sort((a, b) => a.scale - b.scale);
+  }
+
   const reducedMotionMql = window.matchMedia('(prefers-reduced-motion: reduce)');
   let prefersReducedMotion = reducedMotionMql.matches;
   reducedMotionMql.addEventListener('change', () => {
@@ -232,6 +314,8 @@ export function initStarfield(canvasId, options = {}) {
       initStars(numStars);
     } else if (theme === 'garden') {
       initSnow();
+    } else if (theme === 'pyramids') {
+      initCamels();
     }
     // studio: no allocation, drawStudio() just clears the canvas
   }
@@ -295,12 +379,36 @@ export function initStarfield(canvasId, options = {}) {
     c.clearRect(0, 0, canvas.width, canvas.height);
   }
 
+  function drawPyramids() {
+    c.clearRect(0, 0, canvas.width, canvas.height);
+    if (camels.length === 0) return;
+    const w = canvas.width;
+    const time = Date.now() * 0.001;
+    // Reduced-motion users get a static caravan — same composition, no drift.
+    const motion = prefersReducedMotion ? 0 : 1;
+    for (let i = 0; i < camels.length; i++) {
+      const camel = camels[i];
+      camel.x -= camel.speed * motion;
+      // Wrap left → right with a small randomized gap so they don't all loop in lockstep.
+      if (camel.x + CAMEL_SPRITE_W * camel.scale < 0) {
+        camel.x = w + Math.random() * (w * 0.15);
+      }
+      // Subtle vertical bob — sells "walking" without doing per-leg animation.
+      const yOffset = motion ? Math.sin(time * 2.2 + camel.phase) * camel.bob : 0;
+      const drawW = CAMEL_SPRITE_W * camel.scale;
+      const drawH = CAMEL_SPRITE_H * camel.scale;
+      c.drawImage(camelSprite, camel.x, camel.y + yOffset, drawW, drawH);
+    }
+  }
+
   function draw() {
     const theme = getTheme();
     if (theme === 'garden') {
       drawSnow();
     } else if (theme === 'studio') {
       drawStudio();
+    } else if (theme === 'pyramids') {
+      drawPyramids();
     } else {
       drawSpace();
     }
@@ -334,14 +442,21 @@ export function initStarfield(canvasId, options = {}) {
     const theme = getTheme();
     if (theme === 'space') {
       snowflakes = [];
+      camels = [];
     } else if (theme === 'garden') {
       stars = [];
       numStars = 0;
+      camels = [];
+    } else if (theme === 'pyramids') {
+      stars = [];
+      numStars = 0;
+      snowflakes = [];
     } else {
-      // studio: drop both pools so we don't keep allocating idle objects
+      // studio: drop all pools so we don't keep allocating idle objects
       snowflakes = [];
       stars = [];
       numStars = 0;
+      camels = [];
     }
     resizeCanvas();
   });
