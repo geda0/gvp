@@ -611,6 +611,49 @@ def ready(request: Request) -> JSONResponse:
     return JSONResponse(status_code=200 if is_ready else 503, content=body)
 
 
+def _check_admin_key(request: Request) -> bool:
+    """Validate x-admin-key with timing-safe compare. Mirrors the contact admin
+    Lambda check so the same secret works for chat host introspection."""
+    import hmac
+
+    expected = (os.environ.get('ADMIN_API_KEY') or '').strip()
+    if not expected:
+        return False
+    provided = request.headers.get('x-admin-key') or ''
+    if not provided:
+        return False
+    return hmac.compare_digest(expected.encode('utf-8'), provided.encode('utf-8'))
+
+
+@app.get("/api/chat/host-status")
+def chat_host_status(request: Request) -> JSONResponse:
+    """Persistence + provider health snapshot, consumed by the admin panel.
+
+    Exposes operational counters only (no transcript content). Gated by
+    ADMIN_API_KEY so it's safe to call cross-origin from the admin SPA.
+    Lets a reviewer answer 'is persistence actually firing?' from the
+    dashboard without SSHing to ECS or hitting /ready (which is gated by
+    IP allowlist for liveness probes)."""
+    if not _check_admin_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    store = app.state.transcript_store
+    chain = app.state.chain
+    return JSONResponse(content={
+        "provider": app.state.provider_name,
+        "providerConfigured": chain is not None,
+        "providerError": app.state.provider_error,
+        "model": app.state.model_id,
+        "primaryModel": getattr(chain, 'primary_id', None),
+        "fallbackModel": getattr(chain, 'fallback_id', None),
+        "lastModelUsed": getattr(chain, 'last_model_id', None),
+        "providerTimeoutSeconds": app.state.provider_timeout_seconds,
+        "promptVersion": app.state.prompt_version,
+        "transcriptStore": store.stats() if store is not None else {
+            'configured': False,
+        },
+    })
+
+
 async def _persist_text_turn(
     payload: ChatRequest,
     lc_messages: list[HumanMessage | AIMessage | SystemMessage],
@@ -619,14 +662,33 @@ async def _persist_text_turn(
     tool_calls: list[dict[str, Any]],
     model_used: str,
     elapsed_ms: int,
+    *,
+    stream: bool = False,
+    first_token_ms: int | None = None,
+    chunk_count: int | None = None,
+    fallback_used: bool = False,
+    status: str = 'ok',
+    error_code: str | None = None,
+    error_message: str | None = None,
 ) -> None:
+    """Persist a text turn (success or failure).
+
+    Streaming-specific fields:
+      stream            - whether the request used SSE
+      first_token_ms    - wall-clock until first non-empty delta (None if none)
+      chunk_count       - number of chunks observed (None for non-stream)
+      fallback_used     - True when GeminiRoutingChain swapped to the secondary
+      status            - 'ok' | 'error' | 'timeout'
+      error_code/_msg   - populated on non-'ok' paths so failed attempts show up
+                          in the admin panel instead of vanishing.
+    """
     store = app.state.transcript_store
     if store is None:
         return
     retrieval = _get_retrieval_snapshot(lc_messages)
     flags = _build_flags(payload.messages, reply_text, retrieval, actions)
     now_iso = datetime.now(timezone.utc).isoformat()
-    turn = {
+    turn: dict[str, Any] = {
         'capturedAt': now_iso,
         'promptVersion': app.state.prompt_version,
         # Tag every text turn so the admin dashboard can split voice vs
@@ -639,7 +701,19 @@ async def _persist_text_turn(
         'actions': actions,
         'flags': flags,
         'latencyMs': elapsed_ms,
+        'stream': bool(stream),
+        'status': status,
+        'outputCharCount': len(reply_text or ''),
+        'fallbackUsed': bool(fallback_used),
     }
+    if first_token_ms is not None:
+        turn['firstTokenLatencyMs'] = int(first_token_ms)
+    if chunk_count is not None:
+        turn['streamChunkCount'] = int(chunk_count)
+    if status != 'ok':
+        turn['errorCode'] = error_code or 'unknown'
+        if error_message:
+            turn['errorMessage'] = str(error_message)[:400]
     await store.persist_turn(
         session_id=payload.sessionId,
         created_at=now_iso,
@@ -649,6 +723,15 @@ async def _persist_text_turn(
         turn=turn,
         flags=flags,
     )
+
+
+def _fallback_used(chain: Any) -> bool:
+    """True when the routing chain settled on the secondary Gemini model."""
+    primary = getattr(chain, 'primary_id', None)
+    last = getattr(chain, 'last_model_id', None)
+    if not primary or not last:
+        return False
+    return primary != last
 
 
 def _sse_frame(event: str, data: Any) -> bytes:
@@ -704,6 +787,20 @@ async def chat(payload: ChatRequest) -> Any:
         )
     except asyncio.TimeoutError:
         logger.warning("Chat invoke timed out after %ss", app.state.provider_timeout_seconds)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        try:
+            await _persist_text_turn(
+                payload, lc_messages, '', [], [],
+                getattr(app.state.chain, 'last_model_id', None) or app.state.model_id,
+                elapsed_ms,
+                stream=False,
+                fallback_used=_fallback_used(app.state.chain),
+                status='timeout',
+                error_code='upstream_timeout',
+                error_message=f'ainvoke exceeded {app.state.provider_timeout_seconds}s',
+            )
+        except Exception:
+            logger.exception("Chat invoke failure-turn persist failed")
         return JSONResponse(
             status_code=504,
             content={
@@ -714,6 +811,20 @@ async def chat(payload: ChatRequest) -> Any:
     except Exception as exc:
         logger.exception("Chat invoke failed")
         status, content = upstream_error_body(exc)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        try:
+            await _persist_text_turn(
+                payload, lc_messages, '', [], [],
+                getattr(app.state.chain, 'last_model_id', None) or app.state.model_id,
+                elapsed_ms,
+                stream=False,
+                fallback_used=_fallback_used(app.state.chain),
+                status='error',
+                error_code=str(content.get('code') or 'model_error'),
+                error_message=str(content.get('error') or type(exc).__name__),
+            )
+        except Exception:
+            logger.exception("Chat invoke failure-turn persist failed")
         return JSONResponse(status_code=status, content=content)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = _reply_text_from_result(result)
@@ -723,6 +834,9 @@ async def chat(payload: ChatRequest) -> Any:
 
     await _persist_text_turn(
         payload, lc_messages, reply_text, actions, tool_calls, model_used, elapsed_ms,
+        stream=False,
+        fallback_used=_fallback_used(app.state.chain),
+        status='ok',
     )
 
     logger.info("chat ok model=%s latency_ms=%s", model_used, elapsed_ms)
@@ -745,6 +859,11 @@ async def _chat_stream(
     chain = app.state.chain
     timeout_s = app.state.provider_timeout_seconds
     deadline = time.monotonic() + timeout_s
+    chunk_count = 0
+    first_token_ms: int | None = None
+    stream_status = 'ok'
+    error_code: str | None = None
+    error_message: str | None = None
 
     # Per-chunk wait_for keeps a single end-to-end budget while supporting
     # Python 3.10 (asyncio.timeout is 3.11+).
@@ -758,6 +877,7 @@ async def _chat_stream(
                 chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
             except StopAsyncIteration:
                 break
+            chunk_count += 1
             if aggregated is None:
                 aggregated = chunk
             else:
@@ -770,40 +890,65 @@ async def _chat_stream(
                     aggregated = chunk
             delta = _chunk_text(chunk)
             if delta:
+                if first_token_ms is None:
+                    first_token_ms = int((time.perf_counter() - t0) * 1000)
                 yield _sse_frame("token", {"delta": delta})
     except asyncio.TimeoutError:
         logger.warning("Chat stream timed out after %ss", timeout_s)
-        yield _sse_frame("error", {
+        stream_status = 'timeout'
+        error_code = 'upstream_timeout'
+        error_message = f'astream exceeded {timeout_s}s after {chunk_count} chunks'
+        sse_error = _sse_frame("error", {
             "error": "Upstream model timed out",
             "code": "upstream_timeout",
         })
-        return
     except Exception as exc:
         logger.exception("Chat stream failed")
         _status, content = upstream_error_body(exc)
-        yield _sse_frame("error", content)
-        return
+        stream_status = 'error'
+        error_code = str(content.get('code') or 'model_error')
+        error_message = str(content.get('error') or type(exc).__name__)
+        sse_error = _sse_frame("error", content)
+    else:
+        sse_error = None
 
     reply_text = _reply_text_from_result(aggregated) if aggregated is not None else ''
-    actions = _actions_from_result(aggregated) if aggregated is not None else []
+    actions = _actions_from_result(aggregated) if stream_status == 'ok' and aggregated is not None else []
     tool_calls = _tool_calls_from_result(aggregated) if aggregated is not None else []
     model_used = getattr(chain, "last_model_id", None) or app.state.model_id
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
+    # Persist the turn whether it succeeded, errored, or timed out. The
+    # admin panel needs to see failed attempts; otherwise "I sent a chat
+    # and nothing happened" is invisible until someone reads ECS logs.
     try:
         await _persist_text_turn(
             payload, lc_messages, reply_text, actions, tool_calls, model_used, elapsed_ms,
+            stream=True,
+            first_token_ms=first_token_ms,
+            chunk_count=chunk_count,
+            fallback_used=_fallback_used(chain),
+            status=stream_status,
+            error_code=error_code,
+            error_message=error_message,
         )
     except Exception:
         # Persistence failures should not break the user-visible response.
         logger.exception("Chat stream transcript persist failed")
+
+    if sse_error is not None:
+        yield sse_error
+        return
 
     yield _sse_frame("done", {
         "reply": reply_text,
         "model": model_used,
         "actions": actions,
     })
-    logger.info("chat stream ok model=%s latency_ms=%s", model_used, elapsed_ms)
+    logger.info(
+        "chat stream ok model=%s latency_ms=%s first_token_ms=%s chunks=%s fallback=%s",
+        model_used, elapsed_ms, first_token_ms, chunk_count, _fallback_used(chain),
+    )
 
 
 @app.post("/api/live/session")

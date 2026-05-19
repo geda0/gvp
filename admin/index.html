@@ -187,6 +187,29 @@
           </article>
         </section>
 
+        <section class="admin-grid admin-grid--cards admin-grid--cards--stream">
+          <article class="admin-card admin-card--accent">
+            <h2>Streamed sessions</h2>
+            <p id="streamSummarySessions">-</p>
+            <p class="admin-card__hint" id="streamSummarySessionsHint">— turns · — of conversations</p>
+          </article>
+          <article class="admin-card">
+            <h2>Avg first-token</h2>
+            <p id="streamSummaryFirstToken">-</p>
+            <p class="admin-card__hint" id="streamSummaryFirstTokenHint">avg output: — chars/turn</p>
+          </article>
+          <article class="admin-card">
+            <h2>Stream failures</h2>
+            <p id="streamSummaryFailures">-</p>
+            <p class="admin-card__hint" id="streamSummaryFailuresHint">— timeout · failure rate —</p>
+          </article>
+          <article class="admin-card">
+            <h2>Fallback model</h2>
+            <p id="streamSummaryFallback">-</p>
+            <p class="admin-card__hint" id="streamSummaryFallbackHint">— of text turns</p>
+          </article>
+        </section>
+
         <section class="admin-grid admin-grid--secondary">
           <article class="admin-card">
             <h2>Tool histogram</h2>
@@ -211,6 +234,42 @@
             </dl>
             <p class="admin-card__hint">raw bytes; before WebSocket/base64 overhead.</p>
           </article>
+        </section>
+
+        <section class="admin-grid admin-grid--secondary">
+          <article class="admin-card admin-card--wide">
+            <h2>Activity (last 30 days)</h2>
+            <canvas id="chatActivitySparkline" width="640" height="60" aria-label="Daily session count, last 30 days"></canvas>
+            <p class="admin-card__hint" id="chatActivitySparklineCaption">—</p>
+          </article>
+          <article class="admin-card">
+            <h2>Errors by code</h2>
+            <table class="admin-table admin-table--compact" id="streamErrorsByCodeTable">
+              <thead><tr><th>Code</th><th class="admin-num">Turns</th></tr></thead>
+              <tbody><tr><td colspan="2">No errors recorded.</td></tr></tbody>
+            </table>
+          </article>
+        </section>
+
+        <section class="admin-card admin-card--wide">
+          <h2>Recent failures (click to open transcript)</h2>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-table--compact admin-failures" id="streamRecentFailuresTable">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Mode</th>
+                  <th class="admin-num">Latency</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="6">No failed turns recorded.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section class="admin-card admin-card--filters">
