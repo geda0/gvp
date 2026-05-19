@@ -276,6 +276,19 @@ function normalizeChatItem(item) {
   let totalVoiceDurationMs = 0
   let textLatencySumMs = 0
   let textLatencySamples = 0
+  // Streaming telemetry: emitted by the chat host as of Phase 8. Older
+  // turns predate streaming and just won't have `stream`/`status` fields —
+  // we treat missing as { stream: false, status: 'ok' } so backfill isn't
+  // required for the dashboard to render.
+  let streamedTurns = 0
+  let streamFailures = 0
+  let streamTimeouts = 0
+  let fallbackTurns = 0
+  let firstTokenSumMs = 0
+  let firstTokenSamples = 0
+  let outputCharSum = 0
+  const errorsByCode = {}
+  const recentTurnErrors = []     // pushed only when status != 'ok'
   const transports = {}            // 'relay' | 'direct_google' | 'live' -> count
   const toolHistogram = {}          // tool name -> invocation count
   for (const t of turns) {
@@ -296,6 +309,28 @@ function normalizeChatItem(item) {
       if (Number.isFinite(t.latencyMs)) {
         textLatencySumMs += Number(t.latencyMs)
         textLatencySamples += 1
+      }
+      if (t.stream === true) streamedTurns += 1
+      if (t.fallbackUsed === true) fallbackTurns += 1
+      if (Number.isFinite(t.firstTokenLatencyMs)) {
+        firstTokenSumMs += Number(t.firstTokenLatencyMs)
+        firstTokenSamples += 1
+      }
+      if (Number.isFinite(t.outputCharCount)) outputCharSum += Number(t.outputCharCount)
+      const status = t.status || 'ok'
+      if (status !== 'ok') {
+        if (status === 'timeout') streamTimeouts += 1
+        streamFailures += 1
+        const code = String(t.errorCode || 'unknown')
+        errorsByCode[code] = (errorsByCode[code] || 0) + 1
+        recentTurnErrors.push({
+          capturedAt: t.capturedAt || '',
+          status,
+          errorCode: code,
+          errorMessage: String(t.errorMessage || '').slice(0, 300),
+          stream: Boolean(t.stream),
+          latencyMs: Number.isFinite(t.latencyMs) ? Number(t.latencyMs) : null
+        })
       }
     }
     const calls = Array.isArray(t.toolCalls) ? t.toolCalls : []
@@ -340,7 +375,17 @@ function normalizeChatItem(item) {
     textLatencySumMs,
     textLatencySamples,
     transports,
-    toolHistogram
+    toolHistogram,
+    // Streaming
+    streamedTurns,
+    streamFailures,
+    streamTimeouts,
+    fallbackTurns,
+    firstTokenSumMs,
+    firstTokenSamples,
+    outputCharSum,
+    errorsByCode,
+    recentTurnErrors
   }
 }
 
@@ -425,7 +470,12 @@ async function listChatTranscripts(limit, cursorRaw, filters) {
         textTurnCount: item.textTurnCount,
         totalToolCalls: item.totalToolCalls,
         totalVoiceDurationMs: item.totalVoiceDurationMs,
-        transports: item.transports
+        transports: item.transports,
+        // Stream indicators — added inline so the list table can render a
+        // ⚠ on the row before the operator opens the detail view.
+        streamedTurns: item.streamedTurns,
+        streamFailures: item.streamFailures,
+        fallbackTurns: item.fallbackTurns
       })
     }
     startKey = response.LastEvaluatedKey
@@ -535,6 +585,27 @@ async function getChatSummary() {
       _textLatencySumMs: 0,
       _textLatencySamples: 0
     },
+    // Stream telemetry — independent of voice. Filled from per-turn
+    // `stream` / `firstTokenLatencyMs` / `status` fields. Lets the
+    // dashboard answer "are streams reaching first token quickly, and
+    // how often do we fall back / fail?"
+    stream: {
+      streamedSessions: 0,          // sessions with >=1 streamed turn
+      streamedTurns: 0,
+      streamFailures: 0,            // status === 'error'
+      streamTimeouts: 0,            // status === 'timeout' (subset of failures)
+      fallbackTurns: 0,             // primary -> secondary swap
+      avgFirstTokenLatencyMs: 0,
+      avgOutputChars: 0,
+      errorsByCode: {},
+      // Most recent N error turns across the table (newest first), so the
+      // admin can spot a regression without paging through every transcript.
+      recentFailures: [],
+      _firstTokenSumMs: 0,
+      _firstTokenSamples: 0,
+      _outputCharSum: 0,
+      _outputCharSamples: 0
+    },
     // Activity by UTC day (last 30) — sparkline data for the dashboard. We
     // pull updatedAt (when the most recent turn landed) so a long-running
     // session shows up on the day it was last touched.
@@ -595,6 +666,23 @@ async function getChatSummary() {
         summary.voice.transports[t] = (summary.voice.transports[t] || 0) + n
       }
 
+      // Stream rollup
+      if (item.streamedTurns > 0) summary.stream.streamedSessions += 1
+      summary.stream.streamedTurns += item.streamedTurns || 0
+      summary.stream.streamFailures += item.streamFailures || 0
+      summary.stream.streamTimeouts += item.streamTimeouts || 0
+      summary.stream.fallbackTurns += item.fallbackTurns || 0
+      summary.stream._firstTokenSumMs += item.firstTokenSumMs || 0
+      summary.stream._firstTokenSamples += item.firstTokenSamples || 0
+      summary.stream._outputCharSum += item.outputCharSum || 0
+      summary.stream._outputCharSamples += item.textTurnCount || 0
+      for (const [code, n] of Object.entries(item.errorsByCode || {})) {
+        summary.stream.errorsByCode[code] = (summary.stream.errorsByCode[code] || 0) + n
+      }
+      for (const err of item.recentTurnErrors || []) {
+        summary.stream.recentFailures.push({ ...err, sessionId: item.id })
+      }
+
       // Activity bucket (UTC day, YYYY-MM-DD). Falls back to createdAt.
       const dayStamp = String(item.updatedAt || item.createdAt || '').slice(0, 10)
       if (dayStamp) {
@@ -617,6 +705,27 @@ async function getChatSummary() {
   // Strip the private accumulators before responding.
   delete summary.voice._textLatencySumMs
   delete summary.voice._textLatencySamples
+
+  if (summary.stream._firstTokenSamples > 0) {
+    summary.stream.avgFirstTokenLatencyMs = Math.round(
+      summary.stream._firstTokenSumMs / summary.stream._firstTokenSamples
+    )
+  }
+  if (summary.stream._outputCharSamples > 0) {
+    summary.stream.avgOutputChars = Math.round(
+      summary.stream._outputCharSum / summary.stream._outputCharSamples
+    )
+  }
+  // Keep only the 20 most-recent failures so the response stays bounded
+  // on large tables (sort by capturedAt desc; lexicographic ISO-8601 works).
+  summary.stream.recentFailures.sort(
+    (a, b) => String(b.capturedAt || '').localeCompare(String(a.capturedAt || ''))
+  )
+  summary.stream.recentFailures = summary.stream.recentFailures.slice(0, 20)
+  delete summary.stream._firstTokenSumMs
+  delete summary.stream._firstTokenSamples
+  delete summary.stream._outputCharSum
+  delete summary.stream._outputCharSamples
 
   summary.activeDays = Object.keys(summary.activityByDay).length
 

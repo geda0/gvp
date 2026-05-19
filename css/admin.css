@@ -153,9 +153,34 @@ h2 {
 /* Voice telemetry row + supporting bits — accent card highlights the headline
  * "voice sessions" number, hint is the small grey subtitle, modality badge
  * tags each transcript row. */
-.admin-grid--cards--voice {
+.admin-grid--cards--voice,
+.admin-grid--cards--stream {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   margin-top: 0.4rem;
+}
+
+.admin-card--wide {
+  grid-column: 1 / -1;
+}
+
+#chatActivitySparkline {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 60px;
+  color: var(--accent, #5da4ff);
+}
+
+.admin-num--bad {
+  color: #c0392b;
+}
+
+.admin-failures__row {
+  cursor: pointer;
+}
+
+.admin-failures__row:hover {
+  background: color-mix(in srgb, var(--accent, #5da4ff) 8%, transparent);
 }
 
 .admin-card--accent {
