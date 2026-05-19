@@ -1079,17 +1079,8 @@ body:not(.content-open) section#home {
     margin-top: 2rem;
 }
 
-/* Playground subsection intro paragraph — same role and styling as the portfolio
- * intro, just for the personal builds block at the bottom of the portfolio page. */
-#portfolioContent > .playground-intro {
-    max-width: 44rem;
-    margin: clamp(2.5rem, 8vh, 4rem) auto 0;
-    padding: 0 1.25rem;
-    text-align: center;
-    font-family: var(--font-body);
-    font-size: 0.95rem;
-    line-height: 1.6;
-    color: var(--text-muted);
+#portfolioContent > .portfolio-earlier-career + .playground-intro {
+    margin-top: clamp(2.5rem, 8vh, 4rem);
 }
 
 #portfolioContent > .playground-intro + section#projects {
