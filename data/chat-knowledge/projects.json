@@ -88,6 +88,33 @@
     ]
   },
   {
+    "id": "decomposing-the-monolith",
+    "name": "Decomposing the Monolith",
+    "summary": "Domain-Driven Design and event-driven architecture for splitting a monolith into services — bounded contexts, strangler-fig migration, sagas, and the operational changes that come with going async. Decomposing the Monolith — using Domain-Driven Design and event-driven architecture to find service boundaries and migrate safely. Most successful systems start as a monolith and stall when deployment, runtime, and cognitive coupling concentrate risk: one release pipeline for everything, slow paths starving unrelated paths, and a single schema forcing unrelated concepts to share entities. The core technique is strangler-fig: add an API-gateway façade in front of the monolith, peel out one bounded context at a time into its own service, and repeat until the monolith is slim — reversible at each step. Walked through on AWS with a printer fleet at millions-of-devices scale, split into Billing, Fulfillment, Metering, and Subscriptions. Going async isn't free: dual writes (DB plus event publish), idempotent consumers, and a saga orchestrator that persists each step so a crashed coordinator can resume. Compensation flows for terminal failures; back-off retry for transient ones. Takeaway: decompose in response to real forcing factors, start simple, keep steps reversible. References: Eric Evans, Martin Fowler, Sam Newman.",
+    "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
+    "tech": [
+      "Domain-Driven Design",
+      "Event-driven architecture",
+      "AWS",
+      "SNS + SQS",
+      "Sagas",
+      "Strangler-fig pattern",
+      "DynamoDB",
+      "PostgreSQL"
+    ],
+    "links": [
+      {
+        "label": "View presentation",
+        "url": "intake/ddd.docx"
+      }
+    ],
+    "relevance_tags": [
+      "aws",
+      "serverless",
+      "playground"
+    ]
+  },
+  {
     "id": "apptio",
     "name": "Apptio (an IBM company)",
     "summary": "Migrated financial pipelines to a 10× faster architecture with zero correctness drift. Apptio (an IBM company) — Senior Software Engineer · 2023–2025. Migrated Apptio's financial-data pipelines from Java/Kubernetes to EMR Spark with Scala — and proved every byte still added up. The hard part. Financial datasets have zero tolerance for drift. A 10× faster migration with even small discrepancies would be worse than the original. A big-bang cutover would have made any discrepancy impossible to isolate. What I did. Migrated the heavy workloads to EMR Spark with Scala for throughput on large datasets. Built a parallel reconciliation pipeline: legacy and new ran side-by-side on the same inputs, and the pipeline flagged any difference in real time. That turned a risky migration into an incremental one — each workload cut over independently, verified against the system it replaced, then retired. Automated operations with Python, Lambda, and Step Functions; managed AWS infrastructure with Terraform. Outcome. Roughly 10× faster processing. Zero correctness drift on financial datasets. Service availability held throughout. What it demonstrates. On correctness-critical systems, the migration is the easy half. The proof of correctness is the half that matters. Build the reconciliation harness first.",
@@ -200,7 +227,12 @@
       "MySQL",
       "SOA"
     ],
-    "links": [],
+    "links": [
+      {
+        "label": "—",
+        "url": "#"
+      }
+    ],
     "relevance_tags": [
       "backend",
       "query systems",
@@ -307,7 +339,12 @@
       "Advertising tech",
       "Research tooling"
     ],
-    "links": [],
+    "links": [
+      {
+        "label": "—",
+        "url": "#"
+      }
+    ],
     "relevance_tags": [
       "frontend",
       "portfolio"
