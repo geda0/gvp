@@ -35,3 +35,11 @@ config.local.js
 docker/chat/.venv/
 docker/chat/.venv-ci/
 docker/chat/.venv-samtest/
+
+# >>> teamentic (managed) >>>
+# Transient kit artifacts - never commit (other state files ARE committed for continuity).
+.claude/state/suite-status
+.claude/state/telemetry.jsonl
+.claude/**/*.bak
+*.teamentic.*
+# <<< teamentic (managed) <<<

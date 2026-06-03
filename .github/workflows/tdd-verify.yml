@@ -1,0 +1,32 @@
+# Seeded to .github/workflows/tdd-verify.yml — runs a clean-checkout verify on
+# every push/PR so a missing dependency or broken baseline fails in CI, not on
+# someone's machine. Edit the install/verify steps for your stack.
+name: tdd-verify
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Node / pnpm (default) -------------------------------------------
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify          # typecheck + lint + tests
+
+      # --- npm alternative -------------------------------------------------
+      # - uses: actions/setup-node@v4
+      #   with: { node-version: 20, cache: npm }
+      # - run: npm ci
+      # - run: npm test
+
+      # --- Python alternative ----------------------------------------------
+      # - uses: actions/setup-python@v5
+      #   with: { python-version: '3.12' }
+      # - run: pip install -e '.[dev]'
+      # - run: pytest -q
