@@ -192,3 +192,5 @@ The `Spaceman` class manages:
 ### Git Commits
 
 Short, lowercase messages. Common prefixes: `fix:`, `fixes:`. No conventional commit enforcement.
+
+@.claude/tdd/PROTOCOL.md
