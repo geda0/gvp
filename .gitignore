@@ -43,3 +43,6 @@ docker/chat/.venv-samtest/
 .claude/**/*.bak
 *.teamentic.*
 # <<< teamentic (managed) <<<
+
+# leftover agent-session worktrees (Claude/Cursor snapshots — never commit)
+.claude/worktrees/
