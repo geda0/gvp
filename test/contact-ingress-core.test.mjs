@@ -52,6 +52,37 @@ test('valid submission persists then enqueues before returning 200', async () =>
   assert.equal(enqueuedJob.id, body.id)
 })
 
+test('enqueued job carries a non-empty idempotencyKey for safe redelivery', async () => {
+  // Arrange: a valid submission; capture the job handed to the delivery queue.
+  // Downstream dedup/redelivery needs a STABLE key, so the enqueued job must
+  // carry a non-empty idempotencyKey (its exact value is generated upstream).
+  let enqueuedJob = null
+  const handler = createIngressHandler({
+    persistMessage: async () => {},
+    enqueueDelivery: async (job) => {
+      enqueuedJob = job
+    },
+    env: {
+      CONTACT_MESSAGES_TABLE: 'contact-messages',
+      CONTACT_DELIVERY_QUEUE_URL: 'https://sqs.local/delivery'
+    }
+  })
+
+  // Act
+  const response = await handler(validPostEvent())
+
+  // Assert: the success path ran...
+  assert.equal(response.statusCode, 200)
+
+  // ...and the enqueued delivery job carries a non-empty idempotencyKey so a
+  // redrive/redelivery downstream can dedup against a stable key.
+  assert.equal(typeof enqueuedJob.idempotencyKey, 'string')
+  assert.ok(
+    enqueuedJob.idempotencyKey.length > 0,
+    'the enqueued delivery job must carry a non-empty idempotencyKey'
+  )
+})
+
 test('honeypot company field is silently discarded with 200 and no IO', async () => {
   // Arrange: a bot fills the hidden `company` honeypot alongside otherwise-valid
   // fields. Inject fakes that record whether the persist/enqueue IO ever ran.

@@ -133,6 +133,68 @@ test('sender marks failed and rethrows when send fails', async () => {
   assert.ok(!calls.includes('markSent'), 'markSent must not run when the send fails')
 })
 
+test('test_sender_marks_sending_before_send', async () => {
+  // Arrange: a queued row (attempts 0), with fakes that record the observable
+  // effect order on a shared array so we can prove the row was marked `sending`
+  // BEFORE the email left — a pre-send transition that survives redelivery
+  // crashes. We also capture the markSending args to assert the bumped attempt.
+  const calls = []
+  let markSendingArgs = null
+  const handler = createSenderHandler({
+    store: {
+      loadMessage: async () => ({
+        id: 'm1',
+        status: 'queued',
+        attempts: 0,
+        email: 'ada@example.com',
+        subject: 'Hi',
+        name: 'Ada',
+        message: 'hello'
+      }),
+      markSending: async (id, attempts) => {
+        markSendingArgs = { id, attempts }
+        calls.push('markSending')
+      },
+      markSent: async () => {
+        calls.push('markSent')
+      },
+      markFailed: async () => {
+        calls.push('markFailed')
+      }
+    },
+    sendEmail: async () => {
+      calls.push('send')
+      return { id: 'resend-1' }
+    },
+    env: {
+      RESEND_API_KEY: 'rk_test',
+      CONTACT_FROM_EMAIL: 'from@example.com',
+      CONTACT_TO_EMAIL: 'to@example.com'
+    }
+  })
+
+  // Act
+  await handler(queuedDeliveryEvent())
+
+  // Assert mark-sending-before-send: the row is moved to `sending` strictly
+  // before the email is dispatched, so a crash between the two leaves a durable
+  // in-flight record rather than an unattempted `queued` row.
+  assert.ok(calls.includes('markSending'), 'the row must be marked sending')
+  assert.ok(calls.includes('send'), 'the email must be sent')
+  assert.ok(
+    calls.indexOf('markSending') < calls.indexOf('send'),
+    'the row must be marked sending BEFORE the email is sent'
+  )
+
+  // Assert the pre-send transition carries the BUMPED attempt count: a row that
+  // started at 0 attempts is marked sending with attempt 1.
+  assert.equal(
+    markSendingArgs.attempts,
+    1,
+    'markSending must carry the bumped attempt count (0 -> 1)'
+  )
+})
+
 test('sender skips already-sent or missing rows with no IO', async () => {
   // Arrange: a shared log records ANY collaborator touch beyond the load. For each
   // record the only thing allowed to happen is loadMessage; if the guard is correct
