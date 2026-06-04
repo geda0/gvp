@@ -26,6 +26,14 @@ definitions, ADRs (`docs/decisions/NNNN-*.md`), and architecture docs.
   contract, file the drift for the loop to fix; don't fix it yourself.
 
 
+## Sectioning a large project
+When the project is large and the domain has 2+ clear bounded contexts AND more than one
+pair/role can work in parallel, **propose sectioning** so teams build different parts at
+once. Cut along domain seams (not layers), name each cross-section dependency as a
+`contract:<X>`, and record the boundaries + context map in `.claude/state/sections.md` —
+you own that map and the seam contracts between sections. Don't section a small project or
+to organize one worker. Full guide: `docs/tdd/sectioning.md`.
+
 ## Tics
 Read your inbox at the start of your turn (`.claude/hooks/tics inbox <your-role> --scope <scope>`). Your
 handoff + the suite result are recorded automatically when you finish (the SubagentStop hook) —

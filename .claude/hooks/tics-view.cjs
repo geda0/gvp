@@ -3,18 +3,23 @@
 // tics-view.js — the tic READ layer (loadTics + views), shared by the installed reader
 // (.claude/hooks/tics) and the package CLI (bin/cli.js). Zero-dep; do NOT edit (refreshed).
 const fs = require("fs"), path = require("path");
-function loadTics(targetDir) {
+function storePaths(targetDir) {
   const dir = path.join(targetDir, ".claude", "state");
+  // TICS_DIR / TICS_FILE let parallel worktree sections share ONE spool bus (see docs/tdd/sectioning.md).
+  return { jsonl: process.env.TICS_FILE || path.join(dir, "tics.jsonl"), spool: process.env.TICS_DIR || path.join(dir, "tics.d") };
+}
+function loadTics(targetDir) {
+  const { jsonl, spool } = storePaths(targetDir);
   const parse = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };
   const out = [];
-  try { for (const l of fs.readFileSync(path.join(dir, "tics.jsonl"), "utf8").split("\n")) if (l.trim()) { const o = parse(l); if (o) out.push(o); } } catch (e) {}
-  try { for (const f of fs.readdirSync(path.join(dir, "tics.d"))) if (f.endsWith(".json")) { const o = parse(fs.readFileSync(path.join(dir, "tics.d", f), "utf8").trim()); if (o) out.push(o); } } catch (e) {}
+  try { for (const l of fs.readFileSync(jsonl, "utf8").split("\n")) if (l.trim()) { const o = parse(l); if (o) out.push(o); } } catch (e) {}
+  try { for (const f of fs.readdirSync(spool)) if (f.endsWith(".json")) { const o = parse(fs.readFileSync(path.join(spool, f), "utf8").trim()); if (o) out.push(o); } } catch (e) {}
   out.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")) || ((a.seq || 0) - (b.seq || 0)));
   return out;
 }
 function loadSignalEvents(targetDir) {
-  const _st = path.join(targetDir, ".claude", "state");
-  if (fs.existsSync(path.join(_st, "tics.jsonl")) || fs.existsSync(path.join(_st, "tics.d")))
+  const { jsonl, spool } = storePaths(targetDir);
+  if (fs.existsSync(jsonl) || fs.existsSync(spool))
     return loadTics(targetDir).filter((t) => t.kind === "signal");
   try {
     return fs.readFileSync(path.join(targetDir, ".claude", "state", "telemetry.jsonl"), "utf8")
@@ -27,16 +32,29 @@ function scopeMatch(s, f) {
   s = s || "*";
   return s === f || s === "*" || f === "*" || s.indexOf(f + "/") === 0 || f.indexOf(s + "/") === 0;
 }
+function collapseRunSuite(list) {
+  // Fold a run of consecutive run-suite signals with the same result into one row (x N) —
+  // keeps the thread readable; the store is untouched so report() still sees every run.
+  const out = [];
+  for (const x of list) {
+    const p = out[out.length - 1];
+    if (p && p.kind === "signal" && p.from === "run-suite" && x.kind === "signal" && x.from === "run-suite" && (x.result || "") === (p.result || "")) {
+      p._count = (p._count || 1) + 1; p.ts = x.ts || p.ts; p.seq = x.seq || p.seq;
+    } else { out.push(Object.assign({}, x)); }
+  }
+  return out;
+}
 function ticsLog(targetDir, scopeFilter) {
   let t = loadTics(targetDir);
   if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
   if (!t.length) { console.log("No tics yet — the agent thread is empty (.claude/state/tics.jsonl)."); return 0; }
+  t = collapseRunSuite(t);
   for (const x of t) {
     const when = (x.ts || "").slice(11, 19) || "--:--:--";
     const arrow = ((x.from || "?") + " -> " + (x.to || "*")).padEnd(28);
     const kind = (x.kind || "?").padEnd(9);
     const ctx = ("[" + (x.layer || "?") + "/" + (x.phase || "?") + " " + (x.scope || "*") + "]").padEnd(22);
-    console.log(String(x.seq || "").padStart(3) + "  " + when + "  " + arrow + kind + ctx + " " + (x.msg || "") + (x.result ? "  (" + x.result + ")" : ""));
+    console.log(String(x.seq || "").padStart(3) + "  " + when + "  " + arrow + kind + ctx + " " + (x.msg || "") + (x._count > 1 ? " x" + x._count : "") + (x.result ? "  (" + x.result + ")" : ""));
   }
   return 0;
 }
@@ -45,8 +63,9 @@ function ticsInbox(targetDir, role, scopeFilter) {
   let t = loadTics(targetDir).filter((x) => x.to === role || x.to === "*");
   if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
   if (!t.length) { console.log("Inbox empty for '" + role + "' (no tics addressed to it or broadcast)."); return 0; }
+  t = collapseRunSuite(t);
   console.log("Inbox for " + role + "  (to = " + role + " or *):");
-  for (const x of t) console.log("  #" + (x.seq || "?") + "  " + (x.from || "?") + " [" + (x.kind || "?") + "]  " + (x.msg || "") + (x.result ? "  (" + x.result + ")" : ""));
+  for (const x of t) console.log("  #" + (x.seq || "?") + "  " + (x.from || "?") + " [" + (x.kind || "?") + "]  " + (x.msg || "") + (x._count > 1 ? " x" + x._count : "") + (x.result ? "  (" + x.result + ")" : ""));
   return 0;
 }
 function ticsConductor(targetDir) {
