@@ -39,9 +39,9 @@ resolve_layer() {
 
 # 4) Tic protocol — append one structured agent-to-agent communication unit to the tic store.
 # Default store = .claude/state/tics.jsonl (append). TIC_STORE=spool writes one file per tic to
-# .claude/state/tics.d/ — concurrency-safe for PARALLEL writers (pairs/sessions sharing a bus):
-# no shared-file append/seq race. `scope` is ambient (.claude/state/scope, default "*").
-#   emit_tic FROM TO KIND MSG [REF] [RESULT] [EXTRA_JSON]
+# .claude/state/tics.d/ — concurrency-safe for PARALLEL writers. `scope` is ambient: explicit
+# .claude/state/scope wins, else it defaults to the active LAYER (so tics auto-scope per layer
+# with zero effort), else "*".  emit_tic FROM TO KIND MSG [REF] [RESULT] [EXTRA_JSON]
 _tic_esc() { printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 emit_tic() {
   [ "${TICS:-1}" = "1" ] || return 0
@@ -51,7 +51,10 @@ emit_tic() {
   _seq=$(( $({ cat "$_tf" 2>/dev/null; cat "$_td"/*.json 2>/dev/null; } | wc -l) + 1 ))
   _ph="$(cat "$ROOT/.claude/state/phase" 2>/dev/null || echo unknown)"
   _ly="$(cat "$ROOT/.claude/state/layer" 2>/dev/null || echo unknown)"
-  _sc="$(cat "$ROOT/.claude/state/scope" 2>/dev/null || echo '*')"
+  _sc="$(cat "$ROOT/.claude/state/scope" 2>/dev/null)"
+  if [ -z "$_sc" ]; then
+    if [ -n "$_ly" ] && [ "$_ly" != "unknown" ]; then _sc="$_ly"; else _sc="*"; fi
+  fi
   if [ "${TIC_STORE:-jsonl}" = "spool" ]; then
     mkdir -p "$_td" 2>/dev/null || true
     _out="$_td/$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}.json"
