@@ -11,6 +11,18 @@ def test_gemini_default_upstream_timeout(monkeypatch) -> None:
     assert get_provider_timeout_seconds('gemini') == 28.0
 
 
+def test_gemini_timeout_clamped_to_55s_ceiling(monkeypatch) -> None:
+    # An over-large override must be capped at the 55s API Gateway integration
+    # ceiling so a slow upstream can't exceed the gateway limit (invariant #8).
+    monkeypatch.delenv('CHAT_PROVIDER_TIMEOUT_SECONDS', raising=False)
+    monkeypatch.setenv('GEMINI_TIMEOUT_SECONDS', '120')
+    assert get_provider_timeout_seconds('gemini') == 55.0
+
+    # The clamp only caps; a legitimate value under the ceiling passes through.
+    monkeypatch.setenv('GEMINI_TIMEOUT_SECONDS', '40')
+    assert get_provider_timeout_seconds('gemini') == 40.0
+
+
 def test_inject_retrieved_compacts_and_prefixes_knowledge_xml() -> None:
     pack = {
         'bio': {'name': 'Marwan'},
