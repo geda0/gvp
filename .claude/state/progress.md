@@ -3,21 +3,19 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
-- Feature in flight: **none** — **contact durability (items 2–4) SHIPPED + accepted**
-  (product-owner sign-off 2026-06-03; tdd-critic = PASS). Both contact Lambdas extracted to
-  injectable cores behind thin composition roots; invariants **#3/#4/#5 now PROVEN**.
-- Active layer: app · Current phase: **off**.
-- Harness: **upgraded to team-tactics 0.7.0** (was teamentic 0.5.0) — selftest 13/13 PASS;
-  referee semantics unchanged; adds the **tic protocol** (`.claude/state/tics.jsonl`, gitignored)
-  — emit a `delegate` tic before each handoff via `.claude/hooks/tic.sh`; hooks log `signal`/`block`.
-- Suite now: **app `node --test` 23/23 green** · **chat pytest 75/75 green** (was 70 — +5
-  turn-persistence tests). Floor: `node --test`.
-- Feature in flight: **none** — **chat turn-persistence (items 1–2) SHIPPED + accepted**
-  (tdd-critic PASS; product-owner sign-off). Invariants **#7 PROVEN**; **#8** timeout-row
-  proven (the 28s/55s cap clause is an open follow-up). 5 characterization tests added in
-  `docker/chat/tests/test_turn_persistence.py` (all green-on-write — behavior pre-existed).
-- Committed: bootstrap + contact + kit upgrade = **5 logical commits**. The chat feature
-  (test_turn_persistence.py + state/doc updates) is **NOT yet committed** — awaiting navigator.
+- Feature in flight: **none**. Shipped + accepted this session: **contact durability**
+  (#3/#4/#5) and **chat turn-persistence** (#7; #8 timeout-row — 28s/55s cap clause open).
+  Active layer: app · phase: **off**.
+- Harness: **team-tactics 0.8.0** (teamentic 0.5.0 → 0.7.0 → 0.8.0). selftest 13/13; tic
+  protocol live (auto-handoff SubagentStop hook; `.claude/state/tics.jsonl`, gitignored).
+- Suites: **app `node --test` 23/23** · **chat pytest 75/75** green.
+- **Deployed to STAGING (2026-06-04):** merged this branch → `agent` (`514f938`, conflict-free,
+  staging API URLs preserved) and pushed `origin/agent` → Amplify staging build;
+  `chat.marwanelgendy.link` reachable. See `releases.md`. ⚠ Amplify deploys the static FRONTEND
+  only (unchanged by this work, which is backend/tests/docs/harness); the refactored contact
+  Lambdas reach staging only via a SEPARATE `integrate-and-deploy.sh stage` / `workflow_dispatch`.
+- Commits on `claude/compassionate-dubinsky-de3583` (8 this session): harness/ADRs/invariants ·
+  CI · contact · state · kit 0.7.0 · chat tests · chat state · kit 0.8.0 (`cb2317b`).
 - Next backlog item: chat fallback on first-chunk rate-limit (#9), then voice timbre (#10),
   then frontend guards (#1/#2).
 
@@ -49,6 +47,14 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **Adopted team-tactics 0.8.0 + deployed to STAGING.** `npx github:geda0/team-tactics#v0.8.0
+  update` (pinned git tag — NOT `npx tics`, which is an unrelated npm pkg): non-blocking
+  `subagent-handoff.sh` SubagentStop hook + scoped/spool tics; referee unchanged (selftest 13/13),
+  data preserved; committed `cb2317b`. Then per navigator: merged `claude/compassionate-dubinsky-de3583`
+  → `agent` (the Amplify staging-deploy branch) in a throwaway worktree — conflict-free (`514f938`),
+  staging URLs preserved (contact `fvfqpef8kb…`, chat `chat-api-stage…`); verified app 23/23 + chat
+  75/75 green, then `git push origin agent` (6771384..514f938) → Amplify staging build.
+  `chat.marwanelgendy.link` reachable. Recorded in `releases.md`.
 - 2026-06-04 — **Chat turn-persistence (items 1–2) SHIPPED** under team-tactics 0.7.0. Ran the
   red→green loop on the `chat` layer: planner sliced S1–S5; test-writer added 5 characterization
   tests (non-stream error/timeout + streaming ok/error/timeout) to
