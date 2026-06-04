@@ -1,5 +1,30 @@
 [
   {
+    "id": "team-tactics",
+    "name": "Team Tactics",
+    "summary": "Open-source harness for Claude Code: hooks-gated red/green TDD, role agents, and a live tic bus so multi-agent work stays auditable. Team Tactics is the open kit that powers agentic development on this site. Install with npx github:geda0/team-tactics (or pin a release tag) to turn Claude Code into a disciplined pairing loop instead of ad-hoc chat edits. Hooks as referee. Every edit is scoped by phase ( red / green / refactor ) and layer . Out-of-scope files are blocked; run-suite emits objective RED/GREEN signals. The orchestrator never declares “looks done” — the test bar does. Role agents. test-writer adds one failing characterization test; implementer writes the minimal green code; tdd-critic audits behavior vs. implementation. The full-team preset on this repo also runs product-owner, architect, QA verifier, and release roles for the outer SDLC loop. Live tic bus. Handoffs are recorded in .claude/state/tics.jsonl ( delegate , handoff , signal , block , verdict ) so parallel agents coordinate through files and the suite, not lost chat context. Use tics log / tics inbox to follow the thread. What it demonstrates. Production habits for AI-assisted engineering on a real codebase: fail-closed gates, one-behavior slices, divide-and-conquer read fan-out, and the same harness that shipped the contact pipeline, chat invariants, and this playground card.",
+    "why_it_matters": "The open harness behind agentic work on this site: hooks-gated red/green TDD, role agents (test-writer, implementer, tdd-critic), and a live tic bus so handoffs stay auditable. Same kit that shipped the contact pipeline and chat invariant coverage.",
+    "tech": [
+      "Claude Code",
+      "TDD",
+      "Agent orchestration",
+      "Hooks",
+      "Node.js"
+    ],
+    "links": [
+      {
+        "label": "Open on GitHub",
+        "url": "https://github.com/geda0/team-tactics"
+      }
+    ],
+    "relevance_tags": [
+      "node.js",
+      "playground",
+      "ai",
+      "platform architecture"
+    ]
+  },
+  {
     "id": "ai-assistant-chatbot",
     "name": "AI assistant & chatbot",
     "summary": "Grounded AI assistant — SSE-streaming text chat, Gemini Live voice, automatic model fallback, and durable per-turn telemetry behind an admin dashboard. AI assistant & chatbot — the AI you can talk to on this site, built around honest production constraints: latency, cost, model rate-limits, and observability. Streaming text chat. FastAPI + LangChain on ECS Fargate behind an ALB. POST /api/chat with stream: true returns text/event-stream — event: token per chunk, event: done on completion, event: error on failure. Headers ( Cache-Control: no-cache , X-Accel-Buffering: no ) keep nginx/ALB from buffering. The first token typically lands in under a second. Grounded answers. A knowledge pack built from resume, project, and bio sources is injected into every turn so the model answers from real history, not generic AI fluff. Retrieval snapshot (matched FAQ id, role ids, project ids) is persisted with each turn for review. Automatic model fallback. A custom GeminiRoutingChain exposes both ainvoke and astream . On primary rate-limit, it transparently retries on the secondary model — but only if no chunk has flushed yet. Once any token has reached the client, the chain commits and mid-stream errors propagate as event: error . Voice (Gemini Live). Mic always-on in the UI. POST /api/live/session mints a short-lived bridge token; WS /api/live/relay/{id} proxies the browser ↔ Google Live API on the same FastAPI app. WebSocket upgrade requires ECS — Lambda + API Gateway can't carry the upgrade. Durable per-turn telemetry. Every text turn — success, upstream error, OR timeout — writes a row to DynamoDB before the user-visible response returns. Per-turn fields: stream , firstTokenLatencyMs , streamChunkCount , outputCharCount , fallbackUsed , status ( ok / error / timeout ), errorCode , errorMessage , plus toolCalls , actions , retrieval snapshot, and heuristic flags. Admin observability. Private dashboard with cards for streamed sessions, average first-token latency, stream failures, and fallback model usage. A 30-day activity sparkline, errors-by-code table, and a clickable recent-failures list jump straight to the originating transcript. A separate GET /api/chat/host-status diagnostic on the chat host returns live TranscriptStore counters (writes attempted/succeeded/failed, last error) so persistence health is visible without reading ECS logs. What it demonstrates. The engineering reality of production AI. The model is rarely the hard part. Streaming UX, fallback routing, durable failure capture, and observability — that's where the work actually lives. Same habits I bring to production systems, applied to a personal site where every choice is visible.",
@@ -190,7 +215,7 @@
   {
     "id": "att",
     "name": "AT&T",
-    "summary": "TQL — a SQL-like query language for ticket search and operational analytics. AT&amp;T — Full Stack Engineer · 2017–2018. Built TQL: a SQL-like query language for ticket search and operational analytics on a service-oriented single-page application. The hard part. Support and ops teams needed fast, repeatable search and analytics over ticket data. Ad-hoc filters and one-off scripts didn't scale with ticket volume — or with analysts who needed predictable query semantics and bounded execution. What I did. Designed and built TQL — grammar, validation, and a test-covered execution path. Built front-end and back-end components, designed RESTful APIs, and developed async JavaScript modules. Mentored new developers and raised code-quality standards across the team. Outcome. Production SOA application with a usable query surface for real support workflows. What it demonstrates. Expressiveness and safety move together, not against each other. A query language has to be useful to analysts and predictable for operators in the same design.",
+    "summary": "TQL — a SQL-like query language for ticket search and operational analytics. AT&T — Full Stack Engineer · 2017–2018. Built TQL: a SQL-like query language for ticket search and operational analytics on a service-oriented single-page application. The hard part. Support and ops teams needed fast, repeatable search and analytics over ticket data. Ad-hoc filters and one-off scripts didn't scale with ticket volume — or with analysts who needed predictable query semantics and bounded execution. What I did. Designed and built TQL — grammar, validation, and a test-covered execution path. Built front-end and back-end components, designed RESTful APIs, and developed async JavaScript modules. Mentored new developers and raised code-quality standards across the team. Outcome. Production SOA application with a usable query surface for real support workflows. What it demonstrates. Expressiveness and safety move together, not against each other. A query language has to be useful to analysts and predictable for operators in the same design.",
     "why_it_matters": "Shows foundational backend work where query semantics and operational usefulness were both central.",
     "tech": [
       "JavaScript",
@@ -232,7 +257,7 @@
   {
     "id": "sunrise",
     "name": "Sunrise Resorts & Cruises",
-    "summary": "Multi-site hospitality infrastructure — datacenters, VPN/networking, and ops tooling. Sunrise Resorts &amp; Cruises — infrastructure and operations for business-critical hospitality systems. Datacenter and VPN/network architecture for always-on workflows across sites Internal tooling for asset tracking and operational visibility Reliability, security, and pragmatic automation over unnecessary complexity",
+    "summary": "Multi-site hospitality infrastructure — datacenters, VPN/networking, and ops tooling. Sunrise Resorts & Cruises — infrastructure and operations for business-critical hospitality systems. Datacenter and VPN/network architecture for always-on workflows across sites Internal tooling for asset tracking and operational visibility Reliability, security, and pragmatic automation over unnecessary complexity",
     "why_it_matters": "Demonstrates Marwan's practical approach to delivering reliable, maintainable systems.",
     "tech": [
       "Datacenters",

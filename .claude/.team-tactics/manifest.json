@@ -3,7 +3,7 @@
   "kitVersion": "0.9.2",
   "configSchema": 2,
   "preset": "full-team",
-  "updatedAt": "2026-06-04T08:50:33.495Z",
+  "updatedAt": "2026-06-04T10:22:20.074Z",
   "files": {
     ".claude/agents/test-writer.md": {
       "class": "mechanism",
@@ -133,7 +133,7 @@
     ".claude/state/backlog.md": {
       "class": "data",
       "version": "0.9.2",
-      "sha256": "61027499ca1071074f7779a8c9ddcc4e3ae5574c1d2484a92b91036da1343885"
+      "sha256": "7e94d910fdc5283037f983219bf423f1326353bb66fbcee184af7f12595ac4da"
     },
     ".claude/state/releases.md": {
       "class": "data",
@@ -158,17 +158,17 @@
     ".claude/state/design-notes.md": {
       "class": "data",
       "version": "0.9.2",
-      "sha256": "5cad6f41efe81424e4e364343621193e0915b053d5da3eb36af549f3f8fe9c1b"
+      "sha256": "3ff260a91e737880578dabb91fedab1fd35d414618d4719dd46bac104810f2c4"
     },
     ".claude/state/progress.md": {
       "class": "data",
       "version": "0.9.2",
-      "sha256": "822411917eff7a2852105d16a9322c00a86a56b8bd7afa7a839b34c44c490dc5"
+      "sha256": "f4e088aff611db463ed4e77beb5bbfcc21753d3132561c0632426f9123de4cd5"
     },
     ".claude/state/plan.md": {
       "class": "data",
       "version": "0.9.2",
-      "sha256": "5729ec96f1f3d4e61bd356aea475e5f07f6398eea59cc99aebd73316f19c713e"
+      "sha256": "ade92e32c53ef4f249af68e66fde673cada46878123aa4be63ebc5c542b545cb"
     },
     ".claude/state/phase": {
       "class": "data",
@@ -188,7 +188,7 @@
     "docs/tdd/project-invariants.md": {
       "class": "data",
       "version": "0.9.2",
-      "sha256": "933ccc6d54073dc4292bf417672612c74b9af28dcddace620b80e5fa051452dc"
+      "sha256": "cc39bb19f251550bc482afc6d8b9c44ed0119526a3d59c5184e69c283474bccd"
     },
     ".github/workflows/tdd-verify.yml": {
       "class": "data",

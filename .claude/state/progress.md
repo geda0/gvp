@@ -3,13 +3,11 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
-- Feature in flight: **none**. Shipped this session: contact durability (#3/#4/#5),
-  chat turn-persistence (#7; #8 timeout-row), chat model fallback (#9), **chat voice-timbre
-  lock (#10)**. **Every CHAT-layer invariant is now proven**; remaining UNPROVEN = **#1, #2**
-  (`[app]` frontend guards) + #8's cap clause. Active layer: chat · phase: **off**.
-- Harness: **team-tactics 0.9.2** (…→0.9.0→0.9.2; adds divide-and-conquer + sectioning +
-  enforced write-claims [no-op without a scope file]). selftest 13/13; tic protocol live.
-- Suites: **app `node --test` 23/23** · **chat pytest 84/84** green.
+- Feature in flight: **none**. Shipped this session: **frontend bundle guards (#1/#2)** —
+  invariants #1 and #2 now PROVEN; **only #8's 55s cap clause remains open** across all ten
+  invariants. Prior session: contact durability, chat #7–#10. Active layer: **app** · phase: **off**.
+- Harness: **team-tactics 0.9.2** (installed; selftest 13/13; tic protocol live).
+- Suites: **app `node --test` 30/30** · **chat pytest 84/84** (last recorded; re-run in CI/docker).
 - **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
   pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
   and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
@@ -19,8 +17,8 @@
   this branch). See `releases.md`. ⚠ CI actions on Node20 (GitHub deprecation 2026-06-16).
 - Commits on `claude/compassionate-dubinsky-de3583` (8 this session): harness/ADRs/invariants ·
   CI · contact · state · kit 0.7.0 · chat tests · chat state · kit 0.8.0 (`cb2317b`).
-- Next backlog item: chat fallback on first-chunk rate-limit (#9), then voice timbre (#10),
-  then frontend guards (#1/#2).
+- Next backlog item: pin sender `markSending` (backlog #3), then contact `idempotencyKey` (#4),
+  then #8 cap clause; optional chat hardening items remain low priority.
 
 ## Bootstrap deliverables (done this session)
 - **Harness:** `.claude/tdd.config` now has TWO layers — `app` (node:test over
@@ -50,6 +48,21 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **FEATURE: enhance project dialog text** (phase `off`). Root cause: dialog used
+  regex-stripped `textContent` (blob + literal `&ldquo;`). Now renders trusted HTML via
+  `innerHTML`; `htmlToPlainText` for card/spaceman plain paths. CSS: paragraph spacing, section
+  labels from `<strong>`, code + list styling. Cleaned entities in `projects.json`; chat
+  `stripHtml` decodes entities. `test/project-description-format.test.mjs`. app 34/34.
+- 2026-06-04 — **FEATURE: Team Tactics featured on website** (phase `off`). Polished playground
+  entry (`label: Open kit`, tighter card + dialog copy, ties to this repo). Rebuilt
+  `team-tactics.svg` for card-scale legibility (title, tic bus, hooks, orchestrator, agents;
+  XML entities for arrows). `test/team-tactics-project.test.mjs` pins featured id + clean SVG.
+  Regenerated chat-knowledge. app 32/32. Not yet committed.
+- 2026-06-04 — **SHIPPED frontend bundle guards (#1 + #2)** — formal close. Acceptance mapped:
+  invariant **#1** ← `test/frontend-no-secrets.test.mjs` (bundle scan + index/admin meta/GA);
+  invariant **#2** ← `test/frontend-api-config.test.mjs` (no remote hosts in `js/`, site-config
+  imports/fallbacks, session `websocketUrl`). app **30/30**; tdd-critic **PASS** (behavior-level
+  characterization, green-on-write). Invariants #1/#2 → PROVEN. Not yet committed.
 - 2026-06-04 — **Adopted team-tactics 0.9.2 + SHIPPED chat voice-timbre lock (#10).** 0.9.2 (tagged
   `v0.9.2`) adds enforced write-claims to guard-edit-scope (P1 sectioning) — gated + NO-OP without a
   `.claude/state/scope` file, so the gate is unchanged here (selftest 13/13); committed `66c08e6`.

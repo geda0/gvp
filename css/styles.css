@@ -799,14 +799,58 @@ body.project-dialog-open {
 
 .project-dialog__description {
     font-size: 0.95rem;
-    line-height: 1.55;
+    line-height: 1.6;
     margin-bottom: 1rem;
     color: var(--text-muted);
     font-family: var(--font-body);
 }
 
 .project-dialog__description p {
-    margin: 0 0 0.5rem;
+    margin: 0 0 1rem;
+}
+
+.project-dialog__description p:last-child {
+    margin-bottom: 0;
+}
+
+.project-dialog__description p strong:first-child {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.project-dialog__description p:first-of-type strong:first-child {
+    font-size: 0.95rem;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.project-dialog__description code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.86em;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.project-dialog__description ul {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+}
+
+.project-dialog__description li {
+    margin-bottom: 0.45rem;
+}
+
+.project-dialog__description li:last-child {
+    margin-bottom: 0;
 }
 
 .project-dialog__tech-wrap {

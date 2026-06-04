@@ -95,41 +95,11 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ## Next up
 
-> _Top of queue after the chat voice-timbre release: the #10 item (Gemini Live voice timbre pinned
-> to the deep/slow male preset) is now in Shipped — and with it **every CHAT-layer invariant is
-> proven**. The remaining UNPROVEN invariants (#1, #2) are both `[app]`-layer frontend guards, now
-> at the top of the queue. Order: frontend guards (1–2), then two small post-release follow-ups
-> (3–4), then one low-priority #8 cap follow-up (5), then two low-priority #9 pinning follow-ups
-> (6–7), then two low-priority #10 hardening follow-ups from the tdd-critic (8–9, optional)._
+> _Frontend guards (#1, #2) shipped 2026-06-04 — **all ten invariants are now proven except #8's
+> 55s cap clause.** Queue: post-release follow-ups (1–2 below), then #8 cap (3), then #9 pinning
+> (4–5), then optional #10 hardening (6–7)._
 
-1. **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant #1: the
-   browser bundle (HTML/CSS/JS) never contains the Resend, Gemini, or admin API keys; a
-   regression that hardcodes a key fails CI instead of leaking to production._
-   - [ ] A guard test scanning the shipped frontend (HTML/CSS/JS) finds **no** Gemini
-         (`AIza…`), Resend (`re_…`), or admin-key-shaped strings.
-   - [ ] The only API-related config in `index.html` is the two `gvp:*-api-url` meta tags
-         plus the public Google Analytics measurement id (a non-secret).
-   - [ ] The test passes on the current tree (it characterizes today's clean state) and
-         would **fail** if a key-shaped literal were added to any shipped frontend file.
-   - _Cheap, high-signal guard. Decision (a) does not affect this item._
-
-2. **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant #2
-    (reframed per resolved decision (a)): every frontend network base derives from a
-    `<meta>` tag via `site-config`, with only a same-origin local-dev fallback; no module
-    hardcodes a remote API hostname._
-    - [ ] A guard test finds **no** hardcoded `http(s)://` API-host literal in `js/`
-          (Google Fonts/Analytics/CDN and code comments excluded).
-    - [ ] Each network consumer (`contact.js`, `chat.js`, `chat-live.js`) resolves its base
-          from `site-config` exports (`contactApiUrl`/`chatApiUrl`), and the empty-meta
-          fallback is the same-origin `/api/*` path only on `localhost`/`127.0.0.1`.
-    - [ ] The voice WebSocket URL is taken from the minted session response body, not built
-          against a hardcoded host.
-    - [ ] The test passes on the current tree and would fail if a remote API host were
-          hardcoded in `js/`.
-    - _Navigator decision (a) sets the framing (meta + same-origin fallback, not literal
-      single-origin)._
-
-3. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
+1. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
    sender's `sending` transition is currently unpinned, so a refactor could drop it (losing
    the in-flight attempt bump that the admin panel and retry accounting rely on) without any
    test going red._
@@ -141,7 +111,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      `test/contact-sender-core.test.mjs` (the happy-path test injects a no-op `markSending`
      today; this asserts its call + ordering)._
 
-4. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
+2. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
    SQS delivery job is asserted to carry the message `id`, but not an `idempotencyKey`;
    dropping that field would weaken redelivery de-duplication without a red test._
    - [ ] On a valid submission, the job handed to `enqueueDelivery` carries a **non-empty
@@ -150,7 +120,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Low priority. One added assertion on the captured `enqueuedJob` in the existing valid-
      submission test in `test/contact-ingress-core.test.mjs`._
 
-5. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
+3. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
    turn-persistence tests bypass (tdd-critic note): the persisted `timeout` row is proven, but
    `providers.py`'s timeout resolution — the 28s Gemini default and the 55s API-Gateway
    ceiling — is only half-covered (`test_gemini_default_upstream_timeout` proves the default,
@@ -163,7 +133,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - [ ] Lowering or removing the clamp makes the test **fail** in CI.
    - _Low priority. Extends `test_providers.py`; closes the last open clause of invariant #8._
 
-6. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
+4. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
    sign-off: the in-turn first-chunk fallback is now proven, but the routing chain's memory that
    the **primary already rate-limited this run** is unpinned — a refactor could drop
    `note_primary_rate_limited()` and no test would go red, silently re-hammering the throttled
@@ -174,7 +144,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Low priority. Pins the cross-turn half of #9 that the in-turn fallback tests
      (`test_gemini_routing.py`) do not exercise._
 
-7. **Pin `last_model_id` (which model answered)** — `[chat]` — _tdd-critic follow-up on the #9
+5. **Pin `last_model_id` (which model answered)** — `[chat]` — _tdd-critic follow-up on the #9
    sign-off: the admin telemetry surfaces which model committed a turn, but nothing asserts the
    committed model id, so a routing refactor could mis-report it (e.g. always the primary) without
    a red test._
@@ -184,7 +154,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - [ ] Reporting the wrong committed model id makes the test **fail** in CI.
    - _Low priority. Asserts the committed-model id the admin telemetry reads._
 
-8. **Enforce the deep/slow-male voice family (allowlist)** — `[chat]` — _tdd-critic OPTIONAL
+6. **Enforce the deep/slow-male voice family (allowlist)** — `[chat]` — _tdd-critic OPTIONAL
    follow-up on the #10 sign-off: `_live_voice_name()` echoes any opaque `CHAT_LIVE_VOICE` value
    verbatim (`(os.environ.get('CHAT_LIVE_VOICE') or 'Charon').strip() or 'Charon'`), so the
    'deep/slow male' qualifier in invariant #10 is **documentary, not enforced** — an operator could
@@ -197,7 +167,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      override within the brand voice family." Changing the allowlist is a product decision
      (supersede ADR-0003). Skippable — today's behavior is by design (operator-trusted env)._
 
-9. **Couple the voice preset + cadence prose against drift** — `[chat]` — _tdd-critic OPTIONAL
+7. **Couple the voice preset + cadence prose against drift** — `[chat]` — _tdd-critic OPTIONAL
    follow-up on the #10 sign-off: S3 (prebuilt `Charon` in `speech_config`) and S4 (the cadence
    directive in `build_live_system_instruction`) pin the **two halves independently**, but ADR-0003
    notes the preset and the cadence prose "must move together"; a refactor could change one without
@@ -214,6 +184,26 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
 `test/starfield-reduced-motion.test.mjs`; app 10/10 · chat 70/70 green._
+
+**Release: Frontend bundle guards (#1 + #2) (signed off 2026-06-04).** App suite **30/30** green
+(`node --test`; +7 from the 23/23 baseline). `[app]` characterization only — no UX change. Invariants
+**#1** and **#2** move UNPROVEN → PROVEN via `test/frontend-no-secrets.test.mjs` (secret-shaped
+literal scan + meta/GA contract on `index.html` / `admin/index.html`) and
+`test/frontend-api-config.test.mjs` (no hardcoded cross-origin hosts in `js/`, `site-config`
+imports/fallbacks, session-body `websocketUrl`). **Every invariant is now proven except #8's cap
+clause.**
+
+- **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant **#1**, now
+  PROVEN._ ✓ ACCEPTED.
+  - Guard scan of `index.html`, `admin/index.html`, `css/`, `js/` — no Gemini/Resend/`sk-` literals.
+  - `index.html` remote API config = two `gvp:*-api-url` metas + public GA id only.
+  - `admin/index.html` = `gvp:contact-api-url` only.
+
+- **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant **#2**, now PROVEN._
+  ✓ ACCEPTED.
+  - No forbidden `http(s)://` host literals in `js/` (CDN allowlist only).
+  - `contact.js` / `chat.js` / `chat-live.js` import from `site-config.js`.
+  - Voice WS uses `websocketUrl` from session body (`new WebSocket(websocketUrl)`).
 
 **Release: Gemini Live voice-timbre lock characterization (#10) (signed off 2026-06-04).** Chat
 suite **84/84** green (`cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`; +4 from the

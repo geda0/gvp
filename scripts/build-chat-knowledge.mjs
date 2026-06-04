@@ -33,6 +33,7 @@ const ROLE_TAGS = {
 }
 
 const PROJECT_TAGS = {
+  'team-tactics': ['node.js', 'playground', 'ai', 'platform architecture'],
   'ai-assistant-chatbot': ['ai', 'this-site', 'platform architecture', 'aws', 'python', 'data pipelines'],
   gvp: ['this-site', 'frontend', 'ai', 'platform architecture'],
   'monday-rover': ['python', 'embedded', 'hardware', 'computer vision'],
@@ -45,6 +46,7 @@ const PROJECT_TAGS = {
 }
 
 const PROJECT_FRAMES = {
+  'team-tactics': "The open harness behind agentic work on this site: hooks-gated red/green TDD, role agents (test-writer, implementer, tdd-critic), and a live tic bus so handoffs stay auditable. Same kit that shipped the contact pipeline and chat invariant coverage.",
   'ai-assistant-chatbot': "Production AI reality: the model is rarely the hard part. Streaming UX, fallback routing, durable failure capture, and observability are where the work lives. Demonstrates Marwan's habits applied to a personal site where every choice is visible.",
   gvp: 'Demonstrates how Marwan combines product UX with clear service boundaries for AI-enabled workflows.',
   apptio: "Shows Marwan's approach to platform modernization in data-intensive SaaS with strong operability guardrails.",
@@ -225,11 +227,29 @@ function toId(value) {
     .replace(/^-+|-+$/g, '')
 }
 
+function decodeHtmlEntities(text) {
+  return String(text || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&ldquo;/gi, '\u201C')
+    .replace(/&rdquo;/gi, '\u201D')
+    .replace(/&lsquo;/gi, '\u2018')
+    .replace(/&rsquo;/gi, '\u2019')
+    .replace(/&mdash;/gi, '\u2014')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+}
+
 function stripHtml(html) {
-  return String(html || '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return decodeHtmlEntities(
+    String(html || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
 }
 
 function roleTags(company, role, highlights) {

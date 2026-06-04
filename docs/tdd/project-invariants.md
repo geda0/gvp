@@ -4,7 +4,10 @@ These are the rules the gvp portfolio system must ALWAYS uphold — the things t
 must never silently break. For any new code path that touches one, the test that
 proves it comes FIRST.
 
-> **Honesty note (adoption bootstrap; updated 2026-06-04):** invariants **#3, #4, #5**
+> **Honesty note (adoption bootstrap; updated 2026-06-04):** invariants **#1** (no secrets in
+> the shipped frontend) and **#2** (API bases from meta tags / same-origin local fallback) are
+> proven by `test/frontend-no-secrets.test.mjs` and `test/frontend-api-config.test.mjs`. Invariants
+> **#3, #4, #5**
 > (contact durability — landed via the ADR-0006 injectable-core seam) and **#6** (reduced
 > motion) are proven by `node --test`; **#7** (every chat turn persisted with its terminal
 > `status`) is proven by `docker/chat/tests/test_turn_persistence.py` (all six
@@ -20,10 +23,9 @@ proves it comes FIRST.
 > both paths, including the persisted-timeout-row cell) but its **cap clause is still open** — the
 > `providers.py` 28s-default / 55s-ceiling resolution is unproven (see #8 "Proven by" + the "Pin
 > chat provider timeout resolution + cap" backlog item).
-> **Proven set: #3, #4, #5, #6, #7, #9, #10 (+#8 partial — persisted-timeout-row proven, cap
-> clause open).** With #10 proven, **every CHAT-layer invariant (#7, #8 timeout-row, #9, #10) now
-> holds**; the only invariants that **remain UNPROVEN are #1 and #2** — both `[app]`-layer frontend
-> guards — **plus #8's cap clause**. Each is a candidate for a characterization test and belongs on
+> **Proven set: #1, #2, #3, #4, #5, #6, #7, #9, #10 (+#8 partial — persisted-timeout-row
+> proven, cap clause open).** Every CHAT-layer invariant (#7, #8 timeout-row, #9, #10) and every
+> `[app]` frontend guard (#1, #2) now holds; the only open invariant clause is **#8's 55s cap**. Each is a candidate for a characterization test and belongs on
 > the upgrade backlog. Each claim is cited to `file:line` so the navigator can confirm it against
 > the code, not take it on faith. Line numbers are from the state of the repo at adoption and may
 > drift; treat the cited function/symbol as the anchor.
@@ -44,8 +46,11 @@ proves it comes FIRST.
      (`GEMINI_API_KEY: !Ref GeminiApiKey`); `.gitignore:34` excludes `.secrets/`. The
      admin key in `js/admin.js:106` is read from `sessionStorage` (operator types it at
      runtime), never embedded.
-   - Proven by: NONE YET — candidate for a characterization test (e.g. grep the served
-     bundle for key patterns / assert meta tags are the only API config).
+   - Proven by: `test/frontend-no-secrets.test.mjs` — scans `index.html`, `admin/index.html`,
+     `css/`, and `js/` for Gemini (`AIza…`), Resend (`re_…`), and `sk-…` literals; asserts
+     `index.html` remote API config is only the two `gvp:*-api-url` meta tags plus the public GA
+     measurement id; asserts `admin/index.html` carries only `gvp:contact-api-url`. Run:
+     `node --test`.
 
 2. **All API base URLs come from meta tags, never a hardcoded cross-origin host.**
    Every frontend network call resolves its base from a `<meta>` tag via
@@ -58,9 +63,11 @@ proves it comes FIRST.
      consumers `js/contact.js:1,27,107`, `js/chat.js:4,300,1109`,
      `js/chat-live.js:7,245`; voice WS URL from response body at
      `js/chat-live.js:131-132,1012-1013,1090`.
-   - Proven by: NONE YET — candidate for a characterization test (assert each module's
-     endpoint derives from `site-config` exports + same-origin fallback; assert no
-     `http(s)://` literal endpoints in `js/`).
+   - Proven by: `test/frontend-api-config.test.mjs` — no hardcoded cross-origin `http(s)://`
+     host literals in `js/` (CDN allowlist only); `contact.js` / `chat.js` / `chat-live.js`
+     import `contactApiUrl` / `chatApiUrl` from `site-config.js`; `site-config.js` pins meta
+     names + localhost-only `/api/*` fallbacks; voice uses `websocketUrl` from the session body
+     (`new WebSocket(websocketUrl)`, never a string-literal WS URL). Run: `node --test`.
 
 3. **A valid contact submission is durable before the API returns success.** On the
    ingress path a valid message is written to DynamoDB (`PutItem`, idempotency-guarded)

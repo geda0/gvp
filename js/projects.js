@@ -13,7 +13,7 @@ const DIALOG_IMAGE_TIMEOUT_MS = 8000;
  * Strip HTML to plain text robustly via a detached element's textContent,
  * instead of a regex that mishandles edge cases (entities, malformed tags).
  */
-function htmlToPlainText(html) {
+export function htmlToPlainText(html) {
   if (!html) return '';
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
@@ -182,9 +182,14 @@ export function initProjectDetailDialog() {
     }
     if (titleEl) titleEl.textContent = data.title || ''
     if (descEl) {
-      const plainDesc = (data.descriptionPlain || '').trim()
-      descEl.textContent = plainDesc
-      descEl.hidden = !plainDesc
+      const htmlDesc = (data.description || '').trim()
+      if (htmlDesc) {
+        descEl.innerHTML = htmlDesc
+        descEl.hidden = false
+      } else {
+        descEl.replaceChildren()
+        descEl.hidden = true
+      }
     }
 
     if (techEl) techEl.replaceChildren();
@@ -263,11 +268,11 @@ function createProjectCard(project) {
   const id = project.id || '';
   const cardDescription =
     project.cardDescription ||
-    (project.description ? project.description.replace(/<[^>]+>/g, '').trim() : '');
+    (project.description ? htmlToPlainText(project.description) : '');
 
   if (id) {
     const descriptionPlain = project.description
-      ? project.description.replace(/<[^>]+>/g, '').trim()
+      ? htmlToPlainText(project.description)
       : '';
     projectDetailsById.set(id, {
       title: project.title || '',
