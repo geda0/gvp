@@ -9,18 +9,24 @@ proves it comes FIRST.
 > motion) are proven by `node --test`; **#7** (every chat turn persisted with its terminal
 > `status`) is proven by `docker/chat/tests/test_turn_persistence.py` (all six
 > {ok,error,timeout}×{stream,non-stream} cells); **#9** (first-chunk rate-limit → fallback;
-> committed after first chunk) is now proven by `docker/chat/tests/test_gemini_routing.py` (all
+> committed after first chunk) is proven by `docker/chat/tests/test_gemini_routing.py` (all
 > four clauses — rate-limit→fallback on `astream` + `ainvoke`, committed-midstream propagation,
-> non-rate-limit not retried, distinct-model guard). **#8** is **persisted-row-proven** (the
-> `timeout` row is asserted on both paths, including the persisted-timeout-row cell) but its
-> **cap clause is still open** — the `providers.py` 28s-default / 55s-ceiling resolution is
-> unproven (see #8 "Proven by" + the "Pin chat provider timeout resolution + cap" backlog item).
-> **Proven set: #3, #4, #5, #6, #7, #9 (+#8 partial — persisted-timeout-row proven, cap clause
-> open).** **#1, #2, #10 remain UNPROVEN** (plus #8's cap clause) — each is a candidate for a
-> characterization test and belongs on the upgrade backlog. Each claim is cited to `file:line`
-> so the navigator can confirm it against the code, not take it on faith. Line numbers are from
-> the state of the repo at adoption and may drift; treat the cited function/symbol as the
-> anchor.
+> non-rate-limit not retried, distinct-model guard); **#10** (Live voice timbre pinned to the
+> deep/slow male `Charon` preset + cadence directive) is now proven by
+> `docker/chat/tests/test_live_voice_timbre.py` (all four clauses — default → `Charon`,
+> deliberate override honored verbatim, prebuilt voice on the connect config's `speech_config`,
+> and the prompt-side cadence directive; the AUDIO response-modality half by
+> `test_live_handshake.py`). **#8** is **persisted-row-proven** (the `timeout` row is asserted on
+> both paths, including the persisted-timeout-row cell) but its **cap clause is still open** — the
+> `providers.py` 28s-default / 55s-ceiling resolution is unproven (see #8 "Proven by" + the "Pin
+> chat provider timeout resolution + cap" backlog item).
+> **Proven set: #3, #4, #5, #6, #7, #9, #10 (+#8 partial — persisted-timeout-row proven, cap
+> clause open).** With #10 proven, **every CHAT-layer invariant (#7, #8 timeout-row, #9, #10) now
+> holds**; the only invariants that **remain UNPROVEN are #1 and #2** — both `[app]`-layer frontend
+> guards — **plus #8's cap clause**. Each is a candidate for a characterization test and belongs on
+> the upgrade backlog. Each claim is cited to `file:line` so the navigator can confirm it against
+> the code, not take it on faith. Line numbers are from the state of the repo at adoption and may
+> drift; treat the cited function/symbol as the anchor.
 
 ## Invariants
 
@@ -194,9 +200,24 @@ proves it comes FIRST.
       in `docker/chat/app/knowledge_context.py` `build_live_system_instruction` (voice
       rules "speak with a deep, calm, measured cadence …", landed in commit `b6a64b3`);
       surfaced to admin as `liveVoiceName` at `docker/chat/app/main.py:642-657`.
-    - Proven by: NONE YET — candidate for a characterization test (assert
-      `_live_voice_name()` default is `Charon` and that `_live_connect_config` carries a
-      prebuilt voice + AUDIO modality; assert override via `CHAT_LIVE_VOICE`).
+    - Proven by: `docker/chat/tests/test_live_voice_timbre.py` — all four clauses, calling the
+      pure resolver / config builders directly (no session minting, client, or network):
+      **default → `Charon`** (*test_live_voice_defaults_to_charon*: with `CHAT_LIVE_VOICE` cleared,
+      `_live_voice_name() == 'Charon'`); **deliberate override honored verbatim**
+      (*test_live_voice_override_is_honored*: `CHAT_LIVE_VOICE='Orus'` → `_live_voice_name() ==
+      'Orus'`, not coerced back to the default); **prebuilt voice on the connect config**
+      (*test_connect_config_carries_prebuilt_charon_voice*: `_live_connect_config(...)` →
+      `speech_config.voice_config.prebuilt_voice_config` is a `types.PrebuiltVoiceConfig` with
+      `voice_name == 'Charon'`); and the **prompt-side cadence directive**
+      (*test_live_system_instruction_has_cadence_directive*: `build_live_system_instruction(...)`
+      with `CHAT_VOICE_SYSTEM_APPEND` cleared contains the stable substring `'deep, calm, measured
+      cadence'`). The **AUDIO response-modality** half of the same connect config is proven by
+      `test_live_handshake.py` (`responseModalities == ['AUDIO']`), so the voice-timbre file scopes
+      to the voice/cadence contract. _NON-blocking by-design carve-outs (tdd-critic, backlogged
+      OPTIONAL): the override is echoed for ANY opaque value (no deep/slow-male allowlist — the
+      qualifier is documentary), and the preset + cadence prose are pinned independently rather than
+      coupled against drift (ADR-0003 says they "must move together")._ Run: `cd docker/chat &&
+      PYTHONPATH=. python3 -m pytest tests -q`.
 
 ## Out of scope / explicitly allowed
 
