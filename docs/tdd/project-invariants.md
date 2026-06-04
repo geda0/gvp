@@ -4,15 +4,19 @@ These are the rules the gvp portfolio system must ALWAYS uphold — the things t
 must never silently break. For any new code path that touches one, the test that
 proves it comes FIRST.
 
-> **Honesty note (adoption bootstrap; updated 2026-06-03):** invariants **#3, #4, #5**
+> **Honesty note (adoption bootstrap; updated 2026-06-04):** invariants **#3, #4, #5**
 > (contact durability — landed via the ADR-0006 injectable-core seam) and **#6** (reduced
 > motion) are proven by `node --test`; **#7** (every chat turn persisted with its terminal
-> `status`) is now proven by `docker/chat/tests/test_turn_persistence.py` (all six
-> {ok,error,timeout}×{stream,non-stream} cells). **#8** is **persisted-row-proven** (the
-> `timeout` row is asserted on both paths) but its **cap clause is still open** — the
-> `providers.py` 28s-default / 55s-ceiling resolution is unproven (see #8 "Proven by" + the
-> "Pin chat provider timeout resolution + cap" backlog item). **Proven set: #3, #4, #5, #6,
-> #7 (+#8 partial).** **#1, #2, #9, #10 remain UNPROVEN** — each is a candidate for a
+> `status`) is proven by `docker/chat/tests/test_turn_persistence.py` (all six
+> {ok,error,timeout}×{stream,non-stream} cells); **#9** (first-chunk rate-limit → fallback;
+> committed after first chunk) is now proven by `docker/chat/tests/test_gemini_routing.py` (all
+> four clauses — rate-limit→fallback on `astream` + `ainvoke`, committed-midstream propagation,
+> non-rate-limit not retried, distinct-model guard). **#8** is **persisted-row-proven** (the
+> `timeout` row is asserted on both paths, including the persisted-timeout-row cell) but its
+> **cap clause is still open** — the `providers.py` 28s-default / 55s-ceiling resolution is
+> unproven (see #8 "Proven by" + the "Pin chat provider timeout resolution + cap" backlog item).
+> **Proven set: #3, #4, #5, #6, #7, #9 (+#8 partial — persisted-timeout-row proven, cap clause
+> open).** **#1, #2, #10 remain UNPROVEN** (plus #8's cap clause) — each is a candidate for a
 > characterization test and belongs on the upgrade backlog. Each claim is cited to `file:line`
 > so the navigator can confirm it against the code, not take it on faith. Line numbers are from
 > the state of the repo at adoption and may drift; treat the cited function/symbol as the
@@ -163,9 +167,20 @@ proves it comes FIRST.
      only when the first `__anext__` raises a rate-limit; commit after first yield),
      `:71-97` (`ainvoke` analogue); distinct-model guard
      `docker/chat/app/providers.py:200-201`.
-   - Proven by: NONE YET — candidate for a characterization test (fake primary raising a
-     rate-limit on first chunk; assert fallback streams; assert a mid-stream error after
-     a yield is NOT retried).
+   - Proven by: `docker/chat/tests/test_gemini_routing.py` — all four clauses, asserting the
+     routed-output / propagation contract (not call counts): first-chunk rate-limit → fallback
+     on **streaming** (*test_astream_first_chunk_ratelimit_falls_back*: primary `astream` raises
+     `UpstreamError(429)` before any yield → joined content `== "from-fallback"`) and
+     **non-streaming** (*test_ainvoke_ratelimit_falls_back*: `ainvoke` 429 → `result.content ==
+     "from-fallback"`); committed-after-first-chunk propagation
+     (*test_astream_committed_midstream_error_propagates*: yields `"from-primary"` then raises →
+     `RuntimeError` propagates, `"from-primary"` seen, `"from-fallback"` NOT seen — no fallback
+     restart); non-rate-limit first-chunk error not retried
+     (*test_astream_non_ratelimit_error_not_retried*: plain `RuntimeError` before any yield
+     propagates, `"from-fallback"` NOT seen); and the distinct-model guard
+     (*test_distinct_model_guard_rejects_identical_ids*: `build_llm_runnable` rejects identical
+     `GEMINI_MODEL`/`GEMINI_FALLBACK_MODEL`, builds a `GeminiRoutingChain` for distinct ids).
+     Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 10. **The Gemini Live voice timbre is pinned to a deep, slow male preset.** Every minted
     Live session sets `speech_config` to a prebuilt voice defaulting to **`Charon`**
