@@ -95,36 +95,12 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ## Next up
 
-> _Top of queue after the contact-durability release: items 1–4 + 11 are now in Shipped.
-> Remaining order is unchanged — chat coverage gaps (1–4 below), then frontend guards (5–6),
-> then two small post-release follow-ups (7–8)._
+> _Top of queue after the chat turn-persistence release: items 1–2 (the #7 non-stream +
+> streaming persistence cells) are now in Shipped. Remaining order is unchanged — the next two
+> chat coverage gaps (1–2 below, formerly 3–4), then frontend guards (3–4), then two small
+> post-release follow-ups (5–6), then one low-priority cap follow-up (7)._
 
-1. **Chat error/timeout turns are persisted with the right status** — `[chat]` — _closes
-   the #7 GAP: a failed or timed-out turn must leave a row tagged `error`/`timeout` (with
-   `errorCode`) so it surfaces in the admin panel instead of vanishing into logs._
-   - [ ] When the chain raises a non-rate-limit error on a non-streaming turn, exactly one
-         transcript row is persisted with `status == 'error'` and a populated
-         `errorCode`/`errorMessage`.
-   - [ ] When a non-streaming turn exceeds the provider timeout, exactly one transcript row
-         is persisted with `status == 'timeout'` (in addition to the already-proven 504).
-   - [ ] (Already proven — do not re-add) a successful non-streaming turn persists one row;
-         this item only adds the error and timeout cases.
-   - _Drive a fake chain + in-memory/stub store through `/api/chat` (`stream:false`).
-     The OK path is already covered by `test_chat_persists_transcript_turn`._
-
-2. **Chat streaming turns persist on every terminal state** — `[chat]` — _closes the
-   #7/#8 streaming GAP: the SSE path (`_chat_stream`) is completely untested; every existing
-   chat test uses `stream:false`._
-   - [ ] A successful streaming turn (`stream:true`) persists exactly one transcript row
-         with `status == 'ok'` after the stream completes.
-   - [ ] A streaming turn whose chain errors **after** the stream has started persists one
-         row with `status == 'error'`.
-   - [ ] A streaming turn that exceeds the per-chunk deadline persists one row with
-         `status == 'timeout'`.
-   - _Exercises `_chat_stream` + `_persist_text_turn(status=stream_status)`. Per ADR-0002,
-     assert persistence + telemetry, not that the wire is byte-incremental on every host._
-
-3. **Chat falls back to the secondary model on a first-chunk rate limit** — `[chat]` —
+1. **Chat falls back to the secondary model on a first-chunk rate limit** — `[chat]` —
    _closes the #9 GAP: `GeminiRoutingChain` itself is untested; only its rate-limit
    classifier and the daily-reset state tracker are covered today._
    - [ ] When the primary model raises an upstream rate-limit on the **first** chunk, the
@@ -138,7 +114,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Fake primary chain that raises a rate-limit on first `__anext__`; assert against both
      `astream` and `ainvoke`._
 
-4. **Gemini Live voice timbre is pinned to the deep/slow male preset** — `[chat]` — _closes
+2. **Gemini Live voice timbre is pinned to the deep/slow male preset** — `[chat]` — _closes
    the #10 GAP: the Charon timbre lock + cadence directive is a brand contract that no test
    currently guards._
    - [ ] With no override, the resolved Live voice name is **`Charon`**.
@@ -151,7 +127,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Assert `_live_voice_name()` + `_live_connect_config(...)` + `build_live_system_instruction`.
      Changing the default or the cadence prose is a product decision (supersede ADR-0003)._
 
-5. **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant #1: the
+3. **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant #1: the
    browser bundle (HTML/CSS/JS) never contains the Resend, Gemini, or admin API keys; a
    regression that hardcodes a key fails CI instead of leaking to production._
    - [ ] A guard test scanning the shipped frontend (HTML/CSS/JS) finds **no** Gemini
@@ -162,7 +138,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
          would **fail** if a key-shaped literal were added to any shipped frontend file.
    - _Cheap, high-signal guard. Decision (a) does not affect this item._
 
-6. **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant #2
+4. **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant #2
     (reframed per resolved decision (a)): every frontend network base derives from a
     `<meta>` tag via `site-config`, with only a same-origin local-dev fallback; no module
     hardcodes a remote API hostname._
@@ -178,7 +154,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
     - _Navigator decision (a) sets the framing (meta + same-origin fallback, not literal
       single-origin)._
 
-7. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
+5. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
    sender's `sending` transition is currently unpinned, so a refactor could drop it (losing
    the in-flight attempt bump that the admin panel and retry accounting rely on) without any
    test going red._
@@ -190,7 +166,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      `test/contact-sender-core.test.mjs` (the happy-path test injects a no-op `markSending`
      today; this asserts its call + ordering)._
 
-8. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
+6. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
    SQS delivery job is asserted to carry the message `id`, but not an `idempotencyKey`;
    dropping that field would weaken redelivery de-duplication without a red test._
    - [ ] On a valid submission, the job handed to `enqueueDelivery` carries a **non-empty
@@ -199,6 +175,19 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Low priority. One added assertion on the captured `enqueuedJob` in the existing valid-
      submission test in `test/contact-ingress-core.test.mjs`._
 
+7. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
+   turn-persistence tests bypass (tdd-critic note): the persisted `timeout` row is proven, but
+   `providers.py`'s timeout resolution — the 28s Gemini default and the 55s API-Gateway
+   ceiling — is only half-covered (`test_gemini_default_upstream_timeout` proves the default,
+   nothing proves the cap)._
+   - [ ] With no override, `get_provider_timeout_seconds('gemini')` resolves the Gemini
+         default of **28s** (already proven by `test_gemini_default_upstream_timeout` — this
+         item only adds the cap case).
+   - [ ] A `>55s` override (e.g. `GEMINI_TIMEOUT_SECONDS`/`CHAT_PROVIDER_TIMEOUT_SECONDS`) is
+         **clamped to the 55s** API-Gateway integration ceiling, not passed through.
+   - [ ] Lowering or removing the clamp makes the test **fail** in CI.
+   - _Low priority. Extends `test_providers.py`; closes the last open clause of invariant #8._
+
 ## In progress
 - _see `design-notes.md` + `progress.md`_
 
@@ -206,6 +195,56 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
 `test/starfield-reduced-motion.test.mjs`; app 10/10 · chat 70/70 green._
+
+**Release: chat turn-persistence characterization (signed off 2026-06-03).** Chat suite
+**75/75** green (`cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`; +5 from the 70/70
+adoption baseline), tdd-critic = PASS. This is a `[chat]`-layer characterization feature — **no
+UX change** — so sign-off is code-level against the 5 new tests in
+`docker/chat/tests/test_turn_persistence.py`; no running-app QA pass. With this release
+**invariant #7 moves UNPROVEN → PROVEN** (all six {ok,error,timeout}×{stream,non-stream}
+persistence cells now exist) and **invariant #8 advances PARTIAL → mostly proven** (the
+persisted `timeout` row is now proven on both paths; only the `providers.py` 28s-default/55s-cap
+clause stays open → new Next-up #7). _Honesty caveat carried into #7's "Proven by": five of the
+six cells assert the persisted row's `status`; the **non-stream-ok** cell
+(`test_chat_persists_transcript_turn`) proves the row persists but does **not** assert
+`turn['status']=='ok'` (it asserts HTTP `status_code==200`). Harmless — it is the success path —
+and noted rather than papered over._
+
+- **Chat error/timeout turns are persisted with the right status** — `[chat]` — _invariant
+  **#7**, non-stream half, now PROVEN._ ✓ ACCEPTED. Bullet → proving test
+  (`docker/chat/tests/test_turn_persistence.py`):
+  - Non-rate-limit error on a non-streaming turn → exactly one row, `status=='error'` with a
+    populated `errorCode`/`errorMessage` → **S1** *test_non_stream_error_persists_one_error_row*
+    (`_BoomChain.ainvoke` raises `RuntimeError`; asserts `len(stub.calls)==1`,
+    `turn['status']=='error'`, `turn['errorCode']` truthy, `turn['errorMessage']` a non-empty str).
+  - Non-streaming turn over the provider timeout → exactly one row, `status=='timeout'` (beyond
+    the already-proven 504) → **S2** *test_non_stream_timeout_persists_one_timeout_row*
+    (`_SlowChain(0.05)` vs `provider_timeout_seconds=0.01`; asserts `len(stub.calls)==1`,
+    `turn['status']=='timeout'`, `turn['errorCode']=='upstream_timeout'`).
+  - (Already proven — not re-added) a successful non-streaming turn persists one row →
+    `test_transcript_store.py::test_chat_persists_transcript_turn` (proves the row persists;
+    does not assert `turn['status']` — see honesty caveat above).
+
+- **Chat streaming turns persist on every terminal state** — `[chat]` — _invariant **#7/#8**,
+  streaming half, now PROVEN (the `_chat_stream`/SSE path was previously 0% covered — every
+  prior chat test used `stream:false`)._ ✓ ACCEPTED. Bullet → proving test
+  (`docker/chat/tests/test_turn_persistence.py`, asserting the persisted row per ADR-0002, not
+  the SSE bytes):
+  - Successful streaming turn (`stream:true`) → one row, `status=='ok'`, flagged streamed →
+    **S3** *test_streaming_success_persists_one_ok_row* (`_StreamChain.astream` yields two
+    chunks then completes; after `resp.aread()` asserts `len(stub.calls)==1`,
+    `turn['status']=='ok'`, `turn['stream'] is True`).
+  - Streaming turn that errors **after** the stream started → one row, `status=='error'` →
+    **S4** *test_streaming_midstream_error_persists_one_error_row* (`_MidStreamBoomChain` yields
+    one chunk then raises; asserts `len(stub.calls)==1`, `turn['status']=='error'`,
+    `turn['errorCode']` truthy).
+  - Streaming turn past the per-chunk deadline → one row, `status=='timeout'` → **S5**
+    *test_streaming_timeout_persists_one_timeout_row* (`_StallStreamChain(0.05)` stalls before
+    the first chunk vs `provider_timeout_seconds=0.01` → per-chunk `asyncio.wait_for`; asserts
+    `len(stub.calls)==1`, `turn['status']=='timeout'`, `turn['errorCode']=='upstream_timeout'`).
+  - _Carve-out (tdd-critic note, now Next-up #7): the persisted `timeout` row is proven here
+    (S2 non-stream, S5 streaming) but the `providers.py` 28s-default/55s-cap resolution is the
+    one #8 clause these tests bypass — backlogged, not silently closed._
 
 **Release: contact durability + canonical-bar CI (signed off 2026-06-03).** Full app suite
 **23/23** green (`node --test`), chat **70/70** unchanged, tdd-critic = PASS. Backend
@@ -298,12 +337,15 @@ release decision — behavior is unchanged, so it can ride the next deploy._
   (`aws/template.yaml`, ADR-0004); invariant #1's Secrets-Manager / SAM-param injection
   (ADR/architecture review).
 - **Best-effort persistence when unconfigured.** With `CHAT_TRANSCRIPTS_TABLE` unset,
-  `build_transcript_store()` returns `None` and turns intentionally skip persistence — items
-  5 and 6 assert behavior **with a store configured** (the no-op-when-unconfigured path is
-  already covered by `test_build_transcript_store_requires_table`).
-- **Token-by-token wire streaming is ECS-only** (Lambda/Mangum buffers SSE). Item 6 asserts
-  the turn is persisted with stream telemetry, not that the bytes arrive incrementally.
+  `build_transcript_store()` returns `None` and turns intentionally skip persistence — the
+  shipped turn-persistence tests (`test_turn_persistence.py`, S1–S5) assert behavior **with a
+  store configured** via a stub; the no-op-when-unconfigured path is already covered by
+  `test_build_transcript_store_requires_table`.
+- **Token-by-token wire streaming is ECS-only** (Lambda/Mangum buffers SSE). The shipped
+  streaming-persistence tests (S3–S5) assert the turn is persisted with stream telemetry, not
+  that the bytes arrive incrementally (they assert the persisted row per ADR-0002).
 - **Voice working end-to-end is a deployment-topology property** (API Gateway can't upgrade
-  WebSockets); item 8 pins the voice *config/timbre*, not live network success.
+  WebSockets); Next-up item 2 (Gemini Live voice timbre) pins the voice *config/timbre*, not
+  live network success.
 - **Exact model ids, theme cosmetics, and CORS allowlist contents** are configuration, not
   invariants — only the behaviors (fallback, bounded timeout, never-`*` CORS) are.

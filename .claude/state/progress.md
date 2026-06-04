@@ -6,13 +6,20 @@
 - Feature in flight: **none** — **contact durability (items 2–4) SHIPPED + accepted**
   (product-owner sign-off 2026-06-03; tdd-critic = PASS). Both contact Lambdas extracted to
   injectable cores behind thin composition roots; invariants **#3/#4/#5 now PROVEN**.
-- Active layer: app · Current phase: **off** (milestone boundary, no active TDD cycle).
-- Suite now: **app `node --test` 23/23 green** · chat 70/70 green. Floor: `node --test`.
-- NOT committed/deployed yet: the worktree holds all bootstrap + feature changes uncommitted
-  (awaiting navigator's commit decision). Deploying the refactored Lambdas is a SEPARATE
-  release decision — behavior is unchanged by design (ADR-0006), so it can ride the next deploy.
-- Next feature (top of backlog "Next up"): **chat coverage gaps** (items 1–4, `[chat]` layer —
-  switch `.claude/state/layer` to `chat`).
+- Active layer: app · Current phase: **off**.
+- Harness: **upgraded to team-tactics 0.7.0** (was teamentic 0.5.0) — selftest 13/13 PASS;
+  referee semantics unchanged; adds the **tic protocol** (`.claude/state/tics.jsonl`, gitignored)
+  — emit a `delegate` tic before each handoff via `.claude/hooks/tic.sh`; hooks log `signal`/`block`.
+- Suite now: **app `node --test` 23/23 green** · **chat pytest 75/75 green** (was 70 — +5
+  turn-persistence tests). Floor: `node --test`.
+- Feature in flight: **none** — **chat turn-persistence (items 1–2) SHIPPED + accepted**
+  (tdd-critic PASS; product-owner sign-off). Invariants **#7 PROVEN**; **#8** timeout-row
+  proven (the 28s/55s cap clause is an open follow-up). 5 characterization tests added in
+  `docker/chat/tests/test_turn_persistence.py` (all green-on-write — behavior pre-existed).
+- Committed: bootstrap + contact + kit upgrade = **5 logical commits**. The chat feature
+  (test_turn_persistence.py + state/doc updates) is **NOT yet committed** — awaiting navigator.
+- Next backlog item: chat fallback on first-chunk rate-limit (#9), then voice timbre (#10),
+  then frontend guards (#1/#2).
 
 ## Bootstrap deliverables (done this session)
 - **Harness:** `.claude/tdd.config` now has TWO layers — `app` (node:test over
@@ -42,6 +49,21 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **Chat turn-persistence (items 1–2) SHIPPED** under team-tactics 0.7.0. Ran the
+  red→green loop on the `chat` layer: planner sliced S1–S5; test-writer added 5 characterization
+  tests (non-stream error/timeout + streaming ok/error/timeout) to
+  `docker/chat/tests/test_turn_persistence.py` — all green-on-write (the persistence behavior
+  pre-existed in `main.py`; we pinned it). chat 70→75 green. Emitted `delegate` tics per the new
+  protocol; hooks logged `signal` tics (`.claude/state/tics.jsonl`). tdd-critic = PASS;
+  product-owner accepted → Shipped; invariants #7 PROVEN, #8 timeout-row proven (cap clause
+  backlogged). Not yet committed.
+- 2026-06-04 — Adopted **team-tactics 0.7.0** (rename from teamentic 0.5.0; adds tic protocol).
+  Ran `npx github:geda0/team-tactics#v0.7.0 update` — NOT `npx tics` (that resolves to an
+  unrelated npm package `tics@3.x`; team-tactics ships from the git repo only). Refreshed
+  mechanism files + AGENTS/CLAUDE/KICKOFF managed blocks; manifest dir `.teamentic`→`.team-tactics`;
+  added `tic.sh` + `docs/tics/tic-protocol.md`; `.gitignore` now ignores `tics.jsonl`. Data files
+  preserved (configSchema still 2). selftest **13/13 PASS**, suite **23/23**. Committed the whole
+  session (bootstrap + contact + kit) as 5 logical commits. Next: chat coverage (items 1–2).
 - 2026-06-03 — Contact sender (item 4) + FEATURE ACCEPTANCE: S6–S9 green, 23/23 `node --test`.
   Drove `aws/src/contact-sender-core.js` (success→markSent · skip already-sent/missing ·
   fail→markFailed+rethrow; NO @aws-sdk) red→green; S9 rewrote `contact-sender.js` → thin

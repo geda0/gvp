@@ -2,68 +2,60 @@
 
 > Orchestrator maintains this. Subagents start fresh; anything that must survive
 > between cycles lives here.
+>
+> _Previous feature (contact durability, items 2–4) SHIPPED + committed 2026-06-03;
+> see git history + backlog "Shipped". Harness upgraded to team-tactics 0.7.0 (tics)._
 
 ## Feature goal
-> ✅ **SHIPPED + accepted 2026-06-03** (tdd-critic PASS; product-owner sign-off; 23/23 green;
-> invariants #3/#4/#5 proven). Kept below as the durable record of this feature. The next
-> feature (chat coverage gaps, `[chat]` layer) will repopulate this file via planner/PO.
+**Characterize chat turn-persistence** (invariants #7 + #8) on the `[chat]` (pytest) layer —
+close the gaps the existing 70-test suite leaves: today only the **non-stream OK** turn is
+proven (`test_chat_persists_transcript_turn`), and `status` is never asserted. We must prove
+that EVERY chat turn leaves exactly one transcript row tagged with the right `status`
+(`ok`/`error`/`timeout`) — so failed/timed-out attempts surface in the admin panel instead of
+vanishing — across BOTH the non-streaming and the entirely-untested streaming (`_chat_stream`)
+paths.
 
-**Characterize contact-pipeline durability** (invariants #3/#4/#5 — "no dropped
-submissions") with `node --test`, via the ADR-0006 injectable-core seam. Today the
-contact Lambda JS has ZERO node tests; this feature proves the durability behavior
-that the product relies on, without changing what the deployed Lambdas do.
+Backlog Next-up items 1 (error/timeout status) + 2 (streaming terminal states). `[chat]` layer
+= `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
-Backlog items 2, 3, 4 (app layer). See `.claude/state/backlog.md` for full acceptance.
+## Test seam (to be confirmed by the planner from the code)
+Drive `POST /api/chat` through the FastAPI app with a FAKE routing chain (raises a
+non-rate-limit error / sleeps past the timeout / streams chunks then errors) and a
+configured-but-stub/in-memory `TranscriptStore`, then assert the persisted row's `status` +
+`errorCode`/`errorMessage`. Targets: `_persist_text_turn` (main.py ~664-732), the non-stream
+path (ok ~842, timeout ~799, error ~823) and `_chat_stream` (~864-941). Reuse the existing
+pytest fixtures — discover them from `docker/chat/tests/conftest.py`,
+`test_transcript_store.py`, `test_readiness_timeout.py`, `test_api.py` (every existing chat
+test uses `stream:false`).
 
-## The seam (ADR-0006 — Approach B, injectable core)
-Extract logic into NEW pure modules that import **no `@aws-sdk`**; the existing
-handlers become thin composition roots that build the real clients and wire them,
-keeping `export const handler` + deployed behavior identical.
+## Acceptance checklist (observable; from backlog items 1–2)
+- [ ] (chat) non-stream: chain raises a non-rate-limit error → exactly ONE row with
+      `status=='error'` and populated `errorCode`/`errorMessage`.
+- [ ] (chat) non-stream: exceeds the provider timeout → exactly ONE row with
+      `status=='timeout'` (in addition to the already-proven 504).
+- [ ] (chat) (already proven — do NOT re-add) non-stream ok → one row `status=='ok'`.
+- [ ] (chat) stream (`stream:true`): success → exactly ONE row `status=='ok'` after the
+      stream completes.
+- [ ] (chat) stream: chain errors AFTER the stream has started → one row `status=='error'`.
+- [ ] (chat) stream: per-chunk deadline exceeded → one row `status=='timeout'`.
 
-```
-aws/src/contact-ingress-core.js
-  export function createIngressHandler({ persistMessage, enqueueDelivery, env = process.env })
-    persistMessage(record): Promise<void>            // real impl keeps attribute_not_exists(id)
-    enqueueDelivery({ id, idempotencyKey }): Promise<void>
-aws/src/contact-sender-core.js
-  export function createSenderHandler({ store, sendEmail, env = process.env })
-    store: { loadMessage, markSending, markSent, markFailed }   // each -> Promise<void>
-    sendEmail(args): Promise<{ id? }>                            // root binds sendViaResend
-```
-Each factory returns `async (event) => response` (same shape as today). Tests import the
-`*-core.js` factories and inject fakes — the node test layer needs no `@aws-sdk` and no
-CI install step.
-
-## Acceptance checklist (observable; from items 2–4)
-- [ ] (app) valid submission → `persistMessage` then `enqueueDelivery` both called, IN
-      THAT ORDER, before a `200` whose body reports persisted + queued.
-- [ ] (app) `persistMessage` throws → `500` (no false success; no enqueue).
-- [ ] (app) `enqueueDelivery` throws after a successful persist → `500`.
-- [ ] (app) honeypot: `company` non-empty → `200` with NO `persistMessage` / NO
-      `enqueueDelivery` (and so no delivery email).
-- [ ] (app) honeypot empty → normal persist+enqueue path (honeypot never blocks real traffic).
-- [ ] (app) sender: row already `status==='sent'` → no-op (`sendEmail` NOT called; no dup).
-- [ ] (app) sender: `sendEmail` fails → `markFailed` AND re-throw (so SQS redelivers).
-- [ ] (app) sender: `sendEmail` succeeds → `markSent`.
+## Invariants
+- #7 — every chat text turn persisted before the response returns (ok/error/timeout, stream
+  + non-stream). Today PARTIAL (only non-stream ok, status unasserted).
+- #8 — each provider call bounded by a timeout (504 + persisted `timeout` row; streaming
+  per-chunk deadline). Today PARTIAL (504 proven; persisted timeout row + streaming deadline
+  not).
 
 ## Decisions made
-- 2026-06-03 — Approach B (injectable core) over mocking the SDK in place (ADR-0006),
-  because it keeps the always-present `node --test` floor `@aws-sdk`-free / install-free
-  (ADR-0005). No CI or package.json change.
-- New constraint (watch in tdd-critic): `contact-*-core.js` must NEVER import `@aws-sdk/*`.
-- Not unit-tested here (by design): the `attribute_not_exists(id)` idempotency guard and
-  the SQS redrive→DLQ→CloudWatch-alarm half of #5 live in the composition root / infra —
-  asserted by review against ADR-0004/0006, not a node unit test.
+- (pending) exact fake-chain + stub-store seam — planner to determine from conftest.py and
+  reuse existing fixtures; assert persistence + telemetry, NOT byte-incremental wire (ADR-0002:
+  Lambda/Mangum buffers SSE, so token-by-token isn't guaranteed on every host).
 
 ## Next 1–3 behaviors to specify
-1. Ingress valid path: `persistMessage` then `enqueueDelivery`, then `200 {persisted, queued}`
-   (establishes the `createIngressHandler` seam).
-2. Ingress failure mapping: persist throws → 500; enqueue throws → 500.
-3. Ingress honeypot: `company` set → 200 + no IO; `company` empty → normal path.
-   (Sender slices 4–8 follow once the ingress seam is green.)
+1. Non-stream error → one row `status='error'` (+ errorCode).
+2. Non-stream timeout → one row `status='timeout'`.
+3. Streaming ok → one row `status='ok'` (brings the `_chat_stream` path under test).
 
 ## Deferred smells / tech debt
-- `contact-ingress.js` / `contact-sender.js` logic is inline today; extraction to the
-  cores is part of THIS feature (green/refactor), keeping deploy behavior equivalent.
-- Pure helpers `common/contact-shared.js` (buildMessageRecord/validateMessage) and
-  `common/resend.js` are directly unit-testable — candidate follow-up coverage.
+- Item 3 (first-chunk rate-limit → fallback) and item 4 (voice timbre lock) are separate
+  backlog items — not in this feature.
