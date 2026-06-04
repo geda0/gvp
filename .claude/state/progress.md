@@ -6,14 +6,16 @@
 - Feature in flight: **none**. Shipped + accepted this session: **contact durability**
   (#3/#4/#5) and **chat turn-persistence** (#7; #8 timeout-row — 28s/55s cap clause open).
   Active layer: app · phase: **off**.
-- Harness: **team-tactics 0.8.0** (teamentic 0.5.0 → 0.7.0 → 0.8.0). selftest 13/13; tic
-  protocol live (auto-handoff SubagentStop hook; `.claude/state/tics.jsonl`, gitignored).
+- Harness: **team-tactics 0.8.5** (0.5.0 → 0.7.0 → 0.8.0 → 0.8.3 → 0.8.5). selftest 13/13; tic
+  protocol live (local `tics` viewer; per-layer auto-scope).
 - Suites: **app `node --test` 23/23** · **chat pytest 75/75** green.
-- **Deployed to STAGING (2026-06-04):** merged this branch → `agent` (`514f938`, conflict-free,
-  staging API URLs preserved) and pushed `origin/agent` → Amplify staging build;
-  `chat.marwanelgendy.link` reachable. See `releases.md`. ⚠ Amplify deploys the static FRONTEND
-  only (unchanged by this work, which is backend/tests/docs/harness); the refactored contact
-  Lambdas reach staging only via a SEPARATE `integrate-and-deploy.sh stage` / `workflow_dispatch`.
+- **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
+  pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
+  and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
+  Amplify builds the frontends (`agent`→chat.marwanelgendy.link · `main`→www.marwanelgendy.link).
+  Prod deploy run `26938125929` GREEN; QA-gated by a staging E2E contact submission (qa-verifier
+  PASS). Prod chat (ECS `chat-api.marwanelgendy.link`) untouched/manual. `main` = `fda626f` (=
+  this branch). See `releases.md`. ⚠ CI actions on Node20 (GitHub deprecation 2026-06-16).
 - Commits on `claude/compassionate-dubinsky-de3583` (8 this session): harness/ADRs/invariants ·
   CI · contact · state · kit 0.7.0 · chat tests · chat state · kit 0.8.0 (`cb2317b`).
 - Next backlog item: chat fallback on first-chunk rate-limit (#9), then voice timbre (#10),
@@ -47,6 +49,17 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **PRODUCTION DEPLOY — GREEN.** Per navigator (Go, full prod deploy), gated on a
+  staging E2E contact submission (qa-verifier **PASS**: persist→sent in ~2.8s, honeypot no-IO,
+  400 on invalid). Built the prod CI pipeline: OIDC role `gvp-prod-ci-deploy` (main-only trust,
+  contact-only policy scoped to `page`; no IAM iteration needed — preloaded the staging-learned
+  perms), `AWS_DEPLOY_ROLE_ARN_PROD` secret, `deploy-prod.yml` (push→main path-filtered +
+  dispatch, test-gated, `integrate-and-deploy.sh prod`). FF-pushed `main` (639eea8→`fda626f`, 16
+  commits) → auto-triggered `deploy-prod` run **26938125929** (test ✅ + deploy ✅, 1m23s) +
+  Amplify www rebuild. Health: `page` UPDATE_COMPLETE, contact `lwi0vmdpb5` OPTIONS 204 (matches
+  FE prod meta), `www.marwanelgendy.link` 200, prod chat ECS `chat-api.marwanelgendy.link` 200
+  (untouched). Frontend visually unchanged (work is backend/tooling). 1 staging QA item to clean
+  (`cfe4b88e…` in page-staging-ContactMessagesTable).
 - 2026-06-04 — **Adopted team-tactics 0.8.5 + DEPLOYED to STAGE (contact-only, GREEN).** 0.8.5 was
   untagged on `main`; navigator pushed `v0.8.5` (commit `7badc88`), then `npx …#v0.8.5 update`:
   tics-view `.js`→`.cjs` (CommonJS) + new `sections.md` context-map seed; gate unchanged (settings
