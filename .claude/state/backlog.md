@@ -95,26 +95,14 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ## Next up
 
-> _Top of queue after the chat model-fallback release: the #9 item (chat falls back to the
-> secondary model on a first-chunk rate limit) is now in Shipped. Remaining order is unchanged —
-> the last chat coverage gap (1 below, formerly 2), then frontend guards (2–3), then two small
-> post-release follow-ups (4–5), then one low-priority cap follow-up (6), then two low-priority
-> #9 pinning follow-ups from the tdd-critic (7–8)._
+> _Top of queue after the chat voice-timbre release: the #10 item (Gemini Live voice timbre pinned
+> to the deep/slow male preset) is now in Shipped — and with it **every CHAT-layer invariant is
+> proven**. The remaining UNPROVEN invariants (#1, #2) are both `[app]`-layer frontend guards, now
+> at the top of the queue. Order: frontend guards (1–2), then two small post-release follow-ups
+> (3–4), then one low-priority #8 cap follow-up (5), then two low-priority #9 pinning follow-ups
+> (6–7), then two low-priority #10 hardening follow-ups from the tdd-critic (8–9, optional)._
 
-1. **Gemini Live voice timbre is pinned to the deep/slow male preset** — `[chat]` — _closes
-   the #10 GAP: the Charon timbre lock + cadence directive is a brand contract that no test
-   currently guards._
-   - [ ] With no override, the resolved Live voice name is **`Charon`**.
-   - [ ] A minted Live connect config carries a **prebuilt voice** in its `speech_config`
-         and the **AUDIO** response modality.
-   - [ ] Setting `CHAT_LIVE_VOICE` to another preset changes the resolved voice name to that
-         value (override is deliberate, not silent).
-   - [ ] The voice-mode system instruction opens with the deep/calm/measured-cadence
-         directive (cadence is steered by the prompt, per ADR-0003).
-   - _Assert `_live_voice_name()` + `_live_connect_config(...)` + `build_live_system_instruction`.
-     Changing the default or the cadence prose is a product decision (supersede ADR-0003)._
-
-2. **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant #1: the
+1. **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant #1: the
    browser bundle (HTML/CSS/JS) never contains the Resend, Gemini, or admin API keys; a
    regression that hardcodes a key fails CI instead of leaking to production._
    - [ ] A guard test scanning the shipped frontend (HTML/CSS/JS) finds **no** Gemini
@@ -125,7 +113,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
          would **fail** if a key-shaped literal were added to any shipped frontend file.
    - _Cheap, high-signal guard. Decision (a) does not affect this item._
 
-3. **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant #2
+2. **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant #2
     (reframed per resolved decision (a)): every frontend network base derives from a
     `<meta>` tag via `site-config`, with only a same-origin local-dev fallback; no module
     hardcodes a remote API hostname._
@@ -141,7 +129,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
     - _Navigator decision (a) sets the framing (meta + same-origin fallback, not literal
       single-origin)._
 
-4. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
+3. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
    sender's `sending` transition is currently unpinned, so a refactor could drop it (losing
    the in-flight attempt bump that the admin panel and retry accounting rely on) without any
    test going red._
@@ -153,7 +141,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      `test/contact-sender-core.test.mjs` (the happy-path test injects a no-op `markSending`
      today; this asserts its call + ordering)._
 
-5. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
+4. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
    SQS delivery job is asserted to carry the message `id`, but not an `idempotencyKey`;
    dropping that field would weaken redelivery de-duplication without a red test._
    - [ ] On a valid submission, the job handed to `enqueueDelivery` carries a **non-empty
@@ -162,7 +150,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Low priority. One added assertion on the captured `enqueuedJob` in the existing valid-
      submission test in `test/contact-ingress-core.test.mjs`._
 
-6. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
+5. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
    turn-persistence tests bypass (tdd-critic note): the persisted `timeout` row is proven, but
    `providers.py`'s timeout resolution — the 28s Gemini default and the 55s API-Gateway
    ceiling — is only half-covered (`test_gemini_default_upstream_timeout` proves the default,
@@ -175,7 +163,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - [ ] Lowering or removing the clamp makes the test **fail** in CI.
    - _Low priority. Extends `test_providers.py`; closes the last open clause of invariant #8._
 
-7. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
+6. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
    sign-off: the in-turn first-chunk fallback is now proven, but the routing chain's memory that
    the **primary already rate-limited this run** is unpinned — a refactor could drop
    `note_primary_rate_limited()` and no test would go red, silently re-hammering the throttled
@@ -186,7 +174,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Low priority. Pins the cross-turn half of #9 that the in-turn fallback tests
      (`test_gemini_routing.py`) do not exercise._
 
-8. **Pin `last_model_id` (which model answered)** — `[chat]` — _tdd-critic follow-up on the #9
+7. **Pin `last_model_id` (which model answered)** — `[chat]` — _tdd-critic follow-up on the #9
    sign-off: the admin telemetry surfaces which model committed a turn, but nothing asserts the
    committed model id, so a routing refactor could mis-report it (e.g. always the primary) without
    a red test._
@@ -196,6 +184,29 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - [ ] Reporting the wrong committed model id makes the test **fail** in CI.
    - _Low priority. Asserts the committed-model id the admin telemetry reads._
 
+8. **Enforce the deep/slow-male voice family (allowlist)** — `[chat]` — _tdd-critic OPTIONAL
+   follow-up on the #10 sign-off: `_live_voice_name()` echoes any opaque `CHAT_LIVE_VOICE` value
+   verbatim (`(os.environ.get('CHAT_LIVE_VOICE') or 'Charon').strip() or 'Charon'`), so the
+   'deep/slow male' qualifier in invariant #10 is **documentary, not enforced** — an operator could
+   set the override to a bright/female preset and nothing would object._ **(low priority / OPTIONAL)**
+   - [ ] A `CHAT_LIVE_VOICE` override that is **not** in a blessed deep/slow-male allowlist is
+         rejected or coerced back to the `Charon` default (rather than echoed verbatim).
+   - [ ] An override that **is** in the allowlist is honored unchanged (S2's deliberate-override
+         behavior is preserved for blessed presets).
+   - _Optional hardening; would tighten invariant #10 from "deliberate override" to "deliberate
+     override within the brand voice family." Changing the allowlist is a product decision
+     (supersede ADR-0003). Skippable — today's behavior is by design (operator-trusted env)._
+
+9. **Couple the voice preset + cadence prose against drift** — `[chat]` — _tdd-critic OPTIONAL
+   follow-up on the #10 sign-off: S3 (prebuilt `Charon` in `speech_config`) and S4 (the cadence
+   directive in `build_live_system_instruction`) pin the **two halves independently**, but ADR-0003
+   notes the preset and the cadence prose "must move together"; a refactor could change one without
+   the other and no single test would catch the silent drift._ **(low priority / OPTIONAL)**
+   - [ ] A single higher-level test ties the resolved voice preset to the matching cadence
+         directive, so changing one half without the other makes the test **fail** in CI.
+   - _Optional hardening; closes the coupling gap ADR-0003 calls out. The independent halves are
+     already proven by S3/S4 — this only guards them against drifting apart._
+
 ## In progress
 - _see `design-notes.md` + `progress.md`_
 
@@ -203,6 +214,51 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
 `test/starfield-reduced-motion.test.mjs`; app 10/10 · chat 70/70 green._
+
+**Release: Gemini Live voice-timbre lock characterization (#10) (signed off 2026-06-04).** Chat
+suite **84/84** green (`cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`; +4 from the
+80/80 model-fallback baseline), tdd-critic = PASS-on-substance. This is a `[chat]`-layer
+characterization feature — **no UX change** — so sign-off is code-level against the 4 new tests in
+`docker/chat/tests/test_live_voice_timbre.py`; no running-app QA pass. With this release **invariant
+#10 moves UNPROVEN → PROVEN** (all four clauses — default → `Charon`, deliberate override honored
+verbatim, prebuilt voice on the connect config's `speech_config`, and the prompt-side cadence
+directive; the AUDIO response-modality half was already proven by `test_live_handshake.py`). The
+tests call the **pure resolver / config builders** directly (`_live_voice_name()`,
+`_live_connect_config(...)`, `build_live_system_instruction(...)`) — no session minting, client, or
+network — so the proof pins the observable contract and survives a transport refactor. **With #10
+shipped the entire CHAT layer's invariants (#7, #8 timeout-row, #9, #10) are proven; the only
+remaining UNPROVEN invariants — #1 and #2 — are both `[app]`-layer frontend guards.** _Two
+LOW-priority / OPTIONAL hardening follow-ups from the tdd-critic were filed (Next-up 8–9), both
+by-design today and explicitly skippable: (8) `_live_voice_name()` echoes ANY opaque
+`CHAT_LIVE_VOICE` — the 'deep/slow male' qualifier is documentary, not enforced (no allowlist); and
+(9) S3/S4 pin the preset and the cadence prose independently, so a single coupling test could guard
+the two halves ADR-0003 says "must move together" against silent drift._
+
+- **Gemini Live voice timbre is pinned to the deep/slow male preset** — `[chat]` — _invariant
+  **#10**, now PROVEN._ ✓ ACCEPTED. Bullet → proving test
+  (`docker/chat/tests/test_live_voice_timbre.py`):
+  - With no override, the resolved Live voice name is **`Charon`** (the deep/measured male default)
+    → **S1** *test_live_voice_defaults_to_charon* (`monkeypatch.delenv('CHAT_LIVE_VOICE')`;
+    asserts `_live_voice_name() == 'Charon'`).
+  - Setting `CHAT_LIVE_VOICE` to another preset changes the resolved voice to that value — the
+    override is deliberate, never silently coerced → **S2** *test_live_voice_override_is_honored*
+    (`monkeypatch.setenv('CHAT_LIVE_VOICE', 'Orus')`; asserts `_live_voice_name() == 'Orus'`,
+    echoed verbatim — not forced back to `Charon`).
+  - A minted Live connect config carries a **prebuilt voice** named `Charon` in its `speech_config`
+    → **S3** *test_connect_config_carries_prebuilt_charon_voice* (builds
+    `_live_connect_config('hi')`; asserts `cfg.speech_config.voice_config.prebuilt_voice_config`
+    is a `types.PrebuiltVoiceConfig` with `voice_name == 'Charon'`). _The **AUDIO** response
+    modality half of the same connect config is already proven by
+    `test_live_handshake.py` (`responseModalities == ['AUDIO']`), so S3 scopes to the voice only._
+  - The voice-mode system instruction opens with the deep/calm/measured-cadence directive — cadence
+    is steered by the prompt (Gemini Live has no speech-rate knob, per ADR-0003) → **S4**
+    *test_live_system_instruction_has_cadence_directive* (`build_live_system_instruction(...)` with
+    `CHAT_VOICE_SYSTEM_APPEND` cleared so the directive is intrinsic; asserts the stable substring
+    `'deep, calm, measured cadence'` — not the full tuneable paragraph).
+  - _Carve-out (tdd-critic, now Next-up 8–9, OPTIONAL): the override is echoed verbatim with no
+    deep/slow-male allowlist (the qualifier is documentary), and the preset (S3) + cadence prose
+    (S4) are pinned independently rather than coupled. Both backlogged as low-priority/optional,
+    not silently closed; today's behavior is by design._
 
 **Release: chat model fallback characterization (#9) (signed off 2026-06-04).** Chat suite
 **80/80** green (`cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`; +5 from the 75/75
@@ -390,7 +446,7 @@ release decision — behavior is unchanged, so it can ride the next deploy._
   streaming-persistence tests (S3–S5) assert the turn is persisted with stream telemetry, not
   that the bytes arrive incrementally (they assert the persisted row per ADR-0002).
 - **Voice working end-to-end is a deployment-topology property** (API Gateway can't upgrade
-  WebSockets); Next-up item 2 (Gemini Live voice timbre) pins the voice *config/timbre*, not
-  live network success.
+  WebSockets); the shipped voice-timbre characterization (#10) pins the voice *config/timbre*
+  (resolved voice name, prebuilt `speech_config`, cadence directive), not live network success.
 - **Exact model ids, theme cosmetics, and CORS allowlist contents** are configuration, not
   invariants — only the behaviors (fallback, bounded timeout, never-`*` CORS) are.

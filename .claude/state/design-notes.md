@@ -4,48 +4,48 @@
 > between cycles lives here.
 >
 > _Prior features SHIPPED: contact durability (#3/#4/#5), chat turn-persistence (#7/#8
-> timeout-row) — see git history + backlog "Shipped". Harness: team-tactics 0.9.0._
+> timeout-row), chat model fallback (#9) — see git + backlog "Shipped". Harness: 0.9.2._
 
 ## Feature goal
-**Prove invariant #9 — chat model fallback on first-chunk rate-limit.** Backlog Next-up item
-"Chat falls back to the secondary model on a first-chunk rate limit" `[chat]`. Today UNPROVEN:
-only the rate-limit *classifier* (`is_upstream_rate_limit`) and the daily-reset *state tracker*
-are tested — `GeminiRoutingChain` itself (the fallback logic) has no test.
+**Prove invariant #10 — Gemini Live voice timbre lock.** Backlog Next-up item "Gemini Live
+voice timbre is pinned to the deep/slow male preset" `[chat]`. The lock exists (landed in commit
+`b6a64b3`, ADR-0003) but is UNPROVEN — no test references `Charon`, `_live_voice_name`,
+`speech_config`, or the cadence directive. This is a BRAND contract: the voice must stay deep/
+slow/male unless deliberately changed.
 
 `[chat]` layer = `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 ## Test seam (planner to confirm from the code)
-Test `GeminiRoutingChain` directly (`docker/chat/app/gemini_routing.py`) with FAKE primary +
-fallback chains — primary raises an upstream rate-limit on the FIRST chunk (`astream`) / call
-(`ainvoke`); assert the chain transparently produces the FALLBACK's output. Reuse the existing
-rate-limit helpers + fake-chain patterns from `docker/chat/tests/test_upstream_errors.py`,
-`test_gemini_limit_state.py`, `test_providers.py`. Read `gemini_routing.py` for the exact
-constructor + how primary/fallback are injected, and `providers.py:200-201` for the
-distinct-model guard.
+Targets: `docker/chat/app/live_gemini.py` — `_live_voice_name()` (default `Charon`; env override
+`CHAT_LIVE_VOICE`) and `_live_connect_config(...)` (builds `speech_config` with a
+`PrebuiltVoiceConfig(voice_name=...)` + AUDIO response modality on the `LiveConnectConfig`); and
+`docker/chat/app/knowledge_context.py` `build_live_system_instruction(...)` (the deep/calm/
+measured-cadence directive — pacing is steered by the prompt since Gemini Live has no speech-rate
+knob). Reuse the existing `test_live_*.py` patterns (`test_live_handshake.py`, `test_live_session.py`).
 
-## Acceptance checklist (observable; from backlog #9)
-- [ ] (chat) `astream`: primary raises an upstream RATE-LIMIT on the first chunk → the chain
-      streams the **fallback** model's output (caller sees a successful reply, not a 429).
-- [ ] (chat) `astream`: once ≥1 chunk has been yielded, a mid-stream error **propagates**
-      (the chain is committed — it does NOT restart on the fallback).
-- [ ] (chat) a first-chunk error that is **NOT** a rate-limit is **not** retried on the fallback
-      (it propagates).
-- [ ] (chat) `ainvoke`: primary rate-limit → fallback (the non-streaming analogue).
-- [ ] (chat) the distinct-model guard: configuring identical primary + fallback model ids is
-      rejected.
+## Acceptance checklist (observable; from backlog #10 / ADR-0003)
+- [ ] (chat) with no override, `_live_voice_name()` resolves to **`Charon`**.
+- [ ] (chat) setting `CHAT_LIVE_VOICE` to another preset → `_live_voice_name()` returns that value
+      (override is deliberate, not silent).
+- [ ] (chat) a minted Live connect config carries a **prebuilt voice** in its `speech_config`
+      (`PrebuiltVoiceConfig` with the resolved voice name) AND the **AUDIO** response modality.
+- [ ] (chat) the voice-mode system instruction (`build_live_system_instruction`) opens with the
+      deep/calm/measured-cadence directive.
 
 ## Invariants
-- #9 — first-chunk rate-limit → fallback; committed after first chunk; non-rate-limit not
-  retried; primary≠fallback. (PARTIAL today: classifier + state tracker only.)
+- #10 — Live voice pinned to a deep/slow male preset (`Charon`); changing it is a deliberate
+  `CHAT_LIVE_VOICE` override. (UNPROVEN today.)
 
 ## Decisions made
-- (pending) exact fake-chain seam for `GeminiRoutingChain` — planner to determine; assert the
-  observable routed OUTPUT (which model answered) + propagation, not internal call counts.
+- (pending) exact seam for `_live_connect_config` (does it need a live session / can it be called
+  directly with minimal args?) — planner to determine; assert the observable config shape (voice
+  name + modality), not internal call mechanics.
 
 ## Next 1–3 behaviors to specify
-1. `astream` first-chunk rate-limit → fallback streams (the walking skeleton).
-2. `astream` committed-after-first-chunk: post-yield error propagates (no restart).
-3. first-chunk non-rate-limit error → not retried.  (then `ainvoke` analogue + distinct-model guard)
+1. `_live_voice_name()` default == 'Charon' (the core lock).
+2. `CHAT_LIVE_VOICE` override changes the resolved voice.
+3. connect config carries the prebuilt voice + AUDIO modality.  (then the cadence directive.)
 
 ## Deferred smells / tech debt
-- Voice timbre lock (#10) + frontend guards (#1/#2) are separate backlog items — not this feature.
+- Frontend guards (#1/#2) + the small follow-ups (#8 cap, markSending, idempotencyKey,
+  fallback-first persistence, last_model_id) are separate backlog items — not this feature.

@@ -3,12 +3,13 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
-- Feature in flight: **none**. Shipped + accepted this session: **contact durability**
-  (#3/#4/#5), **chat turn-persistence** (#7; #8 timeout-row), and **chat model fallback** (#9).
-  Active layer: chat · phase: **off**.
-- Harness: **team-tactics 0.9.0** (0.5.0→0.7.0→0.8.0→0.8.3→0.8.5→0.9.0; adds divide-and-conquer
-  + sectioning). selftest 13/13; tic protocol live (local `tics` viewer; per-layer auto-scope).
-- Suites: **app `node --test` 23/23** · **chat pytest 80/80** green.
+- Feature in flight: **none**. Shipped this session: contact durability (#3/#4/#5),
+  chat turn-persistence (#7; #8 timeout-row), chat model fallback (#9), **chat voice-timbre
+  lock (#10)**. **Every CHAT-layer invariant is now proven**; remaining UNPROVEN = **#1, #2**
+  (`[app]` frontend guards) + #8's cap clause. Active layer: chat · phase: **off**.
+- Harness: **team-tactics 0.9.2** (…→0.9.0→0.9.2; adds divide-and-conquer + sectioning +
+  enforced write-claims [no-op without a scope file]). selftest 13/13; tic protocol live.
+- Suites: **app `node --test` 23/23** · **chat pytest 84/84** green.
 - **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
   pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
   and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
@@ -49,6 +50,16 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **Adopted team-tactics 0.9.2 + SHIPPED chat voice-timbre lock (#10).** 0.9.2 (tagged
+  `v0.9.2`) adds enforced write-claims to guard-edit-scope (P1 sectioning) — gated + NO-OP without a
+  `.claude/state/scope` file, so the gate is unchanged here (selftest 13/13); committed `66c08e6`.
+  Then ran the chat red→green loop for **#10**: planner sliced S1–S4 (pure functions); test-writer
+  added 4 characterization tests to `docker/chat/tests/test_live_voice_timbre.py` (default→Charon,
+  override honored, connect-config prebuilt voice, cadence directive) — all green-on-write (lock
+  pre-existed, ADR-0003). chat 80→84. tdd-critic PASS-on-substance (2 by-design advisories →
+  optional follow-ups); product-owner accepted → Shipped; invariant **#10 PROVEN**. **Milestone:
+  all chat-layer invariants proven; remaining = #1/#2 (`[app]` frontend guards) + #8 cap.** Not yet
+  committed (this feature).
 - 2026-06-04 — **Adopted team-tactics 0.9.0 + SHIPPED chat model fallback (#9).** 0.9.0 (untagged
   on main; navigator pushed `v0.9.0` @ `6073ec1`) adds divide-and-conquer + sectioning docs +
   local `tics` viewer; gate unchanged (selftest 13/13); committed `dfece9f`. Then ran the chat
