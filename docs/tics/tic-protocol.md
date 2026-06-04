@@ -76,6 +76,14 @@ with each pair's high-frequency pairing-tics filtered out as noise — and assig
 scopes. Each pair works in its scope (`echo pair:S2 > .claude/state/scope`) and reads its own
 thread via `tics log --scope pair:S2`.
 
+### Sections (DDD bounded contexts)
+For large projects the architect maps **sections** (bounded contexts) in
+`.claude/state/sections.md` and scopes work hierarchically: `echo ranking/S2 > .claude/state/scope`.
+Then `tics log --scope ranking` shows the whole section (all its pairs), `--scope ranking/S2` one
+pair, and a pair also sees its section-level + global tics. `tics sections` summarizes per-section
+live activity (tics, open claims, contracts, needs). Sections coordinate across their seams with
+`contract`/`need`/`claim` tics — opt-in; small projects stay single-section.
+
 ### The shared bus (store)
 For parallel writers sharing one log, set `TIC_STORE=spool` in `.claude/tdd.config`: each tic
 becomes its own file under `.claude/state/tics.d/` — concurrency-safe (no shared-file append or

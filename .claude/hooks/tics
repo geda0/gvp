@@ -1,6 +1,5 @@
-#!/usr/bin/env node
-/* eslint-disable -- generated kit reader (CommonJS Node) */
-"use strict";
-const path = require("path");
-const root = path.join(__dirname, "..", ".."); // .claude/hooks/tics -> project root
-process.exit(require("./tics-view.js").main(process.argv.slice(2), root) || 0);
+#!/bin/sh
+# team-tactics tic reader — POSIX wrapper. Stays an extensionless command but execs the
+# .cjs reader, so it's CommonJS even inside a "type":"module" repo. Do not edit (refreshed).
+d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec node "$d/tics-view.cjs" "$@"

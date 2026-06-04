@@ -23,9 +23,13 @@ function loadSignalEvents(targetDir) {
       .filter((e) => e && e.event === "suite");
   } catch (e) { return []; }
 }
+function scopeMatch(s, f) {
+  s = s || "*";
+  return s === f || s === "*" || f === "*" || s.indexOf(f + "/") === 0 || f.indexOf(s + "/") === 0;
+}
 function ticsLog(targetDir, scopeFilter) {
   let t = loadTics(targetDir);
-  if (scopeFilter) t = t.filter((x) => (x.scope || "*") === scopeFilter || (x.scope || "*") === "*");
+  if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
   if (!t.length) { console.log("No tics yet — the agent thread is empty (.claude/state/tics.jsonl)."); return 0; }
   for (const x of t) {
     const when = (x.ts || "").slice(11, 19) || "--:--:--";
@@ -39,7 +43,7 @@ function ticsLog(targetDir, scopeFilter) {
 function ticsInbox(targetDir, role, scopeFilter) {
   if (!role) { console.error("usage: tics inbox <role>   (e.g. tics inbox architect)"); return 2; }
   let t = loadTics(targetDir).filter((x) => x.to === role || x.to === "*");
-  if (scopeFilter) t = t.filter((x) => (x.scope || "*") === scopeFilter || (x.scope || "*") === "*");
+  if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
   if (!t.length) { console.log("Inbox empty for '" + role + "' (no tics addressed to it or broadcast)."); return 0; }
   console.log("Inbox for " + role + "  (to = " + role + " or *):");
   for (const x of t) console.log("  #" + (x.seq || "?") + "  " + (x.from || "?") + " [" + (x.kind || "?") + "]  " + (x.msg || "") + (x.result ? "  (" + x.result + ")" : ""));
@@ -67,6 +71,30 @@ function ticsClaims(targetDir) {
   for (const x of active.values()) console.log("  " + x.ref + "  <-  " + (x.scope || "?") + "  (#" + (x.seq || "?") + " " + (x.from || "?") + ")");
   return 0;
 }
+function ticsSections(targetDir) {
+  const t = loadTics(targetDir);
+  const sec = {};
+  for (const x of t) {
+    const sc = x.scope || "*";
+    if (sc === "*") continue;
+    const name = sc.split("/")[0];
+    const e = sec[name] || (sec[name] = { tics: 0, claims: 0, contracts: 0, needs: 0, last: "" });
+    e.tics++;
+    if (x.kind === "claim") e.claims++;
+    if (x.kind === "release") e.claims--;
+    if (x.kind === "contract") e.contracts++;
+    if (x.kind === "need") e.needs++;
+    if ((x.ts || "") > e.last) e.last = x.ts || "";
+  }
+  const names = Object.keys(sec).sort();
+  if (!names.length) { console.log("No sections yet — scope work with: echo <section>/<pair> > .claude/state/scope"); return 0; }
+  console.log("Sections (live, from the tic log):");
+  for (const n of names) {
+    const e = sec[n];
+    console.log("  " + n.padEnd(16) + e.tics + " tics | claims " + Math.max(0, e.claims) + " | contracts " + e.contracts + " | needs " + e.needs + "  (last " + (e.last || "").slice(11, 19) + ")");
+  }
+  return 0;
+}
 function main(argv, defaultRoot) {
   let scope = null; const rest = [];
   for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else rest.push(a); }
@@ -78,7 +106,11 @@ function main(argv, defaultRoot) {
     case "inbox": return ticsInbox(target, role, scope);
     case "conductor": return ticsConductor(target);
     case "claims": return ticsClaims(target);
+    case "sections": return ticsSections(target);
     default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims>"); return 2;
   }
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, main };
+if (require.main === module) {
+  process.exit(main(process.argv.slice(2), path.join(__dirname, "..", "..")) || 0);
+}
+module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, main };
