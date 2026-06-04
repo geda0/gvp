@@ -22,10 +22,13 @@ proves it comes FIRST.
 > `test_live_handshake.py`). **#8** is now **fully proven** — the persisted `timeout` row is
 > asserted on both paths AND the `providers.py` cap clause (28s Gemini default +
 > 55s-API-Gateway-ceiling clamp of an over-large override) is proven by
-> `test_providers.py::test_gemini_timeout_clamped_to_55s_ceiling`.
-> **Proven set: ALL TEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10.** Every CHAT-layer invariant
-> (#7, #8, #9, #10) and every `[app]` invariant (#1–#6) now holds; there are no open invariant
-> clauses. Each claim is a characterization test that fails CI on regression and belongs on
+> `test_providers.py::test_gemini_timeout_clamped_to_55s_ceiling`. **#11** (each branch ships its
+> own environment's API bases — `main`=prod, `agent`=staging, diverging only on the
+> `gvp:*-api-url` metas) is proven by `test/frontend-api-url-env-guard.test.mjs`, born from the
+> 2026-06-04 staging-on-prod fast-forward incident (hotfixed in `843e648`).
+> **Proven set: ALL ELEVEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11.** Every CHAT-layer
+> invariant (#7, #8, #9, #10) and every `[app]` invariant (#1–#6, #11) now holds; there are no
+> open invariant clauses. Each claim is a characterization test that fails CI on regression and belongs on
 > the upgrade backlog. Each claim is cited to `file:line` so the navigator can confirm it against
 > the code, not take it on faith. Line numbers are from the state of the repo at adoption and may
 > drift; treat the cited function/symbol as the anchor.
@@ -226,6 +229,29 @@ proves it comes FIRST.
       qualifier is documentary), and the preset + cadence prose are pinned independently rather than
       coupled against drift (ADR-0003 says they "must move together")._ Run: `cd docker/chat &&
       PYTHONPATH=. python3 -m pytest tests -q`.
+
+11. **Each branch ships its own environment's API bases; `main` (prod) and `agent` (staging)
+    diverge ONLY on the `gvp:*-api-url` metas.** The committed `index.html` / `admin/index.html`
+    on `main` carry the PROD hosts (`lwi0vmdpb5.execute-api…` contact +
+    `chat-api.marwanelgendy.link` chat) and NEVER a staging host; on `agent` the inverse
+    (`fvfqpef8kb.execute-api…` contact + `chat-api-stage.marwanelgendy.link` chat). Amplify serves
+    the committed HTML as-is (there is no `amplify.yml`) and the deploy workflows run
+    `SYNC_API_URLS=0`, so the committed meta value is load-bearing — a staging host on `main`
+    publishes the staging backends to production (the 2026-06-04 `agent`→`main` fast-forward
+    incident, hotfixed in `843e648`).
+    - Implemented by: `index.html:38-39` + `admin/index.html:14` (prod metas on `main`);
+      `scripts/sync-site-api-urls.mjs` rewrites the metas per environment only when a deploy runs
+      with `SYNC_API_URLS=1` — the workflows keep `SYNC_API_URLS=0`, so the value shipped is the
+      committed one.
+    - Proven by: `test/frontend-api-url-env-guard.test.mjs` — environment-gated
+      (`GVP_EXPECTED_ENV=prod|stage` explicit, else `GITHUB_REF_NAME` `main`→prod / `agent`→stage,
+      else skipped, so it never fails on a feature branch or a plain local `node --test`). For the
+      target env it asserts the `index.html` + `admin/index.html` contact/chat meta HOSTS are that
+      env's hosts and carry NO host from the other env (the host, not the path, is pinned — the
+      incident was a host swap). Wired as an explicit fail-fast step in `deploy-prod.yml`
+      (`GVP_EXPECTED_ENV=prod`) and `deploy-staging.yml` (`GVP_EXPECTED_ENV=stage`), and it also
+      rides the existing CI `node --test` via `GITHUB_REF_NAME`. Run:
+      `GVP_EXPECTED_ENV=prod node --test test/frontend-api-url-env-guard.test.mjs`.
 
 ## Out of scope / explicitly allowed
 
