@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+/* eslint-disable -- generated kit reader (CommonJS Node) */
+"use strict";
+const path = require("path");
+const root = path.join(__dirname, "..", ".."); // .claude/hooks/tics -> project root
+process.exit(require("./tics-view.js").main(process.argv.slice(2), root) || 0);

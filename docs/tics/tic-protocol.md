@@ -16,7 +16,7 @@ One JSON object per line in `.claude/state/tics.jsonl` (transient — gitignored
 | `kind` | caller | one of the kinds below |
 | `from` / `to` | caller | emitter role / addressee role (`*` = broadcast) |
 | `phase` / `layer` | auto | from `.claude/state/{phase,layer}` |
-| `scope` | auto | ambient from `.claude/state/scope` (e.g. `pair:S2`); `*` = global |
+| `scope` | auto | `.claude/state/scope` if set (e.g. `pair:S2`), else the active layer, else `*` |
 | `msg` | caller | one-line summary |
 | `ref` | caller | pointer to the objective artifact (slice id / file / test) |
 | `result` | caller | `green`/`red`/`pass`/`concerns`/`block`/`blocked` |
@@ -56,6 +56,7 @@ pairing-tic is just a tightly-scoped coupling-tic. Filtering by scope keeps a vi
 `tics log --scope pair:S2` shows that pair plus global (`*`) tics and hides the rest.
 
 ## Viewing
+Use the installed reader `.claude/hooks/tics <cmd>` (agents) or `npx team-tactics <cmd>` (shell); `tic.sh` only EMITS.
 - `tics log [--scope <s>]` — the thread; with --scope, just that scope + global (`*`).
 - `tics inbox <role> [--scope <s>]` — your inbox: tics where `to ∈ {<role>, *}` (and scope, if given). Read it at the start of your
   turn and address any directed `msg`.

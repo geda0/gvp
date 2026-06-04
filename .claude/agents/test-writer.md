@@ -33,7 +33,7 @@ Report: the test name + file, the one behavior, the exact expectation
 
 
 ## Tics
-Read your inbox at the start of your turn (`tics inbox <your-role> --scope <scope>`). Your
+Read your inbox at the start of your turn (`.claude/hooks/tics inbox <your-role> --scope <scope>`). Your
 handoff + the suite result are recorded automatically when you finish (the SubagentStop hook) —
 don't hand-emit handoffs. Emit only what the result can't capture: a `verdict` (reviewers:
 `pass`/`concerns`/`block`) or a `msg`/`note`, via `.claude/hooks/tic.sh <your-role> <to> <kind>
