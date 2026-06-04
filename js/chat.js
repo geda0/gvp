@@ -133,14 +133,14 @@ const SECTION_PROMPT_CHIPS = {
 /** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio / Labs). */
 const CHAT_EMPTY_HINT_BY_SECTION = {
   home: "Pick a suggestion below, or type your question. Ask about Marwan's services, projects, and how he works.",
-  portfolio: "Pick a suggestion below, or type your question. Ask about his roles, what he shipped, and his personal builds.",
-  labs: "Pick a suggestion below, or type your question. Ask about Marwan's personal builds and experiments."
+  portfolio: "Pick a suggestion below, or type your question. Ask about his roles, the systems he shipped, and the migrations he led.",
+  labs: "Pick a suggestion below, or type your question. Ask about Marwan's experiments and how he takes them to production."
 }
 
 const CHAT_VOICE_EMPTY_HINT_BY_SECTION = {
-  home: "Start live chat to ask about Marwan's services, projects, and how he works — or type below and pick a suggestion.",
-  portfolio: "Start live chat to ask about his roles, what he shipped, and his personal builds — or type below and pick a suggestion.",
-  labs: "Start live chat to ask about Marwan's personal builds and experiments — or type below and pick a suggestion."
+  home: "Start voice chat to ask about Marwan's services, projects, and how he works — or type below and pick a suggestion.",
+  portfolio: "Start voice chat to ask about his roles, the systems he shipped, and the migrations he led — or type below and pick a suggestion.",
+  labs: "Start voice chat to ask about Marwan's experiments and how he takes them to production — or type below and pick a suggestion."
 }
 
 function replaceSectionPresetChips(container, chips, chipClassName) {
@@ -618,11 +618,11 @@ export function initChat() {
 
     const label = voiceStartBtn.querySelector('.chat-voice-start-cta__label')
     if (label) {
-      label.textContent = showConnecting ? 'Connecting…' : 'Start live chat'
+      label.textContent = showConnecting ? 'Connecting…' : 'Start voice chat'
     }
     voiceStartBtn.setAttribute(
       'aria-label',
-      showConnecting ? 'Connecting voice…' : 'Start live chat',
+      showConnecting ? 'Connecting voice…' : 'Start voice chat',
     )
     voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
   }

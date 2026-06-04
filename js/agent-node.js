@@ -37,7 +37,7 @@ const PLACEHOLDER_POOL = {
   ],
   labs: [
     {
-      teaser: 'What you can build?',
+      teaser: 'What can you build?',
       deepQuestion: 'What can you build at the experiment scale?'
     },
     {
