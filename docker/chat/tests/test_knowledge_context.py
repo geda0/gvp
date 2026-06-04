@@ -133,6 +133,71 @@ def test_build_context_is_deterministic_for_same_inputs() -> None:
     assert [p['id'] for p in first['projects']] == ['p2']
 
 
+def test_build_context_matches_by_name_and_company() -> None:
+    # Named-entity queries must retrieve THEIR entry even with no matching relevance tag,
+    # and not depend on the item happening to sit in the first two array slots.
+    pack = {
+        'bio': {'name': 'Marwan'},
+        'faq': [],
+        'roles': [
+            {'id': 'jc', 'company': 'JumpCloud', 'relevance_tags': ['identity']},
+            {'id': 'hp', 'company': 'HP', 'relevance_tags': ['frontend']},
+            {'id': 'apptio', 'company': 'Apptio', 'relevance_tags': ['spark']},
+        ],
+        'projects': [
+            {'id': 'gvp', 'name': 'GVP', 'relevance_tags': ['ai']},
+            {'id': 'rover', 'name': 'Monday Rover', 'relevance_tags': ['ai']},
+            {'id': 'team-tactics', 'name': 'Team Tactics', 'relevance_tags': ['ai']},
+        ],
+    }
+    # 'Team Tactics' has no tag a generic query would hit, and sits at index 2 (outside the
+    # first-two fallback slice) — only name matching can surface it.
+    ctx = build_context('Tell me about Team Tactics', '', pack)
+    assert 'team-tactics' in [p['id'] for p in ctx['projects']]
+    # Company match for roles (Apptio is index 2, outside the fallback slice).
+    ctx2 = build_context('What did he build at Apptio?', '', pack)
+    assert 'apptio' in [r['id'] for r in ctx2['roles']]
+
+
+def test_build_context_includes_full_project_index_for_enumeration() -> None:
+    # A generic / "list everything" query can't retrieve detail for all projects, but the
+    # assistant must still be able to NAME them all — so a lightweight index of every project
+    # is always present and serialized.
+    pack = {
+        'bio': {},
+        'faq': [],
+        'roles': [],
+        'projects': [
+            {'id': 'a', 'name': 'Alpha', 'why_it_matters': 'first'},
+            {'id': 'b', 'name': 'Beta', 'why_it_matters': 'second'},
+            {'id': 'c', 'name': 'Gamma', 'why_it_matters': 'third'},
+        ],
+    }
+    ctx = build_context('what has he built — list everything', '', pack)
+    assert [p['id'] for p in (ctx.get('project_index') or [])] == ['a', 'b', 'c']
+    xml = serialize_context_xml(ctx)
+    assert 'Alpha' in xml and 'Beta' in xml and 'Gamma' in xml
+    assert '<project_index>' in xml
+
+
+def test_extract_tags_covers_labs_and_portfolio_categories() -> None:
+    # 'playground' and 'portfolio' are used as relevance_tags in the data; they must be
+    # reachable from natural queries, or those items can never match on category.
+    assert 'playground' in extract_tags('what side projects and experiments has he built')
+    assert 'portfolio' in extract_tags('tell me about his work history and career')
+
+
+def test_live_voice_instruction_is_third_person_never_team_we() -> None:
+    # Honesty contract: Marwan is an individual, not a team. The voice persona must mirror the
+    # text prompt — third person throughout, never "we offer" / team voice.
+    pack = {'bio': {'name': 'X'}, 'roles': [], 'projects': [], 'faq': []}
+    out = build_live_system_instruction('<!-- prompt-version: t1 -->\nBody line for voice', pack)
+    low = out.lower()
+    assert 'we offer' not in low
+    assert 'team voice' not in low
+    assert 'third person' in low
+
+
 def test_build_live_system_instruction_appends_voice_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv('CHAT_VOICE_SYSTEM_APPEND', 'CUSTOM_APPEND_MARKER')
     pack = {'bio': {'name': 'X'}, 'roles': [], 'projects': [], 'faq': []}

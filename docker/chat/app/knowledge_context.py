@@ -51,6 +51,10 @@ SYNONYMS: dict[str, set[str]] = {
     # or "tell me about the assistant" pull the chatbot project entry up.
     'ai': {'ai', 'gen ai', 'genai', 'llm', 'llms', 'gemini', 'chatbot', 'agent', 'assistant', 'gpt', 'claude'},
     'this-site': {'this site', 'this chat', 'this chatbot', 'this assistant', 'this agent', 'this bot', 'the chat agent'},
+    # Category tags used as relevance_tags in the data — make them reachable from natural
+    # queries so "side projects" / "his experience" surface the items tagged with them.
+    'playground': {'playground', 'side project', 'side projects', 'experiment', 'experiments', 'hobby project', 'personal build', 'personal builds', 'labs'},
+    'portfolio': {'portfolio', 'work history', 'past roles', 'career', 'resume', 'cv', 'work experience', 'professional experience'},
 }
 
 
@@ -228,9 +232,42 @@ def match_faq(user_message: str, faq_rows: list[dict[str, Any]]) -> dict[str, An
     return None
 
 
-def _is_relevant(item: dict[str, Any], tags: set[str]) -> bool:
+def _mentions_item(item: dict[str, Any], query_norm: str) -> bool:
+    """True when the query names this item directly (its name / company / id).
+
+    Uses whole-string substring matching with a 3-char floor, so a query like
+    "what did he do at Apptio" retrieves the Apptio entry deterministically rather
+    than relying on it sitting in the first two array slots — while short, generic
+    tokens (a 2-char company, "at", "of") never false-match.
+    """
+    if not query_norm:
+        return False
+    for key in ('name', 'company'):
+        val = normalize(item.get(key) or '')
+        if len(val) >= 3 and val in query_norm:
+            return True
+    item_id = normalize(str(item.get('id') or '').replace('-', ' ').replace('_', ' '))
+    return len(item_id) >= 3 and item_id in query_norm
+
+
+def _is_relevant(item: dict[str, Any], tags: set[str], query_norm: str = '') -> bool:
     item_tags = {normalize(t) for t in item.get('relevance_tags') or []}
-    return bool(item_tags & tags)
+    if item_tags & tags:
+        return True
+    return _mentions_item(item, query_norm)
+
+
+def _index_entry(item: dict[str, Any], label_key: str) -> dict[str, Any]:
+    """Lightweight roster entry (id + display name + one-liner) for the always-present
+    index, so the assistant can enumerate every project/role even when only a few are
+    retrieved in detail."""
+    one = item.get('why_it_matters') or item.get('summary') or item.get('product') or ''
+    name = item.get(label_key) or item.get('name') or item.get('company') or item.get('id') or ''
+    return {
+        'id': item.get('id'),
+        'name': str(name),
+        'one_liner': _truncate_text(str(one), 100),
+    }
 
 
 def build_context(
@@ -240,14 +277,16 @@ def build_context(
     max_roles: int = DEFAULT_MAX_ROLE_MATCHES,
     max_projects: int = DEFAULT_MAX_PROJECT_MATCHES,
 ) -> dict[str, Any]:
-    tags = extract_tags(f'{user_message} {history_text}')
+    query = f'{user_message} {history_text}'
+    tags = extract_tags(query)
+    query_norm = normalize(query)
     faq_match = match_faq(user_message, pack.get('faq') or [])
 
     roles_all = list(pack.get('roles') or [])
     projects_all = list(pack.get('projects') or [])
 
-    matched_roles = [r for r in roles_all if _is_relevant(r, tags)][:max_roles]
-    matched_projects = [p for p in projects_all if _is_relevant(p, tags)][:max_projects]
+    matched_roles = [r for r in roles_all if _is_relevant(r, tags, query_norm)][:max_roles]
+    matched_projects = [p for p in projects_all if _is_relevant(p, tags, query_norm)][:max_projects]
     role_fallback = len(matched_roles) == 0
     project_fallback = len(matched_projects) == 0
     roles = matched_roles if not role_fallback else roles_all[:2]
@@ -259,6 +298,10 @@ def build_context(
         'bio': pack.get('bio') or {},
         'roles': roles,
         'projects': projects,
+        # Always-present lightweight roster of EVERY project/role so the assistant can
+        # name them all on a "list everything" query without bloating the detailed blocks.
+        'project_index': [_index_entry(p, 'name') for p in projects_all],
+        'role_index': [_index_entry(r, 'company') for r in roles_all],
         'faq_match': faq_match,
         'tags': sorted(tags),
         'retrieval_fallback': retrieval_fallback,
@@ -397,9 +440,10 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
         'conversational default. Land each phrase deliberately, and pause '
         'briefly between sentences; the lower-register pacing suits the '
         'prebuilt voice preset configured for this session. '
-        'Answer concisely for speech. Past work and biography: third '
-        'person ("he built", "he led"). Services and new engagements: team voice '
-        '("we offer", "we can"). About Marwan specifically, stay grounded in the '
+        'Answer concisely for speech. Always speak about Marwan in the third '
+        'person — his past work, biography, services, and new engagements alike '
+        '("he built", "he led", "he offers", "he can scope it with you"). He is an '
+        'individual, not a team, so never use the first-person plural. Stay grounded in the '
         'portfolio XML below — never invent employers, dates, titles, or projects. '
         'Outside of Marwan-specific claims you can talk '
         'freely about technology, science, day-to-day topics, and small talk; '
@@ -424,50 +468,70 @@ def serialize_context_xml(context: dict[str, Any]) -> str:
     faq_match = context.get('faq_match')
     tags = context.get('tags') or []
 
-    parts: list[str] = ['<knowledge_pack>']
-    parts.append('<bio>')
-    parts.append(_xml_safe(json.dumps(bio, ensure_ascii=False)))
-    parts.append('</bio>')
-    parts.append('<retrieval_tags>')
-    parts.append(_xml_safe(', '.join(tags)))
-    parts.append('</retrieval_tags>')
-    parts.append('<relevant_roles>')
+    # head: always-present grounding (bio + retrieval tags).
+    head: list[str] = [
+        '<knowledge_pack>',
+        '<bio>', _xml_safe(json.dumps(bio, ensure_ascii=False)), '</bio>',
+        '<retrieval_tags>', _xml_safe(', '.join(tags)), '</retrieval_tags>',
+    ]
+
+    # index: lightweight roster of every project/role — the enumeration aid. Dropped FIRST
+    # under budget pressure (a "list all" query matches few items in detail, so it stays small
+    # with the index intact; a tag-dense specific query is large and doesn't need the roster).
+    index: list[str] = []
+    role_index = context.get('role_index') or []
+    if role_index:
+        index.append('<role_index>')  # every role — answers "list his roles / experience"
+        for r in role_index:
+            rid = _xml_safe(r.get('id', ''))
+            index.append(f'<r id="{rid}">{_xml_safe(r.get("name", ""))} — {_xml_safe(r.get("one_liner", ""))}</r>')
+        index.append('</role_index>')
+    project_index = context.get('project_index') or []
+    if project_index:
+        index.append('<project_index>')  # every project — answers "list all his builds / projects"
+        for p in project_index:
+            pid = _xml_safe(p.get('id', ''))
+            index.append(f'<p id="{pid}">{_xml_safe(p.get("name", ""))} — {_xml_safe(p.get("one_liner", ""))}</p>')
+        index.append('</project_index>')
+
+    # body: the detailed retrieved roles/projects + FAQ suggestion + closing tag.
+    body: list[str] = ['<relevant_roles>']
     for role in roles:
         rid = _xml_safe(role.get('id', 'unknown'))
-        parts.append(f'<role id="{rid}">{_xml_safe(json.dumps(role, ensure_ascii=False))}</role>')
-    parts.append('</relevant_roles>')
-    parts.append('<relevant_projects>')
+        body.append(f'<role id="{rid}">{_xml_safe(json.dumps(role, ensure_ascii=False))}</role>')
+    body.append('</relevant_roles>')
+    body.append('<relevant_projects>')
     for project in projects:
         pid = _xml_safe(project.get('id', 'unknown'))
-        parts.append(
-            f'<project id="{pid}">{_xml_safe(json.dumps(project, ensure_ascii=False))}</project>'
-        )
-    parts.append('</relevant_projects>')
-
+        body.append(f'<project id="{pid}">{_xml_safe(json.dumps(project, ensure_ascii=False))}</project>')
+    body.append('</relevant_projects>')
     if faq_match:
         answer = _xml_safe(faq_match.get('a', ''))
         trigger_tool = faq_match.get('trigger_tool')
-        parts.append('<suggested_response>')
-        parts.append(
+        body.append('<suggested_response>')
+        body.append(
             "The visitor's question closely matches a FAQ entry. Use this as the basis "
             f'for your answer, paraphrasing for fit: "{answer}".'
         )
         if trigger_tool:
-            parts.append(f' After answering, call the tool: {_xml_safe(trigger_tool)}.')
-        parts.append('</suggested_response>')
-    parts.append('</knowledge_pack>')
-    xml = ''.join(parts)
+            body.append(f' After answering, call the tool: {_xml_safe(trigger_tool)}.')
+        body.append('</suggested_response>')
+    body.append('</knowledge_pack>')
+
     try:
-        max_chars = int((os.environ.get('CHAT_KNOWLEDGE_PACK_MAX_CHARS') or '14000').strip())
+        max_chars = int((os.environ.get('CHAT_KNOWLEDGE_PACK_MAX_CHARS') or '16000').strip())
     except ValueError:
-        max_chars = 14000
+        max_chars = 16000
     max_chars = max(4000, min(max_chars, 50000))
-    if len(xml) > max_chars:
-        logger.warning(
-            'Serialized knowledge_pack length %s exceeds max %s; truncating',
-            len(xml),
-            max_chars,
-        )
-        marker = '\n<!-- truncated_for_latency -->'
-        xml = xml[: max_chars - len(marker)] + marker
-    return xml
+
+    full = ''.join(head + index + body)
+    if len(full) <= max_chars:
+        return full
+    reduced = ''.join(head + body)  # drop the enumeration index first — XML stays well-formed
+    if len(reduced) <= max_chars:
+        return reduced
+    logger.warning(
+        'Serialized knowledge_pack length %s exceeds max %s; truncating', len(reduced), max_chars
+    )
+    marker = '\n<!-- truncated_for_latency --></knowledge_pack>'
+    return reduced[: max_chars - len(marker)] + marker
