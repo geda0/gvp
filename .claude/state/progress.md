@@ -47,6 +47,18 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **Staging CI/CD pipeline COMPLETED + verified GREEN.** Built
+  `.github/workflows/deploy-staging.yml` (push→`agent`, path-filtered, test-gated, runs
+  `integrate-and-deploy.sh stage`; frontend=Amplify, SYNC=0). Root cause of "not complete": repo
+  had 0 secrets/vars (local deploys use ambient AWS creds + `.secrets/`). Seeded 6 secrets + 6
+  vars from `.secrets/` (piped, never printed); `CHAT_VOICE_ECS_BOOTSTRAP=0`. Existing OIDC role
+  was for `geda0/Based`; created **`gvp-staging-ci-deploy`** (OIDC, trust `repo:geda0/gvp:*`,
+  SCOPED policy; dev-ops added 2 in-scope perms: SAM transform changeset + `--resolve-image-repos`
+  CompanionStack). Deploy run **26929994505 SUCCESS** (3m29s): contact `page-staging`
+  (`fvfqpef8kb…` matches FE meta ✓) + chat Lambda `gvp-chat-stage` (`m7qmz78kb6…`); health 200/204.
+  **CAVEAT:** FE chat meta → `chat-api-stage.marwanelgendy.link` (ECS/ALB voice, separate) so the
+  CI chat Lambda is orphaned — chat-deploy-via-CI needs a navigator decision (ECS vs Lambda+repoint
+  vs contact-only). IAM role created via ambient **root** creds (flagged). See releases.md.
 - 2026-06-04 — **Adopted team-tactics 0.8.0 + deployed to STAGING.** `npx github:geda0/team-tactics#v0.8.0
   update` (pinned git tag — NOT `npx tics`, which is an unrelated npm pkg): non-blocking
   `subagent-handoff.sh` SubagentStop hook + scoped/spool tics; referee unchanged (selftest 13/13),
