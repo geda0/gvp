@@ -3,59 +3,49 @@
 > Orchestrator maintains this. Subagents start fresh; anything that must survive
 > between cycles lives here.
 >
-> _Previous feature (contact durability, items 2–4) SHIPPED + committed 2026-06-03;
-> see git history + backlog "Shipped". Harness upgraded to team-tactics 0.7.0 (tics)._
+> _Prior features SHIPPED: contact durability (#3/#4/#5), chat turn-persistence (#7/#8
+> timeout-row) — see git history + backlog "Shipped". Harness: team-tactics 0.9.0._
 
 ## Feature goal
-**Characterize chat turn-persistence** (invariants #7 + #8) on the `[chat]` (pytest) layer —
-close the gaps the existing 70-test suite leaves: today only the **non-stream OK** turn is
-proven (`test_chat_persists_transcript_turn`), and `status` is never asserted. We must prove
-that EVERY chat turn leaves exactly one transcript row tagged with the right `status`
-(`ok`/`error`/`timeout`) — so failed/timed-out attempts surface in the admin panel instead of
-vanishing — across BOTH the non-streaming and the entirely-untested streaming (`_chat_stream`)
-paths.
+**Prove invariant #9 — chat model fallback on first-chunk rate-limit.** Backlog Next-up item
+"Chat falls back to the secondary model on a first-chunk rate limit" `[chat]`. Today UNPROVEN:
+only the rate-limit *classifier* (`is_upstream_rate_limit`) and the daily-reset *state tracker*
+are tested — `GeminiRoutingChain` itself (the fallback logic) has no test.
 
-Backlog Next-up items 1 (error/timeout status) + 2 (streaming terminal states). `[chat]` layer
-= `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+`[chat]` layer = `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
-## Test seam (to be confirmed by the planner from the code)
-Drive `POST /api/chat` through the FastAPI app with a FAKE routing chain (raises a
-non-rate-limit error / sleeps past the timeout / streams chunks then errors) and a
-configured-but-stub/in-memory `TranscriptStore`, then assert the persisted row's `status` +
-`errorCode`/`errorMessage`. Targets: `_persist_text_turn` (main.py ~664-732), the non-stream
-path (ok ~842, timeout ~799, error ~823) and `_chat_stream` (~864-941). Reuse the existing
-pytest fixtures — discover them from `docker/chat/tests/conftest.py`,
-`test_transcript_store.py`, `test_readiness_timeout.py`, `test_api.py` (every existing chat
-test uses `stream:false`).
+## Test seam (planner to confirm from the code)
+Test `GeminiRoutingChain` directly (`docker/chat/app/gemini_routing.py`) with FAKE primary +
+fallback chains — primary raises an upstream rate-limit on the FIRST chunk (`astream`) / call
+(`ainvoke`); assert the chain transparently produces the FALLBACK's output. Reuse the existing
+rate-limit helpers + fake-chain patterns from `docker/chat/tests/test_upstream_errors.py`,
+`test_gemini_limit_state.py`, `test_providers.py`. Read `gemini_routing.py` for the exact
+constructor + how primary/fallback are injected, and `providers.py:200-201` for the
+distinct-model guard.
 
-## Acceptance checklist (observable; from backlog items 1–2)
-- [ ] (chat) non-stream: chain raises a non-rate-limit error → exactly ONE row with
-      `status=='error'` and populated `errorCode`/`errorMessage`.
-- [ ] (chat) non-stream: exceeds the provider timeout → exactly ONE row with
-      `status=='timeout'` (in addition to the already-proven 504).
-- [ ] (chat) (already proven — do NOT re-add) non-stream ok → one row `status=='ok'`.
-- [ ] (chat) stream (`stream:true`): success → exactly ONE row `status=='ok'` after the
-      stream completes.
-- [ ] (chat) stream: chain errors AFTER the stream has started → one row `status=='error'`.
-- [ ] (chat) stream: per-chunk deadline exceeded → one row `status=='timeout'`.
+## Acceptance checklist (observable; from backlog #9)
+- [ ] (chat) `astream`: primary raises an upstream RATE-LIMIT on the first chunk → the chain
+      streams the **fallback** model's output (caller sees a successful reply, not a 429).
+- [ ] (chat) `astream`: once ≥1 chunk has been yielded, a mid-stream error **propagates**
+      (the chain is committed — it does NOT restart on the fallback).
+- [ ] (chat) a first-chunk error that is **NOT** a rate-limit is **not** retried on the fallback
+      (it propagates).
+- [ ] (chat) `ainvoke`: primary rate-limit → fallback (the non-streaming analogue).
+- [ ] (chat) the distinct-model guard: configuring identical primary + fallback model ids is
+      rejected.
 
 ## Invariants
-- #7 — every chat text turn persisted before the response returns (ok/error/timeout, stream
-  + non-stream). Today PARTIAL (only non-stream ok, status unasserted).
-- #8 — each provider call bounded by a timeout (504 + persisted `timeout` row; streaming
-  per-chunk deadline). Today PARTIAL (504 proven; persisted timeout row + streaming deadline
-  not).
+- #9 — first-chunk rate-limit → fallback; committed after first chunk; non-rate-limit not
+  retried; primary≠fallback. (PARTIAL today: classifier + state tracker only.)
 
 ## Decisions made
-- (pending) exact fake-chain + stub-store seam — planner to determine from conftest.py and
-  reuse existing fixtures; assert persistence + telemetry, NOT byte-incremental wire (ADR-0002:
-  Lambda/Mangum buffers SSE, so token-by-token isn't guaranteed on every host).
+- (pending) exact fake-chain seam for `GeminiRoutingChain` — planner to determine; assert the
+  observable routed OUTPUT (which model answered) + propagation, not internal call counts.
 
 ## Next 1–3 behaviors to specify
-1. Non-stream error → one row `status='error'` (+ errorCode).
-2. Non-stream timeout → one row `status='timeout'`.
-3. Streaming ok → one row `status='ok'` (brings the `_chat_stream` path under test).
+1. `astream` first-chunk rate-limit → fallback streams (the walking skeleton).
+2. `astream` committed-after-first-chunk: post-yield error propagates (no restart).
+3. first-chunk non-rate-limit error → not retried.  (then `ainvoke` analogue + distinct-model guard)
 
 ## Deferred smells / tech debt
-- Item 3 (first-chunk rate-limit → fallback) and item 4 (voice timbre lock) are separate
-  backlog items — not in this feature.
+- Voice timbre lock (#10) + frontend guards (#1/#2) are separate backlog items — not this feature.

@@ -95,26 +95,13 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ## Next up
 
-> _Top of queue after the chat turn-persistence release: items 1–2 (the #7 non-stream +
-> streaming persistence cells) are now in Shipped. Remaining order is unchanged — the next two
-> chat coverage gaps (1–2 below, formerly 3–4), then frontend guards (3–4), then two small
-> post-release follow-ups (5–6), then one low-priority cap follow-up (7)._
+> _Top of queue after the chat model-fallback release: the #9 item (chat falls back to the
+> secondary model on a first-chunk rate limit) is now in Shipped. Remaining order is unchanged —
+> the last chat coverage gap (1 below, formerly 2), then frontend guards (2–3), then two small
+> post-release follow-ups (4–5), then one low-priority cap follow-up (6), then two low-priority
+> #9 pinning follow-ups from the tdd-critic (7–8)._
 
-1. **Chat falls back to the secondary model on a first-chunk rate limit** — `[chat]` —
-   _closes the #9 GAP: `GeminiRoutingChain` itself is untested; only its rate-limit
-   classifier and the daily-reset state tracker are covered today._
-   - [ ] When the primary model raises an upstream rate-limit on the **first** chunk, the
-         routing chain transparently produces its output from the **fallback** model
-         (caller sees a successful reply, not a 429).
-   - [ ] Once a chunk has been yielded, a mid-stream error **propagates** (the chain is
-         committed — it does **not** restart on the fallback).
-   - [ ] A first-chunk error that is **not** a rate-limit is **not** retried on the fallback.
-   - [ ] Configuring identical primary and fallback model ids is rejected (the distinct-model
-         guard holds).
-   - _Fake primary chain that raises a rate-limit on first `__anext__`; assert against both
-     `astream` and `ainvoke`._
-
-2. **Gemini Live voice timbre is pinned to the deep/slow male preset** — `[chat]` — _closes
+1. **Gemini Live voice timbre is pinned to the deep/slow male preset** — `[chat]` — _closes
    the #10 GAP: the Charon timbre lock + cadence directive is a brand contract that no test
    currently guards._
    - [ ] With no override, the resolved Live voice name is **`Charon`**.
@@ -127,7 +114,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Assert `_live_voice_name()` + `_live_connect_config(...)` + `build_live_system_instruction`.
      Changing the default or the cadence prose is a product decision (supersede ADR-0003)._
 
-3. **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant #1: the
+2. **No secret-shaped strings ship in the frontend bundle** — `[app]` — _invariant #1: the
    browser bundle (HTML/CSS/JS) never contains the Resend, Gemini, or admin API keys; a
    regression that hardcodes a key fails CI instead of leaking to production._
    - [ ] A guard test scanning the shipped frontend (HTML/CSS/JS) finds **no** Gemini
@@ -138,7 +125,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
          would **fail** if a key-shaped literal were added to any shipped frontend file.
    - _Cheap, high-signal guard. Decision (a) does not affect this item._
 
-4. **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant #2
+3. **No hardcoded cross-origin API host in frontend JS** — `[app]` — _invariant #2
     (reframed per resolved decision (a)): every frontend network base derives from a
     `<meta>` tag via `site-config`, with only a same-origin local-dev fallback; no module
     hardcodes a remote API hostname._
@@ -154,7 +141,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
     - _Navigator decision (a) sets the framing (meta + same-origin fallback, not literal
       single-origin)._
 
-5. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
+4. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
    sender's `sending` transition is currently unpinned, so a refactor could drop it (losing
    the in-flight attempt bump that the admin panel and retry accounting rely on) without any
    test going red._
@@ -166,7 +153,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      `test/contact-sender-core.test.mjs` (the happy-path test injects a no-op `markSending`
      today; this asserts its call + ordering)._
 
-6. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
+5. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
    SQS delivery job is asserted to carry the message `id`, but not an `idempotencyKey`;
    dropping that field would weaken redelivery de-duplication without a red test._
    - [ ] On a valid submission, the job handed to `enqueueDelivery` carries a **non-empty
@@ -175,7 +162,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Low priority. One added assertion on the captured `enqueuedJob` in the existing valid-
      submission test in `test/contact-ingress-core.test.mjs`._
 
-7. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
+6. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
    turn-persistence tests bypass (tdd-critic note): the persisted `timeout` row is proven, but
    `providers.py`'s timeout resolution — the 28s Gemini default and the 55s API-Gateway
    ceiling — is only half-covered (`test_gemini_default_upstream_timeout` proves the default,
@@ -188,6 +175,27 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - [ ] Lowering or removing the clamp makes the test **fail** in CI.
    - _Low priority. Extends `test_providers.py`; closes the last open clause of invariant #8._
 
+7. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
+   sign-off: the in-turn first-chunk fallback is now proven, but the routing chain's memory that
+   the **primary already rate-limited this run** is unpinned — a refactor could drop
+   `note_primary_rate_limited()` and no test would go red, silently re-hammering the throttled
+   primary on the next turn._
+   - [ ] After the primary returns a rate-limit (429), `prefer_fallback_first()` reports
+         **True** (the chain has recorded that the primary should be skipped first next turn).
+   - [ ] Removing or never calling `note_primary_rate_limited()` makes the test **fail** in CI.
+   - _Low priority. Pins the cross-turn half of #9 that the in-turn fallback tests
+     (`test_gemini_routing.py`) do not exercise._
+
+8. **Pin `last_model_id` (which model answered)** — `[chat]` — _tdd-critic follow-up on the #9
+   sign-off: the admin telemetry surfaces which model committed a turn, but nothing asserts the
+   committed model id, so a routing refactor could mis-report it (e.g. always the primary) without
+   a red test._
+   - [ ] After a turn commits on the fallback, the chain exposes the **fallback** model id as the
+         answering model id (the one the admin panel surfaces); after a normal primary turn it
+         exposes the **primary** id.
+   - [ ] Reporting the wrong committed model id makes the test **fail** in CI.
+   - _Low priority. Asserts the committed-model id the admin telemetry reads._
+
 ## In progress
 - _see `design-notes.md` + `progress.md`_
 
@@ -195,6 +203,43 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
 `test/starfield-reduced-motion.test.mjs`; app 10/10 · chat 70/70 green._
+
+**Release: chat model fallback characterization (#9) (signed off 2026-06-04).** Chat suite
+**80/80** green (`cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`; +5 from the 75/75
+turn-persistence baseline), tdd-critic = PASS. This is a `[chat]`-layer characterization feature —
+**no UX change** — so sign-off is code-level against the 5 new tests in
+`docker/chat/tests/test_gemini_routing.py`; no running-app QA pass. With this release **invariant
+#9 moves UNPROVEN → PROVEN** (all four clauses — first-chunk-rate-limit→fallback on both `astream`
+and `ainvoke`, committed-after-first-chunk propagation, non-rate-limit-not-retried, and the
+distinct-model guard). The tests assert the **routed output / propagation contract** (the
+fallback's distinct content reaches the caller; a committed primary chunk + its mid-stream error
+both reach the caller and the fallback does not), **not** call counts — so the proof survives a
+routing refactor. _Two LOW-priority pinning follow-ups from the tdd-critic were filed (Next-up
+7–8): the **cross-turn** fallback-first memory (`prefer_fallback_first()` after a 429) and the
+committed `last_model_id` the admin surfaces are not pinned by these in-turn tests._
+
+- **Chat falls back to the secondary model on a first-chunk rate limit** — `[chat]` — _invariant
+  **#9**, now PROVEN._ ✓ ACCEPTED. Bullet → proving test
+  (`docker/chat/tests/test_gemini_routing.py`):
+  - First-chunk upstream rate-limit → the chain transparently produces the **fallback** model's
+    output (caller sees a reply, not a 429) → **S1** *test_astream_first_chunk_ratelimit_falls_back*
+    (primary's `astream` raises `UpstreamError(429)` before any yield; asserts the joined stream
+    content `== "from-fallback"`) **and** **S4** *test_ainvoke_ratelimit_falls_back* (non-streaming
+    `ainvoke` 429 → asserts `result.content == "from-fallback"`).
+  - Once a chunk has been yielded, a mid-stream error **propagates** (committed — no fallback
+    restart) → **S2** *test_astream_committed_midstream_error_propagates* (`_CommitThenBoom` yields
+    `"from-primary"` then raises; asserts `pytest.raises(RuntimeError)`, `"from-primary" in seen`,
+    `"from-fallback" not in seen`).
+  - A first-chunk error that is **not** a rate-limit is **not** retried on the fallback → **S3**
+    *test_astream_non_ratelimit_error_not_retried* (`_PlainFirstChunk` raises a plain `RuntimeError`
+    before any yield; asserts the error propagates and `"from-fallback" not in seen`).
+  - Identical primary/fallback model ids are **rejected** (distinct-model guard) → **S5**
+    *test_distinct_model_guard_rejects_identical_ids* (`build_llm_runnable` with equal
+    `GEMINI_MODEL`/`GEMINI_FALLBACK_MODEL` → `pytest.raises(RuntimeError)`; distinct ids →
+    `isinstance(chain, GeminiRoutingChain)`).
+  - _Carve-out (tdd-critic, now Next-up 7–8): these prove the **in-turn** fallback; the
+    **cross-turn** fallback-first memory and the committed `last_model_id` are pinned separately
+    (low priority, backlogged not silently closed)._
 
 **Release: chat turn-persistence characterization (signed off 2026-06-03).** Chat suite
 **75/75** green (`cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`; +5 from the 70/70

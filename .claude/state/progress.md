@@ -4,11 +4,11 @@
 
 ## Current status
 - Feature in flight: **none**. Shipped + accepted this session: **contact durability**
-  (#3/#4/#5) and **chat turn-persistence** (#7; #8 timeout-row — 28s/55s cap clause open).
-  Active layer: app · phase: **off**.
-- Harness: **team-tactics 0.8.5** (0.5.0 → 0.7.0 → 0.8.0 → 0.8.3 → 0.8.5). selftest 13/13; tic
-  protocol live (local `tics` viewer; per-layer auto-scope).
-- Suites: **app `node --test` 23/23** · **chat pytest 75/75** green.
+  (#3/#4/#5), **chat turn-persistence** (#7; #8 timeout-row), and **chat model fallback** (#9).
+  Active layer: chat · phase: **off**.
+- Harness: **team-tactics 0.9.0** (0.5.0→0.7.0→0.8.0→0.8.3→0.8.5→0.9.0; adds divide-and-conquer
+  + sectioning). selftest 13/13; tic protocol live (local `tics` viewer; per-layer auto-scope).
+- Suites: **app `node --test` 23/23** · **chat pytest 80/80** green.
 - **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
   pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
   and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
@@ -49,6 +49,17 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **Adopted team-tactics 0.9.0 + SHIPPED chat model fallback (#9).** 0.9.0 (untagged
+  on main; navigator pushed `v0.9.0` @ `6073ec1`) adds divide-and-conquer + sectioning docs +
+  local `tics` viewer; gate unchanged (selftest 13/13); committed `dfece9f`. Then ran the chat
+  red→green loop for **#9** (model fallback): planner sliced S1–S5; test-writer added 5
+  characterization tests to `docker/chat/tests/test_gemini_routing.py` (astream + ainvoke
+  rate-limit→fallback, committed-midstream propagation, non-rate-limit-not-retried, distinct-model
+  guard) — all green-on-write (logic pre-existed). Seam: construct `GeminiRoutingChain` directly +
+  class-level `_build_chain` monkeypatch (chain has `__slots__`), assert routed-output/propagation
+  (not call counts). chat 75→80. tdd-critic = PASS; product-owner accepted → Shipped; invariant
+  **#9 PROVEN**. Follow-ups filed (cross-turn fallback-first persistence; `last_model_id`). Not
+  yet committed (this feature).
 - 2026-06-04 — **PRODUCTION DEPLOY — GREEN.** Per navigator (Go, full prod deploy), gated on a
   staging E2E contact submission (qa-verifier **PASS**: persist→sent in ~2.8s, honeypot no-IO,
   400 on invalid). Built the prod CI pipeline: OIDC role `gvp-prod-ci-deploy` (main-only trust,
