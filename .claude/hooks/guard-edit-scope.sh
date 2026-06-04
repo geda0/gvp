@@ -26,9 +26,22 @@ fi
 
 is_test() { printf '%s' "$1" | grep -qE "$TEST_GLOB"; }
 
+# P1: enforced claims — block an edit to a path held by ANOTHER scope (disjoint-write fan-out).
+claim_guard() {
+  [ "${CLAIMS_ENFORCE:-1}" = "1" ] || return 0
+  [ -x "$ROOT/.claude/hooks/tics" ] || return 0          # no reader -> fail-open
+  _ms="$(cat "$ROOT/.claude/state/scope" 2>/dev/null)"
+  [ -n "$_ms" ] || return 0                               # unscoped editor -> not partitioned, no enforcement
+  _hold="$("$ROOT/.claude/hooks/tics" claim-check "$1" "$_ms" 2>/dev/null)"; _rc=$?
+  [ "$_rc" = "3" ] || return 0                            # only exit 3 = genuine cross-scope conflict
+  echo "BLOCKED (claim): $1 is held by $_hold. Release it, coordinate via a need tic, or set CLAIMS_ENFORCE=0 to disarm." >&2
+  emit_tic guard "*" need "claim conflict on $1 (held by: $_hold)" "$1" blocked
+  exit 2
+}
+
 case "$PHASE" in
   red)
-    if is_test "$P"; then exit 0; fi
+    if is_test "$P"; then claim_guard "$P"; exit 0; fi
     echo "BLOCKED (phase=red, layer=$LAYER): only $LAYER TEST files may be edited now, not $P. Write the failing test; the implementer makes it pass next." >&2
     emit_tic guard orchestrator block "phase=red layer=$LAYER: source edit refused ($P) — write the failing test first" "$P" blocked
     exit 2 ;;
@@ -38,10 +51,12 @@ case "$PHASE" in
       emit_tic guard orchestrator block "phase=green layer=$LAYER: test edit refused ($P) — tests are frozen" "$P" blocked
       exit 2
     fi
-    exit 0 ;;
-  refactor|off)
-    # refactor: anything allowed (Stop hook keeps the bar green).
-    # off: gate disarmed for manual / non-TDD edits.
+    claim_guard "$P"; exit 0 ;;
+  refactor)
+    # refactor: anything in the layer; claims still enforced (Stop hook keeps the bar green).
+    claim_guard "$P"; exit 0 ;;
+  off)
+    # off: gate disarmed for manual / non-TDD edits (claims not enforced).
     exit 0 ;;
   *)
     # Fail-closed: empty, typo'd, or corrupted phase. We do NOT silently allow,

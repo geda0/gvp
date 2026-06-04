@@ -47,9 +47,10 @@ If you're sectioning to organize *one* worker's tasks, stop — that's just the 
 - **Coordinate seams with coupling-tics, not chat:**
   - `contract` — "here is the shape I publish" (provider → consumers).
   - `need` — "I'm blocked on your seam" (consumer → provider).
-  - `claim` / `release` — "I'm editing a shared-kernel file" / "done" (so two pairs don't
-    edit one file). `tics claims` shows what's held; `tics conductor` shows cross-pair
-    coupling that needs attention.
+  - `claim` / `release` — claim a file before editing it, release when done. With
+    `CLAIMS_ENFORCE` (default on), the guard **blocks** an edit to a file held by another
+    scope and emits a `need`, so two scoped pairs can't edit one file. `tics claims` shows
+    what's held; `tics conductor` shows cross-pair coupling that needs attention.
 - **Each section still runs the full red→green inner loop** and keeps the **whole** suite
   green. A section is a *coordination* boundary, not a quality boundary.
 

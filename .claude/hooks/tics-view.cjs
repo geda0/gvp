@@ -114,11 +114,31 @@ function ticsSections(targetDir) {
   }
   return 0;
 }
+function claimCheck(targetDir, file, myScope) {
+  if (!file || !myScope) return null;            // unscoped editor or no path -> no enforcement
+  const active = new Map();
+  for (const x of loadTics(targetDir)) {
+    if (x.kind === "claim" && x.ref) active.set(x.ref, x);
+    else if (x.kind === "release" && x.ref) active.delete(x.ref);
+  }
+  for (const x of active.values()) {
+    const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
+    if (hit && !scopeMatch(x.scope || "*", myScope)) return { token: x.ref, scope: x.scope || "*", seq: x.seq, from: x.from };
+  }
+  return null;
+}
+function claimCheckCli(targetDir, file, myScope) {
+  const c = claimCheck(targetDir, file, myScope);
+  if (c) { console.log(c.scope + " (#" + (c.seq || "?") + " " + (c.from || "?") + ", claim:" + c.token + ")"); return 3; }
+  return 0;
+}
 function main(argv, defaultRoot) {
   let scope = null; const rest = [];
   for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else rest.push(a); }
   const cmd = rest.shift();
   const role = cmd === "inbox" ? rest.shift() : null;
+  const cfFile = cmd === "claim-check" ? rest.shift() : null;
+  const cfScope = cmd === "claim-check" ? (rest.shift() || scope || "") : null;
   const target = rest[0] ? path.resolve(rest[0]) : (defaultRoot || process.cwd());
   switch (cmd) {
     case "log": return ticsLog(target, scope);
@@ -126,10 +146,11 @@ function main(argv, defaultRoot) {
     case "conductor": return ticsConductor(target);
     case "claims": return ticsClaims(target);
     case "sections": return ticsSections(target);
-    default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims>"); return 2;
+    case "claim-check": return claimCheckCli(target, cfFile, cfScope);
+    default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims | sections | claim-check <file> <scope>>"); return 2;
   }
 }
 if (require.main === module) {
   process.exit(main(process.argv.slice(2), path.join(__dirname, "..", "..")) || 0);
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, main };
+module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, claimCheck, claimCheckCli, main };
