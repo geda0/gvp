@@ -1,28 +1,25 @@
 #!/usr/bin/env bash
-# lib.sh — shared MECHANISM for the TDD pairing hooks. REFRESHED on every update;
-# do NOT edit. Your settings live in .claude/tdd.config (DATA only).
-# Sourced by guard-edit-scope / run-suite / session-green-check: loads your config
-# data, applies mechanism defaults, then defines resolve_layer LAST — so the resolver
-# is always the current kit version, even if an older tdd.config still inlines one.
+# lib.sh — shared MECHANISM for the TDD pairing hooks. REFRESHED on every update; do NOT edit.
+# Your settings live in .claude/tdd.config (DATA only).
 _lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 : "${ROOT:=$(cd "$_lib_dir/../.." && pwd)}"
 
-# 1) Project DATA (layers, commands, globs, knobs).
+# 1) Project DATA.
 # shellcheck disable=SC1091
 [ -f "$ROOT/.claude/tdd.config" ] && . "$ROOT/.claude/tdd.config"
 
-# 2) Mechanism defaults (only if the config didn't set them).
+# 2) Mechanism defaults.
 : "${DEFAULT_TEST_GLOB:=(\.test\.|\.spec\.|(^|/)tests?/|(^|/)__tests__/)}"
 : "${DEFAULT_SRC_GLOB:=(^|/)src/}"
 : "${ALL_TEST_CMD:=npm test}"
 : "${TAIL_LINES:=40}"
 : "${TELEMETRY:=1}"
 : "${TICS:=1}"
+: "${TIC_STORE:=jsonl}"
 : "${SESSION_BASELINE_CHECK:=1}"
 : "${BASELINE_CMD:=$ALL_TEST_CMD}"
 
-# 3) Resolver (bash 3.2 safe). Defined LAST -> always the current kit version.
-# Per layer L: TEST_CMD_<L> -> pre-0.4 legacy alias (BE_/FE_/E2E_) -> ALL_TEST_CMD.
+# 3) Resolver (bash 3.2 safe). Defined LAST.
 resolve_layer() {
   _l="$1"
   eval "TEST_CMD=\"\${TEST_CMD_${_l}:-}\""
@@ -40,26 +37,34 @@ resolve_layer() {
   [ -n "$SRC_GLOB" ]  || SRC_GLOB="$DEFAULT_SRC_GLOB"
 }
 
-# 4) Tic protocol — append one structured agent-to-agent communication unit (a "tic") to
-# .claude/state/tics.jsonl. Hooks emit signal/block; agents emit delegate/handoff/verdict/msg
-# via .claude/hooks/tic.sh. Append-only + JSON-escaped; a logging failure never breaks a hook.
+# 4) Tic protocol — append one structured agent-to-agent communication unit to the tic store.
+# Default store = .claude/state/tics.jsonl (append). TIC_STORE=spool writes one file per tic to
+# .claude/state/tics.d/ — concurrency-safe for PARALLEL writers (pairs/sessions sharing a bus):
+# no shared-file append/seq race. `scope` is ambient (.claude/state/scope, default "*").
 #   emit_tic FROM TO KIND MSG [REF] [RESULT] [EXTRA_JSON]
 _tic_esc() { printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 emit_tic() {
   [ "${TICS:-1}" = "1" ] || return 0
   _tf="${TICS_FILE:-$ROOT/.claude/state/tics.jsonl}"
-  mkdir -p "$(dirname "$_tf")" 2>/dev/null || true
-  _seq=1; [ -f "$_tf" ] && _seq=$(( $(wc -l < "$_tf" 2>/dev/null) + 1 ))
+  _td="$ROOT/.claude/state/tics.d"
+  mkdir -p "$ROOT/.claude/state" 2>/dev/null || true
+  _seq=$(( $({ cat "$_tf" 2>/dev/null; cat "$_td"/*.json 2>/dev/null; } | wc -l) + 1 ))
   _ph="$(cat "$ROOT/.claude/state/phase" 2>/dev/null || echo unknown)"
   _ly="$(cat "$ROOT/.claude/state/layer" 2>/dev/null || echo unknown)"
-  printf '{"ts":"%s","seq":%s,"kind":"%s","from":"%s","to":"%s","phase":"%s","layer":"%s","msg":"%s","ref":"%s","result":"%s"%s}\n' \
+  _sc="$(cat "$ROOT/.claude/state/scope" 2>/dev/null || echo '*')"
+  if [ "${TIC_STORE:-jsonl}" = "spool" ]; then
+    mkdir -p "$_td" 2>/dev/null || true
+    _out="$_td/$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}.json"
+  else
+    _out="$_tf"
+  fi
+  printf '{"ts":"%s","seq":%s,"kind":"%s","from":"%s","to":"%s","phase":"%s","layer":"%s","scope":"%s","msg":"%s","ref":"%s","result":"%s"%s}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_seq" \
     "$(_tic_esc "${3:-note}")" "$(_tic_esc "${1:-?}")" "$(_tic_esc "${2:-*}")" \
-    "$(_tic_esc "$_ph")" "$(_tic_esc "$_ly")" \
+    "$(_tic_esc "$_ph")" "$(_tic_esc "$_ly")" "$(_tic_esc "$_sc")" \
     "$(_tic_esc "${4:-}")" "$(_tic_esc "${5:-}")" "$(_tic_esc "${6:-}")" "${7:-}" \
-    >> "$_tf" 2>/dev/null || true
+    >> "$_out" 2>/dev/null || true
 }
 
-# Project extension point: source hooks/local.d/*.sh LAST, so a project can override
-# the resolver/defaults or add helpers WITHOUT editing this (refreshed) file.
+# Project extension point.
 for _f in "$ROOT"/.claude/hooks/local.d/*.sh; do [ -f "$_f" ] && . "$_f"; done
