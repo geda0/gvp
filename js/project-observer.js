@@ -24,9 +24,9 @@ export function initProjectObserver(cards, { getCurrentSection, onVisibleChange 
     let best = { ratio: 0, card: null }
     ratios.forEach((ratio, card) => {
       if (ratio > best.ratio) {
-        // All project cards now live under #portfolioContent (portfolio cards
-        // proper + the playground subsection). One section, one match.
-        const section = card.closest('#portfolioContent') ? 'portfolio' : null
+        // Portfolio cards live under #portfolioContent; Labs cards under
+        // #labsContent. Match the card's container to the current section.
+        const section = card.closest('#portfolioContent') ? 'portfolio' : card.closest('#labsContent') ? 'labs' : null
         if (section === getCurrentSection()) best = { ratio, card }
       }
     })

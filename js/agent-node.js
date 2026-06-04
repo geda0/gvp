@@ -35,7 +35,7 @@ const PLACEHOLDER_POOL = {
       deepQuestion: 'How do you engage — review, build, or lead?'
     }
   ],
-  playground: [
+  labs: [
     {
       teaser: 'What you can build?',
       deepQuestion: 'What can you build at the experiment scale?'
@@ -147,7 +147,7 @@ export function initAgentNode(options = {}) {
   let launcherObserver = null
   let homeDockScrollRaf = null
   let lastSyncedSection = 'home'
-  const placeholderIdx = { home: 0, playground: 0, portfolio: 0 }
+  const placeholderIdx = { home: 0, labs: 0, portfolio: 0 }
   let placeholderRotateTimer = null
   let placeholderCrossfadeTimer = null
 

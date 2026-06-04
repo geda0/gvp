@@ -157,7 +157,7 @@ export function initProjectDetailDialog() {
     const data = projectDetailsById.get(id);
     if (!data) return;
     dialog.setAttribute('data-project-id', id)
-    const section = window.location.hash === '#portfolio' ? 'portfolio' : 'home'
+    const section = window.location.hash === '#portfolio' ? 'portfolio' : window.location.hash === '#labs' ? 'labs' : 'home'
     trackProjectInteraction('open_details', id, section)
 
     lastFocus = document.activeElement;
@@ -238,26 +238,28 @@ export function initProjectDetailDialog() {
     openDialog(id);
   }
 
-  // Both portfolio cards and playground subsection cards live inside
-  // #portfolioContent now, so a single delegate covers them.
-  const wrap = document.getElementById('portfolioContent');
-  if (wrap) {
+  // Portfolio cards live in #portfolioContent, Labs cards in #labsContent.
+  // Bind the same delegated handlers to each container.
+  const onCardKeydown = (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('.project');
+    if (!card) return;
+    if (e.key === ' ') e.preventDefault();
+    const id = card.getAttribute('data-project-id');
+    if (id) openDialog(id);
+  };
+  ['portfolioContent', 'labsContent'].forEach((wrapId) => {
+    const wrap = document.getElementById(wrapId);
+    if (!wrap) return;
     wrap.addEventListener('click', onActivateProject);
-    wrap.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' && e.key !== ' ') return;
-      const card = e.target.closest('.project');
-      if (!card || !wrap.contains(card)) return;
-      if (e.key === ' ') e.preventDefault();
-      const id = card.getAttribute('data-project-id');
-      if (id) openDialog(id);
-    });
-  }
+    wrap.addEventListener('keydown', onCardKeydown);
+  });
 
   closeBtn?.addEventListener('click', closeDialog);
   backdrop?.addEventListener('click', closeDialog);
   linkEl?.addEventListener('click', () => {
     const id = dialog.getAttribute('data-project-id') || ''
-    const section = window.location.hash === '#portfolio' ? 'portfolio' : 'home'
+    const section = window.location.hash === '#portfolio' ? 'portfolio' : window.location.hash === '#labs' ? 'labs' : 'home'
     trackProjectInteraction('open_link', id, section)
   })
 
@@ -288,6 +290,7 @@ function createProjectCard(project) {
 
   const div = document.createElement('div');
   div.className = 'project';
+  if (project.featured) div.classList.add('project--featured');
   div.setAttribute('data-project-id', id);
   div.setAttribute('data-project-title', project.title || '');
   div.setAttribute('data-project-description', cardDescription);

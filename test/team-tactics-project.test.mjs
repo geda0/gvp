@@ -15,6 +15,9 @@ test('team-tactics is featured in playground with a representable card', () => {
   assert.ok(entry.cardDescription?.length >= 40, 'card needs a substantive blurb')
   assert.ok(entry.description?.includes('Team Tactics'))
   assert.equal(entry.link, 'https://github.com/geda0/team-tactics')
+  // Featured "first + larger" treatment on the Labs page.
+  assert.equal(entry.featured, true, 'team-tactics is the featured Labs card')
+  assert.equal((data.playground || [])[0]?.id, 'team-tactics', 'team-tactics leads the Labs grid')
 })
 
 test('team-tactics.svg is clean UTF-8 and readable at a glance', () => {

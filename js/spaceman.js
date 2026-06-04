@@ -21,7 +21,7 @@ const DEFAULTS = {
 const DEFAULT_DATA = {
   states: {
     idle: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 },
-    playground: { messages: ['Playground builds with production habits.'], typingSpeed: 40, messageDelay: 4000 },
+    playground: { messages: ['Labs: production habits on a smaller canvas.'], typingSpeed: 40, messageDelay: 4000 },
     portfolio: { messages: ['Professional experience and career journey.'], typingSpeed: 40, messageDelay: 4000 },
     home: { messages: ['I\'m Marwan\'s digital assistant.'], typingSpeed: 50, messageDelay: 3000 }
   },
@@ -498,6 +498,8 @@ class Spaceman {
 
   // Public API
   setState(newState) {
+    // 'labs' is the section-state name; the message bucket is still keyed 'playground'.
+    if (newState === 'labs') newState = 'playground';
     if (this.state === newState) return;
 
     // Leaving a determined context (project dialog) must never block the next section's messages.
