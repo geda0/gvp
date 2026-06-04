@@ -37,6 +37,15 @@ jobs:
         with:
           node-version: 20
 
+      - name: Guard — agent ships STAGING (not prod) API URLs
+        # Inverse of the deploy-prod guard: keep the prod hosts (lwi0vmdpb5 /
+        # chat-api.marwanelgendy.link) off the staging branch so `main` and `agent` stay
+        # correctly diverged on the gvp:*-api-url metas. Also rides the generic `node --test`
+        # below via GITHUB_REF_NAME=agent.
+        env:
+          GVP_EXPECTED_ENV: stage
+        run: node --test test/frontend-api-url-env-guard.test.mjs
+
       - name: Run node:test suite
         run: node --test
 

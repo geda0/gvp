@@ -39,6 +39,16 @@ jobs:
         with:
           node-version: 20
 
+      - name: Guard — main ships PROD (not staging) API URLs
+        # Fail fast and loudly if a staging host (fvfqpef8kb / chat-api-stage) ever rides
+        # onto main again (the 2026-06-04 agent->main fast-forward incident, hotfixed in
+        # 843e648). Amplify serves the committed HTML as-is, so a leaked staging meta would
+        # publish staging backends to prod. The generic `node --test` step below also enforces
+        # this via GITHUB_REF_NAME=main; this named step makes a regression unmistakable.
+        env:
+          GVP_EXPECTED_ENV: prod
+        run: node --test test/frontend-api-url-env-guard.test.mjs
+
       - name: Run node:test suite
         run: node --test
 
