@@ -143,13 +143,13 @@ proves it comes FIRST.
      `status=='timeout'` + `errorCode=='upstream_timeout'`); streaming **ok** (S3
      *test_streaming_success_…*: `status=='ok'`, `stream is True`), **error** (S4
      *test_streaming_midstream_error_…*: `status=='error'` + `errorCode`) and **timeout** (S5
-     *test_streaming_timeout_…*: `status=='timeout'` + `errorCode=='upstream_timeout'`); each
-     asserts exactly one persisted row via a stub store. Together with the pre-existing
-     `test_transcript_store.py::test_chat_persists_transcript_turn` (non-stream **ok**) that is
-     all six {ok,error,timeout}×{stream,non-stream} cells. *Caveat:* the non-stream-ok test
-     proves the row **persists** (session/prompt/model/flags) but asserts HTTP `status_code==200`
-     rather than the persisted `turn['status']=='ok'`; the other five each assert the row's
-     `status` directly. Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+     *test_streaming_timeout_…*: `status=='timeout'` + `errorCode=='upstream_timeout'`); and
+     non-stream **ok** (*test_non_stream_success_persists_one_ok_row*: `status=='ok'`,
+     `stream is False`) — each asserts exactly one persisted row via a stub store. That is all six
+     {ok,error,timeout}×{stream,non-stream} cells, and **all six now assert the persisted
+     `turn['status']` directly** (the prior non-stream-ok soft spot — which only asserted HTTP
+     `status_code==200` via `test_transcript_store.py::test_chat_persists_transcript_turn` — was
+     closed 2026-06-04). Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 8. **Each chat provider call is bounded by a timeout.** Non-streaming calls are wrapped
    in `asyncio.wait_for(..., provider_timeout_seconds)` (504 + persisted `timeout` row on

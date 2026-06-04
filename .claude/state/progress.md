@@ -5,9 +5,14 @@
 ## Current status
 - Feature in flight: **none**. **ALL TEN INVARIANTS NOW FULLY PROVEN** — the last open clause
   (#8's 55s API-Gateway cap) shipped 2026-06-04, plus two contact-core tdd-critic pins (Obs A
-  `markSending` order, Obs C enqueued `idempotencyKey`). Active layer: **chat** · phase: **off**.
+  `markSending` order, Obs C enqueued `idempotencyKey`) and the #7 non-stream-OK cell
+  (`turn['status']=='ok'`, closing the milestone tdd-critic finding). Active layer: **chat** ·
+  phase: **off**.
 - Harness: **team-tactics 0.9.2** (installed; selftest 13/13; tic protocol live).
-- Suites: **app `node --test` 36/36** · **chat pytest 85/85** (verified locally this session).
+- Suites: **app `node --test` 36/36** · **chat pytest 86/86** (verified locally this session).
+- tdd-critic milestone audit = **PASS-on-substance** (all pins honest/RED-capable). Two CONCERNS
+  were pre-existing soft spots: #7 ok-cell (now CLOSED) and #10 coupling/allowlist (OPTIONAL,
+  backlogged). Plus a minor non-blocking note: pin-1 order could deep-equal the full call sequence.
 - **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
   pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
   and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
@@ -15,11 +20,11 @@
   Prod deploy run `26938125929` GREEN; QA-gated by a staging E2E contact submission (qa-verifier
   PASS). Prod chat (ECS `chat-api.marwanelgendy.link`) untouched/manual. ⚠ CI actions on Node20
   (GitHub deprecation 2026-06-16).
-- Branch `claude/compassionate-dubinsky-de3583` HEAD = `7246297`. Merged the navigator's `agent`
-  work (`c99fa96`: frontend guards #1/#2, "Team Tactics" showcase project) by fast-forward, then
-  added 3 invariant-completion pins (`40c3d94` contact Obs A/C, `7246297` chat #8 cap).
-  ⚠ NOT YET PUSHED to `agent`/`main`. `origin/agent` = `c99fa96`; `main` = `fda626f` (lacks the
-  #8/#9/#10 chat tests + the new pins — a deploy-neutral docs/tests delta).
+- Branch `claude/compassionate-dubinsky-de3583`: merged the navigator's `agent` work (`c99fa96`:
+  frontend guards #1/#2, "Team Tactics" showcase project) by fast-forward, then added the
+  invariant-completion pins (`40c3d94` contact Obs A/C · `7246297` chat #8 cap · ok-cell + docs).
+  ⚠ NOT YET PUSHED to `agent`/`main`. `origin/agent` = `c99fa96`; `main` = `fda626f` (both lack the
+  new pins + the #8/#9/#10 chat tests — a deploy-neutral docs/tests delta; no production code change).
 - Next backlog: only the LOW-priority / OPTIONAL tdd-critic hardening tail remains (#9 cross-turn
   fallback-first + `last_model_id`; OPTIONAL #10 voice allowlist + preset/cadence coupling). None
   blocks an invariant. Reasonable checkpoint with the navigator on whether to grind these or stop.

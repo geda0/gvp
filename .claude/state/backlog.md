@@ -152,12 +152,23 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
 `test/starfield-reduced-motion.test.mjs`; app 10/10 · chat 70/70 green._
 
-**Release: Invariant-completion pins (#8 cap + tdd-critic Obs A/C) (signed off 2026-06-04).** App
-suite **36/36**, chat **85/85** green; tdd-critic gaps closed. Three characterization pins (all
-green on write — **no production change**), landing **#8 fully proven** and closing two contact-core
-tdd-critic observations. **With this release every one of the ten project invariants is fully
-proven; there are no open invariant clauses.** The remaining backlog is the LOW-priority / OPTIONAL
-tdd-critic hardening tail (#9 cross-turn, #10 allowlist/coupling) — none blocks an invariant.
+**Release: Invariant-completion pins (#8 cap + #7 ok-cell + tdd-critic Obs A/C) (signed off
+2026-06-04).** App suite **36/36**, chat **86/86** green; tdd-critic milestone audit = PASS-on-
+substance (CONCERNS were two pre-existing soft spots, one of which — the #7 ok-cell — is closed
+here; the other, #10 coupling/allowlist, stays OPTIONAL-backlogged). Four characterization pins
+(all green on write — **no production change**), landing **#8 fully proven** and tightening #7.
+**With this release every one of the ten project invariants is fully proven; there are no open
+invariant clauses, and all six #7 persistence cells assert the row's terminal status directly.**
+The remaining backlog is the LOW-priority / OPTIONAL tdd-critic hardening tail (#9 cross-turn, #10
+allowlist/coupling) — none blocks an invariant.
+
+- **Pin non-stream OK turn persists `status=='ok'`** — `[chat]` — _invariant **#7**, last soft
+  cell closed (tdd-critic milestone finding)._ ✓ ACCEPTED.
+  `docker/chat/tests/test_turn_persistence.py::test_non_stream_success_persists_one_ok_row` — a
+  successful non-streaming turn persists exactly one row with `turn['status']=='ok'` and
+  `turn['stream'] is False` (the genuine `ainvoke` success path). Previously only the row's
+  existence was proven (HTTP 200); now all six {ok,error,timeout}×{stream,non-stream} cells assert
+  the persisted terminal status directly.
 
 - **Pin chat provider timeout clamp to the 55s ceiling** — `[chat]` — _invariant **#8**, the last
   open clause, now PROVEN (PARTIAL → FULL)._ ✓ ACCEPTED. Bullet → proving test
