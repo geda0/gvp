@@ -3,17 +3,20 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
-- Feature in flight: **none**. Shipped + accepted this session: **contact durability**
-  (#3/#4/#5) and **chat turn-persistence** (#7; #8 timeout-row — 28s/55s cap clause open).
-  Active layer: app · phase: **off**.
-- Harness: **team-tactics 0.8.0** (teamentic 0.5.0 → 0.7.0 → 0.8.0). selftest 13/13; tic
-  protocol live (auto-handoff SubagentStop hook; `.claude/state/tics.jsonl`, gitignored).
-- Suites: **app `node --test` 23/23** · **chat pytest 75/75** green.
-- **Deployed to STAGING (2026-06-04):** merged this branch → `agent` (`514f938`, conflict-free,
-  staging API URLs preserved) and pushed `origin/agent` → Amplify staging build;
-  `chat.marwanelgendy.link` reachable. See `releases.md`. ⚠ Amplify deploys the static FRONTEND
-  only (unchanged by this work, which is backend/tests/docs/harness); the refactored contact
-  Lambdas reach staging only via a SEPARATE `integrate-and-deploy.sh stage` / `workflow_dispatch`.
+- Feature in flight: **none**. Shipped this session: contact durability (#3/#4/#5),
+  chat turn-persistence (#7; #8 timeout-row), chat model fallback (#9), **chat voice-timbre
+  lock (#10)**. **Every CHAT-layer invariant is now proven**; remaining UNPROVEN = **#1, #2**
+  (`[app]` frontend guards) + #8's cap clause. Active layer: chat · phase: **off**.
+- Harness: **team-tactics 0.9.2** (…→0.9.0→0.9.2; adds divide-and-conquer + sectioning +
+  enforced write-claims [no-op without a scope file]). selftest 13/13; tic protocol live.
+- Suites: **app `node --test` 23/23** · **chat pytest 84/84** green.
+- **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
+  pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
+  and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
+  Amplify builds the frontends (`agent`→chat.marwanelgendy.link · `main`→www.marwanelgendy.link).
+  Prod deploy run `26938125929` GREEN; QA-gated by a staging E2E contact submission (qa-verifier
+  PASS). Prod chat (ECS `chat-api.marwanelgendy.link`) untouched/manual. `main` = `fda626f` (=
+  this branch). See `releases.md`. ⚠ CI actions on Node20 (GitHub deprecation 2026-06-16).
 - Commits on `claude/compassionate-dubinsky-de3583` (8 this session): harness/ADRs/invariants ·
   CI · contact · state · kit 0.7.0 · chat tests · chat state · kit 0.8.0 (`cb2317b`).
 - Next backlog item: chat fallback on first-chunk rate-limit (#9), then voice timbre (#10),
@@ -47,6 +50,47 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **Adopted team-tactics 0.9.2 + SHIPPED chat voice-timbre lock (#10).** 0.9.2 (tagged
+  `v0.9.2`) adds enforced write-claims to guard-edit-scope (P1 sectioning) — gated + NO-OP without a
+  `.claude/state/scope` file, so the gate is unchanged here (selftest 13/13); committed `66c08e6`.
+  Then ran the chat red→green loop for **#10**: planner sliced S1–S4 (pure functions); test-writer
+  added 4 characterization tests to `docker/chat/tests/test_live_voice_timbre.py` (default→Charon,
+  override honored, connect-config prebuilt voice, cadence directive) — all green-on-write (lock
+  pre-existed, ADR-0003). chat 80→84. tdd-critic PASS-on-substance (2 by-design advisories →
+  optional follow-ups); product-owner accepted → Shipped; invariant **#10 PROVEN**. **Milestone:
+  all chat-layer invariants proven; remaining = #1/#2 (`[app]` frontend guards) + #8 cap.** Not yet
+  committed (this feature).
+- 2026-06-04 — **Adopted team-tactics 0.9.0 + SHIPPED chat model fallback (#9).** 0.9.0 (untagged
+  on main; navigator pushed `v0.9.0` @ `6073ec1`) adds divide-and-conquer + sectioning docs +
+  local `tics` viewer; gate unchanged (selftest 13/13); committed `dfece9f`. Then ran the chat
+  red→green loop for **#9** (model fallback): planner sliced S1–S5; test-writer added 5
+  characterization tests to `docker/chat/tests/test_gemini_routing.py` (astream + ainvoke
+  rate-limit→fallback, committed-midstream propagation, non-rate-limit-not-retried, distinct-model
+  guard) — all green-on-write (logic pre-existed). Seam: construct `GeminiRoutingChain` directly +
+  class-level `_build_chain` monkeypatch (chain has `__slots__`), assert routed-output/propagation
+  (not call counts). chat 75→80. tdd-critic = PASS; product-owner accepted → Shipped; invariant
+  **#9 PROVEN**. Follow-ups filed (cross-turn fallback-first persistence; `last_model_id`). Not
+  yet committed (this feature).
+- 2026-06-04 — **PRODUCTION DEPLOY — GREEN.** Per navigator (Go, full prod deploy), gated on a
+  staging E2E contact submission (qa-verifier **PASS**: persist→sent in ~2.8s, honeypot no-IO,
+  400 on invalid). Built the prod CI pipeline: OIDC role `gvp-prod-ci-deploy` (main-only trust,
+  contact-only policy scoped to `page`; no IAM iteration needed — preloaded the staging-learned
+  perms), `AWS_DEPLOY_ROLE_ARN_PROD` secret, `deploy-prod.yml` (push→main path-filtered +
+  dispatch, test-gated, `integrate-and-deploy.sh prod`). FF-pushed `main` (639eea8→`fda626f`, 16
+  commits) → auto-triggered `deploy-prod` run **26938125929** (test ✅ + deploy ✅, 1m23s) +
+  Amplify www rebuild. Health: `page` UPDATE_COMPLETE, contact `lwi0vmdpb5` OPTIONS 204 (matches
+  FE prod meta), `www.marwanelgendy.link` 200, prod chat ECS `chat-api.marwanelgendy.link` 200
+  (untouched). Frontend visually unchanged (work is backend/tooling). 1 staging QA item to clean
+  (`cfe4b88e…` in page-staging-ContactMessagesTable).
+- 2026-06-04 — **Adopted team-tactics 0.8.5 + DEPLOYED to STAGE (contact-only, GREEN).** 0.8.5 was
+  untagged on `main`; navigator pushed `v0.8.5` (commit `7badc88`), then `npx …#v0.8.5 update`:
+  tics-view `.js`→`.cjs` (CommonJS) + new `sections.md` context-map seed; gate unchanged (settings
+  untouched), selftest 13/13, app 23/23, chat 75/75; committed `63e0a5b`. Merged → `agent`
+  (`8f4584c`, staging URLs intact) + pushed. Triggered `deploy-staging` (run **26936642631**):
+  **test ✅ + deploy ✅** (55s, CONTACT-ONLY — first run after CHAT_SAM_STACK_NAME removal + IAM
+  tighten, so it also verified that config). Health: contact `fvfqpef8kb` OPTIONS 204 (matches FE
+  meta), frontend `chat.marwanelgendy.link` 200, ECS chat `chat-api-stage` 200 (untouched).
+  Note: CI actions run on Node20 (GitHub deprecation 2026-06-16 — bump action versions later).
 - 2026-06-04 — **Adopted team-tactics 0.8.3 + finalized staging CI/CD (contact-only).** 0.8.3 was
   untagged (only on `main`); navigator pushed `v0.8.3` (commit `35a1c6c`), then
   `npx github:geda0/team-tactics#v0.8.3 update`: adds local `tics` viewer CLI

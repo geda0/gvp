@@ -16,6 +16,7 @@ _lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 : "${TELEMETRY:=1}"
 : "${TICS:=1}"
 : "${TIC_STORE:=jsonl}"
+: "${CLAIMS_ENFORCE:=1}"
 : "${SESSION_BASELINE_CHECK:=1}"
 : "${BASELINE_CMD:=$ALL_TEST_CMD}"
 
@@ -39,19 +40,20 @@ resolve_layer() {
 
 # 4) Tic protocol — append one structured agent-to-agent communication unit to the tic store.
 # Default store = .claude/state/tics.jsonl (append). TIC_STORE=spool writes one file per tic to
-# .claude/state/tics.d/ — concurrency-safe for PARALLEL writers. `scope` is ambient: explicit
+# .claude/state/tics.d/ — concurrency-safe for PARALLEL writers. `scope` is ambient: TICS_SCOPE (per-call override for fan-out) else explicit
 # .claude/state/scope wins, else it defaults to the active LAYER (so tics auto-scope per layer
-# with zero effort), else "*".  emit_tic FROM TO KIND MSG [REF] [RESULT] [EXTRA_JSON]
+# with zero effort), else "*".  Set TICS_DIR to share one spool across git worktrees (parallel
+# sections -> one bus); TICS_FILE overrides the jsonl path.  emit_tic FROM TO KIND MSG [REF] [RESULT] [EXTRA_JSON]
 _tic_esc() { printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 emit_tic() {
   [ "${TICS:-1}" = "1" ] || return 0
   _tf="${TICS_FILE:-$ROOT/.claude/state/tics.jsonl}"
-  _td="$ROOT/.claude/state/tics.d"
+  _td="${TICS_DIR:-$ROOT/.claude/state/tics.d}"
   mkdir -p "$ROOT/.claude/state" 2>/dev/null || true
   _seq=$(( $({ cat "$_tf" 2>/dev/null; cat "$_td"/*.json 2>/dev/null; } | wc -l) + 1 ))
   _ph="$(cat "$ROOT/.claude/state/phase" 2>/dev/null || echo unknown)"
   _ly="$(cat "$ROOT/.claude/state/layer" 2>/dev/null || echo unknown)"
-  _sc="$(cat "$ROOT/.claude/state/scope" 2>/dev/null)"
+  _sc="${TICS_SCOPE:-$(cat "$ROOT/.claude/state/scope" 2>/dev/null)}"
   if [ -z "$_sc" ]; then
     if [ -n "$_ly" ] && [ "$_ly" != "unknown" ]; then _sc="$_ly"; else _sc="*"; fi
   fi

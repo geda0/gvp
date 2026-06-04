@@ -7,6 +7,11 @@ The pair coordinates **through the test suite and the files, never through
 chat**. Every handoff is gated by an objective signal — the suite is RED or
 GREEN. No agent decides "this looks done." The suite decides.
 
+## Divide and conquer
+At every step, ask if the work decomposes into independent sub-tasks coordinated through
+tics: fan out read-only work (explore/review/plan) on the main repo by default and
+synthesize; serialize the red→green edits through the gate. See `docs/tdd/divide-and-conquer.md`.
+
 ## Roles
 - **orchestrator** (main session, `CLAUDE.md`): runs the loop, sets phase+layer,
   delegates, reads results, records state. Writes no code.

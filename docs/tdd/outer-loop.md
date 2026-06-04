@@ -33,9 +33,19 @@ orchestrator with the roles below. Install/refresh them with
    (with dev-ops) commits, git-tags, and deploys the milestone, verifies health, and
    records it in `releases.md`. Surface release blockers; then take the next feature.
 
+## Parallel sections (large projects)
+When the domain has clear bounded contexts and more than one pair/role can work at once,
+the architect (called by the product-owner) **sections** the project: each section is a
+bounded context built in parallel, scoped `section/pair`, coordinating across seams with
+`contract`/`need`/`claim` tics on a shared spool bus. The PO/PM/architect can work one
+section while a dev pair finishes another. Opt-in — small projects stay single-section.
+Full guide: `docs/tdd/sectioning.md`; the live map is `.claude/state/sections.md`.
+
 ## Invariants
 - The product-owner accepts; the project-manager ships. Never release on a red bar
   or unaccepted work.
 - Acceptance criteria are observable behavior, never "implement X".
 - The files are the source of truth (backlog / design-notes / progress / releases);
   every role reads them before acting and writes only its own.
+- Sectioning (large projects) is a *coordination* boundary, not a quality one: every
+  section keeps the whole suite green and runs the full red→green loop.

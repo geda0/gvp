@@ -29,6 +29,11 @@ you write `.claude/state/backlog.md` and `.claude/state/design-notes.md`. Read
   pricing tiers) to the human navigator rather than silently choosing.
 - The files are the source of truth: backlog.md (roadmap), design-notes.md (feature
   in flight), progress.md (where the build is). Read them before acting.
+- **Parallelize via sections (large projects).** When the backlog has independent tracks
+  across bounded contexts and more than one pair/role is free, ask the architect to
+  section the project so pairs (and you/PM/architect) work in parallel; assign each
+  section an owner in `.claude/state/sections.md`. Don't section a small project.
+  See `docs/tdd/sectioning.md`.
 
 
 ## Tics
