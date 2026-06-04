@@ -19,13 +19,13 @@ proves it comes FIRST.
 > `docker/chat/tests/test_live_voice_timbre.py` (all four clauses — default → `Charon`,
 > deliberate override honored verbatim, prebuilt voice on the connect config's `speech_config`,
 > and the prompt-side cadence directive; the AUDIO response-modality half by
-> `test_live_handshake.py`). **#8** is **persisted-row-proven** (the `timeout` row is asserted on
-> both paths, including the persisted-timeout-row cell) but its **cap clause is still open** — the
-> `providers.py` 28s-default / 55s-ceiling resolution is unproven (see #8 "Proven by" + the "Pin
-> chat provider timeout resolution + cap" backlog item).
-> **Proven set: #1, #2, #3, #4, #5, #6, #7, #9, #10 (+#8 partial — persisted-timeout-row
-> proven, cap clause open).** Every CHAT-layer invariant (#7, #8 timeout-row, #9, #10) and every
-> `[app]` frontend guard (#1, #2) now holds; the only open invariant clause is **#8's 55s cap**. Each is a candidate for a characterization test and belongs on
+> `test_live_handshake.py`). **#8** is now **fully proven** — the persisted `timeout` row is
+> asserted on both paths AND the `providers.py` cap clause (28s Gemini default +
+> 55s-API-Gateway-ceiling clamp of an over-large override) is proven by
+> `test_providers.py::test_gemini_timeout_clamped_to_55s_ceiling`.
+> **Proven set: ALL TEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10.** Every CHAT-layer invariant
+> (#7, #8, #9, #10) and every `[app]` invariant (#1–#6) now holds; there are no open invariant
+> clauses. Each claim is a characterization test that fails CI on regression and belongs on
 > the upgrade backlog. Each claim is cited to `file:line` so the navigator can confirm it against
 > the code, not take it on faith. Line numbers are from the state of the repo at adoption and may
 > drift; treat the cited function/symbol as the anchor.
@@ -160,15 +160,16 @@ proves it comes FIRST.
      deadline `docker/chat/app/main.py:864-884` (`deadline = monotonic()+timeout_s`,
      per-chunk `wait_for(remaining)`); timeout resolution + caps
      `docker/chat/app/providers.py:23-47` (Gemini default 28s, ceiling 55s).
-   - Proven by: PARTIAL — the persisted `timeout` **row** is proven on both paths by
+   - Proven by: FULLY — the persisted `timeout` **row** on both paths by
      `docker/chat/tests/test_turn_persistence.py` (S2 non-stream and S5 streaming per-chunk
-     `wait_for` deadline → `status=='timeout'`, `errorCode=='upstream_timeout'`), and the 504
-     mapping by `test_readiness_timeout.py::test_chat_timeout_maps_to_504`; the 28s default by
-     `test_providers.py::test_gemini_default_upstream_timeout`. **STILL OPEN:** the
-     `providers.py` timeout-resolution **cap** — the 28s-default / 55s-API-Gateway-ceiling clamp
-     of a `>55s` override — is **not yet proven** (no test sets an over-ceiling override and
-     asserts the clamp). Tracked by the "Pin chat provider timeout resolution + cap" backlog
-     item. Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+     `wait_for` deadline → `status=='timeout'`, `errorCode=='upstream_timeout'`); the 504
+     mapping by `test_readiness_timeout.py::test_chat_timeout_maps_to_504`; the 28s Gemini
+     default by `test_providers.py::test_gemini_default_upstream_timeout`; and the
+     **55s-API-Gateway-ceiling cap** by
+     `test_providers.py::test_gemini_timeout_clamped_to_55s_ceiling` (a `GEMINI_TIMEOUT_SECONDS`
+     of `120` is clamped to `55.0`, while a sub-ceiling `40` passes through unchanged — the clamp
+     caps but does not floor). No open clause remains.
+     Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 9. **On a first-chunk rate limit the chat chain transparently falls back to the
    secondary model; once any chunk has flushed it is committed.** `GeminiRoutingChain`

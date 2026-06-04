@@ -3,22 +3,26 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
-- Feature in flight: **none**. Shipped this session: **frontend bundle guards (#1/#2)** —
-  invariants #1 and #2 now PROVEN; **only #8's 55s cap clause remains open** across all ten
-  invariants. Prior session: contact durability, chat #7–#10. Active layer: **app** · phase: **off**.
+- Feature in flight: **none**. **ALL TEN INVARIANTS NOW FULLY PROVEN** — the last open clause
+  (#8's 55s API-Gateway cap) shipped 2026-06-04, plus two contact-core tdd-critic pins (Obs A
+  `markSending` order, Obs C enqueued `idempotencyKey`). Active layer: **chat** · phase: **off**.
 - Harness: **team-tactics 0.9.2** (installed; selftest 13/13; tic protocol live).
-- Suites: **app `node --test` 30/30** · **chat pytest 84/84** (last recorded; re-run in CI/docker).
+- Suites: **app `node --test` 36/36** · **chat pytest 85/85** (verified locally this session).
 - **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
   pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
   and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
   Amplify builds the frontends (`agent`→chat.marwanelgendy.link · `main`→www.marwanelgendy.link).
   Prod deploy run `26938125929` GREEN; QA-gated by a staging E2E contact submission (qa-verifier
-  PASS). Prod chat (ECS `chat-api.marwanelgendy.link`) untouched/manual. `main` = `fda626f` (=
-  this branch). See `releases.md`. ⚠ CI actions on Node20 (GitHub deprecation 2026-06-16).
-- Commits on `claude/compassionate-dubinsky-de3583` (8 this session): harness/ADRs/invariants ·
-  CI · contact · state · kit 0.7.0 · chat tests · chat state · kit 0.8.0 (`cb2317b`).
-- Next backlog item: pin sender `markSending` (backlog #3), then contact `idempotencyKey` (#4),
-  then #8 cap clause; optional chat hardening items remain low priority.
+  PASS). Prod chat (ECS `chat-api.marwanelgendy.link`) untouched/manual. ⚠ CI actions on Node20
+  (GitHub deprecation 2026-06-16).
+- Branch `claude/compassionate-dubinsky-de3583` HEAD = `7246297`. Merged the navigator's `agent`
+  work (`c99fa96`: frontend guards #1/#2, "Team Tactics" showcase project) by fast-forward, then
+  added 3 invariant-completion pins (`40c3d94` contact Obs A/C, `7246297` chat #8 cap).
+  ⚠ NOT YET PUSHED to `agent`/`main`. `origin/agent` = `c99fa96`; `main` = `fda626f` (lacks the
+  #8/#9/#10 chat tests + the new pins — a deploy-neutral docs/tests delta).
+- Next backlog: only the LOW-priority / OPTIONAL tdd-critic hardening tail remains (#9 cross-turn
+  fallback-first + `last_model_id`; OPTIONAL #10 voice allowlist + preset/cadence coupling). None
+  blocks an invariant. Reasonable checkpoint with the navigator on whether to grind these or stop.
 
 ## Bootstrap deliverables (done this session)
 - **Harness:** `.claude/tdd.config` now has TWO layers — `app` (node:test over

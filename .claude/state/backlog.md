@@ -95,45 +95,12 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ## Next up
 
-> _Frontend guards (#1, #2) shipped 2026-06-04 — **all ten invariants are now proven except #8's
-> 55s cap clause.** Queue: post-release follow-ups (1–2 below), then #8 cap (3), then #9 pinning
-> (4–5), then optional #10 hardening (6–7)._
+> _**All ten invariants are now fully proven** (the last open clause — #8's 55s cap — shipped
+> 2026-06-04; see Shipped "Invariant-completion pins"). What remains is the LOW-priority / OPTIONAL
+> tdd-critic hardening tail: #9 cross-turn pinning (1–2), then optional #10 hardening (3–4). None
+> blocks any invariant — they guard against future drift._
 
-1. **Pin sender `markSending` on the happy path** — `[app]` — _tdd-critic Obs A: the
-   sender's `sending` transition is currently unpinned, so a refactor could drop it (losing
-   the in-flight attempt bump that the admin panel and retry accounting rely on) without any
-   test going red._
-   - [ ] On a successful delivery, the row is marked **`sending`** (with the bumped attempt
-         count) **before** `sendEmail` is called — the order is observable and asserted.
-   - [ ] Removing the `markSending` transition (or moving it after the send) makes the test
-         **fail** in CI.
-   - _Low priority. Extends the `createSenderHandler` fakes already in
-     `test/contact-sender-core.test.mjs` (the happy-path test injects a no-op `markSending`
-     today; this asserts its call + ordering)._
-
-2. **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C: the
-   SQS delivery job is asserted to carry the message `id`, but not an `idempotencyKey`;
-   dropping that field would weaken redelivery de-duplication without a red test._
-   - [ ] On a valid submission, the job handed to `enqueueDelivery` carries a **non-empty
-         `idempotencyKey`**.
-   - [ ] Removing the `idempotencyKey` from the enqueued job makes the test **fail** in CI.
-   - _Low priority. One added assertion on the captured `enqueuedJob` in the existing valid-
-     submission test in `test/contact-ingress-core.test.mjs`._
-
-3. **Pin chat provider timeout resolution + cap** — `[chat]` — _the one sub-clause of #8 the
-   turn-persistence tests bypass (tdd-critic note): the persisted `timeout` row is proven, but
-   `providers.py`'s timeout resolution — the 28s Gemini default and the 55s API-Gateway
-   ceiling — is only half-covered (`test_gemini_default_upstream_timeout` proves the default,
-   nothing proves the cap)._
-   - [ ] With no override, `get_provider_timeout_seconds('gemini')` resolves the Gemini
-         default of **28s** (already proven by `test_gemini_default_upstream_timeout` — this
-         item only adds the cap case).
-   - [ ] A `>55s` override (e.g. `GEMINI_TIMEOUT_SECONDS`/`CHAT_PROVIDER_TIMEOUT_SECONDS`) is
-         **clamped to the 55s** API-Gateway integration ceiling, not passed through.
-   - [ ] Lowering or removing the clamp makes the test **fail** in CI.
-   - _Low priority. Extends `test_providers.py`; closes the last open clause of invariant #8._
-
-4. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
+1. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
    sign-off: the in-turn first-chunk fallback is now proven, but the routing chain's memory that
    the **primary already rate-limited this run** is unpinned — a refactor could drop
    `note_primary_rate_limited()` and no test would go red, silently re-hammering the throttled
@@ -144,7 +111,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - _Low priority. Pins the cross-turn half of #9 that the in-turn fallback tests
      (`test_gemini_routing.py`) do not exercise._
 
-5. **Pin `last_model_id` (which model answered)** — `[chat]` — _tdd-critic follow-up on the #9
+2. **Pin `last_model_id` (which model answered)** — `[chat]` — _tdd-critic follow-up on the #9
    sign-off: the admin telemetry surfaces which model committed a turn, but nothing asserts the
    committed model id, so a routing refactor could mis-report it (e.g. always the primary) without
    a red test._
@@ -154,7 +121,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
    - [ ] Reporting the wrong committed model id makes the test **fail** in CI.
    - _Low priority. Asserts the committed-model id the admin telemetry reads._
 
-6. **Enforce the deep/slow-male voice family (allowlist)** — `[chat]` — _tdd-critic OPTIONAL
+3. **Enforce the deep/slow-male voice family (allowlist)** — `[chat]` — _tdd-critic OPTIONAL
    follow-up on the #10 sign-off: `_live_voice_name()` echoes any opaque `CHAT_LIVE_VOICE` value
    verbatim (`(os.environ.get('CHAT_LIVE_VOICE') or 'Charon').strip() or 'Charon'`), so the
    'deep/slow male' qualifier in invariant #10 is **documentary, not enforced** — an operator could
@@ -167,7 +134,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      override within the brand voice family." Changing the allowlist is a product decision
      (supersede ADR-0003). Skippable — today's behavior is by design (operator-trusted env)._
 
-7. **Couple the voice preset + cadence prose against drift** — `[chat]` — _tdd-critic OPTIONAL
+4. **Couple the voice preset + cadence prose against drift** — `[chat]` — _tdd-critic OPTIONAL
    follow-up on the #10 sign-off: S3 (prebuilt `Charon` in `speech_config`) and S4 (the cadence
    directive in `build_live_system_instruction`) pin the **two halves independently**, but ADR-0003
    notes the preset and the cadence prose "must move together"; a refactor could change one without
@@ -184,6 +151,32 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
 `test/starfield-reduced-motion.test.mjs`; app 10/10 · chat 70/70 green._
+
+**Release: Invariant-completion pins (#8 cap + tdd-critic Obs A/C) (signed off 2026-06-04).** App
+suite **36/36**, chat **85/85** green; tdd-critic gaps closed. Three characterization pins (all
+green on write — **no production change**), landing **#8 fully proven** and closing two contact-core
+tdd-critic observations. **With this release every one of the ten project invariants is fully
+proven; there are no open invariant clauses.** The remaining backlog is the LOW-priority / OPTIONAL
+tdd-critic hardening tail (#9 cross-turn, #10 allowlist/coupling) — none blocks an invariant.
+
+- **Pin chat provider timeout clamp to the 55s ceiling** — `[chat]` — _invariant **#8**, the last
+  open clause, now PROVEN (PARTIAL → FULL)._ ✓ ACCEPTED. Bullet → proving test
+  (`docker/chat/tests/test_providers.py::test_gemini_timeout_clamped_to_55s_ceiling`):
+  - A `GEMINI_TIMEOUT_SECONDS` of `120` resolves to **`55.0`** (clamped to the API-Gateway
+    integration ceiling, `min(parsed, 55.0)` at `providers.py:46-47`), while a sub-ceiling `40`
+    resolves to **`40.0`** (passed through — the clamp caps but does not floor). Lowering or
+    removing the clamp fails CI. _(The 28s default stays covered by
+    `test_gemini_default_upstream_timeout`; not re-proven.)_
+
+- **Pin sender `markSending` order on the happy path** — `[app]` — _tdd-critic Obs A, closed._
+  ✓ ACCEPTED. `test/contact-sender-core.test.mjs` — on a successful delivery the row is marked
+  **`sending`** with the bumped attempt count (`attempts===1`) **before** `sendEmail` is called
+  (asserted on the shared call-order array); dropping or reordering the transition fails CI.
+
+- **Pin contact `idempotencyKey` in the enqueued job** — `[app]` — _tdd-critic Obs C, closed._
+  ✓ ACCEPTED. `test/contact-ingress-core.test.mjs` — on a valid submission the job handed to
+  `enqueueDelivery` carries a **non-empty string `idempotencyKey`** (for safe redrive dedup);
+  dropping the field fails CI. _(The existing S1 test still covers the `id`.)_
 
 **Release: Frontend bundle guards (#1 + #2) (signed off 2026-06-04).** App suite **30/30** green
 (`node --test`; +7 from the 23/23 baseline). `[app]` characterization only — no UX change. Invariants
