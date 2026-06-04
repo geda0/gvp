@@ -6,10 +6,17 @@ proves it comes FIRST.
 
 > **Honesty note (adoption bootstrap; updated 2026-06-03):** invariants **#3, #4, #5**
 > (contact durability — landed via the ADR-0006 injectable-core seam) and **#6** (reduced
-> motion) are now proven by `node --test`. **#1, #2, #7–#10 remain UNPROVEN** — each is a
-> candidate for a characterization test and belongs on the upgrade backlog. Each claim is cited to `file:line` so the navigator can confirm it
-> against the code, not take it on faith. Line numbers are from the state of the repo
-> at adoption and may drift; treat the cited function/symbol as the anchor.
+> motion) are proven by `node --test`; **#7** (every chat turn persisted with its terminal
+> `status`) is now proven by `docker/chat/tests/test_turn_persistence.py` (all six
+> {ok,error,timeout}×{stream,non-stream} cells). **#8** is **persisted-row-proven** (the
+> `timeout` row is asserted on both paths) but its **cap clause is still open** — the
+> `providers.py` 28s-default / 55s-ceiling resolution is unproven (see #8 "Proven by" + the
+> "Pin chat provider timeout resolution + cap" backlog item). **Proven set: #3, #4, #5, #6,
+> #7 (+#8 partial).** **#1, #2, #9, #10 remain UNPROVEN** — each is a candidate for a
+> characterization test and belongs on the upgrade backlog. Each claim is cited to `file:line`
+> so the navigator can confirm it against the code, not take it on faith. Line numbers are from
+> the state of the repo at adoption and may drift; treat the cited function/symbol as the
+> anchor.
 
 ## Invariants
 
@@ -113,9 +120,19 @@ proves it comes FIRST.
      `docker/chat/app/main.py:931-941`; persistence body
      `docker/chat/app/main.py:664-732`; row write
      `docker/chat/app/transcript_store.py:113-144`.
-   - Proven by: NONE YET — candidate for a characterization test (drive ok/error/timeout
-     through a fake chain + in-memory store; assert one row per turn with the right
-     `status`/`errorCode`).
+   - Proven by: `docker/chat/tests/test_turn_persistence.py` — non-stream **error** (S1
+     *test_non_stream_error_persists_one_error_row*: `status=='error'` + populated
+     `errorCode`/`errorMessage`) and **timeout** (S2 *test_non_stream_timeout_…*:
+     `status=='timeout'` + `errorCode=='upstream_timeout'`); streaming **ok** (S3
+     *test_streaming_success_…*: `status=='ok'`, `stream is True`), **error** (S4
+     *test_streaming_midstream_error_…*: `status=='error'` + `errorCode`) and **timeout** (S5
+     *test_streaming_timeout_…*: `status=='timeout'` + `errorCode=='upstream_timeout'`); each
+     asserts exactly one persisted row via a stub store. Together with the pre-existing
+     `test_transcript_store.py::test_chat_persists_transcript_turn` (non-stream **ok**) that is
+     all six {ok,error,timeout}×{stream,non-stream} cells. *Caveat:* the non-stream-ok test
+     proves the row **persists** (session/prompt/model/flags) but asserts HTTP `status_code==200`
+     rather than the persisted `turn['status']=='ok'`; the other five each assert the row's
+     `status` directly. Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 8. **Each chat provider call is bounded by a timeout.** Non-streaming calls are wrapped
    in `asyncio.wait_for(..., provider_timeout_seconds)` (504 + persisted `timeout` row on
@@ -126,8 +143,15 @@ proves it comes FIRST.
      deadline `docker/chat/app/main.py:864-884` (`deadline = monotonic()+timeout_s`,
      per-chunk `wait_for(remaining)`); timeout resolution + caps
      `docker/chat/app/providers.py:23-47` (Gemini default 28s, ceiling 55s).
-   - Proven by: NONE YET — candidate for a characterization test (slow fake chain;
-     assert 504 / `status==='timeout'` and that a row is written).
+   - Proven by: PARTIAL — the persisted `timeout` **row** is proven on both paths by
+     `docker/chat/tests/test_turn_persistence.py` (S2 non-stream and S5 streaming per-chunk
+     `wait_for` deadline → `status=='timeout'`, `errorCode=='upstream_timeout'`), and the 504
+     mapping by `test_readiness_timeout.py::test_chat_timeout_maps_to_504`; the 28s default by
+     `test_providers.py::test_gemini_default_upstream_timeout`. **STILL OPEN:** the
+     `providers.py` timeout-resolution **cap** — the 28s-default / 55s-API-Gateway-ceiling clamp
+     of a `>55s` override — is **not yet proven** (no test sets an over-ceiling override and
+     asserts the clamp). Tracked by the "Pin chat provider timeout resolution + cap" backlog
+     item. Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 9. **On a first-chunk rate limit the chat chain transparently falls back to the
    secondary model; once any chunk has flushed it is committed.** `GeminiRoutingChain`
