@@ -1,0 +1,194 @@
+{
+  "kit": "team-tactics",
+  "kitVersion": "0.8.0",
+  "configSchema": 2,
+  "preset": "full-team",
+  "updatedAt": "2026-06-04T03:14:07.107Z",
+  "files": {
+    ".claude/agents/test-writer.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "6312fb09afd317623fcc240ebeff73ac6d0f774c5de889ab5ea53195ffb19f0e"
+    },
+    ".claude/agents/implementer.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "4a7c6d6e21fb0330da82fb73f59884e3668ecd43553e75ca38c2bd8b143d8137"
+    },
+    ".claude/agents/tdd-critic.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "70d0dfb23288a0d0e6cf60ce04907bbbf26a7f68ddcd479444054c098ceec71a"
+    },
+    ".claude/agents/planner.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "943001ccbe0452b4bfb15ee8844a6d71022e0071159973e59296e867d48225f7"
+    },
+    ".claude/hooks/lib.sh": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "a8d8b4156aa7007b2c2856171346983e15a9456a546394145119b4feb87246fe"
+    },
+    ".claude/hooks/guard-edit-scope.sh": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "647848743dbcf823db9b4368334857c326fafc93dc93793bbe01964c6335672a"
+    },
+    ".claude/hooks/run-suite.sh": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "143a02fa464febbce0774c89dc7e66be3bef79e540c97858a4ec607f78f11edb"
+    },
+    ".claude/hooks/require-green-to-stop.sh": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "94c6a1e87d0a05747ffe6e522c9a69a74d3d77a470b1b5acee7866c5098c89bf"
+    },
+    ".claude/hooks/session-green-check.sh": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "9ff05ba3113c9432980cf9adaec0c2d7bfb58740c6a5fd7ed2df59718073e8cd"
+    },
+    ".claude/hooks/tic.sh": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "dd0fb4bd4635d2d213c4ee34e35b57a00c88071f4106c6d23b40023ace74a6be"
+    },
+    ".claude/hooks/subagent-handoff.sh": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "26c5a178e6bf6aea63985256fa67b05dfac14e35ae216874bec5d8378fa8b7b8"
+    },
+    "docs/tdd/tdd-workflow.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "de0bdb11a3ac338e4819374b24addf50fcd00a0f23b1e005dd93aae4b789e01f"
+    },
+    "docs/tdd/testing-philosophy.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "15b9304efdf0d25067e357d5d28d1825c5d9853877d3cabd5a86927db25768fe"
+    },
+    "docs/tdd/conventions.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "f5f5cc9468baa443c56e02f1319dc3e7456f557ee3e178197f4a3859e804da79"
+    },
+    "docs/tics/tic-protocol.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "47e84fa5bb8eeaddca12b0a5bb31289c0f5d36c45fb4439fdf6529942ecdca11"
+    },
+    ".claude/agents/product-owner.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "efec235e92faf6b06fe74357e983733bd665d5d9f4e360d088302e83d380008b"
+    },
+    ".claude/agents/architect.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "67afa14c11b92b7869ca3a91d842d09a322cf404f2294441e02b5f8ca8dadcfd"
+    },
+    ".claude/agents/qa-verifier.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "4c47bc53adf252b2118aa5c6ec25400650d83cce3eeb8d2c63d9884af427cc88"
+    },
+    ".claude/agents/project-manager.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "6374bce517f2079cc1d66ccd327faa7bd68db5e7aaef9e0721193bd0de6b6605"
+    },
+    ".claude/agents/dev-ops.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "10686df7519482e0d16d43dd3e604e3a6ac1fb0231637ee110c8475011157d2b"
+    },
+    "docs/tdd/outer-loop.md": {
+      "class": "mechanism",
+      "version": "0.8.0",
+      "sha256": "c7361fbda79676c3710ea2e32265bf0a5458b444d13dc51d012fbc633679c4ac"
+    },
+    ".claude/state/backlog.md": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "204e1f48a4e29ccd00d32e5e550d52de66d9159c39a53661fa64fa2a0f46eab6"
+    },
+    ".claude/state/releases.md": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "71b7a77e79f5fcb9c1e57862a57da3ba8dc28174e3fe0a252851c36544e73e6a"
+    },
+    ".claude/tdd.config": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "fc84d5e8b0a9e7ba01ff08320454542b3272cbb7926cbb59b7b58c9ab144cea8"
+    },
+    ".claude/hooks/local.d/README.md": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "b0d26db93c45484c8b4a220bff93704b35c4bbffd3f44897aadf43c92a478396"
+    },
+    ".claude/state/design-notes.md": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "6776aabfc5deaa1f7ca38f96637e8d3640fb19256e173321a5c1f1b4fb703cf8"
+    },
+    ".claude/state/progress.md": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "be13e5560ccac32bd8c9d93a6caada20f9518f6b624ecb243dd491a28b472366"
+    },
+    ".claude/state/plan.md": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "580b0213e0d41a12efbe6a254d354ed8bd2f051728a1a80a7dfd72a61488c272"
+    },
+    ".claude/state/phase": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "b470b84cf0cd3189e10615bffea7d5cbd9f61134ba1c2cfd513ddd45b776a5f6"
+    },
+    ".claude/state/layer": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "d03a7ba834457c81580617b90aac6f6505232f556952fcb7fabb3a740b1c2170"
+    },
+    ".claude/state/.gitkeep": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "docs/tdd/project-invariants.md": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "5d3d46a94f4756b1dffbc6aab95fb510e5b2a6991f83fdeef6f328aca9bedace"
+    },
+    ".github/workflows/tdd-verify.yml": {
+      "class": "data",
+      "version": "0.8.0",
+      "sha256": "9a5a789958b456484cbbd8cddaea9d088d7fa56777e57bc007a24519ee09c68d"
+    },
+    ".claude/settings.json": {
+      "class": "entry",
+      "version": "0.8.0",
+      "sha256": "1d3cc2fa0a4b07b7efbc1503d07f6128775b491cd16e91fe31100bb16826fc5d"
+    },
+    "AGENTS.md": {
+      "class": "entry",
+      "version": "0.8.0",
+      "sha256": "285c945f7767ac26e081be6615dcd45a5ced2224feb2f25a242c94f5a38a3388"
+    },
+    "CLAUDE.md": {
+      "class": "entry",
+      "version": "0.8.0",
+      "sha256": "b8675f759711c3b5b547910e2eb76b089b0024e62bc7f4a23e737ec03d91dd87"
+    },
+    "KICKOFF.md": {
+      "class": "entry",
+      "version": "0.8.0",
+      "sha256": "e7a3dbf32e7917b7c297e687e7c63ed51d2f04b385e785922db45efd0736b816"
+    }
+  }
+}

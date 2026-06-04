@@ -1,7 +1,8 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { sendViaResend } from './common/resend.js'
-import { formatText, nowIso } from './common/contact-shared.js'
+import { nowIso } from './common/contact-shared.js'
+import { createSenderHandler } from './contact-sender-core.js'
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
@@ -65,32 +66,7 @@ async function markFailed(id, attempts, errorMessage) {
   )
 }
 
-export const handler = async (event) => {
-  for (const sqsRecord of event.Records || []) {
-    const { id } = JSON.parse(sqsRecord.body)
-    const record = await loadMessage(id)
-    if (!record || record.status === 'sent') continue
-
-    const attempts = (record.attempts || 0) + 1
-    await markSending(id, attempts)
-
-    try {
-      const subject = record.subject ? `[Contact] ${record.subject}` : '[Contact] New message'
-      const info = await sendViaResend({
-        apiKey: process.env.RESEND_API_KEY,
-        from: process.env.CONTACT_FROM_EMAIL,
-        to: process.env.CONTACT_TO_EMAIL,
-        subject,
-        text: formatText(record),
-        replyTo: record.email
-      })
-
-      await markSent(id, attempts, info?.id || null)
-    } catch (error) {
-      const errorMessage = String(error?.message || error)
-      console.error('Failed to send contact message', { id, attempts, errorMessage })
-      await markFailed(id, attempts, errorMessage)
-      throw error
-    }
-  }
-}
+export const handler = createSenderHandler({
+  store: { loadMessage, markSending, markSent, markFailed },
+  sendEmail: sendViaResend
+})

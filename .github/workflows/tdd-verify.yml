@@ -1,0 +1,17 @@
+# Runs the node:test suite (`node --test`) on every push/PR so a broken
+# baseline fails in CI, not on someone's machine. The root package.json has no
+# dependencies and no lockfile, and `node --test` needs none — so there is no
+# install step.
+name: tdd-verify
+on:
+  push:
+  pull_request:
+jobs:
+  node-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --test
