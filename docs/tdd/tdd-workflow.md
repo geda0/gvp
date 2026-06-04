@@ -67,7 +67,7 @@ Configured in `.claude/settings.json`:
   when a session starts — don't begin new cycles on a broken floor.
 
 Verify the gate works in your environment any time with
-`npx teamentic selftest` (fires synthetic payloads at the installed
+`npx tics selftest` (fires synthetic payloads at the installed
 hooks and asserts the exit codes).
 
 If a hook blocks you, comply. Routing around the referee defeats the method.
@@ -80,7 +80,7 @@ If a hook blocks you, comply. Routing around the referee defeats the method.
 
 ## Process telemetry
 Every suite run appends a JSON event to `.claude/state/telemetry.jsonl`
-(timestamp, layer, phase, result, duration). `npx teamentic report`
+(timestamp, layer, phase, result, duration). `npx tics report`
 summarizes it: cycles and retries per layer, suite durations, pass rates. A high
 retries-per-cycle number in a layer means the test-writer's contracts there are
 underspecified — a process signal you can act on. Add `telemetry.jsonl` and

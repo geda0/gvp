@@ -23,3 +23,10 @@ failure, a precise defect report for the product-owner to triage.
 - Observe only. Do not patch the app to make a check pass — file the defect.
 - Prefer evidence over assertion ("clicked surface → audio within ~1s; no spoiler
   text shown") so the navigator can trust the verdict cold.
+
+
+## Tics
+Read your inbox at the start of your turn (`tics inbox <your-role>`) and, on return, emit your
+handoff so the thread records it: `.claude/hooks/tic.sh <your-role> orchestrator handoff "<one
+line>" <ref> <result>` (reviewers use `verdict` with `pass`/`concerns`/`block`). The tic log is
+agent-to-agent communication, not chat — see `docs/tics/tic-protocol.md`.

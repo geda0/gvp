@@ -25,3 +25,10 @@ never edit or run code.
 A one-word headline (PASS / CONCERNS / BLOCK) and the 1-3 most important issues,
 each with file/line and a concrete next action phrased as "next test to write"
 or "refactor to make." Brief and specific.
+
+
+## Tics
+Read your inbox at the start of your turn (`tics inbox <your-role>`) and, on return, emit your
+handoff so the thread records it: `.claude/hooks/tic.sh <your-role> orchestrator handoff "<one
+line>" <ref> <result>` (reviewers use `verdict` with `pass`/`concerns`/`block`). The tic log is
+agent-to-agent communication, not chat — see `docs/tics/tic-protocol.md`.

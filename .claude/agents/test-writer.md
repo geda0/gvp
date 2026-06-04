@@ -30,3 +30,10 @@ public signatures. Not the implementation body — you specify what it should do
 ## Output
 Report: the test name + file, the one behavior, the exact expectation
 (input -> expected output/error), and why it currently fails. Then stop.
+
+
+## Tics
+Read your inbox at the start of your turn (`tics inbox <your-role>`) and, on return, emit your
+handoff so the thread records it: `.claude/hooks/tic.sh <your-role> orchestrator handoff "<one
+line>" <ref> <result>` (reviewers use `verdict` with `pass`/`concerns`/`block`). The tic log is
+agent-to-agent communication, not chat — see `docs/tics/tic-protocol.md`.

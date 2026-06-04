@@ -37,3 +37,10 @@ Report: the slice count, the ordering rationale in one or two sentences, and any
 slice you're unsure should exist (flag it for the navigator rather than padding
 the queue). Then stop. The orchestrator executes the queue one slice per cycle,
 ticking each box as it goes.
+
+
+## Tics
+Read your inbox at the start of your turn (`tics inbox <your-role>`) and, on return, emit your
+handoff so the thread records it: `.claude/hooks/tic.sh <your-role> orchestrator handoff "<one
+line>" <ref> <result>` (reviewers use `verdict` with `pass`/`concerns`/`block`). The tic log is
+agent-to-agent communication, not chat — see `docs/tics/tic-protocol.md`.

@@ -29,3 +29,10 @@ you write `.claude/state/backlog.md` and `.claude/state/design-notes.md`. Read
   pricing tiers) to the human navigator rather than silently choosing.
 - The files are the source of truth: backlog.md (roadmap), design-notes.md (feature
   in flight), progress.md (where the build is). Read them before acting.
+
+
+## Tics
+Read your inbox at the start of your turn (`tics inbox <your-role>`) and, on return, emit your
+handoff so the thread records it: `.claude/hooks/tic.sh <your-role> orchestrator handoff "<one
+line>" <ref> <result>` (reviewers use `verdict` with `pass`/`concerns`/`block`). The tic log is
+agent-to-agent communication, not chat — see `docs/tics/tic-protocol.md`.

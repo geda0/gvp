@@ -3,7 +3,7 @@
 The inner loop (`docs/tdd/tdd-workflow.md`) turns one behavior into tested code.
 The **outer loop** turns intent into accepted, released features, and is run by the
 orchestrator with the roles below. Install/refresh them with
-`npx teamentic --preset full-team`.
+`npx tics --preset full-team`.
 
 ## Roles
 | Role | Owns | Writes |

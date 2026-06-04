@@ -1,7 +1,7 @@
-<!-- >>> teamentic: managed (refreshed on update; do not edit) >>> -->
+<!-- >>> team-tactics: managed (refreshed on update; do not edit) >>> -->
 # AGENTS.md - start here, every agent, every session
 
-This project is built by **test-driven agent pairing** (the `teamentic` kit).
+This project is built by **test-driven agent pairing** (the `team-tactics` kit).
 The method is single-sourced in `docs/tdd/` - read it; don't re-document it here.
 
 - **Read first:** `docs/tdd/tdd-workflow.md` (the loop), `docs/tdd/testing-philosophy.md`,
@@ -13,7 +13,8 @@ The method is single-sourced in `docs/tdd/` - read it; don't re-document it here
 - **The rails** (hooks): phase is `red`/`green`/`refactor` during a cycle, or `off` for
   manual work - **never empty** (empty fails closed). Edits are scoped by layer; you can't
   finish on a red bar. If a hook blocks you, it's doing its job.
-<!-- <<< teamentic: managed <<< -->
+- **Tics** record agent-to-agent handoffs in `.claude/state/tics.jsonl` (structured, not chat): hooks log `signal`/`block`; you emit `delegate`/`handoff`/`verdict`/`msg` via `.claude/hooks/tic.sh`, and read your inbox with `tics inbox <role>`. See `docs/tics/tic-protocol.md`.
+<!-- <<< team-tactics: managed <<< -->
 
 <!-- Your project overlay below - yours; update never touches it. -->
 ## Project notes
