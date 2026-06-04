@@ -47,6 +47,16 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-04 — **Adopted team-tactics 0.8.3 + finalized staging CI/CD (contact-only).** 0.8.3 was
+  untagged (only on `main`); navigator pushed `v0.8.3` (commit `35a1c6c`), then
+  `npx github:geda0/team-tactics#v0.8.3 update`: adds local `tics` viewer CLI
+  (`.claude/hooks/tics` + `tics-view.js`) + per-layer tic auto-scope; gate unchanged (settings
+  untouched), selftest 13/13, app 23/23, chat 75/75; committed `16b423f`. Then per navigator
+  (contact-only CI): removed `CHAT_SAM_STACK_NAME` var, tightened the OIDC role to contact-only,
+  and **tore down the orphaned chat** — deleted CFN `gvp-chat-stage` + `*-CompanionStack` + the
+  companion ECR repo; **preserved** `gvp-chat` (ECS voice repo), `page-staging`, SAM bucket.
+  Final staging CI/CD: push→`agent` → test gate → contact-only `integrate-and-deploy.sh stage`;
+  chat stays manual (ECS at `chat-api-stage…`). (IAM ops used ambient root creds — flagged.)
 - 2026-06-04 — **Staging CI/CD pipeline COMPLETED + verified GREEN.** Built
   `.github/workflows/deploy-staging.yml` (push→`agent`, path-filtered, test-gated, runs
   `integrate-and-deploy.sh stage`; frontend=Amplify, SYNC=0). Root cause of "not complete": repo
