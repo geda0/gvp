@@ -1,0 +1,117 @@
+# Auto-deploys the BACKEND (SAM stage) on every push to `agent` that touches a
+# deploy-relevant path. The frontend is built by AWS Amplify (separate), so this
+# workflow does NOT publish the static site and does NOT patch HTML (SYNC_API_URLS=0;
+# the `agent` branch already carries the staging API URLs). Gated by the full chat
+# pytest suite (which includes the eval gate) + node --test, so a red baseline never
+# reaches AWS. workflow_dispatch is kept as a manual fallback.
+name: deploy-staging
+
+on:
+  push:
+    branches: [agent]
+    paths:
+      - 'aws/**'
+      - 'docker/chat/**'
+      - 'index.html'
+      - 'admin/index.html'
+      - 'scripts/**'
+      - 'data/**'
+      - '.github/workflows/deploy-staging.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run node:test suite
+        run: node --test
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install chat dependencies
+        working-directory: docker/chat
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run chat suite (includes eval gate)
+        working-directory: docker/chat
+        run: PYTHONPATH=. python -m pytest tests -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    # Secret names match secrets.example/deploy.env.example (without the "export" prefix).
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+      SAM_STACK_NAME: ${{ vars.SAM_STACK_NAME || 'page' }}
+      SAM_STACK_NAME_STAGE: ${{ vars.SAM_STACK_NAME_STAGE || 'page-staging' }}
+      CHAT_STAGE_CHAT_API_URL: ${{ vars.CHAT_STAGE_CHAT_API_URL }}
+      CHAT_PROD_CHAT_API_URL: ${{ vars.CHAT_PROD_CHAT_API_URL }}
+      CHAT_ECR_REPOSITORY_URI: ${{ vars.CHAT_ECR_REPOSITORY_URI }}
+      CHAT_ECS_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_ECS_SAM_STACK_NAME_STAGE }}
+      CHAT_ECS_SAM_STACK_NAME_PROD: ${{ vars.CHAT_ECS_SAM_STACK_NAME_PROD }}
+      CHAT_ECS_VPC_ID: ${{ vars.CHAT_ECS_VPC_ID }}
+      CHAT_ECS_SUBNET_IDS: ${{ vars.CHAT_ECS_SUBNET_IDS }}
+      CHAT_ECR_REPO_NAME: ${{ vars.CHAT_ECR_REPO_NAME }}
+      CHAT_ECS_CREATE_DEFAULT_VPC: ${{ vars.CHAT_ECS_CREATE_DEFAULT_VPC }}
+      CHAT_ECS_CLUSTER_STAGE: ${{ vars.CHAT_ECS_CLUSTER_STAGE }}
+      CHAT_ECS_SERVICE_STAGE: ${{ vars.CHAT_ECS_SERVICE_STAGE }}
+      CHAT_ECS_CLUSTER_PROD: ${{ vars.CHAT_ECS_CLUSTER_PROD }}
+      CHAT_ECS_SERVICE_PROD: ${{ vars.CHAT_ECS_SERVICE_PROD }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+      GEMINI_FALLBACK_MODEL: ${{ vars.GEMINI_FALLBACK_MODEL }}
+      GEMINI_LIVE_MODEL: ${{ vars.GEMINI_LIVE_MODEL }}
+      CHAT_VOICE_MODEL: ${{ vars.CHAT_VOICE_MODEL }}
+      CHAT_SAM_STACK_NAME: ${{ vars.CHAT_SAM_STACK_NAME }}
+      CHAT_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_SAM_STACK_NAME_STAGE }}
+      CHAT_SAM_STACK_NAME_PROD: ${{ vars.CHAT_SAM_STACK_NAME_PROD }}
+      CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
+      CHAT_VOICE_ECS_BOOTSTRAP: ${{ vars.CHAT_VOICE_ECS_BOOTSTRAP }}
+      CHAT_ECS_AUTO_SYNC_CHAT_URL: ${{ vars.CHAT_ECS_AUTO_SYNC_CHAT_URL }}
+      CHAT_LIVE_VOICE_STRICT: ${{ vars.CHAT_LIVE_VOICE_STRICT }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
+      CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}
+      CONTACT_REPORT_EMAIL: ${{ secrets.CONTACT_REPORT_EMAIL }}
+      ALARM_EMAIL: ${{ secrets.ALARM_EMAIL }}
+      ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+      CONTACT_CORS_ORIGINS: ${{ vars.CONTACT_CORS_ORIGINS }}
+      SYNC_API_URLS: '0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SAM CLI
+        run: pip install "aws-sam-cli>=1.120.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Integrate and deploy (stage)
+        run: bash scripts/integrate-and-deploy.sh stage
