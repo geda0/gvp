@@ -265,3 +265,37 @@ async def test_streaming_timeout_persists_one_timeout_row(client) -> None:
     turn = stub.calls[0]["turn"]
     assert turn["status"] == "timeout"
     assert turn["errorCode"] == "upstream_timeout"
+
+
+@pytest.mark.asyncio
+async def test_non_stream_success_persists_one_ok_row(client) -> None:
+    # Arrange: leave the real mock chain in place so the non-streaming ainvoke
+    # path succeeds (mirrors test_transcript_store's non-error setup), and swap in
+    # a stub store to capture rows. This is the non-stream analogue of S3.
+    store_before = app.state.transcript_store
+    provider_error_before = app.state.provider_error
+
+    stub = StubStore()
+    app.state.transcript_store = stub
+    app.state.provider_error = None
+
+    try:
+        # Act: a minimal valid NON-streaming chat request that completes cleanly.
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+            },
+        )
+    finally:
+        app.state.transcript_store = store_before
+        app.state.provider_error = provider_error_before
+
+    # Assert (on the persisted row, not just the HTTP code): exactly one row,
+    # tagged ok, and flagged as a non-streamed turn.
+    assert resp.status_code == 200
+    assert len(stub.calls) == 1
+    turn = stub.calls[0]["turn"]
+    assert turn["status"] == "ok"
+    assert turn["stream"] is False
