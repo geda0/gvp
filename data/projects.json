@@ -5,12 +5,21 @@
       "title": "Team Tactics",
       "label": "Open kit",
       "cardDescription": "Red = tests only. Green = source only. Can't finish on red. A fail-closed TDD kit for Claude Code — hooks gate every edit by phase, role agents ping-pong the pairing loop, and the tic bus keeps every handoff recorded and every pair collision-free.",
-      "description": "<p><strong>Team Tactics</strong> is a fail-closed TDD harness for Claude Code. Install it with <code>npx tics</code> into any repo and it turns AI edits from ad-hoc chat into a disciplined pairing loop — the kind a senior engineer would recognise and trust.</p><p><strong>The gate.</strong> Every edit is checked by phase and layer. In <code>red</code>, only test files may change — no source until a failing test exists. In <code>green</code>, tests freeze — you pass them by writing source, not by weakening what they assert. An empty or unknown phase fails closed. <code>run-suite</code> emits objective RED/GREEN signals; the orchestrator never gets to declare the job done</p><p><strong>Role agents.</strong> <code>test-writer</code> adds exactly one failing characterization test. <code>implementer</code> writes the minimal code to pass it. <code>tdd-critic</code> audits every few cycles — behavior vs. implementation, not just coverage. Add <code>--preset full-team</code> for the outer loop: <code>product-owner</code>, <code>architect</code>, <code>qa-verifier</code>, <code>project-manager</code>, <code>dev-ops</code> — the same team that built the contact pipeline, the chat backend, and this site.</p><p><strong>Tic bus.</strong> Agents coordinate through <code>.claude/state/tics.jsonl</code> — a structured, append-only file. Every <code>delegate</code>, <code>handoff</code>, <code>signal</code>, <code>block</code>, and <code>verdict</code> is recorded. Parallel pairs auto-claim files and auto-open work sections so there's no collision. <code>tics log</code> shows the thread; <code>tics gate</code> checks release readiness before anything ships.</p><p><strong>Composable.</strong> <code>@ttics/tics</code> is the protocol alone. <code>@ttics/tdd</code> is the pairing gate. <code>team-tactics</code> composes both and adds the full-team preset. Adopt what you need — protocol first, pairing next, full team when you're ready.</p>",
+      "description": "<p><strong>Team Tactics</strong> is a fail-closed TDD harness for Claude Code. Install it with <code>npx tics</code> into any repo and it turns AI edits from ad-hoc chat into a disciplined pairing loop — the kind a senior engineer would recognise and trust.</p><p><strong>The gate.</strong> Every edit is checked by phase and layer. In <code>red</code>, only test files may change — no source until a failing test exists. In <code>green</code>, tests freeze — you pass them by writing source, not by weakening what they assert. An empty or unknown phase fails closed. <code>run-suite</code> emits objective RED/GREEN signals; the orchestrator never gets to declare the job done</p><p><strong>Role agents.</strong> <code>test-writer</code> adds exactly one failing characterization test. <code>implementer</code> writes the minimal code to pass it. <code>tdd-critic</code> audits every few cycles — behavior vs. implementation, not just coverage. Add <code>--preset full-team</code> for the outer loop: <code>product-owner</code>, <code>architect</code>, <code>qa-verifier</code>, <code>project-manager</code>, <code>dev-ops</code> — the same team that built the contact pipeline, the chat backend, and this site.</p><p><strong>Tic bus.</strong> Agents coordinate through <code>.claude/state/tics.jsonl</code> — a structured, append-only file. Every <code>delegate</code>, <code>handoff</code>, <code>signal</code>, <code>block</code>, and <code>verdict</code> is recorded. Parallel pairs auto-claim files and auto-open work sections so there's no collision. <code>tics log</code> shows the thread; <code>tics gate</code> checks release readiness before anything ships.</p><p><strong>Composable.</strong> <code>@ttics/tics</code> is the protocol alone. <code>@ttics/tdd</code> is the pairing gate. <code>team-tactics</code> composes both and adds the full-team preset. Adopt what you need — protocol first, pairing next, full team when you're ready. Run <code>npx tics selftest</code> to verify the gate truly enforces in your environment (15/15 pass).</p>",
       "image": "team-tactics.svg",
       "imageAlt": "Team Tactics diagram: composable layers — tic bus protocol, fail-closed phase gate, orchestrator running red and green with role agents, live tic bus recording every handoff",
       "link": "https://github.com/geda0/team-tactics",
       "linkText": "Open on GitHub",
-      "tech": ["Claude Code", "TDD", "Hooks", "Agent protocols", "Node.js"],
+      "tech": [
+        "Claude Code",
+        "@ttics/tics",
+        "@ttics/tdd",
+        "red→green pairing",
+        "Agent orchestration",
+        "Git hooks",
+        "Parallel agents",
+        "Node.js"
+      ],
       "hidden": false,
       "featured": true,
       "role": "Fail-closed TDD kit · composable layers · live tic bus"
@@ -24,7 +33,18 @@
       "imageAlt": "AI assistant & chatbot architecture",
       "link": "https://github.com/geda0/gvp",
       "linkText": "View source on GitHub",
-      "tech": ["Gemini", "Gemini Live", "FastAPI", "google-genai SDK", "SSE Streaming", "AWS ECS Express", "Lambda", "DynamoDB", "AWS SAM", "Python"],
+      "tech": [
+        "Gemini",
+        "Gemini Live",
+        "FastAPI",
+        "google-genai SDK",
+        "SSE Streaming",
+        "AWS ECS Express",
+        "Lambda",
+        "DynamoDB",
+        "AWS SAM",
+        "Python"
+      ],
       "hidden": false,
       "role": "AI integration · streaming backend · production observability"
     },
@@ -37,7 +57,13 @@
       "imageAlt": "Monday Rover (Raspberry Pi)",
       "link": "https://www.youtube.com/shorts/16ZIXOpuNQs",
       "linkText": "Watch on YouTube",
-      "tech": ["Raspberry Pi", "Python", "OpenCV", "Computer Vision", "Embedded"],
+      "tech": [
+        "Raspberry Pi",
+        "Python",
+        "OpenCV",
+        "Computer Vision",
+        "Embedded"
+      ],
       "hidden": false,
       "role": "Robotics + computer vision on Raspberry Pi"
     },
@@ -51,7 +77,12 @@
       "imageAlt": "GVP",
       "link": "https://gvp-tv.marwanelgendy.link/",
       "linkText": "Open live demo",
-      "tech": ["Generative AI", "Video", "Platform Orchestration", "Product UX"],
+      "tech": [
+        "Generative AI",
+        "Video",
+        "Platform Orchestration",
+        "Product UX"
+      ],
       "hidden": false,
       "role": "Generative AI + product UX for video"
     }
@@ -70,7 +101,17 @@
       "imageAlt": "Apptio (IBM)",
       "link": "https://apptio.com/",
       "linkText": "Apptio.com",
-      "tech": ["Java", "Scala", "EMR Spark", "Kubernetes", "AWS Lambda", "Step Functions", "Terraform", "Databricks", "Snowflake"],
+      "tech": [
+        "Java",
+        "Scala",
+        "EMR Spark",
+        "Kubernetes",
+        "AWS Lambda",
+        "Step Functions",
+        "Terraform",
+        "Databricks",
+        "Snowflake"
+      ],
       "hidden": false
     },
     {
@@ -86,7 +127,15 @@
       "imageAlt": "JumpCloud",
       "link": "https://jumpcloud.com/",
       "linkText": "jumpcloud.com",
-      "tech": ["Golang", "gRPC", "Node.js", "PostgreSQL", "MongoDB", "GraphQL", "Docker"],
+      "tech": [
+        "Golang",
+        "gRPC",
+        "Node.js",
+        "PostgreSQL",
+        "MongoDB",
+        "GraphQL",
+        "Docker"
+      ],
       "hidden": false
     },
     {
@@ -102,7 +151,21 @@
       "imageAlt": "Instant Ink",
       "link": "https://instantink.hpconnected.com/",
       "linkText": "instantink.com",
-      "tech": ["Ruby on Rails", "ReactJS", "AWS Lambda", "API Gateway", "SNS", "SQS", "DynamoDB", "Redshift", "CloudFormation", "Docker", "Jenkins", "Chef", "Splunk"],
+      "tech": [
+        "Ruby on Rails",
+        "ReactJS",
+        "AWS Lambda",
+        "API Gateway",
+        "SNS",
+        "SQS",
+        "DynamoDB",
+        "Redshift",
+        "CloudFormation",
+        "Docker",
+        "Jenkins",
+        "Chef",
+        "Splunk"
+      ],
       "hidden": false
     },
     {
@@ -116,7 +179,14 @@
       "description": "<p><strong>AT&T</strong> — Full Stack Engineer · 2017–2018.</p><p>Built TQL: a SQL-like query language for ticket search and operational analytics on a service-oriented single-page application.</p><p><strong>The hard part.</strong> Support and ops teams needed fast, repeatable search and analytics over ticket data. Ad-hoc filters and one-off scripts didn't scale with ticket volume — or with analysts who needed predictable query semantics and bounded execution.</p><p><strong>What I did.</strong> Designed and built TQL — grammar, validation, and a test-covered execution path. Built front-end and back-end components, designed RESTful APIs, and developed async JavaScript modules. Mentored new developers and raised code-quality standards across the team.</p><p><strong>Outcome.</strong> Production SOA application with a usable query surface for real support workflows.</p><p><strong>What it demonstrates.</strong> Expressiveness and safety move together, not against each other. A query language has to be useful to analysts and predictable for operators in the same design.</p>",
       "image": "att.webp",
       "imageAlt": "AT&T",
-      "tech": ["JavaScript", "Ember.js", "Perl", "PHP", "MySQL", "SOA"],
+      "tech": [
+        "JavaScript",
+        "Ember.js",
+        "Perl",
+        "PHP",
+        "MySQL",
+        "SOA"
+      ],
       "hidden": false
     },
     {
@@ -132,7 +202,12 @@
       "imageAlt": "MIU",
       "link": "https://www.miu.edu/",
       "linkText": "miu.edu",
-      "tech": ["Machine learning", "Data science", "Algorithms", "Software engineering lifecycle"],
+      "tech": [
+        "Machine learning",
+        "Data science",
+        "Algorithms",
+        "Software engineering lifecycle"
+      ],
       "hidden": true
     },
     {
@@ -148,7 +223,12 @@
       "imageAlt": "Sunrise Resorts",
       "link": "https://www.sunrise-resorts.com",
       "linkText": "sunrise-resorts.com",
-      "tech": ["Datacenters", "VPN / networking", "Asset management", "IT operations"],
+      "tech": [
+        "Datacenters",
+        "VPN / networking",
+        "Asset management",
+        "IT operations"
+      ],
       "hidden": true
     },
     {
@@ -164,7 +244,11 @@
       "imageAlt": "Campus Party",
       "link": "https://www.facebook.com/campuspartymilenio/",
       "linkText": "facebook.com/campuspartymilenio",
-      "tech": ["Events & community", "Emerging tech", "International collaboration"],
+      "tech": [
+        "Events & community",
+        "Emerging tech",
+        "International collaboration"
+      ],
       "hidden": true
     },
     {
@@ -178,7 +262,12 @@
       "description": "<p><strong>5d-agency (SWI)</strong> — multi-platform client delivery across web, mobile, AR, and Unity-based interactive products.</p><ul><li>Balanced creative product goals against fixed timelines and platform constraints</li><li>Engineered interactive and AR experiences for usability, performance, and maintainability</li><li>Shipping, stabilization, and iterative quality as the working cadence</li></ul>",
       "link": "https://5d-agency.com/",
       "linkText": "5d-agency.com",
-      "tech": ["Unity / game dev", "Web & mobile", "AR", "CMS"],
+      "tech": [
+        "Unity / game dev",
+        "Web & mobile",
+        "AR",
+        "CMS"
+      ],
       "hidden": true
     },
     {
@@ -190,7 +279,12 @@
       "outcome": "Delivered across domains under ambiguity with broad, hands-on execution.",
       "cardDescription": "Early-stage work — ad-tech, embedded Linux, and research-oriented web tooling.",
       "description": "<p><strong>Early startups</strong> — cross-domain product engineering across ad-tech, embedded Linux, and research-oriented web tooling.</p><ul><li><strong>DDA Advertising:</strong> ad-tech and web systems with rapid product iteration</li><li><strong>OIG OS:</strong> Linux-based embedded systems under hardware and platform constraints</li><li><strong>QREO:</strong> web applications and research tooling for exploratory workflows</li></ul>",
-      "tech": ["Embedded Linux", "Web applications", "Advertising tech", "Research tooling"]
+      "tech": [
+        "Embedded Linux",
+        "Web applications",
+        "Advertising tech",
+        "Research tooling"
+      ]
     }
   ]
 }
