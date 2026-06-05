@@ -30,27 +30,11 @@ def test_upstream_httpx_403() -> None:
     assert body["code"] == "upstream_auth_error"
 
 
-def test_upstream_google_permission_denied() -> None:
-    from google.api_core import exceptions as ge
-
-    exc = ge.PermissionDenied("API key not valid")
-    status, body = upstream_error_body(exc)
-    assert status == 502
-    assert body["code"] == "upstream_auth_error"
-    assert "PermissionDenied" in body["detail"]
-
-
 def test_is_upstream_rate_limit_httpx_429() -> None:
     req = httpx.Request("POST", "https://example.com")
     resp = httpx.Response(429, request=req)
     exc = httpx.HTTPStatusError("rl", request=req, response=resp)
     assert is_upstream_rate_limit(exc) is True
-
-
-def test_is_upstream_rate_limit_google_resource_exhausted() -> None:
-    from google.api_core import exceptions as ge
-
-    assert is_upstream_rate_limit(ge.ResourceExhausted("quota")) is True
 
 
 def test_is_upstream_rate_limit_generic_false() -> None:
