@@ -1020,22 +1020,8 @@ export function bindChatLiveVoice(opts) {
       const voiceBrowserExperience = typeof body.voiceBrowserExperience === 'string'
         ? body.voiceBrowserExperience
         : ''
-      const blockDirectGoogle = !isRelayWsPath
-        && (transport === 'direct_google' || voiceBrowserExperience === 'direct_google_only')
-        && !voiceAllowDirectGoogleDevOverride()
-      if (blockDirectGoogle) {
-        patchLiveUi({ connecting: false, active: false, sessionOpen: false })
-        setStatus(
-          'Voice needs the chat API on a host with WebSocket relay (not direct browser-to-Google). Text chat still works; deploy chat on ECS/ALB or set localStorage gvp_chat_voice_allow_direct=1 only for debugging.',
-          'error',
-        )
-        trackEvent('chat_live_blocked', { reason: 'direct_google_transport' })
-        chatBus.emit('idle', { source: 'chat-live' })
-        const err = new Error('direct_google_blocked')
-        err.name = 'LiveSetupAbort'
-        throw err
-      }
-
+      // ADR-0007 Phase 1: browser-direct voice is the path. The browser opens Google's
+      // Live WSS itself with the single-use ephemeral token (no server relay).
       if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
         throw new Error('Invalid voice session URL.')
       }

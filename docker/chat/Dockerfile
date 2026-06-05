@@ -4,8 +4,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
-    CHAT_PROVIDER=mock \
-    CHAT_LIVE_RELAY=1
+    CHAT_PROVIDER=mock
 
 COPY docker/chat/requirements.txt /app/requirements.txt
 COPY docker/chat/requirements-dev.txt /app/requirements-dev.txt

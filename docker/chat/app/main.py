@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -32,7 +32,6 @@ from app.knowledge_context import (
     load_system_prompt,
 )
 from app.live_env import live_model_id
-from app.live_relay import relay_browser_to_google
 from app.providers import (
     build_llm_runnable,
     get_provider_and_model,
@@ -43,14 +42,6 @@ from app.upstream_errors import upstream_error_body
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-
-
-def _live_relay_enabled() -> bool:
-    return os.environ.get("CHAT_LIVE_RELAY", "1").strip().lower() not in ("0", "false", "no", "")
-
-
-def _live_voice_strict_enabled() -> bool:
-    return os.environ.get("CHAT_LIVE_VOICE_STRICT", "0").strip().lower() in ("1", "true", "yes")
 
 
 async def mint_live_session_async(system_instruction: str) -> Any:
@@ -190,40 +181,6 @@ class LiveTranscriptTurn(BaseModel):
     audioInBytes: int | None = Field(default=None, ge=0, le=200 * 1024 * 1024)
     audioOutBytes: int | None = Field(default=None, ge=0, le=200 * 1024 * 1024)
     interrupted: bool | None = Field(default=None)
-
-
-def _live_relay_bridge_ttl_sec() -> float:
-    raw = os.environ.get('CHAT_LIVE_RELAY_BRIDGE_TTL_SEC', '300').strip()
-    try:
-        return max(60.0, min(float(raw), 900.0))
-    except ValueError:
-        return 300.0
-
-
-def _cleanup_expired_live_relays(bridges: dict[str, Any]) -> None:
-    now = time.monotonic()
-    dead = [k for k, v in bridges.items() if float(v.get('expires', 0)) < now]
-    for k in dead:
-        bridges.pop(k, None)
-
-
-def _live_relay_ws_url(request: Request, bridge_id: str) -> str:
-    proto = (request.headers.get('x-forwarded-proto') or request.url.scheme or 'http').split(',')[0].strip()
-    scheme = 'wss' if proto == 'https' else 'ws'
-    host = (request.headers.get('x-forwarded-host') or request.headers.get('host') or '').split(',')[0].strip()
-    if not host:
-        host = request.url.netloc or request.url.hostname or ''
-    return f'{scheme}://{host}/api/live/relay/{bridge_id}'
-
-
-def _live_relay_origin_allowed(websocket: WebSocket) -> bool:
-    allowed = _cors_allow_origins()
-    if not allowed:
-        return True
-    origin = (websocket.headers.get('origin') or '').strip()
-    if not origin:
-        return True
-    return origin in allowed
 
 
 def _to_lc_messages(rows: list[ChatMessageIn]) -> list[HumanMessage | AIMessage | SystemMessage]:
@@ -418,7 +375,6 @@ async def lifespan(app: FastAPI):
     app.state.prompt_path = str(prompt_path)
     app.state.corpus_error = None
     app.state.transcript_store = build_transcript_store()
-    app.state.live_relay_bridges = {}
     try:
         pack = load_knowledge_pack(pack_dir)
         prompt_text, prompt_version = load_system_prompt(prompt_path)
@@ -507,14 +463,13 @@ app.state.corpus_error: str | None = None
 app.state.gemini_primary_model: str | None = None
 app.state.gemini_fallback_model: str | None = None
 app.state.transcript_store = None
-app.state.live_relay_bridges: dict[str, Any] = {}
 app.state.voice_system_prompt: str | None = None
 app.state.voice_prompt_version: str | None = None
 
 
 @app.get("/health")
 def health() -> dict[str, bool]:
-    return {"ok": True, "liveRelay": _live_relay_enabled()}
+    return {"ok": True}
 
 
 def _readiness_payload() -> tuple[bool, dict[str, Any]]:
@@ -983,15 +938,6 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             },
         )
 
-    if _live_voice_strict_enabled() and not _live_relay_enabled():
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": "Voice requires WebSocket relay on this host (CHAT_LIVE_RELAY=1).",
-                "code": "live_voice_requires_relay",
-            },
-        )
-
     mint_timeout = float(os.environ.get('GEMINI_LIVE_MINT_TIMEOUT_SEC', '50'))
     try:
         prompt_src = app.state.voice_system_prompt or app.state.system_prompt
@@ -1030,25 +976,13 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             status_code=500,
             content={"error": "Live session misconfigured", "code": "live_internal"},
         )
-    relay = _live_relay_enabled()
-    if relay:
-        bridges: dict[str, Any] = app.state.live_relay_bridges
-        _cleanup_expired_live_relays(bridges)
-        bridge_id = secrets.token_urlsafe(32)
-        bridges[bridge_id] = {
-            "token_name": token_name,
-            "handshake": dict(session_payload.get("handshake") or {}),
-            "expires": time.monotonic() + _live_relay_bridge_ttl_sec(),
-        }
-        session_payload["websocketUrl"] = _live_relay_ws_url(request, bridge_id)
-        session_payload["liveVoiceTransport"] = "relay"
-        session_payload["voiceBrowserExperience"] = "relay_recommended"
-        session_payload["voiceHint"] = "ok"
-    else:
-        session_payload["websocketUrl"] = google_constrained_browser_ws_url(token_name)
-        session_payload["liveVoiceTransport"] = "direct_google"
-        session_payload["voiceBrowserExperience"] = "direct_google_only"
-        session_payload["voiceHint"] = "relay_required_for_voice"
+    # Browser-direct only (ADR-0007): the browser opens Google's Live WSS itself with the
+    # single-use ephemeral token; the server holds no WebSocket. The long-lived key never
+    # transits — only the ~3-min one-use token does.
+    session_payload["websocketUrl"] = google_constrained_browser_ws_url(token_name)
+    session_payload["liveVoiceTransport"] = "direct_google"
+    session_payload["voiceBrowserExperience"] = "direct_google"
+    session_payload["voiceHint"] = "ok"
     logger.info(
         "live session response model=%s transport=%s voice_browser_experience=%s voice_model_env=%s",
         session_payload.get("model"),
@@ -1057,27 +991,6 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         live_model_id(),
     )
     return JSONResponse(content=session_payload)
-
-
-@app.websocket("/api/live/relay/{bridge_id}")
-async def live_relay_ws(websocket: WebSocket, bridge_id: str) -> None:
-    if not _live_relay_origin_allowed(websocket):
-        origin = (websocket.headers.get('origin') or '').strip() or '<none>'
-        logger.warning('live relay rejected origin=%s bridge=%s', origin, bridge_id[:12])
-        await websocket.close(code=4403, reason="origin not allowed")
-        return
-    bridges: dict[str, Any] = app.state.live_relay_bridges
-    entry = bridges.pop(bridge_id, None)
-    if entry is None or float(entry.get("expires", 0)) < time.monotonic():
-        await websocket.close(code=4404, reason="invalid or expired relay")
-        return
-    await websocket.accept()
-    handshake_json = json.dumps(entry["handshake"])
-    await relay_browser_to_google(
-        websocket,
-        token_name=str(entry["token_name"]),
-        handshake_json=handshake_json,
-    )
 
 
 def _live_probe_allowed(request: Request) -> bool:
