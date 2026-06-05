@@ -43,47 +43,6 @@ def upstream_error_body(exc: BaseException) -> tuple[int, dict[str, Any]]:
     except ImportError:
         pass
 
-    try:
-        from google.api_core import exceptions as ge
-
-        if isinstance(exc, ge.PermissionDenied):
-            return 502, {
-                "error": "Model provider denied access (check API key and Generative Language API)",
-                "code": "upstream_auth_error",
-                "detail": detail,
-            }
-        if isinstance(exc, ge.Unauthenticated):
-            return 502, {
-                "error": "Model provider authentication failed",
-                "code": "upstream_auth_error",
-                "detail": detail,
-            }
-        if isinstance(exc, ge.ResourceExhausted):
-            return 429, {
-                "error": "Model provider quota exceeded",
-                "code": "upstream_rate_limited",
-                "detail": detail,
-            }
-        if isinstance(exc, ge.NotFound):
-            return 502, {
-                "error": "Model or API resource not found",
-                "code": "model_error",
-                "detail": detail,
-            }
-        if isinstance(exc, (ge.InvalidArgument, ge.FailedPrecondition, ge.BadRequest)):
-            return 502, {
-                "error": "Model provider rejected the request",
-                "code": "model_error",
-                "detail": detail,
-            }
-        if isinstance(exc, ge.GoogleAPICallError):
-            return 502, {
-                "error": "Upstream model error",
-                "code": "model_error",
-                "detail": detail,
-            }
-    except ImportError:
-        pass
 
     try:
         from google.genai import errors as genai_errors
