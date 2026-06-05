@@ -17,12 +17,18 @@ LAYER="$(cat "$ROOT/.claude/state/layer" 2>/dev/null || echo unknown)"
 resolve_layer "$LAYER"
 
 INPUT="$(cat)"
+# Two payload shapes (ADR 0001): Edit|Write|MultiEdit carry a path in .tool_input.file_path|.path;
+# Bash carries a shell command in .tool_input.command. Extract all three; the dispatch at the
+# bottom picks the branch. Fail OPEN on unparseable input — never crash the tool.
 if command -v jq >/dev/null 2>&1; then
   P="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty')"
+  TOOL="$(printf '%s' "$INPUT" | jq -r '.tool_name // empty')"
+  CMD="$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')"
 else
   P="$(printf '%s' "$INPUT" | grep -oE '"(file_)?path"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
+  TOOL="$(printf '%s' "$INPUT" | grep -oE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed -E 's/.*"([^"]+)"$/\1/')"
+  CMD="$(printf '%s' "$INPUT" | grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/^"command"[[:space:]]*:[[:space:]]*"(.*)"$/\1/')"
 fi
-[ -z "${P:-}" ] && exit 0
 
 is_test() { printf '%s' "$1" | grep -qE "$TEST_GLOB"; }
 # Docs/ADRs aren't code-under-test — there's no failing test to write first, so the phase gate
@@ -57,42 +63,62 @@ claim_guard() {
   return 0
 }
 
-# Docs/ADRs are never code-under-test, so the TDD phase gate must not block them in ANY phase
-# (red especially — there's no failing test to write first). Claims still apply (parallel doc
-# edits can collide). This is the single source of the docs exemption.
-if is_doc "$P"; then
-  # An ADR is a published seam: auto-emit a `contract` when one is first CREATED (the file doesn't
-  # exist yet), so the coupling view reflects decisions even in solo/serial work — no scope or
-  # parallelism needed. Once only — a later edit of an existing ADR doesn't re-publish.
-  if is_adr "$P" && ! { [ -f "$P" ] || [ -f "$ROOT/$P" ]; }; then
-    emit_tic architect "*" contract "ADR: $(basename "$P")" "$P"
-  fi
-  claim_guard "$P"; exit 0
-fi
+# Bash write-target extraction: the paths a command would WRITE via redirection (`>`,`>>`,`tee`).
+# Conservative by design (ADR 0001) — fd-dups (2>&1), unresolved $vars/globs, and indirect writes
+# (sed -i, python -c, scripts) are NOT targets, so reads/builds/tests are never blocked. The
+# residual (indirect writes) is a Claude Code limitation; the Stop green-gate is the backstop.
+extract_write_targets() {
+  printf '%s\n' "$1" \
+    | grep -oE '[0-9]*>>?[[:space:]]*[^[:space:]&|;<>()`]+|(^|[[:space:]])tee([[:space:]]+-a)?[[:space:]]+[^[:space:]&|;<>()`-][^[:space:]&|;<>()`]*' \
+    | sed -E 's/^[0-9]*>>?[[:space:]]*//; s/^[[:space:]]*tee([[:space:]]+-a)?[[:space:]]+//' \
+    | sed -E "s/^[\"']//; s/[\"']\$//" \
+    | grep -vE '[$*?`]|^&|^[0-9]+$' || true
+}
 
-case "$PHASE" in
-  red)
-    if is_test "$P"; then claim_guard "$P"; exit 0; fi
-    echo "BLOCKED (phase=red, layer=$LAYER): only $LAYER TEST files may be edited now, not $P. Write the failing test; the implementer makes it pass next." >&2
-    emit_tic guard orchestrator block "phase=red layer=$LAYER: source edit refused ($P) — write the failing test first" "$P" blocked
-    exit 2 ;;
-  green)
-    if is_test "$P"; then
-      echo "BLOCKED (phase=green, layer=$LAYER): tests are frozen. Do NOT edit $P. Change source to satisfy the existing test. Never weaken a test to reach green." >&2
-      emit_tic guard orchestrator block "phase=green layer=$LAYER: test edit refused ($P) — tests are frozen" "$P" blocked
-      exit 2
+# Decide ONE path under the current phase: returns 0 (allow) or exits 2 (block). Used for the
+# Edit/Write file_path AND for each Bash write-target — the verdict is identical either way, so
+# a Bash redirect into source is gated exactly like a Write to it.
+gate_path() {
+  P="$1"
+  # Docs/ADRs are never code-under-test → not blocked in ANY phase (claims still apply). An ADR is
+  # a published seam: auto-emit a `contract` when one is first CREATED (once; not on later edits).
+  if is_doc "$P"; then
+    if is_adr "$P" && ! { [ -f "$P" ] || [ -f "$ROOT/$P" ]; }; then
+      emit_tic architect "*" contract "ADR: $(basename "$P")" "$P"
     fi
-    claim_guard "$P"; exit 0 ;;
-  refactor)
-    # refactor: anything in the layer; claims still enforced (Stop hook keeps the bar green).
-    claim_guard "$P"; exit 0 ;;
-  off)
-    # off: gate disarmed for manual / non-TDD edits (claims not enforced).
-    exit 0 ;;
-  *)
-    # Fail-closed: empty, typo'd, or corrupted phase. We do NOT silently allow,
-    # because a missing phase is exactly how the gate would be bypassed.
-    echo "BLOCKED: phase='$PHASE' is not recognized, so the TDD gate is failing closed. Set .claude/state/phase to one of: red | green | refactor (during a cycle), or 'off' to disarm for manual edits." >&2
-    emit_tic guard orchestrator block "phase='$PHASE' unrecognized — gate fail-closed ($P)" "$P" blocked
-    exit 2 ;;
-esac
+    claim_guard "$P"; return 0
+  fi
+  case "$PHASE" in
+    red)
+      if is_test "$P"; then claim_guard "$P"; return 0; fi
+      echo "BLOCKED (phase=red, layer=$LAYER): only $LAYER TEST files may be edited now, not $P. Write the failing test; the implementer makes it pass next." >&2
+      emit_tic guard orchestrator block "phase=red layer=$LAYER: source edit refused ($P) — write the failing test first" "$P" blocked
+      exit 2 ;;
+    green)
+      if is_test "$P"; then
+        echo "BLOCKED (phase=green, layer=$LAYER): tests are frozen. Do NOT edit $P. Change source to satisfy the existing test. Never weaken a test to reach green." >&2
+        emit_tic guard orchestrator block "phase=green layer=$LAYER: test edit refused ($P) — tests are frozen" "$P" blocked
+        exit 2
+      fi
+      claim_guard "$P"; return 0 ;;
+    refactor) claim_guard "$P"; return 0 ;;        # anything in the layer; the Stop hook keeps the bar green
+    off) return 0 ;;                                # gate disarmed for manual / non-TDD edits
+    *)
+      # Fail-closed: empty/typo'd/corrupted phase — a missing phase is exactly how the gate would be bypassed.
+      echo "BLOCKED: phase='$PHASE' is not recognized, so the TDD gate is failing closed. Set .claude/state/phase to one of: red | green | refactor (during a cycle), or 'off' to disarm for manual edits." >&2
+      emit_tic guard orchestrator block "phase='$PHASE' unrecognized — gate fail-closed ($P)" "$P" blocked
+      exit 2 ;;
+  esac
+}
+
+# Dispatch. Edit/Write/MultiEdit: gate the one path (unchanged contract). Bash: gate each write
+# REDIRECT target — a read/build/test has no target, so it's allowed (allow-by-default). NOTE: the
+# while-loop runs in THIS shell (no pipe) so a block's `exit 2` propagates, not lost in a subshell.
+if [ -n "${P:-}" ]; then
+  gate_path "$P"
+elif [ "$TOOL" = "Bash" ] && [ -n "${CMD:-}" ]; then
+  while IFS= read -r _t; do [ -n "$_t" ] && gate_path "$_t"; done <<EOF2
+$(extract_write_targets "$CMD")
+EOF2
+fi
+exit 0

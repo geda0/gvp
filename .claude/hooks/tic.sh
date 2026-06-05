@@ -2,7 +2,7 @@
 # tic.sh — EMIT one tic. Not a wired hook; call from Bash:
 #   .claude/hooks/tic.sh FROM TO KIND MSG [REF] [RESULT]
 # To READ tics, use the reader: .claude/hooks/tics inbox <role> [--scope <s>]  (or log/conductor/claims)
-# Kinds: delegate handoff signal block stuck verdict msg note claim release contract need section commit.
+# Kinds: delegate handoff signal block stuck verdict msg note claim release contract need section session commit.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 # shellcheck disable=SC1091
@@ -12,12 +12,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 case "${1:-}" in -*) echo "tic.sh: FROM ('$1') looks like a flag — usage: tic.sh FROM TO KIND MSG [REF] [RESULT]. Nothing recorded." >&2; exit 2 ;; esac
 case "${2:-}" in -*) echo "tic.sh: TO ('$2') looks like a flag — usage: tic.sh FROM TO KIND MSG [REF] [RESULT]. Nothing recorded." >&2; exit 2 ;; esac
 case "${3:-}" in
-  delegate|handoff|signal|block|stuck|verdict|msg|note|claim|release|contract|need|section|commit)
+  delegate|handoff|signal|block|stuck|verdict|msg|note|claim|release|contract|need|section|session|commit)
     emit_tic "$@" ;;
   log|inbox|conductor|claims|sections|cycle|report|-*)
     echo "tic.sh EMITS tics; it does not read them. To READ, run the reader: .claude/hooks/tics <log | inbox <role> | conductor | claims | sections> [--scope <scope>]. Nothing recorded." >&2
     exit 2 ;;
   *)
-    echo "tic.sh: '${3:-}' is not a tic kind. Valid: delegate handoff signal block stuck verdict msg note claim release contract need section commit. Nothing recorded. Usage: tic.sh FROM TO KIND MSG [REF] [RESULT]" >&2
+    echo "tic.sh: '${3:-}' is not a tic kind. Valid: delegate handoff signal block stuck verdict msg note claim release contract need section session commit. Nothing recorded. Usage: tic.sh FROM TO KIND MSG [REF] [RESULT]" >&2
     exit 2 ;;
 esac
