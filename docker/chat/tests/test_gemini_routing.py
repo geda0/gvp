@@ -5,9 +5,9 @@ secondary model when the primary's stream rate-limits on its first chunk
 from __future__ import annotations
 
 import pytest
-from langchain_core.messages import AIMessage, AIMessageChunk
 
 from app.gemini_routing import GeminiRoutingChain
+from app.messages import Msg, MsgChunk
 from app.providers import build_llm_runnable
 
 
@@ -36,7 +36,7 @@ class _OkStream:
 
     def astream(self, _payload, config=None):
         async def gen():
-            yield AIMessageChunk(content="from-fallback")
+            yield MsgChunk(text="from-fallback")
 
         return gen()
 
@@ -46,7 +46,7 @@ class _CommitThenBoom:
 
     def astream(self, _payload, config=None):
         async def gen():
-            yield AIMessageChunk(content="from-primary")
+            yield MsgChunk(text="from-primary")
             raise RuntimeError("mid-stream boom")
 
         return gen()
@@ -74,7 +74,7 @@ class _OkInvoke:
     """Fallback (non-streaming): ainvoke returns distinct, assertable content."""
 
     async def ainvoke(self, _payload, config=None):
-        return AIMessage(content="from-fallback")
+        return Msg(role="ai", content="from-fallback")
 
 
 @pytest.mark.asyncio
@@ -82,7 +82,8 @@ async def test_astream_first_chunk_ratelimit_falls_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     chain = GeminiRoutingChain(
-        prefix=None,
+        inject=None,
+        system_prompt="",
         primary_id="m-primary",
         fallback_id="m-fallback",
         key="k",
@@ -97,7 +98,7 @@ async def test_astream_first_chunk_ratelimit_falls_back(
 
     chunks = [c async for c in chain.astream({"messages": []})]
 
-    assert "".join(c.content for c in chunks) == "from-fallback"
+    assert "".join(c.text for c in chunks) == "from-fallback"
 
 
 @pytest.mark.asyncio
@@ -105,7 +106,8 @@ async def test_astream_committed_midstream_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     chain = GeminiRoutingChain(
-        prefix=None,
+        inject=None,
+        system_prompt="",
         primary_id="m-primary",
         fallback_id="m-fallback",
         key="k",
@@ -119,7 +121,7 @@ async def test_astream_committed_midstream_error_propagates(
     seen: list[str] = []
     with pytest.raises(RuntimeError):
         async for chunk in chain.astream({"messages": []}):
-            seen.append(chunk.content)
+            seen.append(chunk.text)
 
     # The committed primary chunk reached the caller, then the mid-stream error
     # propagated out — the chain did NOT restart on the fallback.
@@ -132,7 +134,8 @@ async def test_astream_non_ratelimit_error_not_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     chain = GeminiRoutingChain(
-        prefix=None,
+        inject=None,
+        system_prompt="",
         primary_id="m-primary",
         fallback_id="m-fallback",
         key="k",
@@ -146,7 +149,7 @@ async def test_astream_non_ratelimit_error_not_retried(
     seen: list[str] = []
     with pytest.raises(RuntimeError):
         async for chunk in chain.astream({"messages": []}):
-            seen.append(chunk.content)
+            seen.append(chunk.text)
 
     # A plain (non-rate-limit) first-chunk error propagates immediately — the
     # fallback is only tried on an upstream rate limit, so it was NOT retried.
@@ -158,7 +161,8 @@ async def test_ainvoke_ratelimit_falls_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     chain = GeminiRoutingChain(
-        prefix=None,
+        inject=None,
+        system_prompt="",
         primary_id="m-primary",
         fallback_id="m-fallback",
         key="k",

@@ -1,17 +1,13 @@
-"""LLM chains by CHAT_PROVIDER."""
+"""LLM chains by CHAT_PROVIDER (mock + Gemini via the google-genai SDK)."""
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any
-
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import Runnable, RunnableLambda
-from langchain_core.tools import tool
+from typing import Any, AsyncIterator
 
 from app.knowledge_context import build_context, compact_history, serialize_context_xml
+from app.messages import Msg
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +20,6 @@ def _get_timeout_seconds(provider: str) -> float:
     provider = provider.lower()
     if provider == "gemini":
         val = os.environ.get("GEMINI_TIMEOUT_SECONDS")
-    elif provider == "openai":
-        val = os.environ.get("OPENAI_TIMEOUT_SECONDS")
     else:
         val = os.environ.get("CHAT_PROVIDER_TIMEOUT_SECONDS")
     if val is None:
@@ -64,8 +58,6 @@ def _model_id_for_provider(provider: str) -> str:
         return "mock-portfolio"
     if provider == "gemini":
         return _gemini_primary_model_id()
-    if provider == "openai":
-        return os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
     return provider
 
 
@@ -95,21 +87,48 @@ def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
     )
 
 
-@tool
-def open_resume() -> str:
-    """Surface a resume action for the visitor."""
-    return "Open resume"
-
-
-@tool
-def open_contact_form(subject: str = "", message: str = "") -> str:
-    """Surface a prefilled contact-form action for the visitor."""
-    del subject, message
-    return "Open contact form"
-
-
 def chat_tools() -> list[Any]:
-    return [open_resume, open_contact_form]
+    """Function-call declarations for the Gemini text path: open_resume and
+    open_contact_form (the same two declarations Live uses, minus
+    navigate_to_section). Returned as a list of ``types.Tool`` for
+    ``GenerateContentConfig.tools``. Imported lazily so importing providers in
+    the mock path never requires google-genai."""
+    from google.genai import types
+
+    return [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name='open_resume',
+                    description=(
+                        'Open the visitor-facing resume PDF in a new tab. Call this when the user asks to '
+                        'see, open, download, or get the resume.'
+                    ),
+                    parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+                ),
+                types.FunctionDeclaration(
+                    name='open_contact_form',
+                    description=(
+                        'Open the contact dialog, optionally pre-filling subject and message. Call this when '
+                        "the user wants to get in touch, hire, send a message, or reach out."
+                    ),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            'subject': types.Schema(
+                                type=types.Type.STRING,
+                                description='Short subject line (e.g. "Architecture role").',
+                            ),
+                            'message': types.Schema(
+                                type=types.Type.STRING,
+                                description='Pre-filled message body in the visitor\'s voice.',
+                            ),
+                        },
+                    ),
+                ),
+            ],
+        ),
+    ]
 
 
 def _inject_retrieved(
@@ -128,19 +147,18 @@ def _inject_retrieved(
     )
     context = build_context(last, history_text, knowledge_pack)
     knowledge_xml = serialize_context_xml(context)
-    messages = [HumanMessage(content=knowledge_xml), *compacted]
+    messages = [Msg(role="human", content=knowledge_xml), *compacted]
     return {
         "messages": messages,
         "faq_match": context.get("faq_match"),
     }
 
 
-def _mock_llm_reply(prompt_value: Any) -> AIMessage:
-    msgs = prompt_value.to_messages()
+def _mock_llm_reply(messages: list[Msg]) -> Msg:
     last = ''
     knowledge = ''
-    for m in reversed(msgs):
-        if isinstance(m, HumanMessage):
+    for m in reversed(messages):
+        if getattr(m, 'type', None) == 'human':
             if not knowledge and str(m.content).startswith('<knowledge_pack>'):
                 knowledge = str(m.content)
                 continue
@@ -160,7 +178,33 @@ def _mock_llm_reply(prompt_value: Any) -> AIMessage:
         text = "Marwan keeps a public resume PDF on the site."
     else:
         text = "I can answer questions about Marwan's work using the provided knowledge pack."
-    return AIMessage(content=text)
+    return Msg(role="ai", content=text)
+
+
+class _MockChain:
+    """Duck-typed stand-in for the routing chain when CHAT_PROVIDER=mock.
+
+    Exposes the same ``.ainvoke`` / ``.astream`` surface the FastAPI handlers
+    call: build the injected ``Msg`` list with the deterministic retriever, then
+    return the mock reply. Streaming yields the single final ``Msg`` (main's
+    ``_chat_stream`` treats a non-chunk yield as the source of truth)."""
+
+    __slots__ = ('_inject',)
+
+    def __init__(self, inject: Any) -> None:
+        self._inject = inject
+
+    def _reply(self, inp: dict[str, Any]) -> Msg:
+        injected = self._inject(inp)
+        return _mock_llm_reply(injected["messages"])
+
+    async def ainvoke(self, inp: dict[str, Any], config: Any | None = None) -> Msg:
+        return self._reply(inp)
+
+    async def astream(
+        self, inp: dict[str, Any], config: Any | None = None
+    ) -> AsyncIterator[Msg]:
+        yield self._reply(inp)
 
 
 def build_llm_runnable(
@@ -168,25 +212,16 @@ def build_llm_runnable(
     system_prompt: str,
     knowledge_pack: dict[str, Any],
 ) -> tuple[Any, str]:
-    """Return (chain, model_id). Chain input: {\"messages\": list[BaseMessage]}."""
+    """Return (chain, model_id). Chain input: {"messages": list[Msg]}."""
     provider = provider.lower()
     model_id = _model_id_for_provider(provider)
     timeout_s = _get_timeout_seconds(provider)
 
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            MessagesPlaceholder("messages"),
-        ]
-    )
-
-    inject = RunnableLambda(lambda inp: _inject_retrieved(knowledge_pack, inp))
-    tools = chat_tools()
+    def inject(inp: dict[str, Any]) -> dict[str, Any]:
+        return _inject_retrieved(knowledge_pack, inp)
 
     if provider == "mock":
-        reply_fn = RunnableLambda(_mock_llm_reply)
-        chain: Runnable = inject | prompt | reply_fn
-        return chain, model_id
+        return _MockChain(inject), model_id
 
     if provider == "gemini":
         key = os.environ.get("GEMINI_API_KEY")
@@ -201,31 +236,15 @@ def build_llm_runnable(
             raise RuntimeError("GEMINI_MODEL and GEMINI_FALLBACK_MODEL must differ")
 
         chain = GeminiRoutingChain(
-            inject | prompt,
+            inject,
+            system_prompt,
             primary_id,
             fallback_id,
             key,
             timeout_s,
-            tools=tools,
+            tools=chat_tools(),
         )
         return chain, primary_id
-
-    if provider == "openai":
-        key = os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise RuntimeError("OPENAI_API_KEY is not set")
-
-        from langchain_openai import ChatOpenAI
-
-        llm = ChatOpenAI(
-            model=model_id,
-            temperature=0.2,
-            api_key=key,
-            timeout=timeout_s,
-        )
-        llm = llm.bind_tools(tools)
-        chain = inject | prompt | llm
-        return chain, model_id
 
     raise ValueError(f"Unknown CHAT_PROVIDER: {provider}")
 

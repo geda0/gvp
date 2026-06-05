@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage
-
+from app.messages import Msg
 from app.providers import _inject_retrieved, get_provider_timeout_seconds
 
 
@@ -39,9 +38,9 @@ def test_inject_retrieved_compacts_and_prefixes_knowledge_xml() -> None:
     messages = []
     for i in range(16):
         if i % 2 == 0:
-            messages.append(HumanMessage(content=f'user-{i} AWS context'))
+            messages.append(Msg(role='human', content=f'user-{i} AWS context'))
         else:
-            messages.append(AIMessage(content=f'assistant-{i}'))
+            messages.append(Msg(role='ai', content=f'assistant-{i}'))
 
     injected = _inject_retrieved(pack, {'messages': messages})
     injected_messages = injected['messages']

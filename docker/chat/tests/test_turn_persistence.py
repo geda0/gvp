@@ -6,9 +6,9 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from langchain_core.messages import AIMessageChunk
 
 from app.main import app
+from app.messages import MsgChunk
 
 
 class _BoomChain:
@@ -38,8 +38,8 @@ class _StreamChain:
 
     def astream(self, _payload):
         async def gen():
-            yield AIMessageChunk(content="hi")
-            yield AIMessageChunk(content=" there")
+            yield MsgChunk(text="hi")
+            yield MsgChunk(text=" there")
 
         return gen()
 
@@ -51,7 +51,7 @@ class _MidStreamBoomChain:
 
     def astream(self, _payload):
         async def gen():
-            yield AIMessageChunk(content="hi")
+            yield MsgChunk(text="hi")
             raise RuntimeError("mid-stream boom")
 
         return gen()
@@ -68,7 +68,7 @@ class _StallStreamChain:
     def astream(self, _payload):
         async def gen():
             await asyncio.sleep(self.sleep_s)
-            yield AIMessageChunk(content="late")
+            yield MsgChunk(text="late")
 
         return gen()
 

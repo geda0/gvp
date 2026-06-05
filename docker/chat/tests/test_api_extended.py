@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 from httpx import AsyncClient
-from langchain_core.messages import AIMessage
 
 from app.main import MAX_MESSAGES, app
+from app.messages import Msg
 
 
 class RecordingChain:
@@ -17,14 +17,15 @@ class RecordingChain:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    async def ainvoke(self, payload: dict[str, object]) -> AIMessage:
+    async def ainvoke(self, payload: dict[str, object]) -> Msg:
         self.calls.append(payload)
-        return AIMessage(content="recorded reply")
+        return Msg(role="ai", content="recorded reply")
 
 
 class ToolCallChain:
-    async def ainvoke(self, _payload: dict[str, object]) -> AIMessage:
-        return AIMessage(
+    async def ainvoke(self, _payload: dict[str, object]) -> Msg:
+        return Msg(
+            role="ai",
             content="Use the contact form.",
             tool_calls=[
                 {
