@@ -19,7 +19,7 @@ function loadTics(targetDir, ignoreEnv) {
 }
 function worktreeDirs(targetDir) {
   try {
-    const out = cp.execFileSync("git", ["-C", targetDir, "worktree", "list", "--porcelain"], { encoding: "utf8" });
+    const out = cp.execFileSync("git", ["-C", targetDir, "worktree", "list", "--porcelain"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
     const dirs = out.split("\n").filter((l) => l.indexOf("worktree ") === 0).map((l) => l.slice(9).trim()).filter(Boolean);
     return dirs.length ? dirs : [targetDir];
   } catch (e) { return [targetDir]; }
@@ -95,7 +95,7 @@ function ticsConductor(targetDir, all) {
 
   // Per-scope summary: each working unit's section status + active claims + needs/contracts.
   // One place the orchestrator sees grouping (sections) + coupling (claims) + who-owns-what.
-  const active = activeClaims(tics);
+  const active = claimsFor(targetDir, tics);
   const secStatus = new Map();
   for (const x of tics) if (x.kind === "section" && x.ref && x.result) secStatus.set(x.ref, x.result);
   const scopes = new Map();
@@ -137,7 +137,7 @@ function ticsConductor(targetDir, all) {
   return 0;
 }
 function ticsClaims(targetDir, all) {
-  const active = activeClaims(loadFor(targetDir, all));
+  const active = claimsFor(targetDir, loadFor(targetDir, all));
   if (!active.size) { console.log("No active claims."); return 0; }
   console.log("Active claims (claim minus release):");
   for (const x of active.values()) console.log("  " + x.ref + "  <-  " + (x.scope || "?") + "  (#" + (x.seq || "?") + " " + (x.from || "?") + ")");
@@ -198,22 +198,41 @@ function ticsSessions(targetDir, all) {
 // Active claims = claim minus release, MINUS any whose section (scope's first component) is
 // marked `done` — a closed section auto-releases its claims so the partition frees up for
 // reassignment (release-on-done). The single source of truth for every claim consumer.
-function activeClaims(tics) {
+function activeClaims(tics, opts) {
+  opts = opts || {};
   const active = new Map();
-  const status = new Map();   // section name -> latest lifecycle status (open|done)
+  const status = new Map();       // section name -> latest lifecycle status (open|done)
+  const sessClosed = new Set();   // sessions that have closed -> their claims free (a leaving worker frees its lane)
+  const sessLatest = new Map();   // session -> latest tic ts (for stale-TTL: a dead session's claims expire)
   for (const x of tics) {
+    if (x.session) { const t = x.ts || ""; if (t > (sessLatest.get(x.session) || "")) sessLatest.set(x.session, t); }
     if (x.kind === "section" && x.ref && x.result) status.set(x.ref, x.result);
+    if (x.kind === "session" && x.session) { if (x.result === "close" || x.result === "closed") sessClosed.add(x.session); else sessClosed.delete(x.session); }
     if (x.kind === "claim" && x.ref) active.set(x.ref, x);
     else if (x.kind === "release" && x.ref) active.delete(x.ref);
   }
+  const ttlMs = (opts.ttlSec || 0) * 1000, now = opts.nowMs || 0;   // MS5 stale-TTL; ttlSec=0 disables
   for (const [ref, x] of active) {
-    if (status.get((x.scope || "").split("/")[0]) === "done") active.delete(ref);
+    if (status.get((x.scope || "").split("/")[0]) === "done") { active.delete(ref); continue; }   // release-on-section-done
+    if (x.session && sessClosed.has(x.session)) { active.delete(ref); continue; }                  // release-on-session-close (ADR 0003)
+    if (ttlMs > 0 && now > 0 && x.session) {                                                        // release-on-stale: a dead session's claim expires
+      const last = Date.parse(sessLatest.get(x.session) || "") || 0;
+      if (last > 0 && (now - last) > ttlMs) active.delete(ref);
+    }
   }
   return active;
 }
+// Read a numeric setting from tdd.config (e.g. CLAIMS_TTL), default if absent/unreadable.
+function cfgNum(targetDir, key, def) {
+  try { const m = fs.readFileSync(path.join(targetDir, ".claude", "tdd.config"), "utf8").match(new RegExp(key + "\\s*=\\s*(\\d+)")); return m ? parseInt(m[1], 10) : def; }
+  catch (e) { return def; }
+}
+// Active claims for a target dir, with the stale-TTL applied (CLAIMS_TTL seconds from tdd.config;
+// 0 = off). The single entry every claim consumer uses, so release-on-stale is uniform.
+function claimsFor(targetDir, tics) { return activeClaims(tics, { nowMs: Date.now(), ttlSec: cfgNum(targetDir, "CLAIMS_TTL", 0) }); }
 function claimCheck(targetDir, file, myScope) {
   if (!file || !myScope) return null;            // unscoped editor or no path -> no enforcement
-  const active = activeClaims(loadTics(targetDir));
+  const active = claimsFor(targetDir, loadTics(targetDir));
   for (const x of active.values()) {
     const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
     if (hit && !scopeMatch(x.scope || "*", myScope)) return { token: x.ref, scope: x.scope || "*", seq: x.seq, from: x.from };
@@ -230,7 +249,7 @@ function claimCheckCli(targetDir, file, myScope) {
 // the guard can tell "unclaimed" (auto-claim it) from "already mine" (skip — no re-claim spam).
 function claimOwner(targetDir, file) {
   if (!file) return "";
-  const active = activeClaims(loadTics(targetDir));
+  const active = claimsFor(targetDir, loadTics(targetDir));
   for (const x of active.values()) {
     const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
     if (hit) return x.scope || "*";
@@ -242,7 +261,7 @@ function claimOwner(targetDir, file) {
 // RELEASE lock held by a session OTHER than mine must block the commit.
 function claimSession(targetDir, file) {
   if (!file) return "";
-  const active = activeClaims(loadTics(targetDir));
+  const active = claimsFor(targetDir, loadTics(targetDir));
   for (const x of active.values()) {
     const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
     if (hit) return x.session || "";
