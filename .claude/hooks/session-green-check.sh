@@ -9,6 +9,14 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 # shellcheck disable=SC1091
 . "$ROOT/.claude/hooks/lib.sh"
 
+# Multi-session JOIN (ADR 0003): announce this session as available for work on the shared bus, so a
+# lead can assign to it and `tics sessions` shows it joining the effort. Only with MULTI_SESSION=1 +
+# a session id set (single-session ergonomics unchanged — no presence spam).
+_sess="${TICS_SESSION:-$(cat "$ROOT/.claude/state/session" 2>/dev/null)}"
+if [ "${MULTI_SESSION:-0}" = "1" ] && [ -n "$_sess" ]; then
+  emit_tic "$_sess" "*" session "available for work" "" open
+fi
+
 # Worktree bus check: parallel git worktrees but an unshared tic bus -> fragmented coordination.
 if [ -z "${TICS_DIR:-}" ] && [ "${TIC_STORE:-jsonl}" != "spool" ]; then
   _wt=$(cd "$ROOT" 2>/dev/null && git worktree list 2>/dev/null | wc -l | tr -d ' ')
