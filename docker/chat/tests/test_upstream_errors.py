@@ -55,3 +55,27 @@ def test_is_upstream_rate_limit_google_resource_exhausted() -> None:
 
 def test_is_upstream_rate_limit_generic_false() -> None:
     assert is_upstream_rate_limit(RuntimeError("nope")) is False
+
+
+def test_genai_client_error_429_is_classified_as_rate_limited() -> None:
+    # The real google-genai SDK raises google.genai.errors.ClientError for 4xx
+    # (see APIError.raise_error: 400<=code<500 -> ClientError). It exposes
+    # .code / .status, NOT .status_code, built from the response error json.
+    from google.genai.errors import ClientError
+
+    exc = ClientError(
+        429,
+        {
+            "error": {
+                "code": 429,
+                "status": "RESOURCE_EXHAUSTED",
+                "message": "Quota exceeded for quota metric 'Generate requests'.",
+            }
+        },
+    )
+
+    assert is_upstream_rate_limit(exc) is True
+
+    status, body = upstream_error_body(exc)
+    assert status == 429
+    assert body["code"] == "upstream_rate_limited"
