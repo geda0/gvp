@@ -36,6 +36,10 @@ is_test() { printf '%s' "$1" | grep -qE "$TEST_GLOB"; }
 is_doc() { printf '%s' "$1" | grep -qE '\.(md|mdx|markdown)$|(^|/)docs/'; }
 # An ADR (architecture decision record) is a published seam — see auto-contract below.
 is_adr() { printf '%s' "$1" | grep -qE '(^|/)docs/decisions/'; }
+# The loop's own control plane (.claude/state/phase|layer|scope|session, progress/backlog, the bus).
+# Writing it is how the orchestrator DRIVES the gate — never project code-under-test — so the phase
+# gate must not block it (else you can't leave red: writing phase=green is itself refused in red).
+is_control() { printf '%s' "$1" | grep -qE '(^|/)\.claude/state/'; }
 
 # P1: enforced claims — block an edit to a path held by ANOTHER scope, and AUTO-CLAIM a
 # still-unclaimed path for the editing scope, so disjoint-write fan-out is collision-safe
@@ -44,7 +48,17 @@ claim_guard() {
   [ "${CLAIMS_ENFORCE:-1}" = "1" ] || return 0
   [ -x "$ROOT/.claude/hooks/tics" ] || return 0          # no reader -> fail-open
   _ms="$(cat "$ROOT/.claude/state/scope" 2>/dev/null)"
-  [ -n "$_ms" ] || return 0                               # unscoped editor -> not partitioned, no enforcement
+  if [ -z "$_ms" ]; then
+    # MS2 (ADR 0002): single-session leaves an unscoped editor free (not partitioned). Multi-session
+    # REQUIRES a scope so writes claim and rival sessions' claims are enforced — an unscoped edit is
+    # exactly how two sessions silently collide. Opt in with MULTI_SESSION=1.
+    if [ "${MULTI_SESSION:-0}" = "1" ]; then
+      echo "BLOCKED (MULTI_SESSION): no scope set. Set one before editing — echo <session>/<area> > .claude/state/scope (and .claude/state/session) — so your writes claim and other sessions are kept out. Disarm: MULTI_SESSION=0." >&2
+      emit_tic guard "*" block "multi-session: unscoped edit refused ($1)" "$1" blocked
+      exit 2
+    fi
+    return 0                                               # single-session: unscoped editor -> no enforcement
+  fi
   _hold="$("$ROOT/.claude/hooks/tics" claim-check "$1" "$_ms" 2>/dev/null)"; _rc=$?
   if [ "$_rc" = "3" ]; then                              # genuine cross-scope conflict -> block
     echo "BLOCKED (claim): $1 is held by $_hold. Release it, coordinate via a need tic, or set CLAIMS_ENFORCE=0 to disarm." >&2
@@ -80,6 +94,9 @@ extract_write_targets() {
 # a Bash redirect into source is gated exactly like a Write to it.
 gate_path() {
   P="$1"
+  # The loop's control plane is exempt from the phase gate (writing it operates the gate). This must
+  # come FIRST — otherwise transitioning red->green by writing .claude/state/phase is itself blocked.
+  if is_control "$P"; then return 0; fi
   # Docs/ADRs are never code-under-test → not blocked in ANY phase (claims still apply). An ADR is
   # a published seam: auto-emit a `contract` when one is first CREATED (once; not on later edits).
   if is_doc "$P"; then
