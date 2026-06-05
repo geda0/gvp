@@ -32,7 +32,9 @@ const ENV_HOSTS = {
   },
   stage: {
     contact: 'fvfqpef8kb.execute-api.us-east-2.amazonaws.com',
-    chat: 'chat-api-stage.marwanelgendy.link'
+    // ADR-0007 Phase 3: staging chat re-homed ECS+ALB -> App Runner (browser-direct voice
+    // means no WS to host, so no ALB/custom-domain needed for staging).
+    chat: 'yatpp3ngig.us-east-2.awsapprunner.com'
   }
 }
 

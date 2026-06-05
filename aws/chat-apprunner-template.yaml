@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Portfolio chat on AWS App Runner (ADR-0007 Phase 3). After Phase 1 the backend
+  holds no WebSocket (voice is browser-direct via an ephemeral token), so it is a
+  plain stateless HTTP service — App Runner runs the same FastAPI container with
+  just "image + port -> HTTPS URL". Replaces aws/chat-ecs-template.yaml (ALB + VPC
+  + security groups + target group + listeners), which existed only to host the
+  retired voice relay.
+
+Parameters:
+  StageName:
+    Type: String
+    AllowedValues: [stage, prod]
+    Default: stage
+  ImageUri:
+    Type: String
+    Description: 'Full ECR image URI with tag, e.g. ACCT.dkr.ecr.us-east-2.amazonaws.com/gvp-chat:stage-abc1234'
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+    Description: 'Gemini API key (NoEcho). Hardening follow-up is to move it to an SSM SecureString.'
+  ChatCorsOrigins:
+    Type: String
+    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link'
+  ChatTranscriptsTableName:
+    Type: String
+    Default: ''
+    Description: DynamoDB transcripts table (page stack output). Empty disables persistence.
+  GeminiModel:
+    Type: String
+    Default: gemini-3.1-flash-lite
+  GeminiFallbackModel:
+    Type: String
+    Default: gemma-4-26b-a4b-it
+  GeminiLiveModel:
+    Type: String
+    Default: gemini-3.1-flash-live-preview
+  ChatVoiceModel:
+    Type: String
+    Default: ''
+  ContainerPort:
+    Type: Number
+    Default: 8000
+  Cpu:
+    Type: String
+    Default: '0.25 vCPU'
+    AllowedValues: ['0.25 vCPU', '0.5 vCPU', '1 vCPU']
+  Memory:
+    Type: String
+    Default: '0.5 GB'
+    AllowedValues: ['0.5 GB', '1 GB', '2 GB']
+
+Conditions:
+  HasTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
+  IsStage: !Equals [!Ref StageName, 'stage']
+
+Resources:
+  # Lets App Runner's build agent pull the image from ECR.
+  EcrAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub gvp-chat-apprunner-${StageName}-ecr-access
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: build.apprunner.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+  # Identity the running container uses (boto3 -> DynamoDB transcripts). Mirrors the
+  # ECS TaskRole: PutItem/UpdateItem on the transcripts table only.
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub gvp-chat-apprunner-${StageName}-instance
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: tasks.apprunner.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - !If
+          - HasTranscriptsTable
+          - PolicyName: TranscriptsWrite
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: [dynamodb:PutItem, dynamodb:UpdateItem]
+                  Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChatTranscriptsTableName}
+          - !Ref AWS::NoValue
+
+  Service:
+    Type: AWS::AppRunner::Service
+    Properties:
+      ServiceName: !Sub gvp-chat-${StageName}-apprunner
+      SourceConfiguration:
+        AutoDeploymentsEnabled: false
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt EcrAccessRole.Arn
+        ImageRepository:
+          ImageIdentifier: !Ref ImageUri
+          ImageRepositoryType: ECR
+          ImageConfiguration:
+            Port: !Ref ContainerPort
+            RuntimeEnvironmentVariables:
+              - { Name: CHAT_PROVIDER, Value: gemini }
+              - { Name: GEMINI_LIVE_MINT_TIMEOUT_SEC, Value: '50' }
+              - { Name: CHAT_CORS_ORIGINS, Value: !Ref ChatCorsOrigins }
+              - { Name: GEMINI_API_KEY, Value: !Ref GeminiApiKey }
+              - { Name: GEMINI_MODEL, Value: !Ref GeminiModel }
+              - { Name: GEMINI_FALLBACK_MODEL, Value: !Ref GeminiFallbackModel }
+              - { Name: GEMINI_LIVE_MODEL, Value: !Ref GeminiLiveModel }
+              - { Name: CHAT_VOICE_MODEL, Value: !Ref ChatVoiceModel }
+              - { Name: CHAT_TRANSCRIPTS_TABLE, Value: !Ref ChatTranscriptsTableName }
+              - { Name: AWS_REGION, Value: !Ref AWS::Region }
+              - { Name: CHAT_READY_VERBOSE, Value: !If [IsStage, '1', '0'] }
+      InstanceConfiguration:
+        Cpu: !Ref Cpu
+        Memory: !Ref Memory
+        InstanceRoleArn: !GetAtt InstanceRole.Arn
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: /health
+        Interval: 10
+        Timeout: 5
+        HealthyThreshold: 1
+        UnhealthyThreshold: 5
+      Tags:
+        - { Key: 'gvp:stage', Value: !Ref StageName }
+
+Outputs:
+  ServiceUrl:
+    Description: Public HTTPS URL of the App Runner chat service (default domain).
+    Value: !Sub https://${Service.ServiceUrl}
+  ServiceArn:
+    Value: !Ref Service
+  ServiceId:
+    Value: !GetAtt Service.ServiceId
+  InstanceRoleArn:
+    Value: !GetAtt InstanceRole.Arn
