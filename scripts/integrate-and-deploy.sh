@@ -25,8 +25,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AWS_DIR="${ROOT}/aws"
 CHAT_DIR="${ROOT}/docker/chat"
 SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
-# shellcheck source=chat-ecs-discover-env.sh
-source "${ROOT}/scripts/chat-ecs-discover-env.sh"
 
 usage() {
   echo "usage: bash scripts/integrate-and-deploy.sh [prod|stage]" >&2
@@ -127,88 +125,6 @@ require() {
   fi
 }
 
-# EC2 describe + optional create-default-vpc (CHAT_ECS_CREATE_DEFAULT_VPC). Opt out: CHAT_VOICE_ECS_BOOTSTRAP=0.
-_chat_ecs_resolve_missing_vpc_subnets() {
-  local region="${1:?region}"
-  [[ -n "${CHAT_ECS_VPC_ID:-}" && -n "${CHAT_ECS_SUBNET_IDS:-}" ]] && return 0
-  [[ "${CHAT_VOICE_ECS_BOOTSTRAP:-1}" == "0" ]] && return 1
-  if ! command -v aws >/dev/null 2>&1; then
-    return 1
-  fi
-  if [[ -n "${CHAT_ECS_VPC_ID:-}" && -z "${CHAT_ECS_SUBNET_IDS:-}" ]]; then
-    gvp_chat_ecs_fill_subnets_for_set_vpc "${region}" && return 0
-  fi
-  gvp_chat_ecs_resolve_vpc_subnets_maybe_create "${region}"
-}
-
-_chat_ecs_require_two_az_subnets_or_exit() {
-  local ctx="$1"
-  local _sn_count=0 _s
-  IFS=',' read -ra _sns <<< "${CHAT_ECS_SUBNET_IDS// /}"
-  for _s in "${_sns[@]}"; do
-    [[ -n "${_s}" ]] && _sn_count=$((_sn_count + 1))
-  done
-  if [[ "${_sn_count}" -lt 2 ]]; then
-    echo "error: ${ctx}: ALB needs subnets in at least 2 AZs (got ${_sn_count} id(s) in CHAT_ECS_SUBNET_IDS)." >&2
-    exit 1
-  fi
-}
-
-# Voice (browser mic) is always on in the FE — wire ECS chat prereqs by default so the SAM-managed ECS
-# path (CHAT_ECS_SAM_STACK_NAME_*) is not silently skipped for lack of VPC/ECR/stack name. Opt out with
-# CHAT_VOICE_ECS_BOOTSTRAP=0 (Lambda-only chat: voice will fail, FE still works for text).
-_chat_voice_prereq_bootstrap() {
-  [[ "${CHAT_VOICE_ECS_BOOTSTRAP:-1}" == "0" ]] && return 0
-  if ! command -v aws >/dev/null 2>&1; then
-    echo "warning: aws CLI missing; cannot auto-bootstrap ECS chat prereqs (set CHAT_VOICE_ECS_BOOTSTRAP=0 to silence)." >&2
-    return 0
-  fi
-  echo "note: bootstrapping ECS chat prereqs for voice (VPC/subnets: describe or create-default-vpc, ECR, SAM stack name when unset; CHAT_VOICE_ECS_BOOTSTRAP=0 to opt out)…" >&2
-  if [[ -z "${CHAT_ECS_CREATE_DEFAULT_VPC+x}" ]]; then
-    export CHAT_ECS_CREATE_DEFAULT_VPC=1
-  fi
-  local acct repo uri
-  acct="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
-  if [[ -z "${acct}" || "${acct}" == "None" ]]; then
-    echo "warning: cannot read AWS account (sts); skip ECR/VPC bootstrap." >&2
-    return 0
-  fi
-  repo="${CHAT_ECR_REPO_NAME:-gvp-chat}"
-  uri="${acct}.dkr.ecr.${REGION}.amazonaws.com/${repo}"
-  if [[ -z "${CHAT_ECR_REPOSITORY_URI:-}" ]]; then
-    if ! aws ecr describe-repositories --repository-names "${repo}" --region "${REGION}" &>/dev/null; then
-      echo "  creating ECR repository ${repo}…" >&2
-      aws ecr create-repository --repository-name "${repo}" --region "${REGION}" \
-        --image-scanning-configuration scanOnPush=true &>/dev/null
-    fi
-    export CHAT_ECR_REPOSITORY_URI="${uri}"
-    echo "  CHAT_ECR_REPOSITORY_URI=${CHAT_ECR_REPOSITORY_URI}" >&2
-  fi
-  if [[ -z "${CHAT_ECS_VPC_ID:-}" || -z "${CHAT_ECS_SUBNET_IDS:-}" ]]; then
-    if ! _chat_ecs_resolve_missing_vpc_subnets "${REGION}"; then
-      echo "error: could not resolve CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS in ${REGION}." >&2
-      echo "       Describe found no VPC with ≥2 subnets in different AZs, and create-default-vpc did not help or is disabled (CHAT_ECS_CREATE_DEFAULT_VPC=0)." >&2
-      echo "       IAM needs ec2:CreateDefaultVpc when auto-create is on; some orgs block default VPC creation." >&2
-      echo "       Fix: set CHAT_ECS_VPC_ID + CHAT_ECS_SUBNET_IDS in chat-deploy.env, or bash scripts/chat-ecs-discover-env.sh with CHAT_ECS_CREATE_DEFAULT_VPC=1." >&2
-      echo "       Or set CHAT_VOICE_ECS_BOOTSTRAP=0 to skip ECS entirely (voice will not work, text chat still works)." >&2
-      exit 1
-    fi
-    echo "  CHAT_ECS_VPC_ID=${CHAT_ECS_VPC_ID}" >&2
-    echo "  CHAT_ECS_SUBNET_IDS=${CHAT_ECS_SUBNET_IDS}" >&2
-  fi
-  _chat_ecs_require_two_az_subnets_or_exit "voice ECS bootstrap"
-  if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-    export CHAT_ECS_SAM_STACK_NAME_STAGE="${CHAT_ECS_SAM_STACK_NAME_STAGE:-gvp-chat-ecs-stage}"
-    echo "  CHAT_ECS_SAM_STACK_NAME_STAGE=${CHAT_ECS_SAM_STACK_NAME_STAGE}" >&2
-  else
-    export CHAT_ECS_SAM_STACK_NAME_PROD="${CHAT_ECS_SAM_STACK_NAME_PROD:-gvp-chat-ecs-prod}"
-    echo "  CHAT_ECS_SAM_STACK_NAME_PROD=${CHAT_ECS_SAM_STACK_NAME_PROD}" >&2
-  fi
-  if [[ -z "${GEMINI_API_KEY:-}" ]]; then
-    echo "warning: GEMINI_API_KEY unset — chat-ecs SAM deploy will fail until you add it (deploy.env or chat-deploy.env)." >&2
-  fi
-}
-
 require RESEND_API_KEY
 require CONTACT_TO_EMAIL
 require CONTACT_FROM_EMAIL
@@ -234,8 +150,6 @@ sam_param_override() {
 }
 
 export AWS_DEFAULT_REGION="${REGION}"
-
-_chat_voice_prereq_bootstrap
 
 PO=(
   "$(sam_param_override ResendApiKey "${RESEND_API_KEY}")"
@@ -406,7 +320,8 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
   docker push "${REMOTE_SHA}"
   docker push "${REMOTE_LATEST}"
 
-  if [[ "${CHAT_DEPLOY_TARGET:-ecs}" == "express" ]]; then
+  # Chat hosting: ECS Express Mode is the ONLY path (ECS+ALB and App Runner retired, ADR-0007).
+  if [[ "${CHAT_DEPLOY_TARGET:-express}" == "express" ]]; then
     # ---- ECS Express Mode chat (aws/chat-express-template.yaml) — ADR-0007 Phase 3 ----
     # App Runner is in maintenance mode (no new customers from 2026-04-30); ECS Express
     # Mode is AWS's managed successor. Same "image + port -> HTTPS" model (Fargate + an
@@ -449,119 +364,7 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
     CLUSTER=""
     SERVICE=""
 
-  else
-
-  # ---- Optional: SAM-managed ECS chat stack (aws/chat-ecs-template.yaml) ----
-  # When CHAT_ECS_SAM_STACK_NAME_<ENV> is set we deploy/update the ECS+ALB stack
-  # with the freshly-pushed image. The stack update creates a new TaskDefinition
-  # revision and CloudFormation rolls the service. Outputs ClusterName/ServiceName
-  # are exported so the existing ALB-DNS auto-derive below still works unchanged.
-  CHAT_ECS_SAM_STACK_NAME=""
-  CHAT_ECS_CERT_ARN=""
-  CHAT_ECS_ALB_LOG_BUCKET=""
-  if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-    CHAT_ECS_SAM_STACK_NAME="${CHAT_ECS_SAM_STACK_NAME_STAGE:-}"
-    CHAT_ECS_CERT_ARN="${CHAT_ECS_CERT_ARN_STAGE:-${CHAT_ECS_CERT_ARN:-}}"
-    CHAT_ECS_ALB_LOG_BUCKET="${CHAT_ECS_ALB_LOG_BUCKET_STAGE:-${CHAT_ECS_ALB_LOG_BUCKET:-}}"
-  else
-    CHAT_ECS_SAM_STACK_NAME="${CHAT_ECS_SAM_STACK_NAME_PROD:-}"
-    CHAT_ECS_CERT_ARN="${CHAT_ECS_CERT_ARN_PROD:-${CHAT_ECS_CERT_ARN:-}}"
-    CHAT_ECS_ALB_LOG_BUCKET="${CHAT_ECS_ALB_LOG_BUCKET_PROD:-${CHAT_ECS_ALB_LOG_BUCKET:-}}"
-  fi
-
-  if [[ -n "${CHAT_ECS_SAM_STACK_NAME}" ]]; then
-    if [[ -z "${CHAT_ECS_VPC_ID:-}" || -z "${CHAT_ECS_SUBNET_IDS:-}" ]]; then
-      echo "note: CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS unset — resolving for SAM ECS (describe; optional CHAT_ECS_CREATE_DEFAULT_VPC=1 create-default-vpc; CHAT_VOICE_ECS_BOOTSTRAP=0 skips)…" >&2
-      if ! _chat_ecs_resolve_missing_vpc_subnets "${REGION}"; then
-        echo "ERROR: SAM ECS stack is set but CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS could not be resolved." >&2
-        echo "       Set both in chat-deploy.env, or export CHAT_ECS_CREATE_DEFAULT_VPC=1 for aws ec2 create-default-vpc when describe fails (IAM ec2:CreateDefaultVpc). CHAT_VOICE_ECS_BOOTSTRAP=1 (default) sets CHAT_ECS_CREATE_DEFAULT_VPC=1 unless you've overridden it." >&2
-        exit 1
-      fi
-      echo "  CHAT_ECS_VPC_ID=${CHAT_ECS_VPC_ID}" >&2
-      echo "  CHAT_ECS_SUBNET_IDS=${CHAT_ECS_SUBNET_IDS}" >&2
-    fi
-    _chat_ecs_require_two_az_subnets_or_exit "SAM ECS deploy"
-    if [[ -z "${GEMINI_API_KEY:-}" ]]; then
-      echo "ERROR: GEMINI_API_KEY required for chat-ecs SAM deploy." >&2
-      exit 1
-    fi
-    echo "sam deploy chat-ecs stack=${CHAT_ECS_SAM_STACK_NAME} env=${DEPLOY_ENV} image=${REMOTE_SHA}"
-    CHAT_ECS_PO=(
-      "StageName=${DEPLOY_ENV}"
-      "VpcId=${CHAT_ECS_VPC_ID}"
-      "SubnetIds=${CHAT_ECS_SUBNET_IDS}"
-      "ImageUri=${REMOTE_SHA}"
-      "GeminiApiKey=${GEMINI_API_KEY}"
-      "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
-      "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
-      "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
-      "ChatVoiceModel=${CHAT_VOICE_MODEL:-${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}}"
-      "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link}"
-    )
-    if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
-      CHAT_ECS_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
-    fi
-    if [[ -n "${CHAT_ECS_CERT_ARN:-}" ]]; then
-      CHAT_ECS_PO+=("CertificateArn=${CHAT_ECS_CERT_ARN}")
-    fi
-    if [[ -n "${CHAT_ECS_ALB_LOG_BUCKET:-}" ]]; then
-      CHAT_ECS_PO+=("AlbLogBucket=${CHAT_ECS_ALB_LOG_BUCKET}")
-    fi
-    sam deploy \
-      --template-file "${AWS_DIR}/chat-ecs-template.yaml" \
-      --stack-name "${CHAT_ECS_SAM_STACK_NAME}" \
-      --region "${REGION}" \
-      --capabilities CAPABILITY_IAM \
-      --no-confirm-changeset \
-      --no-fail-on-empty-changeset \
-      --resolve-s3 \
-      --s3-prefix "${CHAT_ECS_SAM_STACK_NAME}" \
-      --parameter-overrides "${CHAT_ECS_PO[@]}"
-
-    # Read outputs and feed back into the existing CHAT_ECS_CLUSTER / _SERVICE
-    # vars so the ALB-DNS discovery further down works without extra config.
-    _ECS_OUTPUTS_JSON="$(aws cloudformation describe-stacks \
-      --stack-name "${CHAT_ECS_SAM_STACK_NAME}" \
-      --region "${REGION}" \
-      --query 'Stacks[0].Outputs' \
-      --output json 2>/dev/null || echo '[]')"
-    _ECS_CLUSTER_FROM_STACK="$(echo "${_ECS_OUTPUTS_JSON}" | python3 -c "import json,sys; xs=json.load(sys.stdin); print(next((x['OutputValue'] for x in xs if x['OutputKey']=='ClusterName'),''))" 2>/dev/null || true)"
-    _ECS_SERVICE_FROM_STACK="$(echo "${_ECS_OUTPUTS_JSON}" | python3 -c "import json,sys; xs=json.load(sys.stdin); print(next((x['OutputValue'] for x in xs if x['OutputKey']=='ServiceName'),''))" 2>/dev/null || true)"
-    if [[ -n "${_ECS_CLUSTER_FROM_STACK}" && -n "${_ECS_SERVICE_FROM_STACK}" ]]; then
-      CHAT_ECS_CLUSTER="${_ECS_CLUSTER_FROM_STACK}"
-      CHAT_ECS_SERVICE="${_ECS_SERVICE_FROM_STACK}"
-      echo "chat-ecs outputs: cluster=${CHAT_ECS_CLUSTER} service=${CHAT_ECS_SERVICE}"
-    fi
-    # When SAM owns the service, the CloudFormation update already rolled the
-    # TaskDefinition. Skip the legacy aws-ecs-update-service path below.
-    CLUSTER=""
-    SERVICE=""
-  else
-    CLUSTER="${CHAT_ECS_CLUSTER}"
-    SERVICE="${CHAT_ECS_SERVICE}"
-  fi
-
-  if [[ -n "${CLUSTER}" && -n "${SERVICE}" ]]; then
-    echo "ECS force deploy cluster=${CLUSTER} service=${SERVICE}"
-    aws ecs update-service \
-      --cluster "${CLUSTER}" \
-      --service "${SERVICE}" \
-      --force-new-deployment \
-      --region "${REGION}" \
-      --no-cli-pager
-    echo "note: ECS chat image defaults CHAT_LIVE_RELAY=1 (docker/chat/Dockerfile). gvp:chat-api-url is patched from CHAT_*_CHAT_API_URL when set, else derived from this ECS service’s ALB/NLB DNS when CHAT_ECS_AUTO_SYNC_CHAT_URL is enabled."
-  elif [[ -z "${CHAT_ECS_SAM_STACK_NAME}" ]]; then
-    if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-      echo "note: CHAT_ECS_SAM_STACK_NAME_STAGE unset — skipped SAM-managed ECS deploy (image pushed to ECR)." >&2
-      echo "      For Fargate+ALB in one step: set CHAT_ECS_SAM_STACK_NAME_STAGE + GEMINI_API_KEY (+ CHAT_ECR_REPOSITORY_URI); VPC/subnets auto-resolve unless CHAT_VOICE_ECS_BOOTSTRAP=0." >&2
-      echo "      Or set CHAT_ECS_CLUSTER_STAGE + CHAT_ECS_SERVICE_STAGE for aws ecs update-service only (no SAM ECS stack)." >&2
-    else
-      echo "note: CHAT_ECS_SAM_STACK_NAME_PROD unset — skipped SAM-managed ECS deploy (image pushed to ECR)." >&2
-      echo "      For Fargate+ALB in one step: set CHAT_ECS_SAM_STACK_NAME_PROD + GEMINI_API_KEY (+ CHAT_ECR_REPOSITORY_URI); VPC/subnets auto-resolve unless CHAT_VOICE_ECS_BOOTSTRAP=0." >&2
-      echo "      Or set CHAT_ECS_CLUSTER_PROD + CHAT_ECS_SERVICE_PROD for aws ecs update-service only (no SAM ECS stack)." >&2
-    fi
-  fi
-  fi  # end CHAT_DEPLOY_TARGET (express | ecs)
+  fi  # chat ECS Express deploy
 elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
   echo "CHAT_ECR_REPOSITORY_URI unset — chat image built locally as ${CHAT_IMAGE_LOCAL} only."
 fi
