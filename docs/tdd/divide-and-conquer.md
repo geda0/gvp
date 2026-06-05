@@ -37,13 +37,29 @@ findings as `note`/`verdict` tics; a final step reads `tics log --scope <task>` 
 conductor`) and synthesizes. (The `Agent` and `Workflow` tools already do this fan-out.)
 
 ## Write-side fan-out — disjoint only
-Two writers are safe on the main repo **only** if their files don't overlap. Each pair
-`claim`s its targets — with `CLAIMS_ENFORCE` (default on) the guard **blocks** an edit to a
-file held by another scope (emitting a `need`), so disjoint partitions can't silently
-collide; `tics conductor` / `tics claims` show what's held. Overlap →
+Two writers are safe on the main repo **only** if their files don't overlap. Claiming is
+**automatic**: give each pair a scope (`echo <section>/<pair> > .claude/state/scope`) and
+the guard auto-claims a file on first edit — with `CLAIMS_ENFORCE` (default on) it then
+**blocks** an edit to a file held by another scope (emitting a `need`), so disjoint
+partitions can't silently collide; `tics conductor` / `tics claims` show what's held,
+`tics claim-owner <file>` who holds one. Overlap →
 serialize (one holds the claim, the other waits), split the file (fix the seam), or — last
 resort — give the concurrent writers separate **worktrees** (a per-worker gate identity,
 sharing one bus via `TICS_DIR`; see `docs/tdd/sectioning.md`, full-team preset).
+
+### Recipe — running parallel pairs
+1. **Plan + gate.** Write a partition spec (one section per line: `<section> <file>...`) and run
+   `.claude/hooks/tics fan-out <spec>`. It assigns each section a scope (`<section>/S<n>`) and
+   **refuses (exit 1) if two sections claim the same file** — disjointness is verified *before*
+   any pair starts, not discovered mid-collision. Resolve overlaps, re-run until it's green.
+2. **Fan out.** For each section, delegate a pair and set its scope
+   (`echo <section>/S<n> > .claude/state/scope`). First edit auto-opens the section and
+   auto-claims the file; a rival scope touching a held file is blocked at runtime (belt + braces
+   over the plan-time gate).
+3. **Watch.** `tics conductor` is the live map — each scope's `[open|active|done]` status, its
+   claims, needs, contracts. `tics log --all` merges every worktree's bus for the whole picture.
+4. **Close.** When a section ships, `tic.sh <pair> '*' section done <name> done` — its claims
+   auto-release (release-on-done) and the partition frees up for the next assignment.
 
 ## When NOT to decompose
 - **Atomic work:** one behavior's red→green is a feedback loop — don't split it.

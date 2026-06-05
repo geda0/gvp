@@ -57,22 +57,28 @@ pairing-tic is just a tightly-scoped coupling-tic. Filtering by scope keeps a vi
 
 ## Viewing
 Use the installed reader `.claude/hooks/tics <cmd>` (agents) or `npx team-tactics <cmd>` (shell); `tic.sh` only EMITS.
-- `tics log [--scope <s>]` — the thread; with --scope, just that scope + global (`*`).
+- `tics log [--scope <s>]` — the thread. **Merges every git worktree's bus BY DEFAULT** (whole picture — a detached worktree's tics aren't invisible from the main checkout); pass `--here` to restrict to the local bus. With `--scope`, just that scope + global (`*`). (Same default for `conductor`/`claims`/`sections`/`gate`.)
 - `tics inbox <role> [--scope <s>]` — your inbox: tics where `to ∈ {<role>, *}` (and scope, if given). Read it at the start of your
   turn and address any directed `msg`.
 - `tics report` — process metrics aggregated from the `signal` tics.
 - `tics conductor` — the cross-pair coupling tics only (claim/release/contract/need/msg).
 - `tics claims` — active file/module claims (claim minus release), by scope.
+- `tics cycle` — inner-loop dashboard: phase/layer/scope + last suite signal + cycles since the last tdd-critic verdict (nudges a critic pass when overdue).
+- `tics gate` — release gate: exits non-zero unless the required outer-loop verdicts (product-owner accept + tdd-critic PASS) are on the bus; the project-manager runs it before tagging.
 
 ## Parallel pairs (the coupling kit)
 Run independent slices as **parallel pairs**, coordinated by coupling-tics:
 - `claim` / `release` — a pair claims a file/module (`ref`) so two pairs don't edit the same
-  thing; release when done. With `CLAIMS_ENFORCE` (default on) the guard blocks an edit to a file held by another scope and emits a `need`. `tics claims` lists what's owned (claim minus release), by scope.
-- `contract` — the architect publishes a seam (a coupling-tic) that unblocks dependent pairs.
+  thing; release when done. With `CLAIMS_ENFORCE` (default on) the guard blocks an edit to a file held by another scope and emits a `need`. **Claiming is automatic:** when a scope is set, the guard auto-claims a still-unclaimed file on first edit (first toucher owns it; rivals are then blocked) — no manual bookkeeping. `tics claims` lists what's owned (claim minus release), by scope; `tics claim-owner <file>` reports who holds one (empty if free).
+- `commit` — a VCS landing event from the post-commit git hook; git runs it under ANY tool, so commits land on the bus even where the Claude Code hooks don't fire (e.g. Cursor) — the cross-tool visibility bridge.
+- `section` — the lifecycle of a partition (the scope's first component, `ref`). **Opening is automatic:** the guard auto-opens a section on first scoped edit, so the partition map fills itself — mark it shipped with `tic.sh <pair> '*' section done <name> done`, which **auto-releases that section's claims** (release-on-done) so the partition frees up for reassignment. `tics sections` is the live map (each section's `[open|active|done]` status + tics/claims/contracts/needs); `tics section-status <name>` reports one section's latest status (empty if unopened).
+- `contract` — the architect publishes a seam (a coupling-tic) that unblocks dependent pairs. **Auto-published:** creating an ADR (`docs/decisions/*.md`) auto-emits a `contract`, so design decisions surface as coupling telemetry even in solo/serial work — no scope or parallel pairs required.
 - `need` — a pair signals a dependency ("need contract C").
 
-The **conductor** (orchestrator) watches `tics conductor` — only the cross-pair coupling tics,
-with each pair's high-frequency pairing-tics filtered out as noise — and assigns conflict-free
+The **conductor** (orchestrator) watches `tics conductor` — a per-scope summary (each working
+unit's section `[open|active|done]` status, its active claims, needs, and contracts — claims read
+`(freed)` once the section is done) over the cross-pair coupling thread, with each pair's
+high-frequency pairing-tics filtered out as noise — and assigns conflict-free
 scopes. Each pair works in its scope (`echo pair:S2 > .claude/state/scope`) and reads its own
 thread via `tics log --scope pair:S2`.
 
@@ -90,6 +96,13 @@ becomes its own file under `.claude/state/tics.d/` — concurrency-safe (no shar
 seq race). Default `TIC_STORE=jsonl` (one append-only file) suits a single session; the views
 merge either store transparently. SQLite is intentionally avoided — it would break the zero-dep
 / Node>=16 / bash-hook portability invariants for wins not needed at session scale.
+
+## Red-storm breaker
+A long run of red suites usually means the failing TEST is over-constrained or contradictory,
+not that the code is wrong. `run-suite` counts consecutive reds (reset on green); at
+`RED_STREAK_LIMIT` (default 5) it emits a `stuck` tic, `tics cycle` flags the streak, and the Stop
+hook escalates from "keep going" to "reconsider the test (route to test-writer) or ask the
+navigator." Stops the loop grinding on an impossible test instead of surfacing the suspicion.
 
 ## Why it stays faithful to "never through chat"
 - `signal`/`block` are produced by the hooks — agents cannot forge an objective fact.

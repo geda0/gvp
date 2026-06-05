@@ -18,7 +18,7 @@ you write `.claude/state/backlog.md` and `.claude/state/design-notes.md`. Read
 - **Sign off** — given a feature whose acceptance bullets are ticked and the bar is
   green (and qa-verifier has confirmed any UX bullets), verify each criterion is
   genuinely met. Accept it (record in backlog), or file precise follow-ups/defects
-  back into the backlog. Never lower the bar to accept.
+  back into the backlog. Never lower the bar to accept. Emit your ruling as a `verdict` tic (pass/concerns/block) so acceptance is on the bus, not only in the backlog.
 
 ## Rules
 - Acceptance criteria describe **observable behavior** a test or a human can check —

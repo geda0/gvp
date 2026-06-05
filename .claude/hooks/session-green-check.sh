@@ -9,6 +9,14 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 # shellcheck disable=SC1091
 . "$ROOT/.claude/hooks/lib.sh"
 
+# Worktree bus check: parallel git worktrees but an unshared tic bus -> fragmented coordination.
+if [ -z "${TICS_DIR:-}" ] && [ "${TIC_STORE:-jsonl}" != "spool" ]; then
+  _wt=$(cd "$ROOT" 2>/dev/null && git worktree list 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${_wt:-0}" -gt 1 ]; then
+    echo "NOTE: $_wt git worktrees but the tic bus is not shared — each writes its own .claude/state, so claims/needs can't correlate across them. Share one bus: set TIC_STORE=spool + TICS_DIR in .claude/tdd.config (see the 'Parallel worktrees' block). See docs/tdd/sectioning.md."
+  fi
+fi
+
 [ "${SESSION_BASELINE_CHECK:-1}" = "1" ] || exit 0
 CMD="${BASELINE_CMD:-$ALL_TEST_CMD}"
 
