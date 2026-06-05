@@ -33,6 +33,12 @@ orchestrator with the roles below. Install/refresh them with
    (with dev-ops) commits, git-tags, and deploys the milestone, verifies health, and
    records it in `releases.md`. Surface release blockers; then take the next feature.
 
+## Reviews on the bus
+Every outer-loop ruling is a `verdict` tic, not only a doc edit: the **product-owner** emits
+pass/concerns on sign-off, **qa-verifier** on its experience check, **tdd-critic** on its audit,
+the **project-manager** on release. The whole review trail then shows in `tics log` / `tics cycle`,
+so acceptance and releases are auditable and gate-able — never bury a ruling only in backlog.md. The project-manager runs `tics gate` before tagging; it blocks the release unless the required verdicts (product-owner accept + tdd-critic PASS) are on the bus.
+
 ## Parallel sections (large projects)
 When the domain has clear bounded contexts and more than one pair/role can work at once,
 the architect (called by the product-owner) **sections** the project: each section is a

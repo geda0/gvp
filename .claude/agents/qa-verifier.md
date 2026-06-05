@@ -16,7 +16,7 @@ failure, a precise defect report for the product-owner to triage.
 2. Bring up or attach to the running app (see the project runbook). Exercise the
    real journey for each bullet — the happy path and the obvious failure path.
 3. Report PASS/FAIL **per bullet**, with concrete evidence (what you did, what you
-   saw). For a FAIL, give exact reproduction steps and expected vs actual.
+   saw). For a FAIL, give exact reproduction steps and expected vs actual. Emit your overall ruling as a `verdict` tic (pass/concerns/block) with the headline.
 
 ## Rules
 - Verify against the acceptance criteria, not your own idea of done.
