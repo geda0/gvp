@@ -85,6 +85,32 @@ def upstream_error_body(exc: BaseException) -> tuple[int, dict[str, Any]]:
     except ImportError:
         pass
 
+    try:
+        from google.genai import errors as genai_errors
+
+        if isinstance(exc, genai_errors.APIError):
+            code = getattr(exc, "code", None)
+            status_str = getattr(exc, "status", None)
+            if code == 429 or status_str == "RESOURCE_EXHAUSTED":
+                return 429, {
+                    "error": "Model provider rate limited the request",
+                    "code": "upstream_rate_limited",
+                    "detail": detail,
+                }
+            if code in (401, 403) or status_str in ("UNAUTHENTICATED", "PERMISSION_DENIED"):
+                return 502, {
+                    "error": "Model provider authentication failed",
+                    "code": "upstream_auth_error",
+                    "detail": detail,
+                }
+            return 502, {
+                "error": "Upstream model error",
+                "code": "model_error",
+                "detail": detail,
+            }
+    except ImportError:
+        pass
+
     status = _extract_status_code_from_chain(exc)
     if status == 429:
         return 429, {
