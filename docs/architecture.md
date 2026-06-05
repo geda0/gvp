@@ -1,6 +1,6 @@
 # GVP architecture
 
-Architecture reference for **Marwan Elgendy's portfolio** (`gvp`): a static site on **AWS Amplify**, a durable **contact pipeline** (SAM), and a **Gemini-backed chat API** (Lambda for text, ECS + ALB for voice WebSockets).
+Architecture reference for **Marwan Elgendy's portfolio** (`gvp`): a static site on **AWS Amplify**, a durable **contact pipeline** (SAM), and a **Gemini-backed chat API** — a stateless HTTP container on **Amazon ECS Express Mode** for text (SSE), with **browser-direct** voice (the browser connects straight to Google's Gemini Live API using a server-minted ephemeral token; there is no server WebSocket relay).
 
 Diagrams use [Mermaid](https://mermaid.js.org/). They render on GitHub, in many IDEs, and in viewers that support fenced `mermaid` blocks.
 
@@ -23,7 +23,7 @@ Diagrams use [Mermaid](https://mermaid.js.org/). They render on GitHub, in many 
 
 ## 1. System overview
 
-The browser loads static HTML/CSS/JS from Amplify. API base URLs come from `<meta>` tags (patched after deploy by `scripts/sync-site-api-urls.mjs`). Contact and chat admin share one HTTP API on the **contact SAM stack**; chat traffic for production text and all voice goes to **ECS behind an ALB**.
+The browser loads static HTML/CSS/JS from Amplify. API base URLs come from `<meta>` tags (patched after deploy by `scripts/sync-site-api-urls.mjs`). Contact and chat admin share one HTTP API on the **contact SAM stack**; chat text (SSE) goes to the **stateless chat container on ECS Express Mode**. Voice is **browser-direct**: the chat container only mints a short-lived Gemini ephemeral token over HTTP (`POST /api/live/session`), and the browser then opens Google's Live WebSocket itself — no traffic relays through the server (ADR-0007).
 
 ```mermaid
 flowchart TB
@@ -46,19 +46,15 @@ flowchart TB
         DDB2[("ChatTranscripts<br/>DynamoDB")]
     end
 
-    subgraph ChatText["💬 Chat Lambda stack"]
-        CHAPI["HTTP API Gateway"]
-        CHL["FastAPI container λ<br/>CHAT_LIVE_RELAY=0"]
-    end
-
-    subgraph ChatVoice["🎙️ Chat ECS stack"]
-        ALB["Application Load Balancer<br/>chat-api.marwanelgendy.link"]
-        ECS["Fargate FastAPI<br/>CHAT_LIVE_RELAY=1"]
+    subgraph ChatExpress["💬 Chat on ECS Express Mode"]
+        ALB["ECS-managed ALB + TLS<br/>*.ecs.&lt;region&gt;.on.aws"]
+        ECS["Fargate FastAPI container<br/>(stateless HTTP)"]
     end
 
     subgraph External["🔗 External"]
         RESEND["Resend email"]
         GEMINI["Google Gemini API"]
+        GLIVE["Google Gemini Live API<br/>(WSS, ephemeral token)"]
         GA["Google Analytics"]
     end
 
@@ -66,14 +62,14 @@ flowchart TB
     META -.-> UI
     UI -->|"POST /api/contact"| CAPI
     UI -->|"POST /api/chat (SSE stream)"| ALB
-    UI -->|"WS /api/live/relay (voice)"| ALB
+    UI -->|"POST /api/live/session (mint token)"| ALB
+    UI -->|"WSS direct (voice audio)"| GLIVE
     UI --> GA
 
     CAPI --> ING --> DDB1 --> SQS --> SND --> RESEND
     CAPI --> ADM --> DDB1
     ADM --> DDB2
 
-    CHAPI --> CHL --> GEMINI
     ALB --> ECS --> GEMINI
     ECS --> DDB2
 
@@ -88,20 +84,21 @@ flowchart TB
     class UI,META browser
     class CDN static
     class CAPI,ING,SQS,SND,ADM contact
-    class CHAPI,CHL chat
-    class ALB,ECS voice
-    class RESEND,GEMINI,GA external
+    class ALB,ECS chat
+    class RESEND,GEMINI,GLIVE,GA external
     class DDB1,DDB2 db
 ```
 
-### Design choice: split chat hosting
+### Design choice: one stateless chat container + browser-direct voice (ADR-0007)
+
+The chat backend is a single **stateless HTTP** FastAPI container on **Amazon ECS Express Mode** (a Fargate task fronted by an ECS-managed ALB with AWS TLS and autoscaling — "image + port → HTTPS" with no hand-rolled VPC/ALB/listener wiring). It runs in **both staging and prod**. The earlier split (Lambda for text, a hand-rolled ECS+ALB stack for a voice WebSocket relay) was retired by ADR-0007.
 
 | Path | Host | Why |
 |------|------|-----|
-| **Text** (`POST /api/chat`, SSE) | ECS + ALB (prod) | Streaming HTTP — token-by-token UX requires unbuffered responses. Lambda accepts the same requests but Mangum buffers the SSE generator, so the user sees the full reply at once. Use Lambda only for dev or as a degraded fallback. |
-| **Voice** (`POST /api/live/session`, `WS /api/live/relay/{id}`) | **ECS + ALB only** | API Gateway HTTP API cannot upgrade browser WebSockets for Gemini Live relay |
+| **Text** (`POST /api/chat`, SSE) | ECS Express Mode | Streaming HTTP — token-by-token UX needs unbuffered responses, which the managed ALB passes straight through. The Lambda stack (`aws/chat-template.yaml`) is kept only as a dev/degraded fallback (Mangum buffers the SSE generator, so the user sees the full reply at once). |
+| **Voice** (`POST /api/live/session` → mint) | ECS Express Mode (HTTP only) | The server only mints a single-use Gemini **ephemeral token** and returns Google's Live WSS URL; the **browser opens that WebSocket directly** to Google. No server WebSocket, no relay — so voice no longer depends on the host being able to upgrade WebSockets. |
 
-Contact admin and chat transcript admin routes live on the **same** contact HTTP API and use the same `x-admin-key` (`ADMIN_API_KEY`). The chat host also exposes a gated diagnostic at `GET /api/chat/host-status` for the admin SPA — same secret, but checked inside the FastAPI app rather than the admin Lambda.
+Contact admin and chat transcript admin routes live on the **same** contact HTTP API and use the same `x-admin-key` (`ADMIN_API_KEY`). The chat container also exposes a gated diagnostic at `GET /api/chat/host-status` for the admin SPA — same secret, but checked inside the FastAPI app rather than the admin Lambda.
 
 ---
 
@@ -284,7 +281,7 @@ flowchart TB
         RET["POST /api/contact/admin/retry/{id}"]
         TRN["GET /api/chat/admin/transcripts"]
         TRN_SUM["GET /api/chat/admin/transcripts/summary<br/>(stream rollups + recentFailures)"]
-        HOST["GET /api/chat/host-status<br/>(chat ECS, x-admin-key)"]
+        HOST["GET /api/chat/host-status<br/>(chat container, x-admin-key)"]
     end
 
     subgraph Ops["Background ops"]
@@ -295,7 +292,7 @@ flowchart TB
     AUI --> UI_CARDS
     AUI --> Routes
     Routes --> DDB[("DynamoDB<br/>GSI byCreatedAt")]
-    HOST --> CHATHOST["chat ECS<br/>TranscriptStore.stats()"]
+    HOST --> CHATHOST["chat container (ECS Express)<br/>TranscriptStore.stats()"]
     RPT --> DDB
     ALM --> DLQ["SQS DLQ"]
 
@@ -312,7 +309,7 @@ flowchart TB
 
 **Chat admin routes (same API):** `transcripts`, `transcripts/{id}`, `note`, `reviewed`, `transcripts/summary`.
 
-**Chat host diagnostic (separate origin):** `GET /api/chat/host-status` on the chat ECS task. Returns provider name, configured/primary/fallback/last model ids, prompt version, provider timeout, and live `TranscriptStore` counters (`writes_attempted`, `_succeeded`, `_failed`, `last_error`, `last_success_at`). Gated by `ADMIN_API_KEY` env on the chat container; degrades gracefully when unset (401, panel keeps working off the DDB rollups).
+**Chat host diagnostic (separate origin):** `GET /api/chat/host-status` on the chat ECS Express container. Returns provider name, configured/primary/fallback/last model ids, prompt version, provider timeout, and live `TranscriptStore` counters (`writes_attempted`, `_succeeded`, `_failed`, `last_error`, `last_success_at`). Gated by `ADMIN_API_KEY` env on the chat container; degrades gracefully when unset (401, panel keeps working off the DDB rollups).
 
 #### Chat transcripts summary payload
 
@@ -347,7 +344,7 @@ The `/api/chat/admin/transcripts/summary` response is what the dashboard renders
 
 ## 4. Chat (text + voice)
 
-FastAPI app in `docker/chat/app/` (same image for Lambda and ECS). Knowledge from `data/chat-knowledge/` (built by `scripts/build-chat-knowledge.mjs`).
+FastAPI app in `docker/chat/app/`, deployed as a stateless container on **ECS Express Mode** (the same image also runs as a Lambda fallback). Knowledge from `data/chat-knowledge/` (built by `scripts/build-chat-knowledge.mjs`). Voice is **browser-direct**: the server mints a Gemini ephemeral token and the browser connects to Google's Live API itself (ADR-0007 Phase 1; `docker/chat/app/live_relay.py` was deleted).
 
 ```mermaid
 flowchart TB
@@ -366,10 +363,9 @@ flowchart TB
         EV_ERR["event: error<br/>{ error, code }"]
     end
 
-    subgraph VoicePath["🎙️ Voice path (ECS only)"]
-        SESS["POST /api/live/session<br/>mint bridge token"]
-        WS["WebSocket /api/live/relay/{id}"]
-        RELAY["live_relay.py<br/>browser ↔ Google Live API"]
+    subgraph VoicePath["🎙️ Voice path (browser-direct)"]
+        SESS["POST /api/live/session<br/>mint ephemeral token + setup"]
+        WS["Browser opens WSS directly:<br/>…BidiGenerateContentConstrained<br/>?access_token=&lt;ephemeral&gt;"]
         LIVE["Gemini Live model<br/>gemini-3.1-flash-live-preview"]
     end
 
@@ -381,27 +377,30 @@ flowchart TB
 
     HERO --> DIALOG
     DIALOG --> POST
-    VOICE --> SESS --> WS
+    VOICE -->|"1. mint (HTTP)"| SESS
+    SESS -->|"token + setup"| WS
+    VOICE -.->|"2. open WSS direct"| WS
 
     POST --> KC --> ROUTE
     ROUTE -->|"per chunk"| EV_TOK
     ROUTE -->|"complete"| EV_DONE
     ROUTE -->|"timeout/upstream error"| EV_ERR
-    WS --> RELAY --> LIVE
+    WS --> LIVE
 
     EV_DONE --> TS --> TBL
     EV_ERR --> TS
-    WS --> TS
+    VTRN["POST /api/live/transcript<br/>(browser reports each voice turn)"] --> TS
+    VOICE -.->|"3. report turn"| VTRN
     TS -.->|"stats()"| HOST
 
     subgraph Hosts["Where it runs"]
-        LAMBDA["Lambda container<br/>aws/chat-template.yaml<br/>CHAT_LIVE_RELAY=0<br/>(buffers SSE)"]
-        FARGATE["ECS Fargate + ALB<br/>aws/chat-ecs-template.yaml<br/>CHAT_LIVE_RELAY=1<br/>(true streaming)"]
+        FARGATE["ECS Express Mode<br/>aws/chat-express-template.yaml<br/>stateless container, unbuffered SSE<br/>(staging + prod)"]
+        LAMBDA["Lambda container<br/>aws/chat-template.yaml<br/>dev / degraded fallback<br/>(buffers SSE)"]
     end
 
-    POST -.->|"production"| FARGATE
-    WS --> FARGATE
-    POST -.->|"degraded / dev"| LAMBDA
+    POST -.->|"shipped"| FARGATE
+    SESS -.->|"mint"| FARGATE
+    POST -.->|"fallback"| LAMBDA
 
     classDef fe fill:#6366F1,stroke:#4338CA,color:#fff
     classDef text fill:#06B6D4,stroke:#0891B2,color:#fff
@@ -411,7 +410,7 @@ flowchart TB
 
     class HERO,DIALOG,VOICE fe
     class POST,ROUTE,KC,EV_TOK,EV_DONE,EV_ERR text
-    class SESS,WS,RELAY,LIVE voice
+    class SESS,WS,LIVE,VTRN voice
     class TS,TBL,HOST store
     class LAMBDA,FARGATE host
 ```
@@ -444,7 +443,7 @@ Each `persist_turn` call appends one element to the session's `turns` list. Fiel
 | `retrieval` | object | FAQ id + role/project ids the knowledge pack matched |
 | `flags` | object | Heuristic flags (`no_retrieval_match`, etc.) |
 
-Voice turns carry `transport`, `audioInBytes`, `audioOutBytes`, `turnDurationMs`, `interrupted`, `intent` instead of the stream fields (see [`live_relay.py`](../docker/chat/app/live_relay.py) + `POST /api/live/transcript`).
+Voice turns carry `transport`, `audioInBytes`, `audioOutBytes`, `turnDurationMs`, `interrupted`, `intent` instead of the stream fields. Because voice is browser-direct, these are reported by the **browser** after each turn via `POST /api/live/transcript` (`docker/chat/app/main.py:1058`), not written by a server-side relay.
 
 ### Models (defaults in SAM)
 
@@ -455,12 +454,13 @@ Voice turns carry `transport`, `audioInBytes`, `audioOutBytes`, `turnDurationMs`
 | Live voice | `GEMINI_LIVE_MODEL` | `gemini-3.1-flash-live-preview` |
 | Live voice override | `CHAT_VOICE_MODEL` | _(empty — when set, overrides `GEMINI_LIVE_MODEL` at runtime)_ |
 
-### Voice behavior
+### Voice behavior (browser-direct — ADR-0007 Phase 1)
 
 - Mic UI is **always** in the frontend (no feature flag).
-- `CHAT_LIVE_RELAY=1` on ECS: server relays browser WebSocket ↔ Google Live.
-- `CHAT_LIVE_RELAY=0` on Lambda: text works; voice fails at network level (browser may see 1011 on execute-api hosts).
-- Optional `CHAT_LIVE_VOICE_STRICT=1`: `POST /api/live/session` returns **503** when relay is off.
+- **Mint:** `POST /api/live/session` mints a single-use Gemini **ephemeral token** (`~3 min`) and builds the `setup` frame server-side (carrying the `Charon` timbre — preserves ADR-0003). It returns `{ websocketUrl, handshake, model, liveVoiceTransport: "direct_google", … }` where `websocketUrl` is Google's Live WSS (`…BidiGenerateContentConstrained?access_token=<token>`).
+- **Connect:** the **browser** opens that WSS directly and forwards `setup` → `clientContent` on open (`js/chat-live.js`). The long-lived `GEMINI_API_KEY` never leaves the server.
+- **No server WebSocket:** the relay (`live_relay.py`, `WS /api/live/relay/{id}`, the `CHAT_LIVE_RELAY` flag) was deleted. Voice therefore works regardless of whether the host can upgrade WebSockets.
+- **Failure modes:** the mint can return **503** (missing corpus / `GEMINI_API_KEY`) or **504** (mint timeout); voice working end-to-end then depends only on a valid key + reachable Google Live, not on host topology.
 
 ### Local Docker (single origin)
 
@@ -494,10 +494,10 @@ flowchart TB
         SYNC["sync-site-api-urls.mjs<br/>patch meta tags"]
     end
 
-    subgraph Stacks["AWS SAM stacks"]
+    subgraph Stacks["AWS SAM / CFN stacks"]
         S1["page / page-staging<br/>aws/template.yaml"]
-        S2["chat Lambda<br/>aws/chat-template.yaml"]
-        S3["chat ECS<br/>aws/chat-ecs-template.yaml"]
+        S3["chat ECS Express<br/>gvp-chat-express-{stage,prod}<br/>aws/chat-express-template.yaml"]
+        S2["chat Lambda (fallback)<br/>aws/chat-template.yaml"]
     end
 
     subgraph Secrets["🔑 Secrets"]
@@ -528,14 +528,14 @@ flowchart TB
 
 ### Deploy environments
 
-| Target | Contact stack | Chat (typical prod) | Meta sync |
-|--------|---------------|---------------------|-----------|
-| `prod` | `SAM_STACK_NAME` → `page` | ECS ALB → e.g. `chat-api.marwanelgendy.link` | `CHAT_PROD_CHAT_API_URL` or ALB auto-discover |
-| `stage` | `SAM_STACK_NAME_STAGE` → `page-staging` | Same pattern, stage suffix | `CHAT_STAGE_CHAT_API_URL` or Lambda `ChatPostApiUrl` |
+| Target | Contact stack | Chat host | Meta sync |
+|--------|---------------|-----------|-----------|
+| `prod` | `SAM_STACK_NAME` → `page` | ECS Express → `gvp-chat-express-prod` | `CHAT_PROD_CHAT_API_URL`, else the stack's `ServiceUrl` output |
+| `stage` | `SAM_STACK_NAME_STAGE` → `page-staging` | ECS Express → `gvp-chat-express-stage` | `CHAT_STAGE_CHAT_API_URL`, else the stack's `ServiceUrl` output |
 
 **Entrypoint:** `bash scripts/integrate-and-deploy.sh [prod|stage]`
 
-**Voice ECS bootstrap** (`CHAT_VOICE_ECS_BOOTSTRAP=1`, default): auto ECR repo `gvp-chat`, VPC/subnet discovery, stack names `gvp-chat-ecs-{stage,prod}`. Opt out: `CHAT_VOICE_ECS_BOOTSTRAP=0` (Lambda-only chat; voice will not work).
+**Chat deploy target** (`CHAT_DEPLOY_TARGET=express`, default): deploys `aws/chat-express-template.yaml` as `gvp-chat-express-{stage,prod}` (ECS Express Mode provisions the ALB/TLS/autoscaling on the account default VPC; no manual VPC/subnet/ALB bootstrap). The chat `<meta>` URL is set from the stack's `ServiceUrl` output (a managed `*.ecs.<region>.on.aws` host) unless overridden. Voice needs no special host — it is browser-direct. CI: `gvp-chat-express-stage` in `deploy-staging.yml`, `gvp-chat-express-prod` in `deploy-prod.yml`. _(The old `CHAT_VOICE_ECS_BOOTSTRAP` / hand-rolled ECS+ALB path is retired; some leftover help text in `integrate-and-deploy.sh` still references it — tracked as drift for cleanup.)_
 
 **Secrets:** copy from [`secrets.example/`](../secrets.example/README.md) → `.secrets/deploy.env` (+ optional `chat-deploy.env`). CI uses repository secrets with the same names.
 
@@ -589,7 +589,7 @@ flowchart LR
 1. **Durable contact** — persist before enqueue; async delivery with DLQ and daily failure report.
 2. **Durable chat telemetry** — every text turn (success, error, or timeout) writes a row before the user-visible response returns, so failed attempts surface in the admin panel instead of vanishing into ECS logs.
 3. **No frontend bundler** — ES modules, fast iteration; meta tags for API URLs.
-4. **Split chat hosting** — Lambda optional for text; ECS where WebSockets are required.
+4. **Lean chat hosting** — one stateless container on ECS Express Mode (managed ALB/TLS/autoscaling, no hand-rolled VPC/ALB); voice is browser-direct, so there is no server WebSocket to host. Lambda kept only as a fallback.
 5. **Grounded AI** — answers tied to resume/project knowledge pack, not generic fluff.
 6. **Single-origin local dev** — nginx mirrors production CORS and proxy paths on `:8080`.
 
@@ -597,8 +597,8 @@ flowchart LR
 
 | Constraint | Impact |
 |------------|--------|
-| Lambda has no WS upgrade | Voice fails on `execute-api` URLs |
-| Lambda + Mangum buffer SSE | Streaming works but the client sees the full reply at once, not token-by-token |
+| Ephemeral token reaches the browser | Browser-direct voice exposes Google's Live WSS endpoint + the single-use ~3-min token to the client (by design; the long-lived `GEMINI_API_KEY` never transits) |
+| Lambda + Mangum buffer SSE (fallback only) | On the Lambda fallback the client sees the full reply at once, not token-by-token; the shipped ECS Express host streams unbuffered |
 | No bundler | Must serve over HTTP (`file://` breaks module imports) |
 | Shared admin API | Contact + chat transcript admin use same `x-admin-key` |
 | Host-status endpoint needs key in chat env | Until `ADMIN_API_KEY` is set on the chat container the diagnostic returns 401; the admin panel just falls back to DDB-only rollups |
@@ -620,9 +620,9 @@ flowchart LR
 | API config | `js/site-config.js`, meta tags in `index.html` |
 | Chat FE | `js/chat.js` (SSE parser `readSseChat`), `js/agent-node.js`, `js/chat-live.js`, `js/chat-bus.js` |
 | Contact SAM | `aws/template.yaml`, `aws/src/contact-*.js` |
-| Chat Lambda SAM | `aws/chat-template.yaml` |
-| Chat ECS SAM | `aws/chat-ecs-template.yaml` |
-| Chat app | `docker/chat/app/main.py` (SSE `_chat_stream` + `_persist_text_turn`), `gemini_routing.py` (`astream` w/ fallback), `transcript_store.py`, `knowledge_context.py`, `live_relay.py` |
+| Chat ECS Express (shipped) | `aws/chat-express-template.yaml` (`gvp-chat-express-{stage,prod}`) |
+| Chat Lambda SAM (fallback) | `aws/chat-template.yaml` |
+| Chat app | `docker/chat/app/main.py` (SSE `_chat_stream` + `_persist_text_turn`; `POST /api/live/session` mint at `:916`; `POST /api/live/transcript` at `:1058`), `gemini_routing.py` (`astream` w/ fallback), `live_gemini.py` (ephemeral-token mint + timbre `setup`), `transcript_store.py`, `knowledge_context.py` |
 | Deploy | `scripts/integrate-and-deploy.sh`, `scripts/sync-site-api-urls.mjs` |
 | Local stack | `docker-compose.yml`, `docker/nginx.conf` |
 | Admin UI | `admin/index.html`, `js/admin.js` (renders cards + sparkline + recent failures), `css/admin.css` |
@@ -631,4 +631,4 @@ flowchart LR
 
 ---
 
-*Last updated: May 2026 — streaming SSE + per-turn telemetry + admin stream-rollups added; static hosting on AWS Amplify.*
+*Last updated: June 2026 — chat re-homed to ECS Express Mode and voice made browser-direct (ADR-0007 Phases 1/3/4 shipped; the server WebSocket relay + hand-rolled ECS+ALB stack are retired). Earlier: streaming SSE + per-turn telemetry + admin stream-rollups; static hosting on AWS Amplify.*

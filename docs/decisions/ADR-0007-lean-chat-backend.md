@@ -1,7 +1,10 @@
-# ADR-0007 — Lean chat backend: browser-direct voice, direct Gemini calls, App Runner
+# ADR-0007 — Lean chat backend: browser-direct voice, direct Gemini calls, ECS Express Mode
 
-- **Status:** Proposed (migration plan; no code yet)
-- **Date:** 2026-06-04
+- **Status:** Accepted — **partially shipped.** Phases 1, 3, 4 **SHIPPED**; Phase 2 (drop
+  LangChain + retriever) **DEFERRED.** Hosting landed on **ECS Express Mode** (not App
+  Runner — the interim App Runner stack was a dead end and is decommissioned). See the
+  per-phase status annotations below.
+- **Date:** 2026-06-04 (proposed); status updated 2026-06-05 to record what shipped.
 - **Supersedes / amends:** ADR-0002 (split chat hosting: SSE-Lambda + WS-ECS). With
   browser-direct voice there is no server WebSocket to host, so the split collapses to one
   small stateless service.
@@ -63,6 +66,12 @@ ECS stack serving until each slimmer piece is verified on staging:
   (extract_tags/synonyms/_is_relevant/roster index/truncation). Simpler *and* more accurate.
 - **Hosting:** move the now-stateless service from **ECS+ALB → App Runner** (Based's choice;
   one service, SSE works, secret from SSM). Lambda is a viable alt (see Alternatives).
+  > **Outcome (shipped):** App Runner turned out to be a dead end for this account/region, so
+  > hosting landed on **Amazon ECS Express Mode** instead — AWS's managed "image + port →
+  > HTTPS" successor (`AWS::ECS::ExpressGatewayService`: a Fargate task with an ECS-managed
+  > ALB, AWS TLS, and autoscaling, on the account default VPC). Same goal as App Runner — no
+  > hand-rolled VPC/ALB/listener/target-group wiring — via a different managed primitive
+  > (`aws/chat-express-template.yaml`, stacks `gvp-chat-express-{stage,prod}`).
 - **Keep:** transcript persistence + admin telemetry as a plain DynamoDB write; the contact
   pipeline (unrelated); the voice timbre lock.
 
@@ -75,7 +84,15 @@ ECS stack serving until each slimmer piece is verified on staging:
   idle/queue caps, fallback-timeout split): that code is in the relay / LangChain-streaming
   path this migration **deletes**. Fixing it is polishing machinery we remove.
 
-### Phase 1 — Browser-direct voice (retire the relay) — *highest leverage*
+### Phase 1 — Browser-direct voice (retire the relay) — *highest leverage* — ✅ SHIPPED
+> **Shipped** (commit `2d4138c`). `POST /api/live/session` now mints a single-use Gemini
+> ephemeral token and returns a `websocketUrl` = Google's constrained Live WSS
+> (`…BidiGenerateContentConstrained?access_token=…`, `liveVoiceTransport: "direct_google"`,
+> `docker/chat/app/main.py:916-1000`); the browser opens it directly
+> (`js/chat-live.js:1012-1076`). `docker/chat/app/live_relay.py`, the `/api/live/relay/{id}`
+> route, the bridge map, the `CHAT_LIVE_RELAY` flag, and the `websockets` dep are **deleted**.
+> The server holds no WebSocket; the timbre lock (ADR-0003) is preserved by building `setup`
+> server-side. Invariant #10 (timbre) re-proven against the mint path.
 - **Backend:** change `POST /api/live/session` to mint a Gemini ephemeral token via
   `google-genai` `client.authTokens.create({uses:1, expireTime≈10m, newSessionExpireTime≈3m})`
   (gvp already ships `google-genai==2.2.0`). Return `{token, model, expiresAt, setup}` where
@@ -89,7 +106,14 @@ ECS stack serving until each slimmer piece is verified on staging:
 - **Verify (staging):** voice connects browser-direct; only the single-use ~3-min token
   transits; timbre still Charon; failure stays silent. The backend now holds **no WS**.
 
-### Phase 2 — Slim the text reply path (drop LangChain + retriever)
+### Phase 2 — Slim the text reply path (drop LangChain + retriever) — ⏸️ DEFERRED
+> **Deferred (not shipped).** `GeminiRoutingChain` / LangChain
+> (`docker/chat/app/gemini_routing.py`), the retriever, and the `langchain*` / `rank-bm25` /
+> `mangum` deps (`docker/chat/requirements*.txt`) are **still in place**. The text path is
+> unchanged, so invariants #7 (every turn persisted), #8 (bounded timeout), and #9
+> (first-chunk rate-limit → fallback, committed midstream) still describe the live code and
+> still hold. This slim-down is a future slice; the hosting/voice wins (Phases 1/3/4) were
+> taken first because they were higher-leverage and independent of the LangChain removal.
 - Replace `GeminiRoutingChain`/LangChain with a direct `google-genai` (or `httpx`) call;
   stream via `generateContentStream`. Keep fallback as a ~15-line `try/except` on first-chunk
   429 (optional — or drop it; one model is fine for a portfolio bot).
@@ -102,7 +126,16 @@ ECS stack serving until each slimmer piece is verified on staging:
   `mangum` (if not Lambda). Cold start drops from ~100 s to ~instant.
 - **Verify (staging):** same/better answers; cold first request is fast; transcripts still land.
 
-### Phase 3 — Re-home: ECS+ALB → App Runner
+### Phase 3 — Re-home: ECS+ALB → (App Runner →) ECS Express Mode — ✅ SHIPPED
+> **Shipped, but the destination changed.** Staging chat first cut over to **App Runner**
+> (commits `2478e64`, `6796459`), then — App Runner proving a dead end here — was
+> **migrated to Amazon ECS Express Mode** (`aws/chat-express-template.yaml`, stack
+> `gvp-chat-express-stage`; commit `57f1124`). The hand-rolled `aws/chat-ecs-template.yaml`
+> (VPC/SG/ALB/listener/target-groups) is **deleted**, the App Runner artifacts are removed
+> (`47d17ae`), and the staging deploy machinery is rewired to the Express stack. The chat
+> service is now the stateless HTTP container described above (SSE streams unbuffered behind
+> the ECS-managed ALB). The Lambda stack (`aws/chat-template.yaml`) is kept as a
+> dev/degraded fallback.
 - The service is now stateless HTTP: `/api/chat` (SSE) + `/api/live/session` (mint) +
   `/health` + the admin endpoints. Author an App Runner SAM/CFN stack (mirror Based
   `infra/staging.yaml`): ECR image + port + SSM secret + `/health` check. **Delete**
@@ -112,12 +145,19 @@ ECS stack serving until each slimmer piece is verified on staging:
 - **Verify (staging):** `chat-api-stage` served by App Runner; SSE streams; cost drops
   (~$16–25/mo ALB gone). Then repeat for prod.
 
-### Phase 4 — Cutover + decommission
-- Per-env chat `<meta>` URL points at the App Runner service (uses the cross-env URL guard we
-  built so staging/prod don't cross).
+### Phase 4 — Cutover + decommission — ✅ SHIPPED
+- Per-env chat `<meta>` URL points at the **ECS Express** service (uses the cross-env URL
+  guard, invariant #11, so staging/prod don't cross).
 - Decommission `gvp-chat-ecs-{stage,prod}` stacks + the now-unused relay image path. Update
   ADR-0002 (superseded), ADR-0003 (timbre now in the server-built `setup`), and
   `docs/architecture.md`.
+> **Shipped** (commits `46832e5`, `60a7823`, `ec2bb36`). Prod chat deploys to
+> **`gvp-chat-express-prod`** via `deploy-prod.yml` (`CHAT_DEPLOY_TARGET=express`); the old
+> hand-rolled ECS+ALB stacks and their bootstrap/deploy machinery are removed from
+> `scripts/integrate-and-deploy.sh` (`e21d464`, `25d4d59`) and CI; App Runner artifacts are
+> gone. Both staging and prod now run the stateless chat container on **ECS Express Mode**.
+> This doc (`docs/architecture.md` + `docs/tdd/project-invariants.md`) is the remaining
+> "update the docs" item from the original Phase 4 bullet, reconciled here.
 
 ## Voice timbre (ADR-0003) under browser-direct
 The timbre lock stays server-controlled: the `setup` frame (with the prebuilt `Charon` voice
@@ -125,8 +165,13 @@ The timbre lock stays server-controlled: the `setup` frame (with the prebuilt `C
 the browser only forwards it on `open`. The browser cannot pick the voice — the server does.
 
 ## Alternatives considered (hosting)
-- **App Runner (recommended):** one container, native HTTPS, SSE works, warm instances, no
-  ALB/VPC. Matches Based. Simplest ops.
+> **Outcome:** the chosen host is **Amazon ECS Express Mode**, not App Runner. App Runner
+> (the original recommendation, below) was tried as an interim in Phase 3 and abandoned;
+> ECS Express delivers the same "image + port → managed HTTPS, no hand-rolled VPC/ALB" with
+> a Fargate task + ECS-managed ALB on the default VPC. The reasoning below is preserved as
+> the historical record of the decision.
+- **App Runner (originally recommended; not shipped):** one container, native HTTPS, SSE
+  works, warm instances, no ALB/VPC. Matches Based. Simplest ops.
 - **Lambda (function URL + response streaming) + a tiny mint Lambda:** scale-to-zero
   (cheapest); viable now that LangChain's cold start is gone. More moving parts for SSE; keep
   as the option if cost-to-zero matters more than simplicity.
@@ -145,7 +190,8 @@ the browser only forwards it on `open`. The browser cannot pick the voice — th
 ### Risks
 - Browser-direct voice exposes Google's WSS endpoint + the **ephemeral** token to the browser
   (by design; single-use, ~3-min, key never transits). Based accepted this; acceptable here.
-- App Runner SSE + long-ish Gemini turns: confirm App Runner's request timeout ≥ our cap (55 s).
+- ECS Express SSE + long-ish Gemini turns: confirm the managed ALB idle timeout ≥ our cap
+  (55 s). (Was framed as an App Runner risk; the host shipped as ECS Express.)
 - A migration has its own risk — hence the phased, staging-verified, reversible sequence; the
   current stack serves until each slice is proven.
 
@@ -154,5 +200,9 @@ the browser only forwards it on `open`. The browser cannot pick the voice — th
 - `geda0/Based`: ADR `docs/decisions/0007-live-voice-seam.md`; commit `9b07c38`
   (relay+ECS → browser-direct); `frontend/src/lib/live-relay-client.ts`,
   `backend/src/modules/live/live-token-client.ts`, `infra/staging.yaml` (App Runner).
-- gvp current: `docker/chat/app/{main,live_gemini,live_relay,gemini_routing,providers,knowledge_context}.py`,
+- gvp at proposal time: `docker/chat/app/{main,live_gemini,live_relay,gemini_routing,providers,knowledge_context}.py`,
   `aws/chat-ecs-template.yaml`.
+- gvp as shipped: `docker/chat/app/{main,live_gemini,gemini_routing,providers,knowledge_context}.py`
+  (`live_relay.py` deleted, Phase 1); `aws/chat-express-template.yaml` (ECS Express, replaces
+  the deleted `aws/chat-ecs-template.yaml`); deploy via `scripts/integrate-and-deploy.sh`
+  (`CHAT_DEPLOY_TARGET=express`) + `.github/workflows/deploy-{staging,prod}.yml`.
