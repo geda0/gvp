@@ -29,7 +29,7 @@ function loadTicsAll(targetDir) {
   // Dedup key INCLUDES seq: an inherited worktree bus is a byte-copy (same seq+ts+content) and
   // collapses, but two legitimately-distinct tics that merely share a ts (e.g. rapid run-suite
   // signals, or test fixtures) keep their distinct seq and are preserved.
-  const push = (arr) => { for (const x of arr) { const k = (x.seq || "") + "|" + (x.ts || "") + "|" + (x.kind || "") + "|" + (x.from || "") + "|" + (x.to || "") + "|" + (x.msg || "") + "|" + (x.scope || "") + "|" + (x.ref || ""); if (!seen.has(k)) { seen.add(k); out.push(x); } } };
+  const push = (arr) => { for (const x of arr) { const k = (x.seq || "") + "|" + (x.ts || "") + "|" + (x.kind || "") + "|" + (x.from || "") + "|" + (x.to || "") + "|" + (x.msg || "") + "|" + (x.scope || "") + "|" + (x.session || "") + "|" + (x.ref || ""); if (!seen.has(k)) { seen.add(k); out.push(x); } } };
   push(loadTics(targetDir));                                  // current bus (env-resolved, e.g. a shared TICS_DIR)
   for (const root of worktreeDirs(targetDir)) push(loadTics(root, true));   // each worktree's own default bus
   out.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")) || ((a.seq || 0) - (b.seq || 0)));
@@ -166,6 +166,32 @@ function ticsSections(targetDir, all) {
     const e = sec[n];
     const st = e.status || "active";   // present in the log but never explicitly opened/closed => active
     console.log("  " + n.padEnd(16) + ("[" + st + "]").padEnd(9) + e.tics + " tics | claims " + Math.max(0, e.claims) + " | contracts " + e.contracts + " | needs " + e.needs + "  (last " + (e.last || "").slice(11, 19) + ")");
+  }
+  return 0;
+}
+// Sessions (ADR 0002): who is active on this repo and where. Groups the bus by the `session` field
+// (set via TICS_SESSION / .claude/state/session). The cross-session coordination surface — two
+// sessions on one tree each appear with their scopes + claims, so collisions are visible.
+function ticsSessions(targetDir, all) {
+  const t = loadFor(targetDir, all);
+  const sess = {};
+  for (const x of t) {
+    const id = x.session || "";
+    if (!id) continue;
+    const e = sess[id] || (sess[id] = { tics: 0, scopes: {}, claims: 0, status: "active", last: "" });
+    e.tics++;
+    if (x.scope && x.scope !== "*") e.scopes[x.scope] = 1;
+    if (x.kind === "claim") e.claims++;
+    if (x.kind === "release") e.claims--;
+    if (x.kind === "session" && x.result) e.status = x.result;   // open|closed — append order, latest wins
+    if ((x.ts || "") > e.last) e.last = x.ts || "";
+  }
+  const ids = Object.keys(sess).sort();
+  if (!ids.length) { console.log("No sessions yet — identify one with: echo <id> > .claude/state/session (or TICS_SESSION=<id>)."); return 0; }
+  console.log("Sessions (live, from the bus):");
+  for (const id of ids) {
+    const e = sess[id];
+    console.log("  " + id.padEnd(16) + ("[" + (e.status || "active") + "]").padEnd(10) + "scopes: " + (Object.keys(e.scopes).join(", ") || "-") + "  | claims " + Math.max(0, e.claims) + "  (last " + (e.last || "").slice(11, 19) + ")");
   }
   return 0;
 }
@@ -339,6 +365,7 @@ function main(argv, defaultRoot) {
     case "conductor": return ticsConductor(target, all);
     case "claims": return ticsClaims(target, all);
     case "sections": return ticsSections(target, all);
+    case "sessions": return ticsSessions(target, all);
     case "cycle": return ticsCycle(target);
     case "gate": return ticsGate(target, all);
     case "claim-check": return claimCheckCli(target, cfFile, cfScope);
@@ -351,4 +378,4 @@ function main(argv, defaultRoot) {
 if (require.main === module) {
   process.exit(main(process.argv.slice(2), path.join(__dirname, "..", "..")) || 0);
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, sectionStatus, sectionStatusCli, fanOut, main };
+module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsSessions, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, sectionStatus, sectionStatusCli, fanOut, main };

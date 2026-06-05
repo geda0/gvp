@@ -25,16 +25,19 @@ emit_tic() {
   if [ -z "$_sc" ]; then
     if [ -n "$_ly" ] && [ "$_ly" != "unknown" ]; then _sc="$_ly"; else _sc="*"; fi
   fi
+  # session identity (ADR 0002): which session emitted this tic — TICS_SESSION (per-process) else
+  # .claude/state/session, else empty. Lets claims/commits tell which LIVE session owns what.
+  _se="${TICS_SESSION:-$(cat "$ROOT/.claude/state/session" 2>/dev/null)}"
   if [ "${TIC_STORE:-jsonl}" = "spool" ]; then
     mkdir -p "$_td" 2>/dev/null || true
     _out="$_td/$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}.json"
   else
     _out="$_tf"
   fi
-  printf '{"ts":"%s","seq":%s,"kind":"%s","from":"%s","to":"%s","phase":"%s","layer":"%s","scope":"%s","msg":"%s","ref":"%s","result":"%s"%s}\n' \
+  printf '{"ts":"%s","seq":%s,"kind":"%s","from":"%s","to":"%s","phase":"%s","layer":"%s","scope":"%s","session":"%s","msg":"%s","ref":"%s","result":"%s"%s}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$_seq" \
     "$(_tic_esc "${3:-note}")" "$(_tic_esc "${1:-?}")" "$(_tic_esc "${2:-*}")" \
-    "$(_tic_esc "$_ph")" "$(_tic_esc "$_ly")" "$(_tic_esc "$_sc")" \
+    "$(_tic_esc "$_ph")" "$(_tic_esc "$_ly")" "$(_tic_esc "$_sc")" "$(_tic_esc "$_se")" \
     "$(_tic_esc "${4:-}")" "$(_tic_esc "${5:-}")" "$(_tic_esc "${6:-}")" "${7:-}" \
     >> "$_out" 2>/dev/null || true
 }
