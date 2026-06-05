@@ -17,8 +17,8 @@ function shouldAutofocusChatInput() {
 /** Ignore stray click synthesis on dialog chips right after open (mobile ghost tap). */
 const DIALOG_CHIP_ACTIVATION_GUARD_MS = 500
 
-/** Preset prompts per route — Home = capability pitch; Portfolio = page-native depth.
- *  (Playground was folded into Portfolio, so there's no dedicated playground bucket.) */
+/** Preset prompts per route — Home = capability pitch; Portfolio = page-native depth;
+ *  Labs = personal builds / experiments. */
 const SECTION_PROMPT_CHIPS = {
   home: {
     hero: [
@@ -53,6 +53,42 @@ const SECTION_PROMPT_CHIPS = {
         prompt: 'How do you engage — review, build, or lead?',
         label: 'How do you engage?',
         track: 'chat_dialog_chip_engagement'
+      }
+    ]
+  },
+  labs: {
+    hero: [
+      {
+        prompt: 'Tell me about Team Tactics.',
+        label: 'Team Tactics?',
+        track: 'hero_chat_chip_team_tactics'
+      },
+      {
+        prompt: 'What can you build at the experiment scale?',
+        label: 'What can you build?',
+        track: 'hero_chat_chip_labs_build'
+      },
+      {
+        prompt: 'How do you take an experiment to production?',
+        label: 'Experiment to production?',
+        track: 'hero_chat_chip_labs_to_prod'
+      }
+    ],
+    dialog: [
+      {
+        prompt: 'Where do production habits show up in these builds?',
+        label: 'Production habits?',
+        track: 'chat_dialog_chip_labs_habits'
+      },
+      {
+        prompt: 'Tell me about the Monday Rover.',
+        label: 'Monday Rover?',
+        track: 'chat_dialog_chip_monday_rover'
+      },
+      {
+        prompt: 'How do you build under tight constraints — cost, latency, device?',
+        label: 'Tight constraints?',
+        track: 'chat_dialog_chip_labs_constraints'
       }
     ]
   },
@@ -94,16 +130,17 @@ const SECTION_PROMPT_CHIPS = {
   },
 }
 
-/** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio).
- *  Playground was folded into Portfolio, so its dedicated bucket is gone. */
+/** Empty transcript copy — chips + rotating placeholders follow the active section (Home / Portfolio / Labs). */
 const CHAT_EMPTY_HINT_BY_SECTION = {
   home: "Pick a suggestion below, or type your question. Ask about Marwan's services, projects, and how he works.",
-  portfolio: "Pick a suggestion below, or type your question. Ask about his roles, what he shipped, and his personal builds."
+  portfolio: "Pick a suggestion below, or type your question. Ask about his roles, the systems he shipped, and the migrations he led.",
+  labs: "Pick a suggestion below, or type your question. Ask about Marwan's experiments and how he takes them to production."
 }
 
 const CHAT_VOICE_EMPTY_HINT_BY_SECTION = {
-  home: "Start live chat to ask about Marwan's services, projects, and how he works — or type below and pick a suggestion.",
-  portfolio: "Start live chat to ask about his roles, what he shipped, and his personal builds — or type below and pick a suggestion."
+  home: "Start voice chat to ask about Marwan's services, projects, and how he works — or type below and pick a suggestion.",
+  portfolio: "Start voice chat to ask about his roles, the systems he shipped, and the migrations he led — or type below and pick a suggestion.",
+  labs: "Start voice chat to ask about Marwan's experiments and how he takes them to production — or type below and pick a suggestion."
 }
 
 function replaceSectionPresetChips(container, chips, chipClassName) {
@@ -581,11 +618,11 @@ export function initChat() {
 
     const label = voiceStartBtn.querySelector('.chat-voice-start-cta__label')
     if (label) {
-      label.textContent = showConnecting ? 'Connecting…' : 'Start live chat'
+      label.textContent = showConnecting ? 'Connecting…' : 'Start voice chat'
     }
     voiceStartBtn.setAttribute(
       'aria-label',
-      showConnecting ? 'Connecting voice…' : 'Start live chat',
+      showConnecting ? 'Connecting voice…' : 'Start voice chat',
     )
     voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
   }
@@ -1449,8 +1486,10 @@ export function initChat() {
       if (section === 'home') {
         history.replaceState(null, '', './')
         window.dispatchEvent(new HashChangeEvent('hashchange'))
-      } else if (section === 'portfolio' || section === 'playground') {
-        // Playground was folded into the portfolio page; route both to #portfolio.
+      } else if (section === 'labs' || section === 'playground') {
+        // Labs is the page formerly known as playground; route both to #labs.
+        window.location.hash = '#labs'
+      } else if (section === 'portfolio') {
         window.location.hash = '#portfolio'
       } else {
         return { error: `unknown_section: ${section}` }

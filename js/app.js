@@ -249,29 +249,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentSection = state
       if (spaceman) {
         spaceman.setState(state)
-        if (state !== 'portfolio') {
+        if (state !== 'portfolio' && state !== 'labs') {
           spaceman.setContext(null)
         }
       }
       if (spacemanPosition) {
         spacemanPosition.updatePosition()
       }
-      if (state === 'portfolio') {
+      if (state === 'portfolio' || state === 'labs') {
         collapseChatDialog()
       }
       syncChatLaunchers(state)
     }
   })
 
-  // Load and render project data. Both arrays render into the portfolio
-  // section now — playground is a subsection under portfolio, not its own page.
+  // Load and render project data. Portfolio (professional) renders into
+  // #portfolioContent; Labs (personal builds, internally still `playground`)
+  // renders into its own top-level page #labsContent.
   const data = await loadProjects('/data/projects.json')
   if (data.loadFailed) {
     showProjectsLoadSiteBanner()
     renderProjectsSectionError('portfolioContent')
+    renderProjectsSectionError('labsContent')
   } else {
     renderProjects('portfolioContent', data.portfolio, 'portfolioProjects')
-    renderProjects('portfolioContent', data.playground, 'projects')
+    renderProjects('labsContent', data.playground, 'labsProjects')
   }
   initProjectDetailDialog()
 

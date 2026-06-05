@@ -11,8 +11,8 @@ import { join } from 'node:path'
 //
 // `index.html` and `admin/index.html` legitimately DIVERGE between the two branches ONLY
 // on the `gvp:*-api-url` meta tags:
-//   main  (prod,    www.marwanelgendy.link)  -> lwi0vmdpb5.execute-api… + chat-api.marwanelgendy.link
-//   agent (staging, chat.marwanelgendy.link) -> fvfqpef8kb.execute-api… + chat-api-stage.marwanelgendy.link
+//   main  (prod,    www.marwanelgendy.link)  -> lwi0vmdpb5.execute-api… + <express-prod>.ecs.us-east-2.on.aws
+//   agent (staging, chat.marwanelgendy.link) -> fvfqpef8kb.execute-api… + <express-stage>.ecs.us-east-2.on.aws
 //
 // This guard pins that divergence: on `main` the shipped HTML MUST carry the prod hosts and
 // MUST NOT carry any staging host; on `agent` the inverse. It is environment-gated so it never
@@ -28,11 +28,17 @@ const REPO = fileURLToPath(new URL('..', import.meta.url))
 const ENV_HOSTS = {
   prod: {
     contact: 'lwi0vmdpb5.execute-api.us-east-2.amazonaws.com',
-    chat: 'chat-api.marwanelgendy.link'
+    // ADR-0007 Phase 4: prod chat migrated ECS+ALB -> ECS Express Mode (same managed successor
+    // as staging; App Runner is maintenance-mode). Browser-direct voice => plain HTTP, so the
+    // ECS-managed *.ecs.<region>.on.aws URL + TLS is all prod needs (no chat-api custom domain).
+    chat: 'gv-0277d83a39d54698a254a52e95dcd476.ecs.us-east-2.on.aws'
   },
   stage: {
     contact: 'fvfqpef8kb.execute-api.us-east-2.amazonaws.com',
-    chat: 'chat-api-stage.marwanelgendy.link'
+    // ADR-0007 Phase 3: staging chat is hosted on ECS Express Mode (AWS's managed successor
+    // to App Runner, which entered maintenance mode 2026-04-30). Browser-direct voice means
+    // no WS to host, so the ECS-managed *.ecs.<region>.on.aws URL + TLS is all staging needs.
+    chat: 'gv-d7fa1a51ec09445caf0d435348131479.ecs.us-east-2.on.aws'
   }
 }
 

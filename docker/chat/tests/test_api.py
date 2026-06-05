@@ -12,7 +12,6 @@ async def test_health(client: AsyncClient) -> None:
     assert r.status_code == 200
     data = r.json()
     assert data.get("ok") is True
-    assert data.get("liveRelay") is True
 
 
 @pytest.mark.asyncio

@@ -115,11 +115,11 @@ class SpacemanPosition {
 
   /** Keep `body.content-open` in sync with visible portfolio (hero CSS) even when `isStaying` skips layout `_update`. */
   _syncBodyContentOpen() {
-    const pf = document.getElementById('portfolioContent');
-    const wrapperOpen =
-      !!(pf &&
-        pf.classList.contains('visible') &&
-        !pf.classList.contains('hidden'));
+    const isOpen = (id) => {
+      const el = document.getElementById(id);
+      return !!(el && el.classList.contains('visible') && !el.classList.contains('hidden'));
+    };
+    const wrapperOpen = isOpen('portfolioContent') || isOpen('labsContent');
     // Navigation owns clearing `content-open` on Home. Only assert true here so we never
     // transiently remove it during layout passes (which used to re-center `#load`).
     if (wrapperOpen) document.body.classList.add('content-open');
@@ -185,16 +185,19 @@ class SpacemanPosition {
     ];
     const contentEls = [
       document.getElementById('portfolioContent'),
-      document.getElementById('projects'),
-      document.getElementById('portfolioProjects')
+      document.getElementById('portfolioProjects'),
+      document.getElementById('labsContent'),
+      document.getElementById('labsProjects')
     ].filter(Boolean);
 
-    // Class changes -> reposition (only the top-level portfolio wrapper toggles
-    // hidden/visible; the inner sections are static once revealed).
+    // Class changes -> reposition. The two top-level page wrappers
+    // (#portfolioContent, #labsContent) toggle hidden/visible; observe each.
     this._mutationObs = new MutationObserver(() => this.updatePosition());
-    contentEls.slice(0, 1).forEach(el => {
-      this._mutationObs.observe(el, { attributes: true, attributeFilter: ['class'] });
-    });
+    [document.getElementById('portfolioContent'), document.getElementById('labsContent')]
+      .filter(Boolean)
+      .forEach(el => {
+        this._mutationObs.observe(el, { attributes: true, attributeFilter: ['class'] });
+      });
     dialogs
       .map(({ id }) => document.getElementById(id))
       .filter(Boolean)
@@ -737,8 +740,8 @@ class SpacemanPosition {
       return (rect.width > 0 && rect.height > 0) ? rect : null;
     };
 
-    // Portfolio holds both the professional cards and the playground subsection.
-    return check('portfolioContent', 'portfolioProjects') || check('portfolioContent', 'projects');
+    // Portfolio and Labs are separate top-level pages; return whichever is visible.
+    return check('portfolioContent', 'portfolioProjects') || check('labsContent', 'labsProjects');
   }
 
   _calcPosition(vw, vh, content, scale) {

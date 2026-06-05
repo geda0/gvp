@@ -46,8 +46,8 @@ const LIVE_SETUP_WAIT_MS = 60 * 1000
 /** Greeting text + the model instruction wrapper. We tell the model to speak
  *  only the verbatim sentence (no preamble, no commentary) so the visitor
  *  hears exactly the prompt the product team approved. */
-const GREETING_TEXT_COLD = "Hi! I'm your AI Assistant. What would you like to know about Marwan's work?"
-const GREETING_TEXT_WARM = "Hi! I'm your AI Assistant. What would you like to know?"
+const GREETING_TEXT_COLD = "Hi! I'm Marwan's AI assistant. What would you like to know about his work?"
+const GREETING_TEXT_WARM = "Hi! I'm Marwan's AI assistant — what would you like to know?"
 const WARM_FOLLOWUP_INSTRUCTION = (
   'The visitor has not spoken yet. Continue naturally in one short sentence — '
   + "invite them to ask about Marwan's work, projects, or experience. Under 18 words."
@@ -193,8 +193,8 @@ function voiceRelayCloseUserMessage(code, reason) {
   }
   if (code === 4404) {
     return r
-      ? `Voice relay expired (${r}). Tap Start live chat again.`
-      : 'Voice relay link expired. Tap Start live chat to begin a new session.'
+      ? `Voice relay expired (${r}). Tap Start voice chat again.`
+      : 'Voice relay link expired. Tap Start voice chat to begin a new session.'
   }
   return voiceSessionEarlyCloseUserMessage(code, reason)
 }
@@ -570,7 +570,7 @@ export function bindChatLiveVoice(opts) {
     voiceWsIdleTimer = setTimeout(() => {
       voiceWsIdleTimer = null
       if (!voiceSessionOpen) return
-      setStatus('Voice closed after a long quiet period. Tap Start live chat to try again.', 'error')
+      setStatus('Voice closed after a long quiet period. Tap Start voice chat to try again.', 'error')
       trackEvent('chat_live_stop', { reason: 'ws_idle' })
       stopVoiceInternal({ silent: false })
     }, VOICE_WS_IDLE_MS)
@@ -627,7 +627,7 @@ export function bindChatLiveVoice(opts) {
     noMicIdleTimer = setTimeout(() => {
       noMicIdleTimer = null
       if (!voiceSessionOpen || active) return
-      setStatus('Voice paused. Tap Start live chat to continue.')
+      setStatus('Voice paused. Tap Start voice chat to continue.')
       trackEvent('chat_live_stop', { reason: 'no_mic_idle' })
       stopVoiceInternal({ silent: false })
     }, VOICE_SESSION_IDLE_NO_MIC_MS)
@@ -789,7 +789,7 @@ export function bindChatLiveVoice(opts) {
 
     // Clear ALL three voice flags in one patch so chat.js's syncVoiceStartCta
     // sees a fully-idle state and the Start CTA can re-render. Forgetting
-    // sessionOpen here was the "Start live chat button hides completely after
+    // sessionOpen here was the "Start voice chat button hides completely after
     // first session" bug — sessionOpen stayed true across the stop, so
     // isVoiceSessionUi() kept hiding the button until page reload.
     patchLiveUi({ active: false, connecting: false, sessionOpen: false })
@@ -1020,22 +1020,8 @@ export function bindChatLiveVoice(opts) {
       const voiceBrowserExperience = typeof body.voiceBrowserExperience === 'string'
         ? body.voiceBrowserExperience
         : ''
-      const blockDirectGoogle = !isRelayWsPath
-        && (transport === 'direct_google' || voiceBrowserExperience === 'direct_google_only')
-        && !voiceAllowDirectGoogleDevOverride()
-      if (blockDirectGoogle) {
-        patchLiveUi({ connecting: false, active: false, sessionOpen: false })
-        setStatus(
-          'Voice needs the chat API on a host with WebSocket relay (not direct browser-to-Google). Text chat still works; deploy chat on ECS/ALB or set localStorage gvp_chat_voice_allow_direct=1 only for debugging.',
-          'error',
-        )
-        trackEvent('chat_live_blocked', { reason: 'direct_google_transport' })
-        chatBus.emit('idle', { source: 'chat-live' })
-        const err = new Error('direct_google_blocked')
-        err.name = 'LiveSetupAbort'
-        throw err
-      }
-
+      // ADR-0007 Phase 1: browser-direct voice is the path. The browser opens Google's
+      // Live WSS itself with the single-use ephemeral token (no server relay).
       if (!wsUrlStr.startsWith('wss://') && !wsUrlStr.startsWith('ws://')) {
         throw new Error('Invalid voice session URL.')
       }
@@ -1229,7 +1215,7 @@ export function bindChatLiveVoice(opts) {
       voiceMaxSessionTimer = setTimeout(() => {
         voiceMaxSessionTimer = null
         if (!voiceSessionOpen) return
-        setStatus('Voice session time limit reached. Tap Start live chat to begin again.', 'error')
+        setStatus('Voice session time limit reached. Tap Start voice chat to begin again.', 'error')
         trackEvent('chat_live_stop', { reason: 'max_session' })
         stopVoiceInternal({ silent: false })
       }, VOICE_MAX_SESSION_MS)
@@ -1287,7 +1273,7 @@ export function bindChatLiveVoice(opts) {
       // in the same conversation just listen — the visitor already knows what
       // we are and a repeat "Hi, I'm your AI Assistant" mid-thread is grating.
       const shouldGreet = !conversationGreeted
-      const greetText = resolvedIntent === 'warm' ? GREETING_TEXT_WARM : GREETING_TEXT_WARM // always greet with the same text
+      const greetText = resolvedIntent === 'warm' ? GREETING_TEXT_WARM : GREETING_TEXT_COLD
       greetingTurnComplete = !shouldGreet  // skip the warm follow-up if we didn't greet
       userSpokeAfterGreeting = false
       if (shouldGreet) {
@@ -1317,7 +1303,7 @@ export function bindChatLiveVoice(opts) {
           scheduleNoMicIdleClose()
         }
       } else {
-        // Cold path: visitor already tapped Start live chat — attach mic now.
+        // Cold path: visitor already tapped Start voice chat — attach mic now.
         try {
           await attachMicrophoneInternal()
           setStatus('Listening… speak about Marwan\'s work.')
@@ -1337,7 +1323,7 @@ export function bindChatLiveVoice(opts) {
         ? error.message
         : micAccessUserMessage(error)
       if (isVoiceRetryableError(error)) {
-        msg = 'Voice could not connect after several tries. The chat API may still be warming up (cold start) or is unreachable — wait a moment and tap Start live chat again.'
+        msg = 'Voice could not connect after several tries. The chat API may still be warming up (cold start) or is unreachable — wait a moment and tap Start voice chat again.'
       }
       setStatus(msg, 'error')
       trackEvent('chat_live_error', { phase: 'start', message: msg })

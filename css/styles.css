@@ -1123,15 +1123,32 @@ body:not(.content-open) section#home {
     margin-top: 2rem;
 }
 
-#portfolioContent > .portfolio-earlier-career + .playground-intro {
-    margin-top: clamp(2.5rem, 8vh, 4rem);
+/* Teaser link from the Portfolio page across to Labs. */
+.portfolio-labs-teaser {
+    margin-top: clamp(2rem, 6vh, 3rem);
 }
 
-#portfolioContent > .playground-intro + section#projects {
+.portfolio-labs-teaser a {
+    font-weight: 600;
+    color: var(--link-color);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.portfolio-labs-teaser a:hover {
+    color: var(--accent-hover);
+}
+
+#labsContent > .labs-intro {
+    margin-top: clamp(3rem, 10vh, 5rem);
+}
+
+#labsContent > .labs-intro + section#labsProjects {
     margin-top: 2rem;
 }
 
-#portfolioContent {
+#portfolioContent,
+#labsContent {
     z-index: 50;
 }
 
@@ -1149,7 +1166,7 @@ body:not(.content-open) section#home {
 /* Project sections: a responsive grid so cards fill the available width
    instead of stacking in one narrow column with dead space on wide viewports.
    The section-label header spans the full row; cards auto-fit below it. */
-section#projects,
+section#labsProjects,
 section#portfolioProjects {
     margin-top: 5rem;
     padding-bottom: 60px;
@@ -1169,37 +1186,72 @@ section#portfolioProjects {
     box-sizing: border-box;
 }
 
-section#projects > .section-label,
+section#labsProjects > .section-label,
 section#portfolioProjects > .section-label {
     grid-column: 1 / -1;
     margin-bottom: 0;
 }
 
-section#projects > .projects-load-error,
+section#labsProjects > .projects-load-error,
 section#portfolioProjects > .projects-load-error {
     grid-column: 1 / -1;
 }
 
 /* Cards stretch to fill their grid track; lone card stays comfortably capped. */
-section#projects .project,
+section#labsProjects .project,
 section#portfolioProjects .project {
     margin: 0;
     max-width: 100%;
     width: 100%;
 }
 
+/* Featured "first + larger" card on Labs: spans two grid tracks and is bigger
+   (title, image, padding) — emphasized but still within the grid rhythm. */
+section#labsProjects .project--featured {
+    grid-column: span 2;
+    padding: 1.6rem 1.75rem;
+}
+
+section#labsProjects .project--featured > img {
+    max-height: 320px;
+    object-fit: cover;
+}
+
+section#labsProjects .project--featured h4 {
+    font-size: 1.5rem;
+}
+
+section#labsProjects .project--featured p {
+    font-size: 0.98rem;
+}
+
 /* A single card should not stretch full-bleed — keep it centered and capped. */
-section#projects:has(> .project:only-of-type),
+section#labsProjects:has(> .project:only-of-type),
 section#portfolioProjects:has(> .project:only-of-type) {
     grid-template-columns: minmax(0, 48rem);
 }
 
+/* A lone featured card shouldn't fight the single-card centering rule. */
+section#labsProjects:has(> .project:only-of-type) .project--featured {
+    grid-column: auto;
+}
+
 @media (max-width: 767px) {
-    section#projects,
+    section#labsProjects,
     section#portfolioProjects {
         grid-template-columns: 1fr;
         gap: 1rem;
         max-width: 100%;
+    }
+
+    /* On mobile the grid is single-column; the featured card stops spanning. */
+    section#labsProjects .project--featured {
+        grid-column: auto;
+        padding: 1.2rem 1.25rem;
+    }
+
+    section#labsProjects .project--featured h4 {
+        font-size: 1.25rem;
     }
 }
 
@@ -1226,14 +1278,14 @@ section#portfolioProjects:has(> .project:only-of-type) {
 }
 
 /* `both` fill-mode: first keyframe applies on first paint so `.visible { opacity: 1 }` does not flash before the bloom */
-section#projects.visible.content-section-reveal,
+section#labsProjects.visible.content-section-reveal,
 section#portfolioProjects.visible.content-section-reveal {
     animation: contentSectionBloom 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
 
-    section#projects.content-section-reveal,
+    section#labsProjects.content-section-reveal,
     section#portfolioProjects.content-section-reveal {
         animation: none;
         opacity: 1;
@@ -1978,7 +2030,6 @@ body.contact-dialog-open {
 }
 
 [data-theme="studio"] .experience-summary,
-[data-theme="studio"] .playground-intro,
 [data-theme="studio"] .portfolio-earlier-career {
     background: rgba(255, 250, 240, 0.55);
     border: 1px solid var(--border-subtle);
@@ -1993,10 +2044,9 @@ body.contact-dialog-open {
 
 /* Garden theme: running text otherwise sits directly over the ocean stripe and tree
    silhouettes, which kills contrast (most visible on mobile where the ocean band
-   crosses portfolio intro and playground intro). Give the prose blocks the same translucent panel
+   crosses portfolio intro and labs intro). Give the prose blocks the same translucent panel
    treatment as `.highlight` so the text reads cleanly without breaking the scene. */
 [data-theme="garden"] .experience-summary,
-[data-theme="garden"] .playground-intro,
 [data-theme="garden"] .portfolio-earlier-career {
     background: rgba(255, 255, 255, 0.42);
     border: 1px solid var(--border-subtle);
@@ -2531,8 +2581,8 @@ h6 {
 /* Per-section accent shifts.
    Scoped to `main` so the chrome (nav, footer, chat launcher) keeps the base
    theme accent — only in-content links / focus rings / read-more pick up the
-   portfolio variant. Subtle by design. (The former 'playground' section was
-   folded into portfolio, so its accent block was removed.) */
+   portfolio variant. Subtle by design. Labs (the page formerly known as
+   playground) gets the same accent triad as portfolio. */
 [data-theme="space"] body[data-section="portfolio"] main {
     --accent: #6a98e8;
     --accent-hover: #82adf0;
@@ -2548,6 +2598,27 @@ h6 {
 }
 
 [data-theme="studio"] body[data-section="portfolio"] main {
+    --accent: #2f3f63;
+    --accent-hover: #43577f;
+    --link-color: #2a3958;
+    --link-hover: var(--accent-hover);
+}
+
+[data-theme="space"] body[data-section="labs"] main {
+    --accent: #6a98e8;
+    --accent-hover: #82adf0;
+    --link-color: #b6cdf2;
+    --link-hover: var(--accent-hover);
+}
+
+[data-theme="garden"] body[data-section="labs"] main {
+    --accent: #144a2a;
+    --accent-hover: #1f6b3d;
+    --link-color: #103b22;
+    --link-hover: var(--accent-hover);
+}
+
+[data-theme="studio"] body[data-section="labs"] main {
     --accent: #2f3f63;
     --accent-hover: #43577f;
     --link-color: #2a3958;
