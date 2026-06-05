@@ -114,11 +114,12 @@ medium. First, the substrate that keeps cooperation from double-working or clobb
 On that substrate, two cooperation patterns — same primitives, no new kinds:
 - **Master/worker.** A worker JOINS: `tic.sh <id> '*' session open available` (now `[active]` in
   `tics sessions`). The lead ASSIGNS: `tic.sh lead <id> delegate "<slice>" <id>/<area>`. The worker
-  loops: read `tics inbox <id>` → `echo <id>/<area> > .claude/state/scope` → edit (files auto-claim;
-  rivals blocked) → `tic.sh <id> lead handoff "done" <ref> green` → `tic.sh <id> '*' section done
-  <area>` (frees the lane) → pull the next. Scale out by adding workers.
+  loops: `tics todo` (your open assignments + the pool) → `echo <id>/<area> > .claude/state/scope`
+  → edit (files auto-claim; rivals blocked) → `tic.sh <id> lead handoff "done" <ref> green` →
+  `tic.sh <id> '*' section done <area>` (frees the lane) → pull the next. Scale out by adding workers.
 - **Joint-forces (peers, no fixed lead).** Offer work to the pool with `delegate to '*'`, pass a
   slice you can't finish with `handoff to '*'`, summon help with `need`; first toucher claims it.
+  `tics todo` shows what's open for you + the pool to grab; `tics conductor` is the live picture.
   `tics conductor` is the shared live picture.
 
 Worktree-per-session is only a niche escape valve for genuinely INDEPENDENT efforts (which isn't
