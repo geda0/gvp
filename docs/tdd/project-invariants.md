@@ -45,8 +45,9 @@ proves it comes FIRST.
      a secret); secrets reach the backend only as SAM params —
      `aws/template.yaml:36` (`RESEND_API_KEY: !Ref ResendApiKey`),
      `aws/template.yaml:234` (`ADMIN_API_KEY: !Ref AdminApiKey`),
-     `aws/chat-template.yaml:85` + `aws/chat-ecs-template.yaml:232`
-     (`GEMINI_API_KEY: !Ref GeminiApiKey`); `.gitignore:34` excludes `.secrets/`. The
+     `aws/chat-template.yaml:85` + `aws/chat-express-template.yaml:141`
+     (`GEMINI_API_KEY: !Ref GeminiApiKey`; ECS Express Mode replaced the retired
+     `chat-ecs-template.yaml` per ADR-0007 Phase 3/4); `.gitignore:34` excludes `.secrets/`. The
      admin key in `js/admin.js:106` is read from `sessionStorage` (operator types it at
      runtime), never embedded.
    - Proven by: `test/frontend-no-secrets.test.mjs` — scans `index.html`, `admin/index.html`,
@@ -60,7 +61,10 @@ proves it comes FIRST.
    `site-config.js`; when the tag is empty the only fallback is a **same-origin**
    `/api/*` path (and only on `localhost`/`127.0.0.1`). No module hardcodes a remote
    API hostname. The voice WebSocket URL is taken from the server's minted session
-   response body, not constructed against a hardcoded host.
+   response body, not constructed against a hardcoded host. (Under browser-direct voice —
+   ADR-0007 Phase 1 — that body's `websocketUrl` is Google's Live WSS endpoint carrying a
+   single-use ephemeral token; the contract is unchanged: the URL comes from the response,
+   never a string literal.)
    - Implemented by: `js/site-config.js:5-15` (`resolveApiUrl` → `contactApiUrl`,
      `chatApiUrl`; local-only `/api/contact` / `/api/chat` fallbacks);
      consumers `js/contact.js:1,27,107`, `js/chat.js:4,300,1109`,
@@ -256,24 +260,38 @@ proves it comes FIRST.
 ## Out of scope / explicitly allowed
 
 - **"Single origin" is not literal in production.** The shipped meta tags point chat
-  (and contact) at *different* hosts than the Amplify static site —
-  `chat-api.marwanelgendy.link` for chat/voice (ALB) and an `execute-api` host for
-  contact (`index.html:38-39`). Same-origin `/api/*` is only the local-dev fallback
+  (and contact) at *different* hosts than the Amplify static site — the chat host
+  (`gvp:chat-api-url`) is the stateless chat container on **ECS Express Mode** (an
+  ECS-managed ALB + AWS TLS, ADR-0007 Phase 3/4) and an `execute-api` host for
+  contact (`index.html:38-39`). Voice does **not** add a host: the browser connects
+  browser-direct to Google's Live WSS with an ephemeral token, so the chat host serves
+  only HTTP (`/api/chat` SSE + `/api/live/session` mint), never a WebSocket. Same-origin
+  `/api/*` is only the local-dev fallback
   (nginx mirrors it on `:8080`, `docker/nginx.conf`). The real invariant is #2 (no
   hardcoded host; bases from meta), not "everything is same-origin." Cross-origin calls
   are governed by backend CORS allowlists (`aws/src/common/contact-shared.js:135-141`,
   `docker/chat/app/main.py:140-145`), which never use `*`.
 
-- **Token-by-token streaming is NOT guaranteed on every host.** Lambda + Mangum buffers
-  the SSE generator, so on the Lambda chat stack the client sees the full reply at once;
-  true streaming is an ECS-only property (`CHAT_LIVE_RELAY=1`). The invariant is that a
-  turn is *persisted with stream telemetry*, not that the wire is incremental everywhere.
+- **Token-by-token streaming is NOT guaranteed on every host.** The shipped chat host is
+  the stateless container on **ECS Express Mode** (Fargate behind an ECS-managed ALB,
+  ADR-0007 Phase 3/4), where the SSE wire is unbuffered and tokens stream through. The
+  Lambda chat stack (`aws/chat-template.yaml`) remains as a dev/degraded fallback, and
+  there Mangum buffers the SSE generator so the client sees the full reply at once. The
+  invariant is that a turn is *persisted with stream telemetry*, not that the wire is
+  incremental on every possible host. (The old `CHAT_LIVE_RELAY` flag that once gated this
+  was removed with the server WebSocket relay — see ADR-0007 Phase 1.)
 
-- **Voice may legitimately fail at the network layer on Lambda-only deploys.** API
-  Gateway HTTP API cannot upgrade WebSockets, so with `CHAT_VOICE_ECS_BOOTSTRAP=0` voice
-  fails (text chat still works); `POST /api/live/session` only hard-fails early (503)
-  when `CHAT_LIVE_VOICE_STRICT=1` (`docker/chat/app/main.py:52-53,986-993`). Voice
-  working is a deployment-topology property, not a code invariant.
+- **Voice is browser-direct, so it no longer depends on a WebSocket-capable host.**
+  Under ADR-0007 Phase 1 the server holds **no** WebSocket: `POST /api/live/session` is a
+  plain HTTP endpoint that mints a single-use Gemini ephemeral token and returns a
+  `websocketUrl` pointing at Google's Live WSS
+  (`google.ai.generativelanguage…BidiGenerateContentConstrained?access_token=…`), which the
+  **browser** opens directly (`docker/chat/app/main.py:916-1000` mint;
+  `js/chat-live.js:1012-1076` browser-direct connect). The mint can still fail server-side
+  (503 on missing corpus/`GEMINI_API_KEY`, 504 on mint timeout), but those are HTTP
+  responses any chat host can serve — including the Lambda fallback, which no longer breaks
+  voice the way the old server-relay path did. Voice working end-to-end is still a runtime
+  property (valid key + reachable Google Live), not a code invariant.
 
 - **Transcript persistence is best-effort when unconfigured.** If
   `CHAT_TRANSCRIPTS_TABLE` is unset, `build_transcript_store()` returns `None`

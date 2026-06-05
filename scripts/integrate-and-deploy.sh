@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Build + deploy contact SAM stack, optional Lambda chat, optional ECS chat image, optional HTML meta sync.
+# Build + deploy contact SAM stack, chat (ECS Express Mode by default, or Lambda), optional HTML meta sync.
 # Usage: bash scripts/integrate-and-deploy.sh [prod|stage]
-#   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta: CHAT_PROD_CHAT_API_URL, else URL derived from ECS (CHAT_ECS_* + ALB DNS), else Chat SAM output.
-#   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ECS-derived URL, else ChatPostApiUrl when chat SAM deploy runs (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY).
+#   prod  — default when omitted; stack from SAM_STACK_NAME (default page). Chat meta: CHAT_PROD_CHAT_API_URL, else Chat SAM output.
+#   stage — SAM_STACK_NAME_STAGE (default page-staging). Chat meta: CHAT_STAGE_CHAT_API_URL, else ChatPostApiUrl when chat SAM deploy runs (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY).
 #
 # Secrets Manager (local): when .secrets/manifest.json AND .secrets/config.manifest.json exist, runs
 #   seed_local_configs.py + push_local_secrets_to_sm.py then sources deploy.env (+ generated files).
@@ -10,13 +10,10 @@
 #
 # Env var names: secrets.example/deploy.env.example; optional chat/ECR: secrets.example/chat-deploy.env.example
 # (auto-sourced from .secrets/chat-deploy.env when present). CI injects the same names.
-# Voice (browser mic) is always on in the FE; voice transport needs the chat API on a WebSocket-capable host
-# (ECS+ALB image defaults CHAT_LIVE_RELAY=1). Lambda execute-api hosts will fail voice with 1011.
-# Auto ECS prereq bootstrap (enabled by default, opt out with CHAT_VOICE_ECS_BOOTSTRAP=0): when the deploy
-#   detects no chat URL override and ECR/VPC/subnets aren't pinned, it auto-creates ECR repo gvp-chat
-#   (or CHAT_ECR_REPO_NAME) → CHAT_ECR_REPOSITORY_URI, defaults CHAT_ECS_SAM_STACK_NAME_* (gvp-chat-ecs-{stage,prod}),
-#   and resolves CHAT_ECS_VPC_ID / CHAT_ECS_SUBNET_IDS via EC2 describe — then optional `aws ec2 create-default-vpc`
-#   when CHAT_ECS_CREATE_DEFAULT_VPC=1 (default on; needs IAM ec2:CreateDefaultVpc; set =0 to forbid).
+# Voice (browser mic) is always on in the FE and is browser-direct: POST /api/live/session mints an
+# ephemeral Gemini Live token and the browser opens Google's Live API itself (no server WebSocket /
+# relay), so voice works from any HTTPS chat host. Chat hosting is ECS Express Mode by default
+# (CHAT_DEPLOY_TARGET=express → aws/chat-express-template.yaml; Express provisions the ALB/TLS itself).
 # Chat on Lambda (Gemini): set CHAT_SAM_STACK_NAME (legacy fallback), or CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD per deploy env, plus GEMINI_API_KEY; template aws/chat-template.yaml
 
 set -euo pipefail
@@ -31,9 +28,7 @@ usage() {
   echo "  prod  — production contact stack (SAM_STACK_NAME, default page)" >&2
   echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
   echo "  Auto-runs Secrets Manager seed/push when .secrets/manifest.json + config.manifest.json exist (SKIP_SECRETS_MANAGER=1 to skip)." >&2
-  echo "  When CHAT_PROD_CHAT_API_URL / CHAT_STAGE_CHAT_API_URL are unset, derives gvp:chat-api-url from ECS ALB DNS (CHAT_ECS_* cluster+service). Opt out: CHAT_ECS_AUTO_SYNC_CHAT_URL=0." >&2
-  echo "  Voice is always on in the FE — chat host must be WebSocket-capable (ECS+ALB, CHAT_LIVE_RELAY=1) for voice to work." >&2
-  echo "  SAM-managed ECS auto-bootstrap (default on; CHAT_VOICE_ECS_BOOTSTRAP=0 to opt out): creates ECR repo + default CHAT_ECS_SAM_STACK_NAME_*, resolves VPC/subnets via describe + optional create-default-vpc (CHAT_ECS_CREATE_DEFAULT_VPC=1, default on; IAM ec2:CreateDefaultVpc)." >&2
+  echo "  Voice is browser-direct (POST /api/live/session mints a token; the browser opens Google's Live API) — any HTTPS chat host works. Chat deploys to ECS Express Mode by default (CHAT_DEPLOY_TARGET=express)." >&2
   exit 1
 }
 
@@ -179,16 +174,6 @@ run_chat_sam=false
 if [[ -n "${CHAT_STACK_RESOLVED}" ]]; then
   run_chat_sam=true
   require GEMINI_API_KEY
-fi
-
-CHAT_ECS_CLUSTER=""
-CHAT_ECS_SERVICE=""
-if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-  CHAT_ECS_CLUSTER="${CHAT_ECS_CLUSTER_STAGE:-${CHAT_ECS_CLUSTER:-}}"
-  CHAT_ECS_SERVICE="${CHAT_ECS_SERVICE_STAGE:-${CHAT_ECS_SERVICE:-}}"
-else
-  CHAT_ECS_CLUSTER="${CHAT_ECS_CLUSTER_PROD:-${CHAT_ECS_CLUSTER:-}}"
-  CHAT_ECS_SERVICE="${CHAT_ECS_SERVICE_PROD:-${CHAT_ECS_SERVICE:-}}"
 fi
 
 test_pid=""
@@ -369,146 +354,10 @@ elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
   echo "CHAT_ECR_REPOSITORY_URI unset — chat image built locally as ${CHAT_IMAGE_LOCAL} only."
 fi
 
-# Build https://<alb-or-nlb-dns><path> from ECS service's first target group's load balancer (for HTML meta sync).
-# Scheme is inferred from what the ALB actually listens on: prefer HTTPS:443
-# when present, fall back to HTTP:80 otherwise. CHAT_ECS_CHAT_API_SCHEME
-# overrides. Defaulting to https blindly burned a stage deploy: meta was
-# https://… but the ALB had no cert, so the browser POST sat hanging on a
-# port-443 TCP connect that nothing was listening on, surfacing as a
-# DevTools "canceled" with no useful console error.
-discover_ecs_chat_sync_url_from_aws() {
-  local cluster="$1" service="$2"
-  local tg_arn lb_arn dns path scheme listener_count
-  path="${CHAT_ECS_CHAT_API_PATH:-/api/chat}"
-  case "${path}" in
-    /*) ;;
-    *) path="/${path}" ;;
-  esac
-  tg_arn="$(aws ecs describe-services --cluster "${cluster}" --services "${service}" --region "${REGION}" \
-    --query 'services[0].loadBalancers[0].targetGroupArn' --output text 2>/dev/null)" || return 1
-  if [[ -z "${tg_arn}" || "${tg_arn}" == "None" ]]; then
-    return 1
-  fi
-  lb_arn="$(aws elbv2 describe-target-groups --target-group-arns "${tg_arn}" --region "${REGION}" \
-    --query 'TargetGroups[0].LoadBalancerArns[0]' --output text 2>/dev/null)" || return 1
-  if [[ -z "${lb_arn}" || "${lb_arn}" == "None" ]]; then
-    return 1
-  fi
-  dns="$(aws elbv2 describe-load-balancers --load-balancer-arns "${lb_arn}" --region "${REGION}" \
-    --query 'LoadBalancers[0].DNSName' --output text 2>/dev/null)" || return 1
-  if [[ -z "${dns}" || "${dns}" == "None" ]]; then
-    return 1
-  fi
-  if [[ -n "${CHAT_ECS_CHAT_API_SCHEME:-}" ]]; then
-    scheme="${CHAT_ECS_CHAT_API_SCHEME}"
-  else
-    listener_count="$(aws elbv2 describe-listeners --load-balancer-arn "${lb_arn}" --region "${REGION}" \
-      --query 'length(Listeners[?Port==`443`])' --output text 2>/dev/null || echo 0)"
-    if [[ "${listener_count}" =~ ^[0-9]+$ ]] && (( listener_count > 0 )); then
-      scheme="https"
-    else
-      scheme="http"
-      # `${DEPLOY_ENV^^}` is bash 4+; macOS ships bash 3.2 and the substitution
-      # error abort-killed this function under `set -e`, then the caller fell
-      # back to the Lambda URL. Use portable `tr` upcase.
-      local _env_upper
-      _env_upper="$(printf '%s' "${DEPLOY_ENV}" | tr '[:lower:]' '[:upper:]')"
-      echo "  note: ALB has no HTTPS:443 listener — using http:// for derived chat URL. Browsers WILL block this URL from HTTPS pages (mixed content). Add CHAT_ECS_CERT_ARN_${_env_upper} (ACM cert ARN) and redeploy to get HTTPS." >&2
-    fi
-  fi
-  printf '%s://%s%s' "${scheme}" "${dns}" "${path}"
-  return 0
-}
-
-CHAT_ECS_DISCOVERED_URL=""
-_auto_ecs_meta="${CHAT_ECS_AUTO_SYNC_CHAT_URL:-1}"
-if [[ "${_auto_ecs_meta}" != "0" && "${_auto_ecs_meta}" != "false" ]]; then
-  _need_ecs_meta=false
-  if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_STAGE_CHAT_API_URL:-}" ]]; then
-    _need_ecs_meta=true
-  fi
-  if [[ "${DEPLOY_ENV}" == "prod" && -z "${CHAT_PROD_CHAT_API_URL:-}" ]]; then
-    _need_ecs_meta=true
-  fi
-  if [[ "${_need_ecs_meta}" == true ]] && [[ -n "${CHAT_ECS_CLUSTER:-}" && -n "${CHAT_ECS_SERVICE:-}" ]]; then
-    if CHAT_ECS_DISCOVERED_URL="$(discover_ecs_chat_sync_url_from_aws "${CHAT_ECS_CLUSTER}" "${CHAT_ECS_SERVICE}")"; then
-      echo "Derived gvp:chat-api-url from ECS (${CHAT_ECS_CLUSTER}/${CHAT_ECS_SERVICE}) → ${CHAT_ECS_DISCOVERED_URL}"
-    else
-      CHAT_ECS_DISCOVERED_URL=""
-      echo "note: CHAT_*_CHAT_API_URL unset — could not derive chat URL from ECS (no load balancer on service, or wrong cluster/service?)." >&2
-    fi
-  fi
-fi
-
 if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-  CHAT_SYNC_CHAT_URL="${CHAT_STAGE_CHAT_API_URL:-${CHAT_ECS_DISCOVERED_URL:-${CHAT_SAM_CHAT_URL}}}"
+  CHAT_SYNC_CHAT_URL="${CHAT_STAGE_CHAT_API_URL:-${CHAT_SAM_CHAT_URL}}"
 else
-  CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-${CHAT_ECS_DISCOVERED_URL:-${CHAT_SAM_CHAT_URL}}}"
-fi
-
-# Is the chat URL hosted on Lambda HttpApi (no browser WebSocket upgrade possible)?
-# Match the public AWS execute-api hostname; everything else (ECS/ALB, custom domain
-# fronting ECS, etc.) is assumed WSS-capable. Used to auto-decide the voice meta flag.
-_chat_url_is_lambda_only() {
-  case "${1:-}" in
-    https://*.execute-api.*.amazonaws.com*|http://*.execute-api.*.amazonaws.com*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# GET /health on chat API base → reports liveRelay (ECS task CHAT_LIVE_RELAY).
-_voice_probe_chat_health() {
-  local sync_url="$1"
-  local base health lr
-  [[ -n "${sync_url}" ]] || return 0
-  _chat_url_is_lambda_only "${sync_url}" && return 0
-  command -v curl >/dev/null 2>&1 || return 0
-  base="${sync_url%/}"
-  base="${base%/api/chat}"
-  health=""
-  if ! health="$(curl -fsS -m 25 "${base}/health" 2>/dev/null)"; then
-    echo "  voice probe       : could not GET ${base}/health (curl failed — SG/TLS/DNS or tasks not ready)"
-    return 0
-  fi
-  lr="$(python3 -c "
-import json, sys
-try:
-    d = json.loads(sys.stdin.read())
-except Exception:
-    sys.stdout.write('')
-else:
-    v = d.get('liveRelay')
-    if isinstance(v, bool):
-        sys.stdout.write('relay' if v else 'off')
-    else:
-        sys.stdout.write('legacy')
-" <<< "${health}" 2>/dev/null)"
-  case "${lr}" in
-    relay)
-      echo "  voice probe       : GET ${base}/health → liveRelay=true"
-      ;;
-    off)
-      echo "  voice probe       : ⚠ GET ${base}/health → liveRelay=false (CHAT_LIVE_RELAY off on task)" >&2
-      ;;
-    legacy)
-      echo "  voice probe       : GET ${base}/health missing liveRelay — redeploy chat image with latest app"
-      ;;
-    *)
-      echo "  voice probe       : unexpected /health JSON from ${base}"
-      ;;
-  esac
-}
-
-# Voice (browser mic) is always on in the FE. The browser-to-relay path requires a WebSocket-capable
-# chat host (ECS image defaults CHAT_LIVE_RELAY=1). Lambda execute-api hosts cannot proxy the Live socket
-# and will fail voice with 1011 — fail loudly so prod never ships into that footgun.
-if [[ -n "${CHAT_SYNC_CHAT_URL}" ]] && _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL}"; then
-  echo "WARNING: chat URL is Lambda execute-api (${CHAT_SYNC_CHAT_URL}); voice will fail (no WebSocket relay). Text chat still works." >&2
-  if [[ "${DEPLOY_ENV}" == "stage" ]]; then
-    echo "         Fix for voice: point CHAT_STAGE_CHAT_API_URL at your ECS/ALB host, or set CHAT_ECS_SAM_STACK_NAME_STAGE (+ GEMINI) for SAM ECS, or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB URL auto-derive." >&2
-  else
-    echo "         Fix for voice: point CHAT_PROD_CHAT_API_URL at your ECS/ALB host, or set CHAT_ECS_SAM_STACK_NAME_PROD (+ GEMINI) for SAM ECS, or CHAT_ECS_CLUSTER_PROD+CHAT_ECS_SERVICE_PROD for ALB URL auto-derive." >&2
-  fi
+  CHAT_SYNC_CHAT_URL="${CHAT_PROD_CHAT_API_URL:-${CHAT_SAM_CHAT_URL}}"
 fi
 
 if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
@@ -520,7 +369,7 @@ if [[ "${SYNC_API_URLS:-1}" == "1" || "${SYNC_API_URLS:-}" == "true" ]]; then
     echo "Patched index.html and admin/index.html (gvp:contact-api-url)."
   fi
   if [[ "${DEPLOY_ENV}" == "stage" && -z "${CHAT_SYNC_CHAT_URL}" ]]; then
-    echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL, or CHAT_ECS_SAM_STACK_NAME_STAGE + GEMINI (+ ECR URI; VPC/subnets auto-resolve in deploy), or CHAT_ECS_CLUSTER_STAGE+CHAT_ECS_SERVICE_STAGE for ALB discovery, or Lambda chat (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY)." >&2
+    echo "note: no chat URL for meta — set CHAT_STAGE_CHAT_API_URL, or deploy ECS Express chat (CHAT_DEPLOY_TARGET=express + GEMINI + ECR URI), or Lambda chat (CHAT_SAM_STACK_NAME_* + GEMINI_API_KEY)." >&2
   fi
 fi
 
@@ -528,14 +377,13 @@ echo
 echo "=== Voice readiness (${DEPLOY_ENV}) ==="
 echo "  chat URL          : ${CHAT_SYNC_CHAT_URL:-<unset>}"
 if [[ -z "${CHAT_SYNC_CHAT_URL:-}" ]]; then
-  echo "  status            : ⚠ no chat URL — text chat will fail until gvp:chat-api-url is patched"
-elif _chat_url_is_lambda_only "${CHAT_SYNC_CHAT_URL}"; then
-  echo "  status            : ⚠ chat URL is Lambda — text chat works, voice will fail (need ECS+ALB with CHAT_LIVE_RELAY=1)"
+  echo "  status            : WARN no chat URL — text chat fails until gvp:chat-api-url is patched"
 else
-  echo "  status            : OK — chat host is WebSocket-capable; ECS image defaults CHAT_LIVE_RELAY=1 for voice relay"
+  # Voice is browser-direct: the browser opens the Google Live API itself after
+  # POST /api/live/session mints an ephemeral token, so any HTTPS chat host works
+  # (no server WebSocket / relay; ADR-0007 Phase 1).
+  echo "  status            : OK — text + browser-direct voice (no server WebSocket needed)"
 fi
-
-_voice_probe_chat_health "${CHAT_SYNC_CHAT_URL:-}"
 
 if [[ -n "${CHAT_SYNC_CHAT_URL:-}" ]] && { [[ "${SYNC_API_URLS:-1}" == "1" ]] || [[ "${SYNC_API_URLS:-}" == true ]]; }; then
   echo "  publish           : push/sync patched index.html + admin to hosting (Amplify, etc.) — browsers need gvp:chat-api-url on the live static site"
