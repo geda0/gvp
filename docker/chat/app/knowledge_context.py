@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from app.messages import Msg
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +193,7 @@ def compact_history(messages: list[Any], max_messages: int = DEFAULT_HISTORY_TAI
     kept = messages[-max_messages:]
     summary = summarize_pruned_messages(pruned)
     if summary:
-        return [HumanMessage(content=summary), *kept]
+        return [Msg(role="human", content=summary), *kept]
     return kept
 
 

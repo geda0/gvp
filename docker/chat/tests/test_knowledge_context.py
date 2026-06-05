@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 
+from app.messages import Msg
 from app.knowledge_context import (
     build_context,
     build_live_system_instruction,
@@ -74,7 +74,7 @@ def test_serialize_context_xml_includes_faq_suggestion() -> None:
 
 
 def test_compact_history_adds_summary_when_over_limit() -> None:
-    messages = [HumanMessage(content=f'user-{i}') if i % 2 == 0 else AIMessage(content='ok') for i in range(14)]
+    messages = [Msg(role='human', content=f'user-{i}') if i % 2 == 0 else Msg(role='ai', content='ok') for i in range(14)]
     compacted = compact_history(messages, max_messages=12)
     assert len(compacted) == 13
     assert compacted[0].type == 'human'

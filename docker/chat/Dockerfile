@@ -13,14 +13,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt -r /app/requirements-dev
 COPY docker/chat/app /app/app
 COPY data/chat-knowledge /app/data/chat-knowledge
 COPY docker/chat/prompts/system-prompt.md /app/prompts/system-prompt.md
-COPY resume/resume.json /app/corpus/resume.json
-COPY data/projects.json /app/corpus/projects.json
 
 COPY docker/chat/pytest.ini /app/pytest.ini
 COPY docker/chat/tests /app/tests
-
-ENV CORPUS_RESUME_PATH=/app/corpus/resume.json \
-    CORPUS_PROJECTS_PATH=/app/corpus/projects.json
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

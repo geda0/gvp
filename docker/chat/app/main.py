@@ -18,10 +18,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
 
 from app.gemini_routing import GeminiRoutingChain
+from app.messages import Msg, MsgChunk, _Acc
 from app.knowledge_context import (
     build_context,
     build_live_system_instruction,
@@ -183,49 +183,34 @@ class LiveTranscriptTurn(BaseModel):
     interrupted: bool | None = Field(default=None)
 
 
-def _to_lc_messages(rows: list[ChatMessageIn]) -> list[HumanMessage | AIMessage | SystemMessage]:
-    out: list[HumanMessage | AIMessage | SystemMessage] = []
+def _to_lc_messages(rows: list[ChatMessageIn]) -> list[Msg]:
+    out: list[Msg] = []
     for row in rows:
         if row.role == "user":
-            out.append(HumanMessage(content=row.content))
+            out.append(Msg(role="human", content=row.content))
         elif row.role == "assistant":
-            out.append(AIMessage(content=row.content))
+            out.append(Msg(role="ai", content=row.content))
         else:
-            out.append(SystemMessage(content=row.content))
+            out.append(Msg(role="system", content=row.content))
     return out
 
 
 def _reply_text_from_result(result: Any) -> str:
-    if not isinstance(result, AIMessage):
+    if not isinstance(result, Msg):
         return str(result)
     content = result.content
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
-        lines: list[str] = []
-        for part in content:
-            if isinstance(part, str):
-                lines.append(part)
-                continue
-            if isinstance(part, dict) and isinstance(part.get('text'), str):
-                lines.append(part['text'])
-        return '\n'.join(line for line in lines if line).strip()
     return str(content)
 
 
 def _chunk_text(chunk: Any) -> str:
-    """Extract the text delta from a streamed chunk (AIMessageChunk or AIMessage)."""
+    """Extract the text delta from a streamed chunk (MsgChunk) or a final Msg."""
+    if isinstance(chunk, MsgChunk):
+        return chunk.text or ''
     content = getattr(chunk, 'content', '')
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
-        out: list[str] = []
-        for part in content:
-            if isinstance(part, str):
-                out.append(part)
-            elif isinstance(part, dict) and isinstance(part.get('text'), str):
-                out.append(part['text'])
-        return ''.join(out)
     return ''
 
 
@@ -243,7 +228,7 @@ def _normalize_tool_args(args: Any) -> dict[str, Any]:
 
 
 def _actions_from_result(result: Any) -> list[dict[str, Any]]:
-    if not isinstance(result, AIMessage):
+    if not isinstance(result, Msg):
         return []
     actions: list[dict[str, Any]] = []
     for call in getattr(result, 'tool_calls', []) or []:
@@ -276,7 +261,7 @@ def _actions_from_result(result: Any) -> list[dict[str, Any]]:
 
 
 def _tool_calls_from_result(result: Any) -> list[dict[str, Any]]:
-    if not isinstance(result, AIMessage):
+    if not isinstance(result, Msg):
         return []
     calls: list[dict[str, Any]] = []
     for call in getattr(result, 'tool_calls', []) or []:
@@ -290,7 +275,7 @@ def _tool_calls_from_result(result: Any) -> list[dict[str, Any]]:
     return calls
 
 
-def _get_retrieval_snapshot(messages: list[HumanMessage | AIMessage | SystemMessage]) -> dict[str, Any]:
+def _get_retrieval_snapshot(messages: list[Msg]) -> dict[str, Any]:
     if app.state.knowledge_pack is None:
         return {
             'tags': [],
@@ -618,7 +603,7 @@ def chat_host_status(request: Request) -> JSONResponse:
 
 async def _persist_text_turn(
     payload: ChatRequest,
-    lc_messages: list[HumanMessage | AIMessage | SystemMessage],
+    lc_messages: list[Msg],
     reply_text: str,
     actions: list[dict[str, Any]],
     tool_calls: list[dict[str, Any]],
@@ -807,7 +792,7 @@ async def chat(payload: ChatRequest) -> Any:
 
 async def _chat_stream(
     payload: ChatRequest,
-    lc_messages: list[HumanMessage | AIMessage | SystemMessage],
+    lc_messages: list[Msg],
 ):
     """Yield Server-Sent Events for the assistant turn.
 
@@ -818,6 +803,8 @@ async def _chat_stream(
     """
     t0 = time.perf_counter()
     aggregated: Any = None
+    acc = _Acc()
+    saw_chunk = False
     chain = app.state.chain
     timeout_s = app.state.provider_timeout_seconds
     deadline = time.monotonic() + timeout_s
@@ -840,16 +827,16 @@ async def _chat_stream(
             except StopAsyncIteration:
                 break
             chunk_count += 1
-            if aggregated is None:
-                aggregated = chunk
+            # Risk seam #2: replace the AIMessageChunk.__add__ fold with an
+            # explicit accumulator. Streaming adapters yield MsgChunk deltas
+            # (text concatenated, tool_calls collected, finalized once); a
+            # non-chunk runnable (e.g. the mock) yields a single final Msg,
+            # which we keep verbatim as the source of truth.
+            if isinstance(chunk, MsgChunk):
+                acc.add(chunk)
+                saw_chunk = True
             else:
-                try:
-                    aggregated = aggregated + chunk
-                except TypeError:
-                    # Non-chunk runnables (e.g. mock) yield a final
-                    # AIMessage that can't be concatenated — keep the
-                    # latest as the source of truth.
-                    aggregated = chunk
+                aggregated = chunk
             delta = _chunk_text(chunk)
             if delta:
                 if first_token_ms is None:
@@ -873,6 +860,13 @@ async def _chat_stream(
         sse_error = _sse_frame("error", content)
     else:
         sse_error = None
+
+    # Finalize the streamed deltas into one Msg (text + collected tool_calls).
+    # Even on a mid-stream error this captures whatever flushed so far, matching
+    # the old fold's partial-aggregate persistence. A non-chunk mock instead
+    # left its final Msg in `aggregated` directly.
+    if saw_chunk:
+        aggregated = acc.finalize()
 
     reply_text = _reply_text_from_result(aggregated) if aggregated is not None else ''
     actions = _actions_from_result(aggregated) if stream_status == 'ok' and aggregated is not None else []
