@@ -1,11 +1,11 @@
 # Auto-deploys the PRODUCTION BACKEND (SAM `page` stack) on every push to `main` that
 # touches a deploy-relevant path. The frontend is built by AWS Amplify (watches `main` →
 # www.marwanelgendy.link), so this workflow does NOT publish the static site and does NOT
-# patch HTML (SYNC_API_URLS=0; `main` already carries the prod API URLs). Contact-only:
-# CHAT_SAM_STACK_NAME / CHAT_VOICE_ECS_BOOTSTRAP are unset → prod chat (ECS) is left manual.
+# patch HTML (SYNC_API_URLS=0; `main` already carries the prod API URLs). Deploys contact
+# (`page`) + prod chat to ECS Express Mode (gvp-chat-express-prod; CHAT_DEPLOY_TARGET=express).
 # Gated by the full chat pytest suite (incl. eval gate) + node --test, so a red baseline
 # never reaches prod. Uses a PROD-only OIDC role (AWS_DEPLOY_ROLE_ARN_PROD, scoped to the
-# `page` stack, main-branch trust). workflow_dispatch kept as a manual fallback.
+# `page` + gvp-chat-express-prod stacks, main-branch trust). workflow_dispatch kept as a manual fallback.
 name: deploy-prod
 
 on:
@@ -74,29 +74,22 @@ jobs:
       SAM_STACK_NAME_STAGE: ${{ vars.SAM_STACK_NAME_STAGE || 'page-staging' }}
       CHAT_STAGE_CHAT_API_URL: ${{ vars.CHAT_STAGE_CHAT_API_URL }}
       CHAT_PROD_CHAT_API_URL: ${{ vars.CHAT_PROD_CHAT_API_URL }}
-      CHAT_ECR_REPOSITORY_URI: ${{ vars.CHAT_ECR_REPOSITORY_URI }}
-      CHAT_ECS_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_ECS_SAM_STACK_NAME_STAGE }}
-      CHAT_ECS_SAM_STACK_NAME_PROD: ${{ vars.CHAT_ECS_SAM_STACK_NAME_PROD }}
-      CHAT_ECS_VPC_ID: ${{ vars.CHAT_ECS_VPC_ID }}
-      CHAT_ECS_SUBNET_IDS: ${{ vars.CHAT_ECS_SUBNET_IDS }}
-      CHAT_ECR_REPO_NAME: ${{ vars.CHAT_ECR_REPO_NAME }}
-      CHAT_ECS_CREATE_DEFAULT_VPC: ${{ vars.CHAT_ECS_CREATE_DEFAULT_VPC }}
-      CHAT_ECS_CLUSTER_STAGE: ${{ vars.CHAT_ECS_CLUSTER_STAGE }}
-      CHAT_ECS_SERVICE_STAGE: ${{ vars.CHAT_ECS_SERVICE_STAGE }}
-      CHAT_ECS_CLUSTER_PROD: ${{ vars.CHAT_ECS_CLUSTER_PROD }}
-      CHAT_ECS_SERVICE_PROD: ${{ vars.CHAT_ECS_SERVICE_PROD }}
+      # Chat backend (ADR-0007 Phase 4): prod deploys to ECS Express Mode, like staging.
+      # App Runner was maintenance-mode; ECS Express Mode is AWS's managed successor (image+port
+      # -> HTTPS on Fargate, ECS-managed ALB/TLS/autoscaling). Prod chat now AUTO-deploys on chat
+      # changes (was manual). Express provisions networking itself — no VPC/subnet/cert config.
+      CHAT_DEPLOY_TARGET: express
+      CHAT_EXPRESS_STACK_NAME: gvp-chat-express-prod
+      CHAT_ECR_REPOSITORY_URI: 429844072978.dkr.ecr.us-east-2.amazonaws.com/gvp-chat
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-      GEMINI_FALLBACK_MODEL: ${{ vars.GEMINI_FALLBACK_MODEL }}
-      GEMINI_LIVE_MODEL: ${{ vars.GEMINI_LIVE_MODEL }}
-      CHAT_VOICE_MODEL: ${{ vars.CHAT_VOICE_MODEL }}
+      GEMINI_MODEL: gemini-3.1-flash-lite
+      GEMINI_FALLBACK_MODEL: gemma-4-26b-a4b-it
+      GEMINI_LIVE_MODEL: gemini-3.1-flash-live-preview
+      CHAT_VOICE_MODEL: gemini-3.1-flash-live-preview
       CHAT_SAM_STACK_NAME: ${{ vars.CHAT_SAM_STACK_NAME }}
       CHAT_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_SAM_STACK_NAME_STAGE }}
       CHAT_SAM_STACK_NAME_PROD: ${{ vars.CHAT_SAM_STACK_NAME_PROD }}
       CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
-      CHAT_VOICE_ECS_BOOTSTRAP: ${{ vars.CHAT_VOICE_ECS_BOOTSTRAP }}
-      CHAT_ECS_AUTO_SYNC_CHAT_URL: ${{ vars.CHAT_ECS_AUTO_SYNC_CHAT_URL }}
-      CHAT_LIVE_VOICE_STRICT: ${{ vars.CHAT_LIVE_VOICE_STRICT }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
       CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}
