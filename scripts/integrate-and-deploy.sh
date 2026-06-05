@@ -406,6 +406,53 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
   docker push "${REMOTE_SHA}"
   docker push "${REMOTE_LATEST}"
 
+  if [[ "${CHAT_DEPLOY_TARGET:-ecs}" == "apprunner" ]]; then
+    # ---- App Runner chat (aws/chat-apprunner-template.yaml) — ADR-0007 Phase 3 ----
+    # After Phase 1 the backend holds no WebSocket (voice is browser-direct via an
+    # ephemeral token), so it is a plain stateless HTTP service. App Runner runs the
+    # same image with "image + port -> HTTPS URL" — none of the ECS+ALB+VPC+SG
+    # machinery the retired relay needed. The frontend chat meta is pinned per-env in
+    # the committed HTML (App Runner's assigned domain is stable), so unlike the ECS
+    # path there is no ALB-DNS URL derivation here. CFN deploy is create-or-update:
+    # an image-only change just swaps the service's ImageIdentifier and rolls it.
+    CHAT_APPRUNNER_STACK="${CHAT_APPRUNNER_STACK_NAME:-gvp-chat-apprunner-${DEPLOY_ENV}}"
+    if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+      echo "ERROR: GEMINI_API_KEY required for chat App Runner deploy." >&2
+      exit 1
+    fi
+    echo "cfn deploy chat App Runner stack=${CHAT_APPRUNNER_STACK} env=${DEPLOY_ENV} image=${REMOTE_SHA}"
+    CHAT_AR_PO=(
+      "StageName=${DEPLOY_ENV}"
+      "ImageUri=${REMOTE_SHA}"
+      "GeminiApiKey=${GEMINI_API_KEY}"
+      "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
+      "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
+      "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
+      "ChatVoiceModel=${CHAT_VOICE_MODEL:-${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}}"
+      "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link}"
+    )
+    if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
+      CHAT_AR_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
+    fi
+    # Template is small (~5 KB) so cloudformation deploy passes it inline (no S3 bucket needed).
+    aws cloudformation deploy \
+      --template-file "${AWS_DIR}/chat-apprunner-template.yaml" \
+      --stack-name "${CHAT_APPRUNNER_STACK}" \
+      --region "${REGION}" \
+      --capabilities CAPABILITY_NAMED_IAM \
+      --no-fail-on-empty-changeset \
+      --parameter-overrides "${CHAT_AR_PO[@]}"
+    CHAT_APPRUNNER_URL="$(aws cloudformation describe-stacks \
+      --stack-name "${CHAT_APPRUNNER_STACK}" \
+      --region "${REGION}" \
+      --query "Stacks[0].Outputs[?OutputKey=='ServiceUrl'].OutputValue | [0]" \
+      --output text 2>/dev/null || true)"
+    echo "chat App Runner ServiceUrl=${CHAT_APPRUNNER_URL}"
+    CLUSTER=""
+    SERVICE=""
+
+  else
+
   # ---- Optional: SAM-managed ECS chat stack (aws/chat-ecs-template.yaml) ----
   # When CHAT_ECS_SAM_STACK_NAME_<ENV> is set we deploy/update the ECS+ALB stack
   # with the freshly-pushed image. The stack update creates a new TaskDefinition
@@ -516,6 +563,7 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
       echo "      Or set CHAT_ECS_CLUSTER_PROD + CHAT_ECS_SERVICE_PROD for aws ecs update-service only (no SAM ECS stack)." >&2
     fi
   fi
+  fi  # end CHAT_DEPLOY_TARGET (apprunner | ecs)
 elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
   echo "CHAT_ECR_REPOSITORY_URI unset — chat image built locally as ${CHAT_IMAGE_LOCAL} only."
 fi

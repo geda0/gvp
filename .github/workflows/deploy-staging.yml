@@ -71,21 +71,15 @@ jobs:
       SAM_STACK_NAME_STAGE: ${{ vars.SAM_STACK_NAME_STAGE || 'page-staging' }}
       CHAT_STAGE_CHAT_API_URL: ${{ vars.CHAT_STAGE_CHAT_API_URL }}
       CHAT_PROD_CHAT_API_URL: ${{ vars.CHAT_PROD_CHAT_API_URL }}
-      # Chat ECS (SAM-managed gvp-chat-ecs-stage) — STAGING ONLY, pinned as literals here so the
-      # prod workflow (deploy-prod.yml, which reads the empty vars.*) stays contact-only. These are
-      # non-secret infra IDs; image-only redeploy (template unchanged, params match the live stack).
+      # Chat backend (ADR-0007 Phase 3): staging deploys to App Runner, not ECS+ALB.
+      # After Phase 1 the backend has no WebSocket (voice is browser-direct via an ephemeral
+      # token), so it is a plain stateless HTTP service — integrate-and-deploy.sh runs
+      # `cloudformation deploy` of aws/chat-apprunner-template.yaml (image + port -> HTTPS),
+      # none of the ECS/ALB/VPC machinery. STAGING ONLY: the prod workflow reads the empty
+      # vars.* and stays contact-only; prod chat stays on ECS until a Phase 4 prod cutover.
+      CHAT_DEPLOY_TARGET: apprunner
+      CHAT_APPRUNNER_STACK_NAME: gvp-chat-apprunner-stage
       CHAT_ECR_REPOSITORY_URI: 429844072978.dkr.ecr.us-east-2.amazonaws.com/gvp-chat
-      CHAT_ECS_SAM_STACK_NAME_STAGE: gvp-chat-ecs-stage
-      CHAT_ECS_SAM_STACK_NAME_PROD: ${{ vars.CHAT_ECS_SAM_STACK_NAME_PROD }}
-      CHAT_ECS_VPC_ID: vpc-0667d450071592d9b
-      CHAT_ECS_SUBNET_IDS: subnet-0503e0b6b646a13bc,subnet-0bb6567804af6e3ca
-      CHAT_ECS_CERT_ARN_STAGE: arn:aws:acm:us-east-2:429844072978:certificate/3c1b11cf-aa0f-441d-ba5f-cd7004411e42
-      CHAT_ECR_REPO_NAME: ${{ vars.CHAT_ECR_REPO_NAME }}
-      CHAT_ECS_CREATE_DEFAULT_VPC: ${{ vars.CHAT_ECS_CREATE_DEFAULT_VPC }}
-      CHAT_ECS_CLUSTER_STAGE: ${{ vars.CHAT_ECS_CLUSTER_STAGE }}
-      CHAT_ECS_SERVICE_STAGE: ${{ vars.CHAT_ECS_SERVICE_STAGE }}
-      CHAT_ECS_CLUSTER_PROD: ${{ vars.CHAT_ECS_CLUSTER_PROD }}
-      CHAT_ECS_SERVICE_PROD: ${{ vars.CHAT_ECS_SERVICE_PROD }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       # Pinned to the live gvp-chat-ecs-stage stack's current values so an image-only redeploy
       # never silently changes the model params (kit/script defaults can drift).
@@ -97,9 +91,6 @@ jobs:
       CHAT_SAM_STACK_NAME_STAGE: ${{ vars.CHAT_SAM_STACK_NAME_STAGE }}
       CHAT_SAM_STACK_NAME_PROD: ${{ vars.CHAT_SAM_STACK_NAME_PROD }}
       CHAT_CORS_ORIGINS: ${{ vars.CHAT_CORS_ORIGINS }}
-      CHAT_VOICE_ECS_BOOTSTRAP: '0'
-      CHAT_ECS_AUTO_SYNC_CHAT_URL: ${{ vars.CHAT_ECS_AUTO_SYNC_CHAT_URL }}
-      CHAT_LIVE_VOICE_STRICT: ${{ vars.CHAT_LIVE_VOICE_STRICT }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
       CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}
