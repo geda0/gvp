@@ -195,6 +195,29 @@ function ticsSessions(targetDir, all) {
   }
   return 0;
 }
+// `tics todo [<session>]` — the cooperation "what should I pick up?" (ADR 0003 C2/C3). Sugar over
+// the bus verbs: your OPEN assignments (a `delegate` to your session with no matching `handoff`) +
+// the joint-forces pool (`delegate` offered to `*`) + open help requests (`need`).
+function ticsTodo(targetDir, session) {
+  const tics = loadFor(targetDir, true);
+  if (!session) { try { session = fs.readFileSync(path.join(targetDir, ".claude", "state", "session"), "utf8").trim(); } catch (e) { session = ""; } }
+  const handedOff = new Set();
+  for (const x of tics) if (x.kind === "handoff" && x.ref) handedOff.add(x.ref);
+  const mine = [], pool = [], needs = [];
+  for (const x of tics) {
+    if (x.kind === "delegate" && x.ref && !handedOff.has(x.ref)) {
+      if (session && x.to === session) mine.push(x);
+      else if (x.to === "*") pool.push(x);
+    } else if (x.kind === "need") needs.push(x);
+  }
+  const row = (x) => "  " + (x.ref ? x.ref + "  " : "") + (x.msg || "") + "  (from " + (x.from || "?") + ")";
+  console.log("Todo" + (session ? " — " + session : "") + ":");
+  if (mine.length) { console.log(" Assigned to you (open):"); mine.forEach((x) => console.log(row(x))); }
+  if (pool.length) { console.log(" Pool — grab one (delegate -> *):"); pool.forEach((x) => console.log(row(x))); }
+  if (needs.length) { console.log(" Help wanted (need):"); needs.forEach((x) => console.log(row(x))); }
+  if (!mine.length && !pool.length && !needs.length) console.log("  nothing open — pull a section or ask the lead.");
+  return 0;
+}
 // Active claims = claim minus release, MINUS any whose section (scope's first component) is
 // marked `done` — a closed section auto-releases its claims so the partition frees up for
 // reassignment (release-on-done). The single source of truth for every claim consumer.
@@ -389,6 +412,7 @@ function main(argv, defaultRoot) {
   const cfScope = cmd === "claim-check" ? (rest.shift() || scope || "") : null;
   const coFile = cmd === "claim-owner" ? rest.shift() : null;
   const csFile = cmd === "claim-session" ? rest.shift() : null;
+  const tdSession = cmd === "todo" ? rest.shift() : null;
   const soName = cmd === "section-status" ? rest.shift() : null;
   const foSpec = cmd === "fan-out" ? rest.shift() : null;
   const target = rest[0] ? path.resolve(rest[0]) : (defaultRoot || process.cwd());
@@ -399,6 +423,7 @@ function main(argv, defaultRoot) {
     case "claims": return ticsClaims(target, all);
     case "sections": return ticsSections(target, all);
     case "sessions": return ticsSessions(target, all);
+    case "todo": return ticsTodo(target, tdSession);
     case "cycle": return ticsCycle(target);
     case "gate": return ticsGate(target, all);
     case "claim-check": return claimCheckCli(target, cfFile, cfScope);
@@ -412,4 +437,4 @@ function main(argv, defaultRoot) {
 if (require.main === module) {
   process.exit(main(process.argv.slice(2), path.join(__dirname, "..", "..")) || 0);
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsSessions, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, fanOut, main };
+module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsSessions, ticsTodo, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, fanOut, main };
