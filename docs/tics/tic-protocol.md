@@ -97,6 +97,33 @@ seq race). Default `TIC_STORE=jsonl` (one append-only file) suits a single sessi
 merge either store transparently. SQLite is intentionally avoided — it would break the zero-dep
 / Node>=16 / bash-hook portability invariants for wins not needed at session scale.
 
+## Multiple sessions on one repo — COMBINE forces (ADR 0003, supersedes 0002's worktree advice)
+Multiple sessions exist to combine power on ONE shared tree — horizontal scaling, where a new
+session is a new worker on the team — NOT to isolate into separate worktrees (that forks the team
+and splits its power). Sessions share `.claude/state/tics.jsonl`, so the bus IS the cooperation
+medium. First, the substrate that keeps cooperation from double-working or clobbering:
+1. **Identify + scope each session.** `echo <id> > .claude/state/session` (or `TICS_SESSION`) + a
+   distinct `echo <id>/<area> > .claude/state/scope`. Every tic carries the session; edits auto-claim;
+   `tics sessions` shows who's active where.
+2. **Fail-closed:** `MULTI_SESSION=1` — the guard refuses an *unscoped* edit (unscoped is how two
+   sessions silently collide; scoping makes claims engage).
+3. **The bus enforces disjoint writes:** a rival session's claim blocks your edit (`claim-check`);
+   the **pre-commit** blocks committing a file — or a release (the **`RELEASE` lock**) — held by
+   another live session (the git choke-point the edit-guard can't see).
+
+On that substrate, two cooperation patterns — same primitives, no new kinds:
+- **Master/worker.** A worker JOINS: `tic.sh <id> '*' session open available` (now `[active]` in
+  `tics sessions`). The lead ASSIGNS: `tic.sh lead <id> delegate "<slice>" <id>/<area>`. The worker
+  loops: read `tics inbox <id>` → `echo <id>/<area> > .claude/state/scope` → edit (files auto-claim;
+  rivals blocked) → `tic.sh <id> lead handoff "done" <ref> green` → `tic.sh <id> '*' section done
+  <area>` (frees the lane) → pull the next. Scale out by adding workers.
+- **Joint-forces (peers, no fixed lead).** Offer work to the pool with `delegate to '*'`, pass a
+  slice you can't finish with `handoff to '*'`, summon help with `need`; first toucher claims it.
+  `tics conductor` is the shared live picture.
+
+Worktree-per-session is only a niche escape valve for genuinely INDEPENDENT efforts (which isn't
+cooperation); `tics … --all` (default) still unions their buses when `TIC_STORE=spool`.
+
 ## Red-storm breaker
 A long run of red suites usually means the failing TEST is over-constrained or contradictory,
 not that the code is wrong. `run-suite` counts consecutive reds (reset on green); at

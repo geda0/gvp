@@ -237,6 +237,19 @@ function claimOwner(targetDir, file) {
   }
   return "";
 }
+// claimSession: which SESSION (not scope) holds an active claim on a path — empty if free. The
+// cross-session predicate the pre-commit gate uses (ADR 0002 MS3/MS4): a staged file or the
+// RELEASE lock held by a session OTHER than mine must block the commit.
+function claimSession(targetDir, file) {
+  if (!file) return "";
+  const active = activeClaims(loadTics(targetDir));
+  for (const x of active.values()) {
+    const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
+    if (hit) return x.session || "";
+  }
+  return "";
+}
+function claimSessionCli(targetDir, file) { const s = claimSession(targetDir, file); if (s) console.log(s); return 0; }
 function claimOwnerCli(targetDir, file) {
   const o = claimOwner(targetDir, file);
   if (o) console.log(o);
@@ -356,6 +369,7 @@ function main(argv, defaultRoot) {
   const cfFile = cmd === "claim-check" ? rest.shift() : null;
   const cfScope = cmd === "claim-check" ? (rest.shift() || scope || "") : null;
   const coFile = cmd === "claim-owner" ? rest.shift() : null;
+  const csFile = cmd === "claim-session" ? rest.shift() : null;
   const soName = cmd === "section-status" ? rest.shift() : null;
   const foSpec = cmd === "fan-out" ? rest.shift() : null;
   const target = rest[0] ? path.resolve(rest[0]) : (defaultRoot || process.cwd());
@@ -370,6 +384,7 @@ function main(argv, defaultRoot) {
     case "gate": return ticsGate(target, all);
     case "claim-check": return claimCheckCli(target, cfFile, cfScope);
     case "claim-owner": return claimOwnerCli(target, coFile);
+    case "claim-session": return claimSessionCli(target, csFile);
     case "section-status": return sectionStatusCli(target, soName);
     case "fan-out": return fanOut(target, foSpec);
     default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims | sections | claim-check <file> <scope> | claim-owner <file> | section-status <name> | fan-out <spec>] [--all]>"); return 2;
@@ -378,4 +393,4 @@ function main(argv, defaultRoot) {
 if (require.main === module) {
   process.exit(main(process.argv.slice(2), path.join(__dirname, "..", "..")) || 0);
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsSessions, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, sectionStatus, sectionStatusCli, fanOut, main };
+module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsSessions, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, fanOut, main };
