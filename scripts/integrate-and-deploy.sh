@@ -451,6 +451,49 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
     CLUSTER=""
     SERVICE=""
 
+  elif [[ "${CHAT_DEPLOY_TARGET:-ecs}" == "express" ]]; then
+    # ---- ECS Express Mode chat (aws/chat-express-template.yaml) — ADR-0007 Phase 3 ----
+    # App Runner is in maintenance mode (no new customers from 2026-04-30); ECS Express
+    # Mode is AWS's managed successor. Same "image + port -> HTTPS" model (Fargate + an
+    # ECS-managed ALB/TLS/autoscaling/SGs) on the supported platform. Like the App Runner
+    # path: a plain stateless container (Phase 1 voice is browser-direct), the frontend
+    # chat meta is pinned per-env in committed HTML, and CFN deploy is create-or-update
+    # (an image-only change rolls the service).
+    CHAT_EXPRESS_STACK="${CHAT_EXPRESS_STACK_NAME:-gvp-chat-express-${DEPLOY_ENV}}"
+    if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+      echo "ERROR: GEMINI_API_KEY required for chat ECS Express deploy." >&2
+      exit 1
+    fi
+    echo "cfn deploy chat ECS Express stack=${CHAT_EXPRESS_STACK} env=${DEPLOY_ENV} image=${REMOTE_SHA}"
+    CHAT_EX_PO=(
+      "StageName=${DEPLOY_ENV}"
+      "ImageUri=${REMOTE_SHA}"
+      "GeminiApiKey=${GEMINI_API_KEY}"
+      "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
+      "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
+      "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
+      "ChatVoiceModel=${CHAT_VOICE_MODEL:-${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}}"
+      "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link}"
+    )
+    if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
+      CHAT_EX_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
+    fi
+    aws cloudformation deploy \
+      --template-file "${AWS_DIR}/chat-express-template.yaml" \
+      --stack-name "${CHAT_EXPRESS_STACK}" \
+      --region "${REGION}" \
+      --capabilities CAPABILITY_NAMED_IAM \
+      --no-fail-on-empty-changeset \
+      --parameter-overrides "${CHAT_EX_PO[@]}"
+    CHAT_EXPRESS_URL="$(aws cloudformation describe-stacks \
+      --stack-name "${CHAT_EXPRESS_STACK}" \
+      --region "${REGION}" \
+      --query "Stacks[0].Outputs[?OutputKey=='ServiceUrl'].OutputValue | [0]" \
+      --output text 2>/dev/null || true)"
+    echo "chat ECS Express ServiceUrl=${CHAT_EXPRESS_URL}"
+    CLUSTER=""
+    SERVICE=""
+
   else
 
   # ---- Optional: SAM-managed ECS chat stack (aws/chat-ecs-template.yaml) ----
@@ -563,7 +606,7 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
       echo "      Or set CHAT_ECS_CLUSTER_PROD + CHAT_ECS_SERVICE_PROD for aws ecs update-service only (no SAM ECS stack)." >&2
     fi
   fi
-  fi  # end CHAT_DEPLOY_TARGET (apprunner | ecs)
+  fi  # end CHAT_DEPLOY_TARGET (apprunner | express | ecs)
 elif [[ "${CHAT_ALWAYS_BUILD:-0}" == "1" ]]; then
   echo "CHAT_ECR_REPOSITORY_URI unset — chat image built locally as ${CHAT_IMAGE_LOCAL} only."
 fi

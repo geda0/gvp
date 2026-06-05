@@ -71,14 +71,15 @@ jobs:
       SAM_STACK_NAME_STAGE: ${{ vars.SAM_STACK_NAME_STAGE || 'page-staging' }}
       CHAT_STAGE_CHAT_API_URL: ${{ vars.CHAT_STAGE_CHAT_API_URL }}
       CHAT_PROD_CHAT_API_URL: ${{ vars.CHAT_PROD_CHAT_API_URL }}
-      # Chat backend (ADR-0007 Phase 3): staging deploys to App Runner, not ECS+ALB.
-      # After Phase 1 the backend has no WebSocket (voice is browser-direct via an ephemeral
-      # token), so it is a plain stateless HTTP service — integrate-and-deploy.sh runs
-      # `cloudformation deploy` of aws/chat-apprunner-template.yaml (image + port -> HTTPS),
-      # none of the ECS/ALB/VPC machinery. STAGING ONLY: the prod workflow reads the empty
-      # vars.* and stays contact-only; prod chat stays on ECS until a Phase 4 prod cutover.
-      CHAT_DEPLOY_TARGET: apprunner
-      CHAT_APPRUNNER_STACK_NAME: gvp-chat-apprunner-stage
+      # Chat backend (ADR-0007 Phase 3): staging deploys to ECS Express Mode. App Runner
+      # entered maintenance mode (no new customers 2026-04-30), so it was a dead end; ECS
+      # Express Mode is AWS's managed successor — image+port -> HTTPS on Fargate with an
+      # ECS-managed ALB/TLS/autoscaling. After Phase 1 the backend is a plain stateless HTTP
+      # container, so integrate-and-deploy.sh just runs `cloudformation deploy` of
+      # aws/chat-express-template.yaml. STAGING ONLY: the prod workflow reads the empty vars.*
+      # and stays contact-only; prod chat stays on ECS+ALB until a Phase 4 prod cutover.
+      CHAT_DEPLOY_TARGET: express
+      CHAT_EXPRESS_STACK_NAME: gvp-chat-express-stage
       CHAT_ECR_REPOSITORY_URI: 429844072978.dkr.ecr.us-east-2.amazonaws.com/gvp-chat
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       # Pinned to the live gvp-chat-ecs-stage stack's current values so an image-only redeploy

@@ -32,9 +32,10 @@ const ENV_HOSTS = {
   },
   stage: {
     contact: 'fvfqpef8kb.execute-api.us-east-2.amazonaws.com',
-    // ADR-0007 Phase 3: staging chat re-homed ECS+ALB -> App Runner (browser-direct voice
-    // means no WS to host, so no ALB/custom-domain needed for staging).
-    chat: 'yatpp3ngig.us-east-2.awsapprunner.com'
+    // ADR-0007 Phase 3: staging chat is hosted on ECS Express Mode (AWS's managed successor
+    // to App Runner, which entered maintenance mode 2026-04-30). Browser-direct voice means
+    // no WS to host, so the ECS-managed *.ecs.<region>.on.aws URL + TLS is all staging needs.
+    chat: 'gv-d7fa1a51ec09445caf0d435348131479.ecs.us-east-2.on.aws'
   }
 }
 
