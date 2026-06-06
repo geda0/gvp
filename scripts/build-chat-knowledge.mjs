@@ -46,7 +46,7 @@ const PROJECT_TAGS = {
 }
 
 const PROJECT_FRAMES = {
-  'team-tactics': "The open harness behind agentic work on this site: hooks-gated red/green TDD, role agents (test-writer, implementer, tdd-critic), and a live tic bus so handoffs stay auditable. Same kit that shipped the contact pipeline and chat invariant coverage.",
+  'team-tactics': "The open, composable TDD kit behind all agentic work on this site. Fail-closed hooks (red = tests, green = source, can't finish on red), role agents (test-writer, implementer, tdd-critic), and a live tic bus so every handoff is recorded and parallel pairs never collide. The same harness that shipped the contact pipeline, chat backend (Phases 1-4), and every invariant on this site.",
   'ai-assistant-chatbot': "Production AI reality: the model is rarely the hard part. Streaming UX, fallback routing, durable failure capture, and observability are where the work lives. Demonstrates Marwan's habits applied to a personal site where every choice is visible.",
   gvp: 'Demonstrates how Marwan combines product UX with clear service boundaries for AI-enabled workflows.',
   apptio: "Shows Marwan's approach to platform modernization in data-intensive SaaS with strong operability guardrails.",
@@ -317,7 +317,8 @@ function buildProjects(projects) {
 
   return all.map((item) => {
     const id = String(item.id || '')
-    const summary = `${item.cardDescription || ''} ${stripHtml(item.description || '')}`.trim()
+    const autoSummary = `${item.cardDescription || ''} ${stripHtml(item.description || '')}`.trim()
+    const summary = String(item.chatSummary || '').trim() || autoSummary
     return {
       id,
       name: String(item.title || ''),

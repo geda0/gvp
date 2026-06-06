@@ -1,5 +1,6 @@
 // projects.js - Project data loading and rendering
 import { trackProjectInteraction } from './analytics.js'
+import { isContactProjectLink } from './project-link.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
 // Detail cache keyed by project id. Bounded in practice by the project count
 // in data/projects.json (populated once per render, small N) — no eviction needed.
@@ -210,6 +211,13 @@ export function initProjectDetailDialog() {
       actionsEl.hidden = false;
       linkEl.href = data.link;
       linkEl.textContent = data.linkText || 'Open link';
+      if (isContactProjectLink(data.link)) {
+        linkEl.removeAttribute('target');
+        linkEl.removeAttribute('rel');
+      } else {
+        linkEl.target = '_blank';
+        linkEl.rel = 'noopener noreferrer';
+      }
     } else {
       actionsEl.hidden = true;
       linkEl.removeAttribute('href');
@@ -257,10 +265,18 @@ export function initProjectDetailDialog() {
 
   closeBtn?.addEventListener('click', closeDialog);
   backdrop?.addEventListener('click', closeDialog);
-  linkEl?.addEventListener('click', () => {
+  linkEl?.addEventListener('click', (e) => {
     const id = dialog.getAttribute('data-project-id') || ''
+    const data = projectDetailsById.get(id)
     const section = window.location.hash === '#portfolio' ? 'portfolio' : window.location.hash === '#labs' ? 'labs' : 'home'
     trackProjectInteraction('open_link', id, section)
+    if (data && isContactProjectLink(data.link)) {
+      e.preventDefault()
+      closeDialog()
+      import('./contact.js').then(({ openContactDialog }) => {
+        openContactDialog(data.contactPrefill)
+      })
+    }
   })
 
   bindEscapeClosesDialogWhenOpen(dialog, closeDialog);
@@ -283,6 +299,7 @@ function createProjectCard(project) {
       tech: Array.isArray(project.tech) ? project.tech : [],
       link: project.link || '',
       linkText: project.linkText || '',
+      contactPrefill: project.contactPrefill || null,
       image: project.image || '',
       imageAlt: project.imageAlt || project.title || ''
     });

@@ -152,6 +152,14 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
 `test/starfield-reduced-motion.test.mjs`; app 10/10 · chat 70/70 green._
 
+**Release: Team Tactics private-repo contact CTA (signed off 2026-06-06).** `[app]` UX — no backend
+change. Labs card `link` → `#contact`, CTA **Request access**, `contactPrefill` opens contact dialog.
+`test/team-tactics-project.test.mjs`; app **42/42** green.
+
+- **Team Tactics CTA opens contact form** — `[app]` ✓ ACCEPTED.
+  - No `github.com/geda0/team-tactics` in project link; `#contact` + **Request access**.
+  - Click closes project dialog and opens contact form with prefilled subject/message.
+
 **Release: Invariant-completion pins (#8 cap + #7 ok-cell + tdd-critic Obs A/C) (signed off
 2026-06-04).** App suite **36/36**, chat **86/86** green; tdd-critic milestone audit = PASS-on-
 substance (CONCERNS were two pre-existing soft spots, one of which — the #7 ok-cell — is closed
