@@ -64,7 +64,8 @@
   + [`js/projects.js`](js/projects.js) closes project dialog and lazy-opens contact form on CTA click.
   Guards in `test/team-tactics-project.test.mjs`. `chatSummary` on team-tactics + ai-assistant
   prevents rebuild regression. app 43 pass / 1 skipped; tdd-critic PASS; product-owner ACCEPTED.
-  **Committed** `0f4ab64` (product); harness state in separate commit.
+  **Committed** `0f4ab64` (product) · harness `46d938a`. **Pushed** to `origin/agent`
+  2026-06-06; CI deploy-staging run 27051135017 GREEN.
 - 2026-06-06 — **Adopted team-tactics 0.32.0 (full-team preset).** Ran
   `npx github:geda0/team-tactics@latest update --preset full-team` — already on 0.32.0; refreshed
   mechanism files + merged settings hooks; data preserved (`tdd.config`, invariants, state).
