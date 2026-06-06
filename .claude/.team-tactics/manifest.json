@@ -3,7 +3,7 @@
   "kitVersion": "0.32.0",
   "configSchema": 2,
   "preset": "full-team",
-  "updatedAt": "2026-06-05T15:51:11.164Z",
+  "updatedAt": "2026-06-06T02:46:02.971Z",
   "files": {
     ".claude/agents/test-writer.md": {
       "class": "mechanism",

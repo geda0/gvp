@@ -6,10 +6,12 @@
 - Feature in flight: **none**. **ALL TEN INVARIANTS NOW FULLY PROVEN** — the last open clause
   (#8's 55s API-Gateway cap) shipped 2026-06-04, plus two contact-core tdd-critic pins (Obs A
   `markSending` order, Obs C enqueued `idempotencyKey`) and the #7 non-stream-OK cell
-  (`turn['status']=='ok'`, closing the milestone tdd-critic finding). Active layer: **chat** ·
+  (`turn['status']=='ok'`, closing the milestone tdd-critic finding). Active layer: **app** ·
   phase: **off**.
-- Harness: **team-tactics 0.9.2** (installed; selftest 13/13; tic protocol live).
-- Suites: **app `node --test` 36/36** · **chat pytest 86/86** (verified locally this session).
+- Harness: **team-tactics 0.32.0** (`--preset full-team`; refreshed 2026-06-06 via
+  `npx github:geda0/team-tactics@latest update --preset full-team`). selftest **15/15**; tic
+  protocol live; `docs/tdd/tool-support.md` present.
+- Suites: **app `node --test` 43 pass / 1 skipped (44 total)** · **chat pytest 86/86** (last recorded).
 - tdd-critic milestone audit = **PASS-on-substance** (all pins honest/RED-capable). Two CONCERNS
   were pre-existing soft spots: #7 ok-cell (now CLOSED) and #10 coupling/allowlist (OPTIONAL,
   backlogged). Plus a minor non-blocking note: pin-1 order could deep-equal the full call sequence.
@@ -57,6 +59,17 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-06 — **SHIPPED Team Tactics contact CTA** (`[app]`). Private repo: `link` → `#contact`,
+  `linkText` → **Request access**, `contactPrefill` with subject/message. [`js/project-link.js`](js/project-link.js)
+  + [`js/projects.js`](js/projects.js) closes project dialog and lazy-opens contact form on CTA click.
+  Guards in `test/team-tactics-project.test.mjs`. `chatSummary` on team-tactics + ai-assistant
+  prevents rebuild regression. app 43 pass / 1 skipped; tdd-critic PASS; product-owner ACCEPTED.
+  **Committed** `0f4ab64` (product); harness state in separate commit.
+- 2026-06-06 — **Adopted team-tactics 0.32.0 (full-team preset).** Ran
+  `npx github:geda0/team-tactics@latest update --preset full-team` — already on 0.32.0; refreshed
+  mechanism files + merged settings hooks; data preserved (`tdd.config`, invariants, state).
+  validate OK (app + chat layers). selftest **15/15**; app **36/36**. Manifest timestamp only in
+  git diff unless uncommitted kit files differ from HEAD.
 - 2026-06-04 — **FEATURE: enhance project dialog text** (phase `off`). Root cause: dialog used
   regex-stripped `textContent` (blob + literal `&ldquo;`). Now renders trusted HTML via
   `innerHTML`; `htmlToPlainText` for card/spaceman plain paths. CSS: paragraph spacing, section
