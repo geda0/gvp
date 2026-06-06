@@ -2,19 +2,22 @@
   {
     "id": "team-tactics",
     "name": "Team Tactics",
-    "summary": "Team Tactics is a fail-closed TDD harness for Claude Code. Red phase = tests only. Green phase = source only. You cannot finish on a red bar. Install with npx tics into any Claude Code project to turn AI edits into a disciplined pairing loop. The gate: every edit is checked by phase and layer — out-of-scope files are blocked, run-suite emits objective RED/GREEN signals. Role agents: test-writer adds exactly one failing characterization test; implementer writes the minimal code to pass it; tdd-critic audits behavior vs implementation every few cycles. Add --preset full-team for the outer SDLC loop: product-owner, architect, qa-verifier, project-manager, dev-ops — the same team that built this site's contact pipeline, chat backend, and Labs section. Tic bus: agents coordinate through .claude/state/tics.jsonl (append-only), recording every delegate, handoff, signal, block, and verdict. Parallel pairs auto-claim files and auto-open work sections — no collisions. tics log shows the thread; tics gate checks release readiness. Composable layers: @ttics/tics is the protocol alone, @ttics/tdd is the pairing gate, team-tactics composes both and adds the full-team preset. Run npx tics selftest to verify the gate enforces in your environment (passes 15/15 checks). Adopt incrementally.",
+    "summary": "Team Tactics is a fail-closed TDD harness for Claude Code. Red phase = tests only. Green phase = source only. You cannot finish on a red bar. Install with npx tics into any Claude Code project to turn AI edits into a disciplined pairing loop. The gate: every edit is checked by phase and layer — out-of-scope files are blocked, run-suite emits objective RED/GREEN signals. Role agents: test-writer adds exactly one failing characterization test; implementer writes the minimal code to pass it; tdd-critic audits behavior vs implementation every few cycles. Add --preset full-team for the outer SDLC loop: product-owner, architect, qa-verifier, project-manager, dev-ops — the same team that built this site's contact pipeline, chat backend, and Labs section. Tic bus: agents coordinate through .claude/state/tics.jsonl (append-only), recording every delegate, handoff, signal, block, and verdict. Parallel pairs auto-claim files and auto-open work sections — no collisions. tics log shows the thread; tics gate checks release readiness. Composable layers: @ttics/tics is the protocol alone, @ttics/tdd is the pairing gate, team-tactics composes both and adds the full-team preset. Run npx tics selftest to verify the gate enforces in your environment (passes 15/15 checks). Adopt incrementally. The private full-team repo is available on request via the Labs card.",
     "why_it_matters": "The open, composable TDD kit behind all agentic work on this site. Fail-closed hooks (red = tests, green = source, can't finish on red), role agents (test-writer, implementer, tdd-critic), and a live tic bus so every handoff is recorded and parallel pairs never collide. The same harness that shipped the contact pipeline, chat backend (Phases 1-4), and every invariant on this site.",
     "tech": [
       "Claude Code",
-      "TDD",
-      "Hooks",
-      "Agent protocols",
+      "@ttics/tics",
+      "@ttics/tdd",
+      "red→green pairing",
+      "Agent orchestration",
+      "Git hooks",
+      "Parallel agents",
       "Node.js"
     ],
     "links": [
       {
-        "label": "Open on GitHub",
-        "url": "https://github.com/geda0/team-tactics"
+        "label": "Request access",
+        "url": "#contact"
       }
     ],
     "relevance_tags": [
@@ -54,7 +57,6 @@
       "aws",
       "python",
       "data pipelines",
-      "frontend",
       "serverless",
       "playground"
     ]

@@ -2,10 +2,28 @@ import { contactApiUrl } from './site-config.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
 
 /** Assigned in initContactForm; opens #contactDialog without synthetic button click. */
-let openContactDialogImpl = () => {}
+let openContactDialogImpl = (_prefill) => {}
 
-export function openContactDialog() {
-  openContactDialogImpl()
+function applyContactPrefill (prefill) {
+  if (!prefill || typeof prefill !== 'object') return
+  requestAnimationFrame(() => {
+    const form = document.getElementById('contactForm')
+    if (!form) return
+    const subject = form.querySelector('input[name="subject"]')
+    const message = form.querySelector('textarea[name="message"]')
+    if (subject && typeof prefill.subject === 'string') {
+      subject.value = prefill.subject
+      subject.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    if (message && typeof prefill.message === 'string') {
+      message.value = prefill.message
+      message.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+  })
+}
+
+export function openContactDialog (prefill) {
+  openContactDialogImpl(prefill)
 }
 
 export function initContactForm() {
@@ -51,12 +69,13 @@ export function initContactForm() {
   showFormView(true)
   setStatus(CONTACT_HELPER_TEXT, 'muted')
 
-  const openDialog = () => {
+  const openDialog = (prefill) => {
     lastFocus = document.activeElement
     setDialogVisibility(dialog, true)
     document.body.classList.add('contact-dialog-open')
     window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'))
     showFormView(true)
+    applyContactPrefill(prefill)
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
   }
 
