@@ -15,18 +15,10 @@
 - tdd-critic milestone audit = **PASS-on-substance** (all pins honest/RED-capable). Two CONCERNS
   were pre-existing soft spots: #7 ok-cell (now CLOSED) and #10 coupling/allowlist (OPTIONAL,
   backlogged). Plus a minor non-blocking note: pin-1 order could deep-equal the full call sequence.
-- **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
-  pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
-  and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
-  Amplify builds the frontends (`agent`→chat.marwanelgendy.link · `main`→www.marwanelgendy.link).
-  Prod deploy run `26938125929` GREEN; QA-gated by a staging E2E contact submission (qa-verifier
-  PASS). Prod chat (ECS `chat-api.marwanelgendy.link`) untouched/manual. ⚠ CI actions on Node20
-  (GitHub deprecation 2026-06-16).
-- Branch `claude/compassionate-dubinsky-de3583`: merged the navigator's `agent` work (`c99fa96`:
-  frontend guards #1/#2, "Team Tactics" showcase project) by fast-forward, then added the
-  invariant-completion pins (`40c3d94` contact Obs A/C · `7246297` chat #8 cap · ok-cell + docs).
-  ⚠ NOT YET PUSHED to `agent`/`main`. `origin/agent` = `c99fa96`; `main` = `fda626f` (both lack the
-  new pins + the #8/#9/#10 chat tests — a deploy-neutral docs/tests delta; no production code change).
+- **DEPLOYED to STAGING + PROD (2026-06-06), both GREEN.** Team Tactics contact CTA promoted
+  agent→main (`d9ce997`) with prod API metas preserved. Staging deploy `27051135017` · prod deploy
+  `27051407724`. Amplify: `agent`→chat.marwanelgendy.link · `main`→www.marwanelgendy.link.
+  ⚠ CI actions on Node20 (GitHub deprecation 2026-06-16).
 - Next backlog: only the LOW-priority / OPTIONAL tdd-critic hardening tail remains (#9 cross-turn
   fallback-first + `last_model_id`; OPTIONAL #10 voice allowlist + preset/cadence coupling). None
   blocks an invariant. Reasonable checkpoint with the navigator on whether to grind these or stop.
@@ -59,6 +51,10 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-06 — **PRODUCTION release: Team Tactics contact CTA.** Merged `origin/agent` → `main`
+  (`d9ce997`), prod API metas kept (`index.html`/`admin` staging hosts rejected). deploy-prod run
+  `27051407724` GREEN. qa-verifier PASS on staging before promote; navigator confirmed prod path.
+  Recorded in `releases.md`.
 - 2026-06-06 — **SHIPPED Team Tactics contact CTA** (`[app]`). Private repo: `link` → `#contact`,
   `linkText` → **Request access**, `contactPrefill` with subject/message. [`js/project-link.js`](js/project-link.js)
   + [`js/projects.js`](js/projects.js) closes project dialog and lazy-opens contact form on CTA click.
