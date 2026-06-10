@@ -255,7 +255,7 @@ function cfgNum(targetDir, key, def) {
 function claimsFor(targetDir, tics) { return activeClaims(tics, { nowMs: Date.now(), ttlSec: cfgNum(targetDir, "CLAIMS_TTL", 0) }); }
 function claimCheck(targetDir, file, myScope) {
   if (!file || !myScope) return null;            // unscoped editor or no path -> no enforcement
-  const active = claimsFor(targetDir, loadTics(targetDir));
+  const active = claimsFor(targetDir, loadTicsAll(targetDir));   // ADR 0004 pt2: enforce ACROSS worktrees (the host gives each session its own) so a peer's claim is seen
   for (const x of active.values()) {
     const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
     if (hit && !scopeMatch(x.scope || "*", myScope)) return { token: x.ref, scope: x.scope || "*", seq: x.seq, from: x.from };
@@ -272,7 +272,7 @@ function claimCheckCli(targetDir, file, myScope) {
 // the guard can tell "unclaimed" (auto-claim it) from "already mine" (skip — no re-claim spam).
 function claimOwner(targetDir, file) {
   if (!file) return "";
-  const active = claimsFor(targetDir, loadTics(targetDir));
+  const active = claimsFor(targetDir, loadTicsAll(targetDir));   // ADR 0004 pt2: enforce ACROSS worktrees (the host gives each session its own) so a peer's claim is seen
   for (const x of active.values()) {
     const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
     if (hit) return x.scope || "*";
@@ -284,7 +284,7 @@ function claimOwner(targetDir, file) {
 // RELEASE lock held by a session OTHER than mine must block the commit.
 function claimSession(targetDir, file) {
   if (!file) return "";
-  const active = claimsFor(targetDir, loadTics(targetDir));
+  const active = claimsFor(targetDir, loadTicsAll(targetDir));   // ADR 0004 pt2: enforce ACROSS worktrees (the host gives each session its own) so a peer's claim is seen
   for (const x of active.values()) {
     const hit = [x.ref, x.msg].filter(Boolean).some((t) => file === t || file.indexOf(t) !== -1 || t.indexOf(file) !== -1);
     if (hit) return x.session || "";

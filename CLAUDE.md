@@ -19,8 +19,11 @@ You are the **orchestrator** of the TDD pairing loop. The full method lives in
 Method + rules: `docs/tdd/tdd-workflow.md`, `docs/tdd/testing-philosophy.md`,
 `docs/tdd/project-invariants.md`. Continuation state: `.claude/state/progress.md`.
 
-Running the outer product loop (product-owner / architect / qa / PM / dev-ops)?
-Install `--preset full-team` and follow `docs/tdd/outer-loop.md`. Large, multi-context
+**Operate the full framework by default** (ADR 0005) — the outer-loop team (product-owner /
+architect / qa / PM / dev-ops) is installed by default; engage it, scaled to the task, and follow
+`docs/tdd/outer-loop.md`. The automatic solo-drift backstop (ADR 0006) keeps full-team honest by
+default (a Stop-hook NOTE on substantial solo-drift); the every-prompt directive is available opt-in
+(`PROMPT_DIRECTIVE=1`; auto-silent in CI). Installed `--minimal`? Inner pair only. Large, multi-context
 project with parallel teams? Section it — `docs/tdd/sectioning.md`.
 <!-- <<< team-tactics: managed <<< -->
 

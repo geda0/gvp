@@ -17,13 +17,20 @@ if [ "${MULTI_SESSION:-0}" = "1" ] && [ -n "$_sess" ]; then
   emit_tic "$_sess" "*" session "available for work" "" open
 fi
 
-# Worktree bus check: parallel git worktrees but an unshared tic bus -> fragmented coordination.
+# Worktree bus check (ADR 0004 pt2): claims + views already correlate across worktrees (the reader
+# merges every worktree's bus + enforcement reads --all), so coordination works as-is. A shared
+# spool is now an OPTIMIZATION (one bus, no per-read worktree walk, no jsonl seq-race) — not required.
 if [ -z "${TICS_DIR:-}" ] && [ "${TIC_STORE:-jsonl}" != "spool" ]; then
   _wt=$(cd "$ROOT" 2>/dev/null && git worktree list 2>/dev/null | wc -l | tr -d ' ')
   if [ "${_wt:-0}" -gt 1 ]; then
-    echo "NOTE: $_wt git worktrees but the tic bus is not shared — each writes its own .claude/state, so claims/needs can't correlate across them. Share one bus: set TIC_STORE=spool + TICS_DIR in .claude/tdd.config (see the 'Parallel worktrees' block). See docs/tdd/sectioning.md."
+    echo "NOTE: $_wt git worktrees on one repo — claims + views already correlate across them (the reader merges every worktree's bus), so coordination works as-is. Optional: a single shared bus (TIC_STORE=spool + TICS_DIR in .claude/tdd.config) avoids the per-read worktree walk + the jsonl seq-race. See docs/tdd/sectioning.md."
   fi
 fi
+
+# Stamp session-started marker for solo-drift-check.sh (must be ABOVE the early-exit
+# so opting out of the baseline check doesn't silently lose the backstop).
+mkdir -p "$ROOT/.claude/state" 2>/dev/null || true
+date -u +%Y-%m-%dT%H:%M:%SZ > "$ROOT/.claude/state/session-started" 2>/dev/null || true
 
 [ "${SESSION_BASELINE_CHECK:-1}" = "1" ] || exit 0
 CMD="${BASELINE_CMD:-$ALL_TEST_CMD}"
