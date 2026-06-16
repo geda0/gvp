@@ -5,6 +5,7 @@ import { chatApiUrl } from './site-config.js'
 import { normalizeSection } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
+import { resolveLauncherIntent } from './chat-launcher-intent.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
@@ -1517,7 +1518,12 @@ export function initChat() {
     patchLiveUi,
     onToolCall: applyVoiceToolCall,
     onAudioLevels: handleAudioLevels,
-    onVoiceLauncherRequest: () => {
+    onVoiceLauncherRequest: ({ button } = {}) => {
+      // Subpage navbar pill: see chat-launcher-intent.js for the routing logic.
+      if (resolveLauncherIntent({ button }) === 'text') {
+        if (!isOpen()) openPanel({ mode: 'text' })
+        return true
+      }
       if (liveUi.active || liveUi.connecting) return false
       if (liveVoice?.isSessionOpen?.()) return false
       if (!isOpen()) openPanel({ mode: 'voice' })
