@@ -44,6 +44,15 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/run-suite.sh"
           }
         ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tool-witness.sh"
+          }
+        ]
       }
     ],
     "Stop": [

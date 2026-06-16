@@ -16,5 +16,5 @@ if [ -f "$ROOT/.claude/agents/product-owner.md" ]; then
   printf '%s\n' "- Outer loop: product-owner selects/accepts vs the brief, architect owns the §seams + ADRs, qa-verifier drives the running app, project-manager + dev-ops cut the release."
 fi
 printf '%s\n' "- Inner loop: set phase+layer, then delegate red->test-writer / green->implementer; tdd-critic every few cycles. The gate is the referee; the suite decides done, not you."
-printf '%s\n' "- Coordinate through the tic bus (delegate/handoff/claim/need). Sharing the repo with peers? Join forces (\`tics todo\` / \`tics sessions\`) — don't work blind or double up."
+printf '%s\n' "- Coordinate through the tic bus (delegate/handoff/claim/need/contract). Parallel work? One git worktree per track on the shared spool bus (ADR 0015) — claim/need keep peers disjoint; don't work blind or double up."
 exit 0

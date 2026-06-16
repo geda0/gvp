@@ -63,9 +63,10 @@ function collapseRunSuite(list) {
   }
   return out;
 }
-function ticsLog(targetDir, scopeFilter, all) {
+function ticsLog(targetDir, scopeFilter, all, showWitness) {
   let t = loadFor(targetDir, all);
   if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
+  if (!showWitness) t = t.filter((x) => !(x.kind === "note" && x.from === "witness"));
   if (!t.length) { console.log("No tics yet — the agent thread is empty (.claude/state/tics.jsonl)."); return 0; }
   t = collapseRunSuite(t);
   for (const x of t) {
@@ -169,90 +170,176 @@ function ticsSections(targetDir, all) {
   }
   return 0;
 }
-// Sessions (ADR 0002): who is active on this repo and where. Groups the bus by the `session` field
-// (set via TICS_SESSION / .claude/state/session). The cross-session coordination surface — two
-// sessions on one tree each appear with their scopes + claims, so collisions are visible.
-function ticsSessions(targetDir, all) {
-  const t = loadFor(targetDir, all);
-  const sess = {};
-  for (const x of t) {
-    const id = x.session || "";
-    if (!id) continue;
-    const e = sess[id] || (sess[id] = { tics: 0, scopes: {}, claims: 0, status: "active", last: "" });
-    e.tics++;
-    if (x.scope && x.scope !== "*") e.scopes[x.scope] = 1;
-    if (x.kind === "claim") e.claims++;
-    if (x.kind === "release") e.claims--;
-    if (x.kind === "session" && x.result) e.status = x.result;   // open|closed — append order, latest wins
-    if ((x.ts || "") > e.last) e.last = x.ts || "";
-  }
-  const ids = Object.keys(sess).sort();
-  if (!ids.length) { console.log("No sessions yet — identify one with: echo <id> > .claude/state/session (or TICS_SESSION=<id>)."); return 0; }
-  console.log("Sessions (live, from the bus):");
-  for (const id of ids) {
-    const e = sess[id];
-    console.log("  " + id.padEnd(16) + ("[" + (e.status || "active") + "]").padEnd(10) + "scopes: " + (Object.keys(e.scopes).join(", ") || "-") + "  | claims " + Math.max(0, e.claims) + "  (last " + (e.last || "").slice(11, 19) + ")");
-  }
-  return 0;
-}
-// `tics todo [<session>]` — the cooperation "what should I pick up?" (ADR 0003 C2/C3). Sugar over
-// the bus verbs: your OPEN assignments (a `delegate` to your session with no matching `handoff`) +
-// the joint-forces pool (`delegate` offered to `*`) + open help requests (`need`).
-function ticsTodo(targetDir, session) {
-  const tics = loadFor(targetDir, true);
-  if (!session) { try { session = fs.readFileSync(path.join(targetDir, ".claude", "state", "session"), "utf8").trim(); } catch (e) { session = ""; } }
-  const handedOff = new Set();
-  for (const x of tics) if (x.kind === "handoff" && x.ref) handedOff.add(x.ref);
-  const mine = [], pool = [], needs = [];
-  for (const x of tics) {
-    if (x.kind === "delegate" && x.ref && !handedOff.has(x.ref)) {
-      if (session && x.to === session) mine.push(x);
-      else if (x.to === "*") pool.push(x);
-    } else if (x.kind === "need") needs.push(x);
-  }
-  const row = (x) => "  " + (x.ref ? x.ref + "  " : "") + (x.msg || "") + "  (from " + (x.from || "?") + ")";
-  console.log("Todo" + (session ? " — " + session : "") + ":");
-  if (mine.length) { console.log(" Assigned to you (open):"); mine.forEach((x) => console.log(row(x))); }
-  if (pool.length) { console.log(" Pool — grab one (delegate -> *):"); pool.forEach((x) => console.log(row(x))); }
-  if (needs.length) { console.log(" Help wanted (need):"); needs.forEach((x) => console.log(row(x))); }
-  if (!mine.length && !pool.length && !needs.length) console.log("  nothing open — pull a section or ask the lead.");
-  return 0;
-}
 // Active claims = claim minus release, MINUS any whose section (scope's first component) is
 // marked `done` — a closed section auto-releases its claims so the partition frees up for
 // reassignment (release-on-done). The single source of truth for every claim consumer.
-function activeClaims(tics, opts) {
-  opts = opts || {};
+function activeClaims(tics) {
   const active = new Map();
   const status = new Map();       // section name -> latest lifecycle status (open|done)
-  const sessClosed = new Set();   // sessions that have closed -> their claims free (a leaving worker frees its lane)
-  const sessLatest = new Map();   // session -> latest tic ts (for stale-TTL: a dead session's claims expire)
   for (const x of tics) {
-    if (x.session) { const t = x.ts || ""; if (t > (sessLatest.get(x.session) || "")) sessLatest.set(x.session, t); }
     if (x.kind === "section" && x.ref && x.result) status.set(x.ref, x.result);
-    if (x.kind === "session" && x.session) { if (x.result === "close" || x.result === "closed") sessClosed.add(x.session); else sessClosed.delete(x.session); }
     if (x.kind === "claim" && x.ref) active.set(x.ref, x);
     else if (x.kind === "release" && x.ref) active.delete(x.ref);
   }
-  const ttlMs = (opts.ttlSec || 0) * 1000, now = opts.nowMs || 0;   // MS5 stale-TTL; ttlSec=0 disables
   for (const [ref, x] of active) {
-    if (status.get((x.scope || "").split("/")[0]) === "done") { active.delete(ref); continue; }   // release-on-section-done
-    if (x.session && sessClosed.has(x.session)) { active.delete(ref); continue; }                  // release-on-session-close (ADR 0003)
-    if (ttlMs > 0 && now > 0 && x.session) {                                                        // release-on-stale: a dead session's claim expires
-      const last = Date.parse(sessLatest.get(x.session) || "") || 0;
-      if (last > 0 && (now - last) > ttlMs) active.delete(ref);
-    }
+    if (status.get((x.scope || "").split("/")[0]) === "done") active.delete(ref);   // release-on-section-done
   }
   return active;
 }
-// Read a numeric setting from tdd.config (e.g. CLAIMS_TTL), default if absent/unreadable.
+// Read a numeric setting from tdd.config (e.g. LIVENESS_IDLE_SEC), default if absent/unreadable.
 function cfgNum(targetDir, key, def) {
-  try { const m = fs.readFileSync(path.join(targetDir, ".claude", "tdd.config"), "utf8").match(new RegExp(key + "\\s*=\\s*(\\d+)")); return m ? parseInt(m[1], 10) : def; }
+  try { const m = fs.readFileSync(path.join(targetDir, ".claude", "tdd.config"), "utf8").match(new RegExp("^\\s*" + key + "\\s*=\\s*(\\d+)", "m")); return m ? parseInt(m[1], 10) : def; }
   catch (e) { return def; }
 }
-// Active claims for a target dir, with the stale-TTL applied (CLAIMS_TTL seconds from tdd.config;
-// 0 = off). The single entry every claim consumer uses, so release-on-stale is uniform.
-function claimsFor(targetDir, tics) { return activeClaims(tics, { nowMs: Date.now(), ttlSec: cfgNum(targetDir, "CLAIMS_TTL", 0) }); }
+function cfgStr(targetDir, key, def) {
+  try {
+    const m = fs.readFileSync(path.join(targetDir, ".claude", "tdd.config"), "utf8").match(new RegExp("^\\s*" + key + "\\s*=\\s*(.+?)\\s*$", "m"));
+    if (!m) return def;
+    let v = m[1].trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    return v;
+  } catch (e) { return def; }
+}
+// Classify a green signal as hook-signed (objective) or self-reported (role), null otherwise.
+function greenAttestation(tic) {
+  if (!tic) return null;
+  if (tic.kind !== "signal" || tic.result !== "green") return null;
+  if (tic.from === "run-suite") return "hook-signed";
+  if (tic.from && typeof tic.from === "string" && tic.from.length > 0) return "self-reported";
+  return null;
+}
+// Return true only for a red signal emitted by run-suite (hook-signed red).
+function isHookSignedRed(tic) {
+  if (!tic) return false;
+  return tic.kind === "signal" && tic.result === "red" && tic.from === "run-suite";
+}
+// Fold signals into attestation counts: hook-signed vs self-reported green signals.
+function attestationTally(signals) {
+  const out = { hookSigned: 0, selfReported: 0, greens: 0 };
+  if (!Array.isArray(signals)) return out;
+  for (const tic of signals) {
+    const a = greenAttestation(tic);
+    if (a === "hook-signed") { out.hookSigned++; out.greens++; }
+    else if (a === "self-reported") { out.selfReported++; out.greens++; }
+  }
+  return out;
+}
+// Classify how fresh a last-tic timestamp is. Aliver tier wins at boundaries (inclusive).
+function livenessTier(lastTs, nowMs, idleSec, staleSec) {
+  if (lastTs == null) return "unknown";
+  const t = Date.parse(lastTs);
+  if (isNaN(t)) return "unknown";
+  const age = (nowMs - t) / 1000;
+  if (age <= idleSec) return "live";
+  if (age <= staleSec) return "idle";
+  return "stale";
+}
+// Active claims for a target dir (claim minus release, minus release-on-section-done).
+// The single entry every claim consumer uses.
+function claimsFor(targetDir, tics) { return activeClaims(tics); }
+// Fleet model: fold the bus into members grouped by held scope, with liveness tiers.
+// opts.nowMs injectable for tests; idleSec/staleSec come from tdd.config with defaults.
+function fleetModel(targetDir, tics, opts) {
+  opts = opts || {};
+  const nowMs = opts.nowMs != null ? opts.nowMs : Date.now();
+  const idleSec = cfgNum(targetDir, "LIVENESS_IDLE_SEC", 300);
+  const staleSec = cfgNum(targetDir, "LIVENESS_STALE_SEC", 900);
+  // One pass here builds sessLatest and the per-scope session sets (for collision detection);
+  // claimsFor (below) folds the bus again to apply the release filters.
+  const sessLatest = new Map();
+  const scopeSessions = new Map(); // scope -> Set of distinct sessions (for collision detection)
+  for (const x of tics) {
+    const id = x.session || "";
+    if (id) { const ts = x.ts || ""; if (ts > (sessLatest.get(id) || "")) sessLatest.set(id, ts); }
+    const sc = x.scope || "";
+    if (sc && sc !== "*" && id && id !== "*") { let s = scopeSessions.get(sc); if (!s) { s = new Set(); scopeSessions.set(sc, s); } s.add(id); }
+  }
+  const activeCls = claimsFor(targetDir, tics);
+  const sessScope = new Map();
+  for (const x of activeCls.values()) {
+    if (x.session && x.scope && x.scope !== "*") sessScope.set(x.session, x.scope);
+  }
+  const members = [];
+  for (const [id, lastTs] of sessLatest.entries()) {
+    const scope = sessScope.get(id) || null;
+    const liveness = livenessTier(lastTs, nowMs, idleSec, staleSec);
+    const stuck = scope != null && liveness === "stale";
+    members.push({ session: id, scope, liveness, lastTs, stuck });
+  }
+  const byScope = {};
+  for (const m of members) {
+    const key = m.scope || "unscoped";
+    if (!byScope[key]) byScope[key] = [];
+    byScope[key].push(m);
+  }
+  const tally = { live: 0, idle: 0, stale: 0, unknown: 0 };
+  for (const m of members) tally[m.liveness] = (tally[m.liveness] || 0) + 1;
+  // Collisions: scopes touched by >=2 distinct sessions.
+  const collisions = [];
+  for (const [sc, sessSet] of scopeSessions.entries()) {
+    if (sessSet.size >= 2) collisions.push({ scope: sc, sessions: [...sessSet].sort() });
+  }
+  return { members, byScope, tally, collisions };
+}
+// Roster view (ADR 0010): one row per standard role showing the configured MODEL_<ROLE> or "(default)".
+function ticsRoster(targetDir) {
+  const ROLES = ["test-writer", "implementer", "architect", "tdd-critic", "product-owner", "qa-verifier", "project-manager", "dev-ops"];
+  console.log("Model roster (MODEL_<ROLE> in tdd.config):");
+  for (const role of ROLES) {
+    const key = "MODEL_" + role.toUpperCase().replace(/-/g, "_");
+    const model = cfgStr(targetDir, key, "");
+    const shown = model || "(default)";
+    console.log("  " + role.padEnd(16) + shown);
+  }
+  return 0;
+}
+// Review view (ADR 0012): navigator queue — open needs grouped by addressable (has ref) vs unaddressable.
+function ticsReview(targetDir, scopeFilter, all) {
+  let opens = openNeeds(loadFor(targetDir, all));
+  if (scopeFilter) opens = opens.filter((x) => scopeMatch(x.scope, scopeFilter));
+  if (!opens.length) { console.log("No open needs — the navigator queue is clear."); return 0; }
+  const addressable = opens.filter((x) => x.ref);
+  const unaddressable = opens.filter((x) => !x.ref);
+  console.log("Open needs (navigator queue):");
+  for (const n of addressable) {
+    console.log("  " + (n.handle || n.ref).padEnd(16) + (n.from || "?") + " -> " + (n.to || "*") + "  [" + (n.scope || "*") + "]  " + (n.msg || ""));
+  }
+  if (unaddressable.length) {
+    console.log("  --- unaddressable (no ref) — re-ask with a ref to make them answerable ---");
+    for (const n of unaddressable) {
+      console.log("  " + (n.handle).padEnd(16) + (n.from || "?") + " -> " + (n.to || "*") + "  [" + (n.scope || "*") + "]  " + (n.msg || ""));
+    }
+  }
+  console.log("Answer with: tics answer <handle> \"<text>\"");
+  return 0;
+}
+// Board view (ADR 0008): fleet at a glance — members grouped by held scope with liveness tier.
+function ticsBoard(targetDir, all) {
+  const tics = loadFor(targetDir, all);
+  const model = fleetModel(targetDir, tics);
+  if (!model.members.length) { console.log("No fleet activity yet — the agent bus is empty."); return 0; }
+  console.log("Fleet board:");
+  const scopes = Object.keys(model.byScope).sort((a, b) => {
+    if (a === "unscoped") return 1;
+    if (b === "unscoped") return -1;
+    return a.localeCompare(b);
+  });
+  for (const sc of scopes) {
+    console.log("  [" + sc + "]");
+    for (const m of model.byScope[sc]) {
+      const when = (m.lastTs || "").slice(11, 19);
+      const stuckMark = m.stuck ? "  STUCK" : "";
+      console.log("    " + m.session.padEnd(16) + m.liveness.padEnd(8) + when + stuckMark);
+    }
+  }
+  if (model.collisions.length) {
+    console.log("Scope collisions (>=2 distinct sessions on one scope):");
+    for (const c of model.collisions) {
+      console.log("  collision: " + c.scope + "  sessions=" + c.sessions.join(", "));
+    }
+  }
+  return 0;
+}
 function claimCheck(targetDir, file, myScope) {
   if (!file || !myScope) return null;            // unscoped editor or no path -> no enforcement
   const active = claimsFor(targetDir, loadTicsAll(targetDir));   // ADR 0004 pt2: enforce ACROSS worktrees (the host gives each session its own) so a peer's claim is seen
@@ -324,14 +411,16 @@ function ticsCycle(targetDir) {
   console.log("  last suite: " + (lastSig ? (lastSig.result || "?") : "(none yet)"));
   const streak = parseInt(rd("red-streak") || "0", 10);
   if (streak > 0) {
-    const cfg = (() => { try { return fs.readFileSync(path.join(targetDir, ".claude", "tdd.config"), "utf8"); } catch (e) { return ""; } })();
-    const m = cfg.match(/RED_STREAK_LIMIT\s*=\s*(\d+)/);
-    const lim = m ? parseInt(m[1], 10) : 5;
+    const lim = cfgNum(targetDir, "RED_STREAK_LIMIT", 5);
     if (streak >= lim) console.log("  red-streak: " + streak + " reds in a row — suspected OVER-CONSTRAINED/CONTRADICTORY test; reconsider it (route to test-writer) or escalate, don't grind.");
     else console.log("  red-streak: " + streak);
   }
   if (since > 5) console.log("  " + since + " cycles since the last tdd-critic verdict — consider a critic pass (rule: every ~3-5 cycles).");
   else console.log("  " + since + " cycles since the last critic verdict.");
+  const fm = fleetModel(targetDir, t);
+  const stuck = fm.members.filter((m) => m.stuck).length;
+  const tl = fm.tally;
+  console.log("  Fleet: " + stuck + " stuck, " + fm.collisions.length + " collisions | live " + tl.live + " idle " + tl.idle + " stale " + tl.stale + " unknown " + tl.unknown);
   return 0;
 }
 function verdictOutcome(x) {
@@ -356,6 +445,25 @@ function ticsGate(targetDir, all) {
   }
   const qa = latest["qa-verifier"];
   if (qa && verdictOutcome(qa) !== "pass") problems.push("qa-verifier: " + verdictOutcome(qa));
+  const signals = (all ? loadTicsAll(targetDir) : loadTics(targetDir)).filter((x) => x.kind === "signal");
+  const att = attestationTally(signals);
+  const enforce = cfgNum(targetDir, "ATTEST_ENFORCE", 0) === 1;
+  const attestFail = (att.greens >= 1 && att.hookSigned === 0);
+  if (attestFail) {
+    console.error("  ⚠ no hook-signed green evidence — all " + att.selfReported + " green(s) are self-reported (not signed by the run-suite hook). The referee may not have run for this work. (ATTEST_ENFORCE=" + (enforce ? "1" : "0") + ")");
+  }
+  if (attestFail && enforce) {
+    problems.push("unrefereed greens: all " + att.selfReported + " green(s) are self-reported (not hook-signed); set ATTEST_ENFORCE=0 or supply a hook-signed green (run-suite)");
+  }
+  const ev = evidenceFor(targetDir, signals);
+  const evEnforce = cfgNum(targetDir, "EVIDENCE_ENFORCE", 0) === 1;
+  if (ev.anyNotTestFirst) {
+    const bad = ev.scopes.filter(function(s) { return s.hasGreen && !s.redBeforeGreen; }).map(function(s) { return s.scope; });
+    console.error("  ⚠ green(s) without red-before-green evidence — not proven test-first on: " + bad.join(", ") + " (EVIDENCE_ENFORCE=" + (evEnforce ? "1" : "0") + ")");
+    if (evEnforce) {
+      problems.push("not-test-first greens on: " + bad.join(", ") + " — supply a hook-signed red-before-green on the scope, or set EVIDENCE_ENFORCE=0");
+    }
+  }
   if (!problems.length) {
     console.log("Release gate: CLEAR — product-owner + tdd-critic verdicts are pass" + (qa ? " (+ qa-verifier)" : "") + ".");
     return 0;
@@ -404,26 +512,26 @@ function fanOut(targetDir, specPath) {
   return 0;
 }
 function main(argv, defaultRoot) {
-  let scope = null, all = true; const rest = [];   // whole-picture by default (merge every worktree's bus); --here restricts to the local bus
-  for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else if (a === "--all") all = true; else if (a === "--here") all = false; else rest.push(a); }
+  let scope = null, all = true, fromRole = null, showWitness = false; const rest = [];   // whole-picture by default (merge every worktree's bus); --here restricts to the local bus
+  for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else if (a === "--all") all = true; else if (a === "--here") all = false; else if (a === "--from") fromRole = argv[++i] || null; else if (a === "--witness") showWitness = true; else rest.push(a); }
   const cmd = rest.shift();
   const role = cmd === "inbox" ? rest.shift() : null;
   const cfFile = cmd === "claim-check" ? rest.shift() : null;
   const cfScope = cmd === "claim-check" ? (rest.shift() || scope || "") : null;
   const coFile = cmd === "claim-owner" ? rest.shift() : null;
   const csFile = cmd === "claim-session" ? rest.shift() : null;
-  const tdSession = cmd === "todo" ? rest.shift() : null;
   const soName = cmd === "section-status" ? rest.shift() : null;
   const foSpec = cmd === "fan-out" ? rest.shift() : null;
+  const ansHandle = cmd === "answer" ? rest.shift() : null;
+  const ansText = cmd === "answer" ? rest.join(" ") : null;
+  if (cmd === "answer") { rest.length = 0; }
   const target = rest[0] ? path.resolve(rest[0]) : (defaultRoot || process.cwd());
   switch (cmd) {
-    case "log": return ticsLog(target, scope, all);
+    case "log": return ticsLog(target, scope, all, showWitness);
     case "inbox": return ticsInbox(target, role, scope);
     case "conductor": return ticsConductor(target, all);
     case "claims": return ticsClaims(target, all);
     case "sections": return ticsSections(target, all);
-    case "sessions": return ticsSessions(target, all);
-    case "todo": return ticsTodo(target, tdSession);
     case "cycle": return ticsCycle(target);
     case "gate": return ticsGate(target, all);
     case "claim-check": return claimCheckCli(target, cfFile, cfScope);
@@ -431,10 +539,96 @@ function main(argv, defaultRoot) {
     case "claim-session": return claimSessionCli(target, csFile);
     case "section-status": return sectionStatusCli(target, soName);
     case "fan-out": return fanOut(target, foSpec);
-    default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims | sections | claim-check <file> <scope> | claim-owner <file> | section-status <name> | fan-out <spec>] [--all]>"); return 2;
+    case "board": return ticsBoard(target, all);
+    case "roster": return ticsRoster(target);
+    case "review": return ticsReview(target, scope, all);
+    case "answer": return ticsAnswer(target, ansHandle, ansText, fromRole, all);
+    default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims | sections | board | roster | review | answer <handle> \"<text>\" | claim-check <file> <scope> | claim-owner <file> | section-status <name> | fan-out <spec>] [--all]>"); return 2;
   }
 }
 if (require.main === module) {
   process.exit(main(process.argv.slice(2), path.join(__dirname, "..", "..")) || 0);
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsSessions, ticsTodo, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, fanOut, main };
+// Pure fold: does the tic list evidence test-first discipline per scope?
+// targetDir is accepted for signature symmetry but the fold reads only the passed tics list.
+function evidenceFor(targetDir, tics) {
+  if (!Array.isArray(tics)) return { scopes: [], anyGreen: false, anyNotTestFirst: false };
+  // Per real-scope buckets: { latestGreenSeq, minHookRedSeq }
+  const buckets = new Map();
+  let anyGreen = false;
+  for (const t of tics) {
+    if (greenAttestation(t) === "hook-signed") {
+      anyGreen = true;
+      const sc = t.scope || "";
+      if (sc === "" || sc === "*") continue; // un-replayable, skip per-scope
+      const b = buckets.get(sc) || { latestGreenSeq: -Infinity, minHookRedSeq: Infinity };
+      const s = (typeof t.seq === "number" ? t.seq : 0);
+      if (s > b.latestGreenSeq) b.latestGreenSeq = s;
+      buckets.set(sc, b);
+    } else if (isHookSignedRed(t)) {
+      const sc = t.scope || "";
+      if (sc === "" || sc === "*") continue;
+      const b = buckets.get(sc) || { latestGreenSeq: -Infinity, minHookRedSeq: Infinity };
+      const s = (typeof t.seq === "number" ? t.seq : 0);
+      if (s < b.minHookRedSeq) b.minHookRedSeq = s;
+      buckets.set(sc, b);
+    }
+  }
+  const scopes = [];
+  let anyNotTestFirst = false;
+  for (const [scope, b] of buckets.entries()) {
+    if (b.latestGreenSeq === -Infinity) continue; // no hook-signed green for this scope
+    const hasGreen = true;
+    const redBeforeGreen = b.minHookRedSeq < b.latestGreenSeq;
+    const honored = hasGreen && redBeforeGreen;
+    if (!redBeforeGreen) anyNotTestFirst = true;
+    scopes.push({ scope, hasGreen, redBeforeGreen, honored });
+  }
+  return { scopes, anyGreen, anyNotTestFirst };
+}
+// Answer an open need: emit a msg+answered tic to the asker.
+function ticsAnswer(targetDir, handle, text, fromRole, all) {
+  if (!handle || !text) { console.error("usage: tics answer <handle> \"<text>\""); return 2; }
+  const opens = openNeeds(loadFor(targetDir, all));
+  const want = handle;
+  const need = opens.find(function(n) { return n.handle === want || ("n" + n.seq) === want || String(n.seq) === want; });
+  if (!need) { console.error("no open need with handle '" + handle + "'"); return 2; }
+  const asker = need.from || "*";
+  const token = need.handle;
+  const from = fromRole || "navigator";
+  const ticsh = path.join(targetDir, ".claude", "hooks", "tic.sh");
+  try {
+    cp.execFileSync(ticsh, [from, asker, "msg", text, token, "answered"], { cwd: targetDir, stdio: "ignore" });
+  } catch (e) { console.error("answer: could not emit (" + (e && e.message) + ")"); return 2; }
+  console.log("answered " + token + " -> " + asker + ": " + text);
+  return 0;
+}
+// Pure fold: returns the subset of `need` tics that have not yet been answered.
+// A need is settled when a `msg` tic with `result==="answered"` references its token
+// (ref if present, else "n"+seq). A bare-ref msg without result=answered never settles a need.
+function openNeeds(tics) {
+  if (!Array.isArray(tics)) return [];
+  const answered = new Set();
+  for (const x of tics) if (x && x.kind === "msg" && x.result === "answered" && x.ref) answered.add(x.ref);
+  const out = [];
+  for (const x of tics) {
+    if (!x || x.kind !== "need") continue;
+    const handle = x.ref ? x.ref : ("n" + x.seq);
+    if (!answered.has(handle)) out.push(Object.assign({}, x, { handle }));
+  }
+  return out;
+}
+// Pure fold: tally per-tool usage from witness notes (from=witness, msg starts with "used ").
+// Returns a map { <tool>: count } or {} if no witness notes match. Never throws.
+function toolTally(tics) {
+  if (!Array.isArray(tics)) return {};
+  const out = {};
+  for (const x of tics) {
+    if (x && x.kind === "note" && x.from === "witness" && typeof x.msg === "string" && x.msg.indexOf("used ") === 0) {
+      const tool = x.msg.slice(5).trim();
+      if (tool) out[tool] = (out[tool] || 0) + 1;
+    }
+  }
+  return out;
+}
+module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, livenessTier, fleetModel, ticsBoard, ticsRoster, ticsReview, ticsAnswer, fanOut, greenAttestation, attestationTally, isHookSignedRed, cfgStr, evidenceFor, openNeeds, main, toolTally };

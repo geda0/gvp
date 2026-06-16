@@ -13,17 +13,6 @@ _tics_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # LAYER, else "*". TICS_DIR shares one spool across worktrees; TICS_FILE overrides the jsonl path.
 # emit_tic FROM TO KIND MSG [REF] [RESULT] [EXTRA_JSON]
 _tic_esc() { printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
-# Multi-session active? (ADR 0004) — explicit opt-in OR running inside a linked git worktree, which
-# is the host's per-session topology (Claude Desktop fork / Cursor each get their own worktree).
-_tics_multi() {
-  [ "${MULTI_SESSION:-0}" = "1" ] && return 0
-  case "$(cd "$ROOT" 2>/dev/null && git rev-parse --git-dir 2>/dev/null)" in */worktrees/*) return 0 ;; esac
-  return 1
-}
-# A STABLE per-session id from the worktree identity (its toplevel dir name; fallback $ROOT). Used to
-# self-provision identity when multi-session is active but none was set — so claims engage with zero
-# setup. Never written to state/session (per-tree; concurrent sessions on one tree would stomp it).
-_auto_session() { local t; t="$(cd "$ROOT" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)"; [ -n "$t" ] || t="$ROOT"; basename "$t"; }
 emit_tic() {
   [ "${TICS:-1}" = "1" ] || return 0
   _tf="${TICS_FILE:-$ROOT/.claude/state/tics.jsonl}"
@@ -39,7 +28,6 @@ emit_tic() {
   # session identity (ADR 0002): which session emitted this tic — TICS_SESSION (per-process) else
   # .claude/state/session, else empty. Lets claims/commits tell which LIVE session owns what.
   _se="${TICS_SESSION:-$(cat "$ROOT/.claude/state/session" 2>/dev/null)}"
-  if [ -z "$_se" ] && [ "${AUTO_PROVISION:-1}" = "1" ] && _tics_multi; then _se="$(_auto_session)"; fi
   if [ "${TIC_STORE:-jsonl}" = "spool" ]; then
     mkdir -p "$_td" 2>/dev/null || true
     _out="$_td/$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}.json"

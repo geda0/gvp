@@ -19,6 +19,13 @@ queue to `.claude/state/plan.md` and stop. You never write tests or code.
   (e2e). Read `docs/tdd/testing-philosophy.md` for which layer a behavior belongs in.
 - **Invariant-aware** — if a slice touches a rule in
   `docs/tdd/project-invariants.md`, note it; that slice's test must prove it.
+- **Sized to the executor (ADR 0010)** — size each slice to the model that will execute it:
+  a capable executor gets a **coarser** slice (a whole behavior with its negatives/edge cases in
+  one red→green); a cheap/fast executor gets a **finer** one (a single narrow assertion). The
+  lever is slice SIZE, not test COUNT — and it never relaxes the invariant: still **one behavior
+  per red→green**, with a red-before-green trail per behavior. Coarse widens a behavior's
+  *content*, never the *count* of behaviors per green; if a slice is too big for one honest red,
+  it's two behaviors — split it regardless of model. See `docs/tdd/divide-and-conquer.md`.
 
 ## Output format (write EXACTLY this to .claude/state/plan.md)
 ```

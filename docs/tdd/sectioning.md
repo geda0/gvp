@@ -31,26 +31,33 @@ If you're sectioning to organize *one* worker's tasks, stop — that's just the 
 3. **Assign an owner** (pair/role) per section in the sections table.
 4. **Write one ADR** for the sectioning decision (why these boundaries) when it's load-bearing.
 
-## How to work a sectioned project
-- **Scope every session to its section:** `echo <section>/<pair> > .claude/state/scope`.
-  Then `tics log --scope <section>` is the section's whole thread, `--scope <section>/<pair>`
-  is one pair, and a pair also sees its section-level + global tics. `tics sections` is the
-  live per-section dashboard.
-- **Run pairs in parallel** where sections are independent. In `.claude/tdd.config` set
-  `TIC_STORE=spool` (concurrent writers each append their own file — no clobber) and, when
-  sections live on separate git **worktrees**, point them all at ONE bus:
-  `TICS_DIR="$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd)/tics-bus"`
-  — the git common dir is shared by every worktree, so all sections read/write one spool.
-  Without it each worktree keeps its own `.claude/state/`, the bus splits, and the conductor
-  can't correlate a `need` in one section with the `contract` that fills it. The views merge
-  jsonl + spool transparently.
+## How to work a sectioned project — one worktree per track, one shared bus (ADR 0015)
+**Git isolates; the bus observes.** Each section/track is its own **git worktree**: a separate
+tree, index, and `.claude/state` (phase/layer/scope/suite-status). Git provides write-isolation,
+so one track's in-progress red bar can't block another — there is no in-tree session protocol.
+- **One worktree per track.** Create a worktree per section you'll work in parallel
+  (`git worktree add ../team-<section> <branch>`). The worktree's existence *is* the registry;
+  removing it is unambiguous. Each runs its own orchestrator + inner loop.
+- **All worktrees share ONE spool bus.** In `.claude/tdd.config` set `TIC_STORE=spool`
+  (concurrent writers each append their own file — no clobber) and point every worktree at one
+  bus at the git common dir (shared by all worktrees):
+  `TICS_DIR="$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd)/tics-bus"`.
+  Without it each worktree keeps its own `.claude/state/`, the bus fragments, and the conductor
+  can't correlate a `need` in one section with the `contract` that fills it. The reader's
+  cross-worktree merge (`loadTicsAll`) unions every worktree's bus so `tics conductor`/`board`/
+  `claims` correlate across them; a peer worktree's claim is visible and blocks.
+- **Scope each track to its section:** `echo <section>/<pair> > .claude/state/scope` in that
+  worktree. Then `tics log --scope <section>` is the section's whole thread, `--scope
+  <section>/<pair>` is one pair, and a pair also sees its section-level + global tics.
+  `tics sections` is the live per-section map across all worktrees.
 - **Coordinate seams with coupling-tics, not chat:**
   - `contract` — "here is the shape I publish" (provider → consumers).
   - `need` — "I'm blocked on your seam" (consumer → provider).
-  - `claim` / `release` — claim a file before editing it, release when done. With
-    `CLAIMS_ENFORCE` (default on), the guard **blocks** an edit to a file held by another
-    scope and emits a `need`, so two scoped pairs can't edit one file. `tics claims` shows
-    what's held; `tics conductor` shows cross-pair coupling that needs attention.
+  - `claim` / `release` — claim a file before editing it, release when done (a claim is freed
+    only by release-on-section-done). With `CLAIMS_ENFORCE` (default on), the guard **blocks**
+    an edit to a file held by another scope — including a peer worktree's scope — and emits a
+    `need`, so two tracks can't edit one file. `tics claims` shows what's held;
+    `tics conductor` shows cross-track coupling that needs attention.
 - **Each section still runs the full red→green inner loop** and keeps the **whole** suite
   green. A section is a *coordination* boundary, not a quality boundary.
 

@@ -48,17 +48,9 @@ claim_guard() {
   [ "${CLAIMS_ENFORCE:-1}" = "1" ] || return 0
   [ -x "$ROOT/.claude/hooks/tics" ] || return 0          # no reader -> fail-open
   _ms="$(cat "$ROOT/.claude/state/scope" 2>/dev/null)"
-  if [ -z "$_ms" ]; then
-    # MS2 (ADR 0002): single-session leaves an unscoped editor free (not partitioned). Multi-session
-    # REQUIRES a scope so writes claim and rival sessions' claims are enforced — an unscoped edit is
-    # exactly how two sessions silently collide. Opt in with MULTI_SESSION=1.
-    if [ "${MULTI_SESSION:-0}" = "1" ]; then
-      echo "BLOCKED (MULTI_SESSION): no scope set. Set one before editing — echo <session>/<area> > .claude/state/scope (and .claude/state/session) — so your writes claim and other sessions are kept out. Disarm: MULTI_SESSION=0." >&2
-      emit_tic guard "*" block "multi-session: unscoped edit refused ($1)" "$1" blocked
-      exit 2
-    fi
-    return 0                                               # single-session: unscoped editor -> no enforcement
-  fi
+  # An unscoped editor proceeds with no enforcement — scoping is an opt-in claim/observability
+  # convention; git worktrees (ADR 0015) provide write-isolation, so there is no fail-closed guard.
+  [ -n "$_ms" ] || return 0
   _hold="$("$ROOT/.claude/hooks/tics" claim-check "$1" "$_ms" 2>/dev/null)"; _rc=$?
   if [ "$_rc" = "3" ]; then                              # genuine cross-scope conflict -> block
     echo "BLOCKED (claim): $1 is held by $_hold. Release it, coordinate via a need tic, or set CLAIMS_ENFORCE=0 to disarm." >&2

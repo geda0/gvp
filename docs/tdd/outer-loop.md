@@ -16,6 +16,19 @@ orchestrator with the roles below. Install/refresh them with
 | orchestrator | runs the loop, delegates, records | progress.md |
 | navigator (human) | final authority on scope/brand/risk | decisions |
 
+### Model tiering (ADR 0010)
+Spend capability where **judgment** lives; economize where the task is **constrained**. When the
+orchestrator spawns a role it picks that role's model from `MODEL_<ROLE>` in `tdd.config` (e.g.
+`MODEL_IMPLEMENTER`), defaulting to its own model when unset. Recommended tiers: **capable** for
+test-writer / architect / tdd-critic / product-owner (deciding *what to assert*, the contract, the
+over-build audit, prioritization); **faster** for the implementer (minimal green is constrained by the
+failing test — which is why the implementer, not the test-writer, is the safe tier-down) and the
+mechanics roles (qa-verifier / project-manager / dev-ops). `tics roster` shows the resolved roster. This
+is an orchestrator convention (config + this guidance), not a hook gate — the hooks never see the spawn.
+Model tiering and **slice-sizing** are one convention: size the red→green slice to the executor too — a
+tiered-down implementer (faster model) gets a finer slice, a capable test-writer/role a coarser one (same
+one-behavior-per-red invariant at both; see "Slice granularity" in `docs/tdd/divide-and-conquer.md`, ADR 0010).
+
 ## The loop, per feature
 1. **PLAN** — product-owner selects the next backlog item and writes its acceptance
    criteria (observable behaviors) into `design-notes.md`. Surface decisions to the

@@ -9,14 +9,6 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 # shellcheck disable=SC1091
 . "$ROOT/.claude/hooks/lib.sh"
 
-# Multi-session JOIN (ADR 0003): announce this session as available for work on the shared bus, so a
-# lead can assign to it and `tics sessions` shows it joining the effort. Only with MULTI_SESSION=1 +
-# a session id set (single-session ergonomics unchanged — no presence spam).
-_sess="${TICS_SESSION:-$(cat "$ROOT/.claude/state/session" 2>/dev/null)}"
-if [ "${MULTI_SESSION:-0}" = "1" ] && [ -n "$_sess" ]; then
-  emit_tic "$_sess" "*" session "available for work" "" open
-fi
-
 # Worktree bus check (ADR 0004 pt2): claims + views already correlate across worktrees (the reader
 # merges every worktree's bus + enforcement reads --all), so coordination works as-is. A shared
 # spool is now an OPTIMIZATION (one bus, no per-read worktree walk, no jsonl seq-race) — not required.

@@ -67,6 +67,35 @@ sharing one bus via `TICS_DIR`; see `docs/tdd/sectioning.md`, full-team preset).
   synthesis than it saves. Decompose only *substantial, independent* sub-tasks.
 - **Coherence:** some judgments need one mind with full context, not a committee plus a merge.
 
+## Slice granularity (by executing model)
+A red→green slice is **atomic** (above) — but how *much* behavior it holds is a lever the
+planner/orchestrator sets to the model that will **execute** it (ADR 0010). The lever is slice
+**size**, not test **count**:
+
+- **Capable executor → `coarse` slice.** A whole behavior *with its negatives / edge cases*
+  taken in one red→green→(refactor) — a model whose judgment can hold the whole behavior in one
+  cycle.
+- **Cheap/fast executor → `fine` slice.** One narrow assertion (one cell) per red→green. A
+  tightly-scoped task is precisely what lets a cheaper model succeed.
+
+**The preserved invariant (does not move at either tier):** slice-granularity RESIZES *what
+counts as "a behavior"* — it does **not** permit multiple failing BEHAVIORS per red.
+One-behavior-per-red→green, minimal-green / triangulation, the red-storm breaker, and the
+red-before-green attestation trail all still hold. **Coarse widens a behavior's CONTENT
+(negatives + edges together), never the COUNT of behaviors per green.** "Batch N reds across N
+behaviors, then one big-bang green" is rejected (ADR 0010 §3) — it breaks minimal-green and
+erodes attestation granularity.
+
+**The one tension to watch:** a coarse slice for a capable model must STILL leave a
+red-before-green trail *per behavior* — don't coarsen so far that the per-behavior attestation
+provenance (E8 / the future evidence-gated-greens work, ADR 0009) erodes. **The floor:** if a
+slice is too big for one honest red — multiple independent failures a reader couldn't attribute
+to one behavior — it's two behaviors; split it *regardless of model tier* (ADR 0010 §4).
+
+This pairs with per-role model tiering (ADR 0010): a tiered-down implementer (faster model) gets
+a `fine` slice; a capable test-writer / role can take a `coarse` one. It's an orchestrator/planner
+convention (the hooks never see slice sizing) — nudge and record, not a gate.
+
 ## How tics carries it
 - `scope` (hierarchical `task/sub`) — the partition key and the divide-and-conquer tree path.
 - `delegate` / `handoff` — fork a sub-task / join its result.

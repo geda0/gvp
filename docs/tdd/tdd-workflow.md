@@ -94,6 +94,9 @@ underspecified — a process signal you can act on. Add `telemetry.jsonl` and
 ## Variants
 - **Driver/navigator:** one author (implementer) + a navigator/critic steering;
   skip ping-pong alternation.
-- **Two peer sessions:** two Claude Code sessions in separate `git worktree`s on
-  a shared branch, using the same `phase`/`layer`/`suite-status` files as the
-  lock. Fully symmetric; heavier to operate.
+- **Two peers, worktree-isolated (ADR 0015):** two Claude Code sessions, each in its
+  own `git worktree` with its own `phase`/`layer`/`suite-status`/`scope` — git provides
+  write-isolation, so one peer's red bar never blocks the other. They coordinate over ONE
+  shared spool bus (`TIC_STORE=spool` + `TICS_DIR` at the git common dir); the views merge
+  every worktree's bus. Fully symmetric; heavier to operate. (For 2+ bounded contexts in
+  parallel, this is sectioning — see `docs/tdd/sectioning.md`.)
