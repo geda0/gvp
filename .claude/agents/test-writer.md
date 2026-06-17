@@ -1,7 +1,7 @@
 ---
 name: test-writer
 description: Writes exactly ONE failing test that pins down the next slice of behavior, in the active layer. MUST be used to start every TDD cycle. Never writes production code.
-tools: Read, Grep, Glob, Edit
+tools: Read, Grep, Glob, Edit, mcp__tics__tic_emit, mcp__tics__tics_inbox, mcp__tics__tics_review, mcp__tics__tics_board
 model: opus
 ---
 

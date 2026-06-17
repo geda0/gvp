@@ -56,10 +56,13 @@ test('index.html API config is meta tags plus public GA measurement id only', ()
   assert.doesNotMatch(html, /AIza|re_[0-9A-Za-z]{10,}/, 'index.html must not embed provider keys')
 })
 
-test('admin/index.html exposes only the contact API meta (no chat key material)', () => {
+test('admin/index.html exposes only public API meta tags (no key material)', () => {
   const html = readFileSync(join(REPO, 'admin', 'index.html'), 'utf8')
   const apiMetaNames = [...html.matchAll(/<meta\s+name="([^"]+)"\s+content="https?:\/\/[^"]*"/gi)]
     .map((m) => m[1])
-  assert.deepEqual(apiMetaNames, ['gvp:contact-api-url'])
+  // The dashboard also carries the PUBLIC chat host URL (gvp:chat-api-url) so it can run the
+  // deep live-smoke probe against the chat host. That host is already public (the main site
+  // ships it); the actual security invariant — no provider key material — is asserted below.
+  assert.deepEqual(apiMetaNames.sort(), ['gvp:chat-api-url', 'gvp:contact-api-url'])
   assert.doesNotMatch(html, /AIza|re_[0-9A-Za-z]{10,}/)
 })

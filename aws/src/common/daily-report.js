@@ -136,7 +136,7 @@ function aggregateContact(contactMessages) {
 // Pure aggregator: takes the day's already-fetched rows from each source and
 // returns one structured report object. Shared by the scheduled email Lambda and
 // the admin endpoint so the email and the board can never disagree.
-export function buildDailyReport({ day, events = [], chatSessions = [], contactMessages = [] }) {
+export function buildDailyReport({ day, events = [], chatSessions = [], contactMessages = [], smoke } = {}) {
   const site = aggregateSite(events)
   const chat = aggregateChat(chatSessions, { day })
   const contact = aggregateContact(contactMessages)
@@ -153,7 +153,10 @@ export function buildDailyReport({ day, events = [], chatSessions = [], contactM
     site,
     chat,
     contact,
-    highlights
+    highlights,
+    // Optional smoke-test result (dependency + live-agent health). Undefined when
+    // the caller did not run a smoke pass; renderers omit the card in that case.
+    smoke
   }
 }
 
@@ -171,6 +174,28 @@ function barRows(items, labelKey, max) {
 
 function statCard(label, value, hint) {
   return `<td class="stat"><div class="stat__v">${esc(value)}</div><div class="stat__l">${esc(label)}</div>${hint ? `<div class="stat__h">${esc(hint)}</div>` : ''}</td>`
+}
+
+function smokePill(status) {
+  return status === 'pass' ? 'sent' : status === 'fail' ? 'failed' : 'warn'
+}
+
+// Optional System-health card from a smoke-test result. Omitted entirely when no
+// smoke was run. Every user/provider-derived field (check name + detail) is esc()'d.
+function smokeCard(smoke) {
+  if (!smoke) return ''
+  const rows =
+    (smoke.checks || [])
+      .map(
+        (c) =>
+          `<tr><td>${esc(c.name)}</td><td><span class="pill pill--${smokePill(c.status)}">${esc(c.status)}</span></td><td>${esc(c.detail)}</td><td class="num">${esc(c.latencyMs)} ms${c.cost === 'paid' ? ' · paid' : ''}</td></tr>`
+      )
+      .join('') || '<tr><td colspan="4" class="muted">No checks</td></tr>'
+  return `
+  <div class="card">
+    <h2>System health <span class="pill pill--${smokePill(smoke.overall)}">${esc(smoke.overall)}</span></h2>
+    <table style="margin-top:6px"><thead><tr><td>Check</td><td>Status</td><td>Detail</td><td class="num">Latency</td></tr></thead><tbody>${rows}</tbody></table>
+  </div>`
 }
 
 // Sleek, email-client-safe HTML (inline-ish styles, table layout). Self-contained
@@ -216,6 +241,7 @@ export function renderReportHtml(report) {
   .pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#1e293b;color:#cbd5e1}
   .pill--sent{background:#052e16;color:#bbf7d0}
   .pill--failed{background:#450a0a;color:#fecaca}
+  .pill--warn{background:#422006;color:#fde68a}
   .foot{color:#475569;font-size:11px;text-align:center;padding:16px}
 </style></head>
 <body><div class="wrap">
@@ -223,7 +249,7 @@ export function renderReportHtml(report) {
     <h1>Daily report — ${esc(report.date)}</h1>
     <p>${report.highlights.map((h) => esc(h)).join(' &middot; ')}</p>
   </div>
-
+  ${smokeCard(report.smoke)}
   <div class="card">
     <h2>Site interactions</h2>
     <table class="stats"><tr>
@@ -275,6 +301,12 @@ export function renderReportText(report) {
   const lines = [
     `Daily report — ${report.date}`,
     `Generated: ${report.generatedAt}`,
+    ...(report.smoke
+      ? ['', `HEALTH: ${String(report.smoke.overall).toUpperCase()}`,
+          ...(report.smoke.checks || []).map(
+            (c) => `  ${String(c.status).toUpperCase()} — ${c.name}: ${c.detail} (${c.latencyMs} ms${c.cost === 'paid' ? ', paid' : ''})`
+          )]
+      : []),
     '',
     'SITE',
     `  Interactions: ${site.totalEvents}`,

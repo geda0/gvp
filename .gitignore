@@ -48,4 +48,7 @@ docker/chat/.venv-samtest/
 .claude/**/*.bak
 .claude/agents/*.md.kit-*
 *.team-tactics.*
+# MCP server configs hold machine-specific absolute paths — never commit (re-generate via mcp-install).
+.mcp.json
+.cursor/mcp.json
 # <<< team-tactics (managed) <<<

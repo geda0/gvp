@@ -12,16 +12,20 @@
   <link rel="stylesheet" href="../css/admin.css">
   <!-- Contact API base (.../api/contact). CI: scripts/sync-site-api-urls.mjs -->
   <meta name="gvp:contact-api-url" content="https://fvfqpef8kb.execute-api.us-east-2.amazonaws.com/api/contact" />
+  <!-- Chat host base (.../api/chat) — lets the dashboard reach the chat ECS host for the deep live smoke probe. -->
+  <meta name="gvp:chat-api-url" content="https://gv-d7fa1a51ec09445caf0d435348131479.ecs.us-east-2.on.aws/api/chat" />
   <script>
     (function () {
-      var m = document.querySelector('meta[name="gvp:contact-api-url"]')
-      var raw = (m && m.getAttribute('content') || '').trim()
-      var cleaned = raw.replace(/\/+$/, '')
+      function metaBase(name) {
+        var m = document.querySelector('meta[name="' + name + '"]')
+        return ((m && m.getAttribute('content')) || '').trim().replace(/\/+$/, '')
+      }
       var host = (window.location && window.location.hostname) || ''
       var isLocal = host === 'localhost' || host === '127.0.0.1'
-      var base = cleaned || (isLocal ? '/api/contact' : '')
+      var base = metaBase('gvp:contact-api-url') || (isLocal ? '/api/contact' : '')
       window.__CONTACT_API_URL__ = base
       window.__ADMIN_API_BASE_URL__ = base ? base + '/admin' : ''
+      window.__CHAT_API_URL__ = metaBase('gvp:chat-api-url') || (isLocal ? '/api/chat' : '')
     })()
   </script>
 </head>
@@ -137,6 +141,22 @@
               <div><dt>Most recent success</dt><dd>-</dd></div>
               <div><dt>Most recent failure</dt><dd>-</dd></div>
             </dl>
+          </article>
+        </section>
+
+        <section class="admin-grid">
+          <article class="admin-card">
+            <div class="admin-card__header admin-card__header--row">
+              <h2>Smoke test <span id="adminSmokeOverall" class="pill" data-tone="muted">—</span></h2>
+              <button id="adminDeepProbeBtn" type="button" class="admin-button-secondary">Run deep probe (live agent)</button>
+            </div>
+            <p class="admin-subtitle">Exercises real dependencies. The deep probe makes one live Gemini call to confirm the chat agent actually responds.</p>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Check</th><th>Status</th><th>Detail</th><th>Latency</th></tr></thead>
+                <tbody id="adminSmokeTable"><tr><td colspan="4">Not run yet.</td></tr></tbody>
+              </table>
+            </div>
           </article>
         </section>
       </section>

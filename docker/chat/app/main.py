@@ -601,6 +601,79 @@ def chat_host_status(request: Request) -> JSONResponse:
     })
 
 
+_SMOKE_RANK = {"pass": 0, "warn": 1, "fail": 2}
+
+
+def _smoke_check(name: str, status: str, started: float, detail: str, cost: str = "free") -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": status,
+        "latencyMs": int((time.monotonic() - started) * 1000),
+        "detail": detail,
+        "cost": cost,
+    }
+
+
+@app.get("/api/chat/smoke")
+async def chat_smoke(request: Request) -> JSONResponse:
+    """Smoke test for the chat host. CHEAP tier: is the provider/chain configured.
+    DEEP tier (?deep=1): a REAL Gemini Live probe (mint -> upstream WS -> setupComplete)
+    that proves the live model + credential actually work — what a static 'ok' misses.
+    Admin-key gated (same secret as host-status, so the admin SPA + the daily-report
+    Lambda can call it). Never raises: a probe failure becomes a 'fail' check, 200."""
+    if not _check_admin_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    deep = (request.query_params.get("deep") or "").strip() in ("1", "true", "yes")
+    checks: list[dict[str, Any]] = []
+
+    t0 = time.monotonic()
+    chain = app.state.chain
+    if chain is not None:
+        checks.append(_smoke_check(
+            "chat_host", "pass", t0,
+            f"provider={app.state.provider_name} model={app.state.model_id}"))
+    else:
+        checks.append(_smoke_check(
+            "chat_host", "fail", t0, app.state.provider_error or "chain not configured"))
+
+    if deep:
+        key_ok = bool((os.environ.get("GEMINI_API_KEY") or "").strip())
+        if chain is None or not key_ok:
+            checks.append(_smoke_check(
+                "chat_model_live", "fail", time.monotonic(),
+                "skipped: chain or GEMINI_API_KEY not ready", cost="paid"))
+        else:
+            t1 = time.monotonic()
+            try:
+                from app import live_gemini as _lg
+                prompt_src = app.state.voice_system_prompt or app.state.system_prompt or ""
+                if app.state.knowledge_pack is not None and prompt_src:
+                    instruction = build_live_system_instruction(prompt_src, app.state.knowledge_pack)
+                else:
+                    instruction = "You are a health probe. Reply briefly."
+                timeout = float(os.environ.get("SMOKE_LIVE_TIMEOUT", "25") or 25)
+                result = await asyncio.wait_for(_lg.probe_live_session(instruction), timeout=timeout)
+                if result.get("ok"):
+                    checks.append(_smoke_check(
+                        "chat_model_live", "pass", t1, "live session setupComplete", cost="paid"))
+                else:
+                    checks.append(_smoke_check(
+                        "chat_model_live", "fail", t1,
+                        str(result.get("error") or "live probe failed"), cost="paid"))
+            except asyncio.TimeoutError:
+                checks.append(_smoke_check(
+                    "chat_model_live", "fail", t1, "live probe timeout", cost="paid"))
+            except Exception as exc:  # noqa: BLE001 - smoke must never raise
+                checks.append(_smoke_check("chat_model_live", "fail", t1, str(exc)[:200], cost="paid"))
+
+    overall = "pass"
+    for c in checks:
+        if _SMOKE_RANK.get(c["status"], 2) > _SMOKE_RANK[overall]:
+            overall = c["status"]
+    return JSONResponse(content={"overall": overall, "depth": "deep" if deep else "cheap", "checks": checks})
+
+
 async def _persist_text_turn(
     payload: ChatRequest,
     lc_messages: list[Msg],

@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Decomposes a feature into an ordered queue of ONE-behavior TDD slices BEFORE the red/green loop begins. Writes the queue to .claude/state/plan.md. Plans only — never writes tests or production code.
-tools: Read, Grep, Glob, Edit
+tools: Read, Grep, Glob, Edit, mcp__tics__tic_emit, mcp__tics__tics_inbox, mcp__tics__tics_review, mcp__tics__tics_board
 model: opus
 ---
 

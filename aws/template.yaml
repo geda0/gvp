@@ -22,6 +22,14 @@ Parameters:
     Type: String
     Default: 'https://marwanelgendy.link,https://www.marwanelgendy.link,http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173'
     Description: Comma-separated browser origins (no spaces) for contact HTTP API CORS and Lambda allowlist. First entry is the primary fallback when Origin is absent or not listed. Includes common local static-server ports in the default.
+  ChatSmokeUrl:
+    Type: String
+    Default: ''
+    Description: Full URL of the chat host smoke endpoint (e.g. https://<chat-host>/api/chat/smoke). When set, the scheduled daily report runs the deep live-agent probe against it. Empty = cheap dependency checks only in the email.
+  SmokeDeepInReport:
+    Type: String
+    Default: '1'
+    Description: "'0' disables the deep live-agent probe in the scheduled daily report (cheap checks only); any other value enables it when ChatSmokeUrl is set."
 
 Globals:
   Function:
@@ -265,6 +273,9 @@ Resources:
       Environment:
         Variables:
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTable
+          ADMIN_API_KEY: !Ref AdminApiKey
+          CHAT_SMOKE_URL: !Ref ChatSmokeUrl
+          SMOKE_DEEP_IN_REPORT: !Ref SmokeDeepInReport
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref ContactMessagesTable
@@ -365,6 +376,12 @@ Resources:
           Properties:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/health
+            Method: GET
+        ContactAdminSmoke:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/smoke
             Method: GET
         ContactAdminDailyReport:
           Type: HttpApi
