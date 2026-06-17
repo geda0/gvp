@@ -10,7 +10,10 @@
   Planned: product-owner backlog (`.claude/state/backlog.md`) + 3 decisions (`design-notes.md`); architect
   **ADR-0008** (HMAC ipHash pepper + consent gate) + **ADR-0009** (amplify guard / DLQ-alarm / abuse / DR /
   cron); planner **31-slice queue in `plan.md`** (P0 S1–S7+S31, P1 S8–S20, P2 S21–S29; S30 per-IP WAF DEFERRED).
-  **CODE-COMPLETE + browser-verified (2026-06-17): app `node --test` 120/0/1, chat (.venv) pytest 102/0, gate RE-ARMED.**
+  **SHIPPED TO STAGING — GREEN + qa PASS (2026-06-17): `agent` @ d242979, deploy-staging run 27720539158.** Both
+  stacks UPDATE_COMPLETE with IpHashPepper+SmokeProbeKey; qa-verifier PASS (live keyed ipHash 22cabe9f…, honest event
+  counts, smoke trust-split 401/401, consent served; test data cleaned). CI test gate 120/120/0. app `node --test`
+  120/0/1, chat (.venv) pytest 102/0, gate RE-ARMED. Prereq secrets now mapped in both deploy workflows.
   All 31 slices done except S16 (AWS Budget = owner runbook/account-level per ADR-0009) and S30 (per-IP WAF = ADR-deferred).
   Parallel-track workflow landed the gated batch under a navigator-authorized SECURITY_GLOB disarm window (re-armed after).
   Integration-closure batch wired the connective tissue: FE MAX_BUFFER→25; contact-daily-report uses x-smoke-key+report=1
