@@ -37,9 +37,15 @@ function currentSection() {
 function post(payload) {
   if (!eventsApiUrl) return
   const body = JSON.stringify(payload)
+  // Send as text/plain (a CORS-safelisted content type) so the cross-origin POST is
+  // a "simple" request: no preflight. This matters because sendBeacon always sends
+  // with credentials mode "include", and the browser blocks a credentialed request
+  // against the gateway's `Access-Control-Allow-Origin: *` (wildcard is illegal with
+  // credentials) — which silently dropped every beacon. A simple request sidesteps
+  // that; the server's parseJsonBody JSON.parses the body regardless of content-type.
   try {
     if (navigator.sendBeacon) {
-      const blob = new Blob([body], { type: 'application/json' })
+      const blob = new Blob([body], { type: 'text/plain;charset=UTF-8' })
       if (navigator.sendBeacon(eventsApiUrl, blob)) return
     }
   } catch {
@@ -48,7 +54,7 @@ function post(payload) {
   try {
     fetch(eventsApiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body,
       keepalive: true,
       credentials: 'omit'
