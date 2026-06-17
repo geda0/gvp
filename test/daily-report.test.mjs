@@ -190,6 +190,41 @@ test('renderReportHtml escapes contact sender fields and chat error codes (untru
   assert.match(html, /&lt;svg\/onload=alert\(3\)&gt;/, 'error code rendered as entities')
 })
 
+function smokeFixture() {
+  return {
+    overall: 'fail',
+    depth: 'deep',
+    generatedAt: '2026-06-15T12:00:00.000Z',
+    checks: [
+      { name: 'events_table', status: 'pass', latencyMs: 9, detail: 'reachable', cost: 'free' },
+      { name: 'chat_model_live', status: 'fail', latencyMs: 25000, detail: '<img src=x onerror=alert(1)>', cost: 'paid' }
+    ]
+  }
+}
+
+test('buildDailyReport carries an optional smoke result through to the report', () => {
+  const report = buildDailyReport({ day: '2026-06-15', events: [], chatSessions: [], contactMessages: [], smoke: smokeFixture() })
+  assert.equal(report.smoke.overall, 'fail')
+  assert.equal(report.smoke.checks.length, 2)
+})
+
+test('renderReportHtml renders a System health card (overall + checks, cost), escaping detail', () => {
+  const report = buildDailyReport({ day: '2026-06-15', events: [], chatSessions: [], contactMessages: [], smoke: smokeFixture() })
+  const html = renderReportHtml(report)
+  assert.match(html, /System health/i, 'health card present')
+  assert.match(html, /chat_model_live/, 'lists the live model check')
+  assert.match(html, /paid/, 'shows the cost of the paid live probe')
+  assert.doesNotMatch(html, /<img src=x onerror=alert\(1\)>/, 'check detail must be escaped')
+  assert.match(html, /&lt;img/, 'dangerous detail rendered as entities')
+})
+
+test('renderReportHtml omits the System health card cleanly when no smoke is provided', () => {
+  const report = buildDailyReport({ day: '2026-06-15', events: [], chatSessions: [], contactMessages: [] })
+  assert.equal(report.smoke, undefined)
+  const html = renderReportHtml(report)
+  assert.doesNotMatch(html, /System health/i, 'no health card without smoke')
+})
+
 test('renderReportText yields a plain-text fallback with the date and section labels', () => {
   const { day, events, chatSessions, contactMessages } = fixture()
   const report = buildDailyReport({ day, events, chatSessions, contactMessages })

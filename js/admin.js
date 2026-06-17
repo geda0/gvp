@@ -20,6 +20,12 @@ if (contactAdminBaseUrl && /\/api\/contact\/admin\/?$/.test(contactAdminBaseUrl)
 } else if (apiRoot) {
   chatAdminBaseUrl = `${apiRoot}/api/chat/admin`
 }
+// Chat ECS host (from the gvp:chat-api-url meta) — distinct from chatAdminBaseUrl, which
+// is the CONTACT Lambda's /api/chat/admin transcript routes. The deep live-smoke probe
+// lives on the chat host itself at /api/chat/smoke (only it can call the live model).
+const chatApiBase = String(window.__CHAT_API_URL__ || '').replace(/\/+$/, '')
+const chatHostRoot = chatApiBase.endsWith('/api/chat') ? chatApiBase.slice(0, -'/api/chat'.length) : chatApiBase
+const chatSmokeUrl = chatHostRoot ? `${chatHostRoot}/api/chat/smoke` : ''
 const isLocalAdminHost =
   typeof location !== 'undefined' &&
   (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
@@ -58,6 +64,9 @@ const summaryEls = {
 }
 const detailEl = document.getElementById('adminMessageDetail')
 const healthEl = document.getElementById('adminHealthDetail')
+const smokeTableEl = document.getElementById('adminSmokeTable')
+const smokeOverallEl = document.getElementById('adminSmokeOverall')
+const deepProbeBtn = document.getElementById('adminDeepProbeBtn')
 const outcomeEl = document.getElementById('adminOutcomeDetail')
 const limitEl = document.getElementById('adminLimit')
 const loadMoreBtn = document.getElementById('adminLoadMoreBtn')
@@ -216,6 +225,74 @@ function renderHealth(health) {
   `
 }
 
+const SMOKE_TONE = { pass: 'success', warn: 'warn', fail: 'error' }
+const SMOKE_RANK = { pass: 0, warn: 1, fail: 2 }
+
+function renderSmoke(smoke) {
+  if (!smokeTableEl) return
+  if (!smoke || !Array.isArray(smoke.checks)) {
+    smokeTableEl.innerHTML = '<tr><td colspan="4">Not run yet.</td></tr>'
+    return
+  }
+  if (smokeOverallEl) {
+    smokeOverallEl.textContent = String(smoke.overall || '—').toUpperCase()
+    smokeOverallEl.setAttribute('data-tone', SMOKE_TONE[smoke.overall] || 'muted')
+  }
+  smokeTableEl.innerHTML = smoke.checks.length
+    ? smoke.checks
+        .map(
+          (c) => `
+      <tr>
+        <td>${escapeHtml(c.name)}</td>
+        <td><span class="pill" data-tone="${SMOKE_TONE[c.status] || 'muted'}">${escapeHtml(c.status)}</span></td>
+        <td>${escapeHtml(c.detail)}${c.cost === 'paid' ? ' <small>(paid)</small>' : ''}</td>
+        <td>${escapeHtml(c.latencyMs)} ms</td>
+      </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="4">No checks.</td></tr>'
+}
+
+// Cheap dependency checks (on dashboard load). Fire-and-forget so a slow/failed smoke
+// never blocks the rest of the dashboard.
+async function loadSmoke() {
+  try {
+    renderSmoke(await requestContact('/smoke'))
+  } catch (error) {
+    if (smokeTableEl) smokeTableEl.innerHTML = `<tr><td colspan="4">Smoke unavailable: ${escapeHtml(error.message || 'error')}</td></tr>`
+  }
+}
+
+// Deep probe: contact-side cheap checks + the chat host's live-model probe, merged.
+async function runDeepProbe() {
+  if (!deepProbeBtn || deepProbeBtn.disabled) return
+  deepProbeBtn.disabled = true
+  const label = deepProbeBtn.textContent
+  deepProbeBtn.textContent = 'Running…'
+  try {
+    const tasks = [requestContact('/smoke?depth=deep')]
+    if (chatSmokeUrl) {
+      tasks.push(
+        fetch(`${chatSmokeUrl}?deep=1`, { headers: { 'x-admin-key': adminKey } })
+          .then((r) => r.json())
+          .catch((e) => ({ checks: [{ name: 'chat_model_live', status: 'fail', detail: String((e && e.message) || e), latencyMs: 0, cost: 'paid' }] }))
+      )
+    }
+    const results = await Promise.all(tasks)
+    const checks = results.flatMap((r) => (r && Array.isArray(r.checks) ? r.checks : []))
+    let overall = 'pass'
+    for (const c of checks) {
+      if ((SMOKE_RANK[c.status] ?? 2) > SMOKE_RANK[overall]) overall = c.status
+    }
+    renderSmoke({ overall, depth: 'deep', checks })
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Deep probe failed.', 'error')
+  } finally {
+    deepProbeBtn.disabled = false
+    deepProbeBtn.textContent = label
+  }
+}
+
 function renderMessages(items) {
   currentMessages = items
   if (!items.length) {
@@ -295,6 +372,7 @@ async function loadContactDashboard() {
     if (loadMoreBtn) loadMoreBtn.hidden = !messagesNextCursor
     renderMessages(messages.items || [])
     renderHealth(health)
+    loadSmoke()
 
     if (selectedMessageId) {
       const item = await requestContact(`/messages/${selectedMessageId}`)
@@ -881,6 +959,7 @@ authForm?.addEventListener('submit', async (event) => {
 tabContactBtn?.addEventListener('click', () => setActiveTab('contact'))
 tabTranscriptsBtn?.addEventListener('click', () => setActiveTab('transcripts'))
 tabReportBtn?.addEventListener('click', () => setActiveTab('report'))
+deepProbeBtn?.addEventListener('click', runDeepProbe)
 reportDateEl?.addEventListener('change', () => {
   reportHasLoaded = false
   void loadDailyReport()

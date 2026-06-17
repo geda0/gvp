@@ -18,6 +18,7 @@ import {
 import { buildDailyReport } from './common/daily-report.js'
 import { previousUtcDay } from './common/events-shared.js'
 import { queryDay } from './common/report-queries.js'
+import { rollupSmoke, timedCheck } from './common/smoke-core.js'
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const sqs = new SQSClient({})
@@ -782,6 +783,41 @@ async function getHealth() {
   }
 }
 
+// A 1-row GSI query proves a table is reachable + the GSI exists (returns even when
+// the partition is empty); a throw (missing table / IAM / network) becomes a fail.
+async function probeTable(tableName, listPk) {
+  if (!tableName) throw new Error('table not configured')
+  await ddb.send(
+    new QueryCommand({
+      TableName: tableName,
+      IndexName: BY_CREATED_AT,
+      KeyConditionExpression: 'listPk = :pk',
+      ExpressionAttributeValues: { ':pk': listPk },
+      Limit: 1
+    })
+  )
+  return 'reachable'
+}
+
+// SMOKE TEST (always-on cheap tier): really exercise each dependency, not a static ok.
+// `extraChecks` lets a caller fold in a deeper probe it ran elsewhere (e.g. the daily
+// report appends the chat host's live-model check); the SPA's deep button merges the
+// chat /api/chat/smoke result client-side. depth is echoed for the rollup label.
+async function getSmoke(depth = 'cheap', extraChecks = []) {
+  const checks = await Promise.all([
+    timedCheck('contact_table', () => probeTable(process.env.CONTACT_MESSAGES_TABLE, LIST_PK)),
+    timedCheck('chat_table', () => probeTable(process.env.CHAT_TRANSCRIPTS_TABLE, CHAT_LIST_PK)),
+    timedCheck('events_table', () => probeTable(process.env.SITE_EVENTS_TABLE, 'EVENT')),
+    timedCheck('pipeline', async () => {
+      const h = await getHealth()
+      if (h.alarmState === 'ALARM') return { status: 'fail', detail: 'DLQ alarm in ALARM' }
+      if (h.dlqVisible > 0) return { status: 'warn', detail: `DLQ has ${h.dlqVisible} message(s)` }
+      return `queue ${h.queueVisible} visible / ${h.queueInFlight} in flight`
+    })
+  ])
+  return rollupSmoke([...checks, ...(Array.isArray(extraChecks) ? extraChecks : [])], depth)
+}
+
 async function retryMessage(id) {
   const message = await getMessage(id)
   if (!message) return { notFound: true }
@@ -941,6 +977,11 @@ export const handler = async (event) => {
 
   if (method === 'GET' && path.endsWith('/health')) {
     return json(200, await getHealth())
+  }
+
+  if (method === 'GET' && path.endsWith('/smoke')) {
+    const depth = event?.queryStringParameters?.depth === 'deep' ? 'deep' : 'cheap'
+    return json(200, await getSmoke(depth))
   }
 
   if (method === 'GET') {

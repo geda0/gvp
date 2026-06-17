@@ -99,4 +99,15 @@ if (!expected) {
     assert.ok(contact.includes(want.contact), `admin contact meta must point at the ${expected} host ${want.contact} (got: ${contact})`)
     assert.ok(!contact.includes(forbidden.contact), `admin contact meta must NOT carry the ${other} host ${forbidden.contact} — env leak: ${contact}`)
   })
+
+  test(`admin/index.html chat meta host is ${E}, never ${O}`, () => {
+    // The dashboard's deep live-smoke probe calls the chat host from this meta; pin it to
+    // the right environment so a stage chat host can never reach prod admin (or vice versa).
+    const html = readFrontend('admin/index.html')
+    const chat = metaUrl(html, 'gvp:chat-api-url')
+
+    assert.ok(chat, 'admin/index.html is missing the gvp:chat-api-url meta tag')
+    assert.ok(chat.includes(want.chat), `admin chat meta must point at the ${expected} host ${want.chat} (got: ${chat})`)
+    assert.ok(!chat.includes(forbidden.chat), `admin chat meta must NOT carry the ${other} host ${forbidden.chat} — env leak: ${chat}`)
+  })
 }
