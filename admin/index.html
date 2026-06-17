@@ -159,6 +159,26 @@
             </div>
           </article>
         </section>
+
+        <section class="admin-grid">
+          <article class="admin-card">
+            <div class="admin-card__header admin-card__header--row">
+              <h2>Session inspector</h2>
+              <div class="admin-inline">
+                <input id="adminSessionId" type="text" placeholder="session id" autocomplete="off" />
+                <input id="adminSessionDate" type="date" />
+                <button id="adminLoadSessionBtn" type="button" class="admin-button-secondary">Load timeline</button>
+              </div>
+            </div>
+            <p class="admin-subtitle">Replay one visitor's flow in order — clicks, navigation, theme, chat, contact. (Date defaults to today UTC.)</p>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Time</th><th>Event</th><th>Where</th><th>Details</th></tr></thead>
+                <tbody id="adminSessionTimeline"><tr><td colspan="4">Enter a session id and load.</td></tr></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
       </section>
 
       <section id="adminPanelTranscripts" role="tabpanel" hidden>

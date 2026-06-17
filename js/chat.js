@@ -1459,6 +1459,10 @@ export function initChat() {
   chatBus.emit('idle', { source: 'chat-init' })
 
   const onOpenChatEvent = () => {
+    // Unified "chat opened" event for footer / spaceman / programmatic entry points
+    // (the hero paths emit their own focus/submit events). Carries the chat sessionId so
+    // the per-session site timeline can deep-link to the matching chat transcript.
+    trackEvent('chat_open', { surface: 'event', chatSessionId: state.sessionId })
     openPanel({ mode: 'text' })
     reconcileComposerControls()
   }

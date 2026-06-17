@@ -383,6 +383,12 @@ Resources:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/smoke
             Method: GET
+        ContactAdminSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/session/{id}
+            Method: GET
         ContactAdminDailyReport:
           Type: HttpApi
           Properties:

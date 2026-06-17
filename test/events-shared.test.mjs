@@ -52,6 +52,15 @@ test('buildEventRecord carries a TTL so raw events self-expire', () => {
   assert.ok(record.ttl > nowSec, 'ttl must be in the future')
 })
 
+test('buildEventRecord preserves a numeric client ts for faithful per-session ordering', () => {
+  const withTs = buildEventRecord({ event: 'hero_click', sessionId: 's1', ts: 1781000000123 }, {})
+  assert.equal(withTs.ts, 1781000000123, 'a numeric client ts is stored so the session timeline orders intra-batch events')
+  const noTs = buildEventRecord({ event: 'hero_click', sessionId: 's1' }, {})
+  assert.equal(noTs.ts, undefined, 'a missing ts is omitted, never stored as NaN')
+  const badTs = buildEventRecord({ event: 'x', sessionId: 's1', ts: 'nope' }, {})
+  assert.equal(badTs.ts, undefined, 'a non-numeric ts is rejected')
+})
+
 test('normalizeEventBatch keeps only well-formed events and clamps an oversized batch', () => {
   const raw = {
     sessionId: 'sess-top',

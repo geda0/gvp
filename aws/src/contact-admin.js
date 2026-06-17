@@ -19,6 +19,7 @@ import { buildDailyReport } from './common/daily-report.js'
 import { previousUtcDay } from './common/events-shared.js'
 import { queryDay } from './common/report-queries.js'
 import { rollupSmoke, timedCheck } from './common/smoke-core.js'
+import { orderSessionEvents } from './common/session-timeline-core.js'
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const sqs = new SQSClient({})
@@ -185,6 +186,17 @@ async function getDailyReport(day) {
     queryDay(ddb, { tableName: process.env.CONTACT_MESSAGES_TABLE, listPk: LIST_PK, day })
   ])
   return buildDailyReport({ day, events, chatSessions, contactMessages })
+}
+
+// Per-session timeline: every site interaction for one sessionId, in order. Reuses the
+// day-range GSI query (lookbackDays:1 for a session that began just before midnight) and
+// filters/sorts in-Lambda — no bySession GSI yet. Defaults to today (UTC) since session
+// inspection is usually recent; ?date= overrides for older sessions.
+async function getSessionEvents(sessionId, date) {
+  const today = new Date().toISOString().slice(0, 10)
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : today
+  const rows = await queryDay(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day, lookbackDays: 1 })
+  return { sessionId, day, events: orderSessionEvents(rows, sessionId) }
 }
 
 async function getSummary() {
@@ -982,6 +994,14 @@ export const handler = async (event) => {
   if (method === 'GET' && path.endsWith('/smoke')) {
     const depth = event?.queryStringParameters?.depth === 'deep' ? 'deep' : 'cheap'
     return json(200, await getSmoke(depth))
+  }
+
+  if (method === 'GET') {
+    const sessionMatch = path.match(/\/api\/contact\/admin\/session\/([^/]+)$/)
+    if (sessionMatch) {
+      const id = decodeURIComponent(sessionMatch[1])
+      return json(200, await getSessionEvents(id, event?.queryStringParameters?.date))
+    }
   }
 
   if (method === 'GET') {
