@@ -1,7 +1,7 @@
 ---
 name: tdd-critic
 description: Read-only reviewer run every few cycles. Audits whether tests assert behavior (not implementation), whether project invariants are covered, and whether code+tests have drifted into brittle coupling. Suggests, never edits.
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, mcp__tics__tic_emit, mcp__tics__tics_inbox, mcp__tics__tics_review, mcp__tics__tics_board
 model: opus
 ---
 
