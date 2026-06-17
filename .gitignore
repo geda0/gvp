@@ -38,3 +38,14 @@ docker/chat/.venv-samtest/
 
 # leftover agent-session worktrees (Claude/Cursor snapshots — never commit)
 .claude/worktrees/
+
+# >>> team-tactics (managed) >>>
+# Transient kit artifacts - never commit (other state files ARE committed for continuity).
+.claude/state/suite-status
+.claude/state/telemetry.jsonl
+.claude/state/tics.jsonl
+.claude/state/tics.d/
+.claude/**/*.bak
+.claude/agents/*.md.kit-*
+*.team-tactics.*
+# <<< team-tactics (managed) <<<
