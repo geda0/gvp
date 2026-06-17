@@ -70,7 +70,11 @@ export function buildEventRecord(payload, headers = {}, batchSessionId = '') {
     params,
     userAgent,
     ipHash,
-    ttl
+    ttl,
+    // Client-side interaction time (ms epoch). Preserved so a per-session timeline can
+    // order events within a single beacon batch (which all share one server createdAt).
+    // Conditional so an absent ts is never written as an undefined attribute.
+    ...(Number.isFinite(payload?.ts) ? { ts: payload.ts } : {})
   }
 }
 
