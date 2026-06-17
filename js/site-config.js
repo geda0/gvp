@@ -13,8 +13,14 @@ function resolveApiUrl(metaName, localFallback) {
 
 export const contactApiUrl = resolveApiUrl('gvp:contact-api-url', '/api/contact')
 export const chatApiUrl = resolveApiUrl('gvp:chat-api-url', '/api/chat')
+// First-party analytics shares the contact HTTP API; the events route lives
+// beside /api/contact, so derive it instead of needing its own meta tag.
+export const eventsApiUrl = contactApiUrl
+  ? contactApiUrl.replace(/\/api\/contact$/, '/api/events')
+  : ''
 
 if (typeof window !== 'undefined') {
   window.__CONTACT_API_URL__ = contactApiUrl
   window.__CHAT_API_URL__ = chatApiUrl
+  window.__EVENTS_API_URL__ = eventsApiUrl
 }

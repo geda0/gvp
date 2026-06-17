@@ -35,8 +35,13 @@ const signOutBtn = document.getElementById('adminSignOutBtn')
 
 const tabContactBtn = document.getElementById('adminTabContact')
 const tabTranscriptsBtn = document.getElementById('adminTabTranscripts')
+const tabReportBtn = document.getElementById('adminTabReport')
 const panelContact = document.getElementById('adminPanelContact')
 const panelTranscripts = document.getElementById('adminPanelTranscripts')
+const panelReport = document.getElementById('adminPanelReport')
+const reportDateEl = document.getElementById('reportDate')
+const reportStatusEl = document.getElementById('reportStatus')
+let reportHasLoaded = false
 
 const retryBtn = document.getElementById('adminRetryBtn')
 const showMessageBtn = document.getElementById('adminShowMessageBtn')
@@ -760,15 +765,91 @@ async function loadMoreChatTranscripts() {
 }
 
 function setActiveTab(tab) {
-  activeTab = tab === 'transcripts' ? 'transcripts' : 'contact'
+  activeTab = ['transcripts', 'report'].includes(tab) ? tab : 'contact'
   tabContactBtn.classList.toggle('is-active', activeTab === 'contact')
   tabTranscriptsBtn.classList.toggle('is-active', activeTab === 'transcripts')
+  tabReportBtn?.classList.toggle('is-active', activeTab === 'report')
   tabContactBtn.setAttribute('aria-selected', activeTab === 'contact' ? 'true' : 'false')
   tabTranscriptsBtn.setAttribute('aria-selected', activeTab === 'transcripts' ? 'true' : 'false')
+  tabReportBtn?.setAttribute('aria-selected', activeTab === 'report' ? 'true' : 'false')
   panelContact.hidden = activeTab !== 'contact'
   panelTranscripts.hidden = activeTab !== 'transcripts'
+  if (panelReport) panelReport.hidden = activeTab !== 'report'
   if (activeTab === 'transcripts' && !chatHasLoaded) {
     void loadChatDashboard()
+  }
+  if (activeTab === 'report' && !reportHasLoaded) {
+    void loadDailyReport()
+  }
+}
+
+function setText(id, value) {
+  const node = document.getElementById(id)
+  if (node) node.textContent = value
+}
+
+function renderBarRows(tbodyId, items, labelKey, withShare) {
+  const tbody = document.getElementById(tbodyId)
+  if (!tbody) return
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="${withShare ? 3 : 2}">No data.</td></tr>`
+    return
+  }
+  const peak = Math.max(...items.map((i) => i.count), 1)
+  tbody.innerHTML = items
+    .map((i) => {
+      const pct = Math.round((i.count / peak) * 100)
+      const bar = withShare
+        ? `<td><span style="display:inline-block;height:8px;border-radius:4px;background:#3b82f6;min-width:2px;width:${pct}%"></span></td>`
+        : ''
+      return `<tr><td>${escapeHtml(i[labelKey])}</td><td class="admin-num">${fmtCount(i.count)}</td>${bar}</tr>`
+    })
+    .join('')
+}
+
+async function loadDailyReport() {
+  const day = reportDateEl?.value || ''
+  setStatus(reportStatusEl, 'Loading report…')
+  try {
+    const path = day ? `/daily-report?date=${encodeURIComponent(day)}` : '/daily-report'
+    const report = await requestContact(path)
+    reportHasLoaded = true
+    if (reportDateEl && !reportDateEl.value) reportDateEl.value = report.date
+    const { site, chat, contact } = report
+
+    setText('reportTotalEvents', fmtCount(site.totalEvents))
+    setText('reportTotalEventsHint', `across ${fmtCount(site.sessions)} sessions`)
+    setText('reportSessions', fmtCount(site.sessions))
+    setText('reportVisitors', fmtCount(site.uniqueVisitors))
+    setText('reportChatTurns', fmtCount(chat.turns))
+    setText('reportChatTurnsHint', `${fmtCount(chat.textTurns)} text · ${fmtCount(chat.voiceTurns)} voice`)
+    setText('reportContacts', fmtCount(contact.submissions))
+    setText('reportContactsHint', `${fmtCount(contact.sent)} sent · ${fmtCount(contact.failed)} failed`)
+
+    setText('reportChatSessions', fmtCount(chat.sessions))
+    setText('reportChatFailures', fmtCount(chat.failures))
+    setText('reportChatFailuresHint', `${fmtCount(chat.fallbacks)} fell back`)
+    setText('reportChatFirstToken', chat.avgFirstTokenMs != null ? `${chat.avgFirstTokenMs} ms` : '—')
+    setText('reportChatFlagged', fmtCount(chat.flaggedSessions))
+
+    renderBarRows('reportByEvent', site.byEvent, 'event', true)
+    renderBarRows('reportTopPages', site.topPages, 'page', false)
+
+    const rowsBody = document.getElementById('reportContactRows')
+    if (rowsBody) {
+      rowsBody.innerHTML = contact.senders.length
+        ? contact.senders
+            .map(
+              (s) =>
+                `<tr><td>${escapeHtml(s.name || '—')}<div style="font-size:11px;opacity:.6">${escapeHtml(s.email)}</div></td><td>${escapeHtml(s.subject || '—')}</td><td>${escapeHtml(s.status)}</td><td>${escapeHtml((s.createdAt || '').slice(11, 16))}</td></tr>`
+            )
+            .join('')
+        : '<tr><td colspan="4">No contact submissions.</td></tr>'
+    }
+
+    setStatus(reportStatusEl, `Report for UTC ${report.date} — generated ${report.generatedAt.slice(0, 19).replace('T', ' ')}Z.`)
+  } catch (error) {
+    setStatus(reportStatusEl, error.message || 'Could not load the daily report.', 'error')
   }
 }
 
@@ -799,6 +880,11 @@ authForm?.addEventListener('submit', async (event) => {
 
 tabContactBtn?.addEventListener('click', () => setActiveTab('contact'))
 tabTranscriptsBtn?.addEventListener('click', () => setActiveTab('transcripts'))
+tabReportBtn?.addEventListener('click', () => setActiveTab('report'))
+reportDateEl?.addEventListener('change', () => {
+  reportHasLoaded = false
+  void loadDailyReport()
+})
 
 messagesTable?.addEventListener('click', async (event) => {
   const row = event.target.closest('tr[data-id]')
@@ -930,6 +1016,11 @@ chatMarkUnreviewedBtn?.addEventListener('click', async () => {
 refreshBtn?.addEventListener('click', () => {
   if (activeTab === 'transcripts') {
     void loadChatDashboard()
+    return
+  }
+  if (activeTab === 'report') {
+    reportHasLoaded = false
+    void loadDailyReport()
     return
   }
   void loadContactDashboard()

@@ -55,6 +55,7 @@
       <nav class="admin-tabs" role="tablist" aria-label="Admin dashboards">
         <button id="adminTabContact" class="admin-tab is-active" type="button" role="tab" aria-selected="true" data-tab="contact">Contact Ops</button>
         <button id="adminTabTranscripts" class="admin-tab" type="button" role="tab" aria-selected="false" data-tab="transcripts">Chat Transcripts</button>
+        <button id="adminTabReport" class="admin-tab" type="button" role="tab" aria-selected="false" data-tab="report">Daily Report</button>
       </nav>
 
       <section id="adminPanelContact" role="tabpanel">
@@ -355,6 +356,61 @@
             </p>
             <pre id="chatTranscriptTurns" class="admin-message-body">No transcript selected.</pre>
           </aside>
+        </section>
+      </section>
+
+      <section id="adminPanelReport" role="tabpanel" hidden>
+        <section class="admin-card admin-card--filters">
+          <div class="admin-card__header">
+            <h2>Daily Report</h2>
+            <label class="admin-inline">
+              <span>Day (UTC)</span>
+              <input type="date" id="reportDate">
+            </label>
+          </div>
+          <p id="reportStatus" class="admin-status" data-tone="muted">A true, first-party digest of everything that happened — site interactions, chat agent, and contact submissions. The same data is emailed daily.</p>
+        </section>
+
+        <section class="admin-grid admin-grid--cards">
+          <article class="admin-card admin-card--accent"><h2>Interactions</h2><p id="reportTotalEvents">-</p><p class="admin-card__hint" id="reportTotalEventsHint">across — sessions</p></article>
+          <article class="admin-card"><h2>Sessions</h2><p id="reportSessions">-</p></article>
+          <article class="admin-card"><h2>Unique visitors</h2><p id="reportVisitors">-</p></article>
+          <article class="admin-card"><h2>Chat turns</h2><p id="reportChatTurns">-</p><p class="admin-card__hint" id="reportChatTurnsHint">— text · — voice</p></article>
+          <article class="admin-card"><h2>Contacts</h2><p id="reportContacts">-</p><p class="admin-card__hint" id="reportContactsHint">— sent · — failed</p></article>
+        </section>
+
+        <section class="admin-grid admin-grid--secondary">
+          <article class="admin-card admin-card--wide">
+            <h2>Interactions by type</h2>
+            <table class="admin-table admin-table--compact">
+              <thead><tr><th>Event</th><th class="admin-num">Count</th><th>Share</th></tr></thead>
+              <tbody id="reportByEvent"><tr><td colspan="3">No data.</td></tr></tbody>
+            </table>
+          </article>
+          <article class="admin-card">
+            <h2>Top pages</h2>
+            <table class="admin-table admin-table--compact">
+              <thead><tr><th>Page</th><th class="admin-num">Views</th></tr></thead>
+              <tbody id="reportTopPages"><tr><td colspan="2">No data.</td></tr></tbody>
+            </table>
+          </article>
+        </section>
+
+        <section class="admin-grid admin-grid--cards admin-grid--cards--stream">
+          <article class="admin-card"><h2>Chat sessions</h2><p id="reportChatSessions">-</p></article>
+          <article class="admin-card"><h2>Chat failures</h2><p id="reportChatFailures">-</p><p class="admin-card__hint" id="reportChatFailuresHint">— fell back</p></article>
+          <article class="admin-card"><h2>Avg first token</h2><p id="reportChatFirstToken">-</p></article>
+          <article class="admin-card"><h2>Flagged sessions</h2><p id="reportChatFlagged">-</p></article>
+        </section>
+
+        <section class="admin-card admin-card--wide">
+          <h2>Contact submissions</h2>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-table--compact">
+              <thead><tr><th>From</th><th>Subject</th><th>Status</th><th>When</th></tr></thead>
+              <tbody id="reportContactRows"><tr><td colspan="4">No contact submissions.</td></tr></tbody>
+            </table>
+          </div>
         </section>
       </section>
     </section>

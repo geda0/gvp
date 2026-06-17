@@ -25,13 +25,14 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: nodejs20.x
+    Runtime: nodejs22.x
     Timeout: 15
     MemorySize: 256
     Handler: index.handler
     Environment:
       Variables:
         CONTACT_MESSAGES_TABLE: !Ref ContactMessagesTable
+        SITE_EVENTS_TABLE: !Ref SiteEventsTable
         CONTACT_DELIVERY_QUEUE_URL: !Ref ContactDeliveryQueue
         RESEND_API_KEY: !Ref ResendApiKey
         CONTACT_TO_EMAIL: !Ref ContactToEmail
@@ -87,6 +88,14 @@ Resources:
         'GET /api/chat/admin/transcripts/summary':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
+        'GET /api/contact/admin/daily-report':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        # Public first-party analytics beacon: higher ceiling than the default so
+        # normal browsing doesn't get throttled; it is fire-and-forget so drops are safe.
+        'POST /api/events':
+          ThrottlingBurstLimit: 40
+          ThrottlingRateLimit: 20
 
   ContactMessagesTable:
     Type: AWS::DynamoDB::Table
@@ -135,6 +144,36 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+
+  # First-party site-interaction events (analytics we own). Same id+byCreatedAt
+  # GSI shape as the other tables so the daily report can range-query a UTC day.
+  # Raw rows self-expire via the `ttl` attribute (set ~120 days out in code).
+  SiteEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: listPk
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: byCreatedAt
+          KeySchema:
+            - AttributeName: listPk
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   ContactDeliveryQueue:
     Type: AWS::SQS::Queue
@@ -195,6 +234,50 @@ Resources:
             Path: /api/contact
             Method: OPTIONS
 
+  EventsIngressFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: events-ingress.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SiteEventsTable
+      Events:
+        EventsApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/events
+            Method: POST
+        EventsApiOptions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/events
+            Method: OPTIONS
+
+  DailyReportFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: contact-daily-report.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ContactMessagesTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ChatTranscriptsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref SiteEventsTable
+      Events:
+        DailyDigest:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 12 * * ? *)
+
   ContactSenderFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -244,6 +327,8 @@ Resources:
             TableName: !Ref ChatTranscriptsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref ChatTranscriptsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref SiteEventsTable
         - Statement:
             - Effect: Allow
               Action:
@@ -280,6 +365,12 @@ Resources:
           Properties:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/health
+            Method: GET
+        ContactAdminDailyReport:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/daily-report
             Method: GET
         ContactAdminRetry:
           Type: HttpApi
@@ -345,3 +436,7 @@ Outputs:
     Value: !Ref ContactDeliveryQueue
   ChatTranscriptsTableName:
     Value: !Ref ChatTranscriptsTable
+  SiteEventsTableName:
+    Value: !Ref SiteEventsTable
+  EventsApiUrl:
+    Value: !Sub https://${ContactApi}.execute-api.${AWS::Region}.amazonaws.com/api/events
