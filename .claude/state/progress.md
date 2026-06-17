@@ -3,6 +3,37 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-06-17 — MILESTONE "Pre-prod hardening → stage" IN FLIGHT.** Goal: TDD-fix all confirmed
+  pre-prod review findings, then deploy `agent`→staging (NOT prod). 37-agent adversarial review of the
+  22-commit `agent`→`main` diff found 28 confirmed issues; the only 2 "blockers" are ONE promotion-procedure
+  hazard (staging API hosts → Amplify, no guard — see memory `prod-promotion-procedure`), rest medium/low.
+  Planned: product-owner backlog (`.claude/state/backlog.md`) + 3 decisions (`design-notes.md`); architect
+  **ADR-0008** (HMAC ipHash pepper + consent gate) + **ADR-0009** (amplify guard / DLQ-alarm / abuse / DR /
+  cron); planner **31-slice queue in `plan.md`** (P0 S1–S7+S31, P1 S8–S20, P2 S21–S29; S30 per-IP WAF DEFERRED).
+  **CODE-COMPLETE + browser-verified (2026-06-17): app `node --test` 120/0/1, chat (.venv) pytest 102/0, gate RE-ARMED.**
+  All 31 slices done except S16 (AWS Budget = owner runbook/account-level per ADR-0009) and S30 (per-IP WAF = ADR-deferred).
+  Parallel-track workflow landed the gated batch under a navigator-authorized SECURITY_GLOB disarm window (re-armed after).
+  Integration-closure batch wired the connective tissue: FE MAX_BUFFER→25; contact-daily-report uses x-smoke-key+report=1
+  + day-derived Idempotency-Key; SAM params/env IpHashPepper(IP_HASH_PEPPER) + SmokeProbeKey(SMOKE_PROBE_KEY) across
+  template.yaml + chat-template.yaml + deploy seeding. tdd-critic = CONCERNS→addressed (3 loose text-guards tightened;
+  security behaviors genuinely proven). FE qa-manual browser-verified: consent banner (first-visit→accept persists+inits GA,
+  no reappear, 0 console errors), admin avgFirstToken relabels, admin x-smoke-key probe field (deep btn disabled w/o key).
+  **REMAINING = the stage DEPLOY only**, gated on TWO owner actions: provide `IP_HASH_PEPPER` + `SMOKE_PROBE_KEY` secret
+  values for staging (else those features deploy INERT: ipHash='' / smoke locked), and confirm the outward push (agent→
+  staging CI + Amplify). Then qa-verifier E2E on staging. Detail of the earlier slices ↓.
+  ---
+  **Done so far (suite 93/0/1):** kit→**0.61.0** (gate re-verified 8/8). **ipHash track** S1/S2/S3 + S3b —
+  `hashIp(ip,pepper)` HMAC-SHA256-keyed, returns `''` (never reversible unkeyed) when no pepper; events + contact
+  callers thread `process.env.IP_HASH_PEPPER` and hash the leftmost XFF client IP (contact dedupes-match events).
+  **Consent gate** S4/S5 — `js/consent.js` `hasAnalyticsConsent()` default-deny; `flushEvents()` buffer-preserves
+  when denied, `initAnalytics()` skips `gtag('config')` when denied. **tdd-critic = PASS-with-1-gap** (the contact
+  end-to-end coverage gap; closed via S3b). Active layer **app** · phase **off** (clean boundary).
+  **RESUME at remaining P0:** S7 (DailyReport+ContactFailureReport Errors alarm — `aws/template.yaml`, GATED → run
+  under `SECURITY_REVIEW=1`, cleared by ADR-0009), S31 (`amplify.yml` env-guard, CI — per-app `GVP_EXPECTED_ENV`),
+  S6 (consent banner UX — qa-verifier/browser). Then P1 (S8–S20) + P2 (S21–S29; S30 deferred). NEEDED before P1
+  gated slices: architect clearance addendum for events-ingress-core / resend.js / report-queries-core / chat main.py
+  (planner flagged — not ADR-cleared yet). Owner deploy-time actions: `IP_HASH_PEPPER` secret + per-Amplify-app
+  `GVP_EXPECTED_ENV`. Earlier reporting-feature history below ↓.
 - **2026-06-16 — ttics reinstall recovered + reporting fixes (app layer).** A fresh Cursor 0.56.0
   reinstall had reset the data files to stubs; restored backlog/progress/invariants/releases/plan/
   design-notes from `main` and merged `tdd.config` (LAYERS="app chat", `node --test`, chat pytest layer;

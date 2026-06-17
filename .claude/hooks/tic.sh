@@ -11,6 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 # into a positional slot (shifted args) — reject so garbled junk never reaches the append-only bus.
 case "${1:-}" in -*) echo "tic.sh: FROM ('$1') looks like a flag — usage: tic.sh FROM TO KIND MSG [REF] [RESULT]. Nothing recorded." >&2; exit 2 ;; esac
 case "${2:-}" in -*) echo "tic.sh: TO ('$2') looks like a flag — usage: tic.sh FROM TO KIND MSG [REF] [RESULT]. Nothing recorded." >&2; exit 2 ;; esac
+case "${1:-}" in subagent|run-suite|guard|witness) echo "tic.sh: FROM ('$1') is a hook-only identity — agents cannot self-assert it (reserved for the run-suite/subagent/guard/witness hooks). Nothing recorded." >&2; exit 2 ;; esac
 case "${3:-}" in
   delegate|handoff|signal|block|stuck|verdict|msg|note|claim|release|contract|need|section|session|commit)
     emit_tic "$@" ;;

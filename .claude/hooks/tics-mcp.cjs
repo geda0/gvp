@@ -72,6 +72,10 @@ function rpcError(id, code, message) {
 
 const EMITTABLE_KINDS = ["delegate","handoff","stuck","verdict","msg","note","claim","release","contract","need","section"];
 
+// Hook-only `from` identities: emitted by the run-suite/SubagentStop/guard/witness hooks (via emit_tic in
+// tics-lib.sh), NEVER by an agent. Reserving them keeps GT-1's from=subagent delegation signal unforgeable.
+const RESERVED_FROM = ["subagent", "run-suite", "guard", "witness"];
+
 const TOOL_DESCRIPTORS = [
   {
     name: "tics_inbox",
@@ -184,6 +188,10 @@ function callEmit(id, args, ctx) {
   // 2. Reject leading "-"
   if (args.from[0] === "-" || args.to[0] === "-") {
     return toolError(id, "from/to must not start with '-'");
+  }
+  // 2b. Hook-only identities can't be self-asserted by an agent (GT-1 provenance).
+  if (RESERVED_FROM.indexOf(args.from) !== -1) {
+    return toolError(id, "from '" + args.from + "' is a hook-only identity — agents cannot self-assert it (reserved for the run-suite/subagent/guard/witness hooks). Emit under your role name.");
   }
   // 3. Honesty check BEFORE any emit
   if (EMITTABLE_KINDS.indexOf(args.kind) === -1) {
@@ -366,20 +374,24 @@ function writeCursorRule(target) {
     "---\n" +
     "alwaysApply: true\n" +
     "---\n" +
+    "<!-- team-tactics: managed rule — refreshed by `ttics update`. Edit the method in AGENTS.md, not here. -->\n" +
     "\n" +
-    "# tics — coordinate on the shared bus (convention, not a gate)\n" +
+    "# tics — coordinate on the shared bus (Cursor)\n" +
     "\n" +
-    "You participate in a shared team-tactics coordination bus via the tics MCP tools.\n" +
-    "Each turn:\n" +
-    "- Call `tics_inbox` (your role) and `tics_board` to see what is addressed to you and the fleet state.\n" +
-    "- Check `tics_review` for open needs you can answer; settle one with `tics_answer`.\n" +
-    "- Contribute honestly with `tic_emit` (handoff/need/verdict/note/claim/etc.).\n" +
-    "- If you spawn sub-actors / background jobs (one per role or slice), give EACH a **distinct `session`** and pass it on every `tic_emit` (the optional `session` arg) — otherwise they all merge into one indistinguishable actor on the bus (`session=\"\"`). A self-set `session` is provenance, not authentication, just like `from`.\n" +
+    "**The method lives in `AGENTS.md`** (then `docs/tdd/tdd-workflow.md` + `docs/tdd/tool-support.md`) — that is the canonical TDD\n" +
+    "protocol (red->green->refactor, phase x layer scope, the roles). Read it. This rule only covers the bus and what\n" +
+    "enforcement you do and do not get in Cursor.\n" +
     "\n" +
-    "The ceiling, stated plainly: this is a **convention, not a gate**. The phase x layer TDD referee\n" +
-    "**does not run in Cursor** — nothing here forces these calls. Emit truthfully: the bus is shared with an\n" +
-    "enforced Claude Code fleet, and your contributions are classified as **unrefereed** (self-reported), never\n" +
-    "as hook-signed. You cannot emit signal/block/commit (hook-only kinds).\n";
+    "Each turn, coordinate on the shared tics bus via the MCP tools:\n" +
+    "- Call `tics_inbox` (your role) and `tics_board` for what is addressed to you + fleet state; check `tics_review` and settle one open need with `tics_answer`.\n" +
+    "- Contribute honestly with `tic_emit` (handoff/need/verdict/note/claim). You cannot emit signal/block/commit (hook-only kinds), and your contributions are classified **unrefereed** (self-reported), never hook-signed.\n" +
+    "- Spawning sub-actors? Give EACH a distinct `session` and pass it on every `tic_emit` — otherwise they merge into one indistinguishable actor (`session=\"\"`). A self-set `session` is provenance, not authentication, just like `from`.\n" +
+    "\n" +
+    "**Enforcement, stated plainly — this is a convention, not a gate here.** The Claude Code referee — the phase x layer edit\n" +
+    "gate, the **security-surface guard** (it blocks auth/secret/CORS edits), green-bar signing, and no-finish-on-red — **does\n" +
+    "NOT run in Cursor**; nothing here forces these calls, so self-enforce per the checklist in `docs/tdd/tool-support.md`. The\n" +
+    "one mechanical gate you CAN have: run **`npx tics install-hooks`** once — it installs git hooks (pre-commit green-bar +\n" +
+    "pre-push release gate) that fire under any tool.\n";
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(file, body);
   return file;

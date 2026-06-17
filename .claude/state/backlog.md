@@ -93,12 +93,290 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
   push/PR; no failing workflow remains). This decision only picks the file layout.
   *(Default if no objection: (i) repurpose in place — least surprising, one workflow per bar.)*
 
-## Next up
+## MILESTONE — Pre-prod hardening → stage (active)
 
-> _**All ten invariants are now fully proven** (the last open clause — #8's 55s cap — shipped
-> 2026-06-04; see Shipped "Invariant-completion pins"). What remains is the LOW-priority / OPTIONAL
-> tdd-critic hardening tail: #9 cross-turn pinning (1–2), then optional #10 hardening (3–4). None
-> blocks any invariant — they guard against future drift._
+> **Origin.** A 37-agent adversarial pre-prod review of the 22-commit `agent`→`main` diff produced
+> **28 confirmed-real findings** (23 unique after dedup: INFRA-1≡FE-1, EV-4≡SEC-4≡INFRA-5,
+> SEC-7≡CHAT-SMOKE-1, AGG-3≡TC-04). Zero of these are externally-exploitable holes, shipped secrets,
+> or active data-loss bugs on a personal portfolio — the verifier rated **all 23 "not a prod blocker"**.
+> The owner's directive is explicit: **"fix everything and do everything the right way, then re-deploy
+> to STAGE"** (staging, NOT prod). So this milestone treats the verifier's "fix-soon / acceptable-backlog"
+> calls as **in-scope work**, not deferrals — every FIX item ships before the stage deploy, calibrated to
+> the blast radius (the verifier's severity downgrades are honored as priorities, not as licence to skip).
+> Full per-finding detail (file:line + verifier confirmation) lives in the review output; this backlog is
+> the prioritized plan.
+>
+> **Target = STAGE.** Because we deploy to staging (not prod), the promotion-procedure half of INFRA-1/FE-1
+> (re-pinning prod hosts on `main` after the fast-forward) is **NOT triggered now** — see design-notes.
+> The **structural** half (an `amplify.yml` preBuild env-guard so Amplify fails closed on a leaked staging
+> host) **IS in scope** as P0 hardening: it is the only durable fix for the recurring 2026-06-04 incident.
+>
+> **Three judgment calls decided** (owner to confirm): SEC-2 → HMAC+pepper; SEC-1 → minimal dismissible
+> banner; FE-2 → split a separate probe key. Rationale in `design-notes.md` "Decisions".
+>
+> **Layer tags:** `[app node:test]` (js/, aws/src/ pure cores), `[app infra-template]`
+> (`aws/template.yaml` — SECURITY_GLOB-gated), `[chat pytest]` (docker/chat), `[frontend-manual]`
+> (browser-verified UX, qa-verifier signs the UX bullet), `[CI]` (workflow/yml). Items touching the
+> deployed SAM template or chat container are exercised by their existing suites where a pure seam exists;
+> infra-template / config-only changes are verified by review against the diff (no node:test seam), per the
+> "infra-only halves" convention already used for the contact DLQ topology.
+
+### P0 — ship-blockers for the stage deploy
+
+1. **Amplify build fails closed on a leaked staging API host** — `[CI]` — _structural fix for the
+   recurring 2026-06-04 host-leak incident (INFRA-1 / FE-1). The existing `deploy-prod.yml` env-guard
+   only reds the BACKEND workflow; Amplify is an independent pipeline that serves committed HTML as-is,
+   so today nothing stops the static site shipping a wrong-environment backend host._
+   - [ ] An `amplify.yml` (or `amplify.yaml`) exists at repo root with a `preBuild` phase that runs the
+         environment guard test, so the Amplify build itself fails when the committed HTML points at the
+         wrong-environment backend.
+   - [ ] The guard runs the existing `test/frontend-api-url-env-guard.test.mjs` with the build's expected
+         environment (e.g. `GVP_EXPECTED_ENV` resolved per branch/app), and a leaked host makes the
+         Amplify build exit non-zero (does not deploy).
+   - [ ] On a tree whose committed HTML matches the expected environment, the preBuild guard passes and
+         the build proceeds.
+   - _P0 because it is the one item that converts the 2026-06-04 incident from "detected after the fact in
+     a separate workflow" to "the static deploy cannot ship the leak." Decision: how `GVP_EXPECTED_ENV` is
+     resolved per Amplify app (the agent app expects staging hosts, main expects prod) is a navigator/
+     dev-ops call — see design-notes._
+
+2. **DailyReport scheduled function failures are observable** — `[app infra-template]` — _INFRA-2. The
+   daily digest + deep live-smoke is the ONLY daily health signal; today a thrown invocation is retried
+   twice then silently dropped with no alarm, so the owner loses the digest and never knows._
+   - [ ] `DailyReportFunction` has a CloudWatch `Errors` alarm (`AWS/Lambda`, `FunctionName` dimension)
+         wired to the existing `ContactAlarmTopic` (mirrors the chat stack's `ChatLambdaErrorsAlarm`).
+   - [ ] A failed scheduled invocation surfaces (alarm fires / notifies) rather than being silently dropped.
+   - [ ] The same alarm coverage extends to `ContactFailureReportFunction` (the other un-alarmed scheduled
+         function), so no scheduled Lambda is unmonitored.
+   - _P0: cheapest, highest-value reliability fix; without it every other reliability item is invisible
+     when it fails. Verifier rated medium; "do it right" + observability-first makes it a ship-blocker._
+
+3. **No analytics fires before consent** — `[frontend-manual]` `[app node:test]` — _SEC-1. The site ships
+   IP-derived `ipHash`, sessionId, user-agent and behavioral events to BOTH Google Analytics and an owned
+   DynamoDB store with zero consent — a genuine GDPR/ePrivacy gap. Decision: minimal dismissible banner +
+   `localStorage` flag (see design-notes)._
+   - [ ] On a first visit with no stored consent decision, neither `gtag` analytics nor the first-party
+         beacon (`recordEvent`/`flushEvents`) sends any network request.
+   - [ ] A dismissible consent banner is shown on first visit; accepting it stores a consent flag in
+         `localStorage` and from then on GA + the beacon fire as today.
+   - [ ] Declining (or dismissing without accepting) keeps both GA and the beacon suppressed, and the
+         decision persists across reloads (no banner re-shown, no events sent).
+   - [ ] qa-verifier confirms the banner UX in a browser (shown once, dismiss persists, theme-consistent,
+         keyboard-dismissible, respects reduced-motion).
+   - _P0: the only finding with an external-party (visitor) dimension and a regulatory basis; "the right
+     way" requires gating before the first beacon. A node:test can pin the gate logic (no send without the
+     flag); the banner appearance is the frontend-manual UX bullet._
+
+4. **Visitor IP identifier is not a reversible plain hash** — `[app node:test]` — _SEC-2. `hashIp()` is an
+   unsalted truncated SHA-256(IP), trivially rainbow-table-reversible, now written to the new higher-volume
+   public events store and used as the `uniqueVisitors` key. Decision: HMAC-SHA256 with a Secrets Manager
+   pepper (see design-notes)._
+   - [ ] The stored `ipHash` is a keyed hash (HMAC with a server-side pepper sourced from Secrets Manager /
+         env), so the same IP without the pepper cannot be recovered from a precomputed table.
+   - [ ] The `uniqueVisitors` metric still works (same IP within a pepper epoch → same hash → counted once).
+   - [ ] With no pepper configured, behavior fails safe (documented: either refuse to start, or fall back to
+         a clearly-documented non-IP visitor key — navigator note in design-notes).
+   - _P0: privacy correctness on data we collect from third parties; HMAC+pepper is the "right way" and
+     preserves the metric. The pure hash function is node:test-able; the Secrets Manager wiring is
+     infra-template verified by review._
+
+### P1 — this milestone (before stage deploy)
+
+5. **Public events beacon cannot be used for billing amplification** — `[app infra-template]`
+   `[app node:test]` — _SEC-3. The unauthenticated `/api/events` route has only a global stage throttle
+   (no per-IP), and each request fans out to up to 100 BatchWrite rows against a PAY_PER_REQUEST table
+   (~2000 writes/s sustainable) — a wallet/billing-DoS vector._
+   - [ ] An AWS Budget / billing alarm exists so a cost spike on the events path is caught early (cheapest
+         mitigation, do first).
+   - [ ] The per-request amplification factor is reduced: `MAX_EVENTS_PER_BATCH` is lowered (e.g. to 25,
+         one BatchWrite) and/or the `/api/events` route throttle is brought closer to expected beacon volume.
+   - [ ] The lowered batch cap is reflected in the events-shared core and its tests stay green.
+   - _P1: bounded billing cost only (rows TTL out), no data/secret/exfil dimension; but "do it right" means
+     shrinking the amplification and adding the budget alarm. A per-IP token bucket / WAF rule is the deeper
+     fix — see item 18 (P2)._
+
+6. **Events ingress rejects oversized bodies before parsing** — `[app node:test]` — _EV-4 / SEC-4 /
+   INFRA-5 (one item, three dimensions). `parseJsonBody()` base64-decodes and `JSON.parse()`s the full body
+   with no length check, on the unauthenticated public events route with the elevated throttle._
+   - [ ] A request whose (decoded) body exceeds a small cap (e.g. ~64KB — a 40-event batch is well under) is
+         rejected with 400/413 BEFORE `JSON.parse` runs.
+   - [ ] A normal beacon batch (≤40 events) is accepted unchanged.
+   - [ ] The guard lives centrally (in `parseJsonBody` or the events handler) so it also hardens the contact
+         ingress path for free.
+   - _P1: bounded by the 10MB gateway cap so low-impact, but the central guard is cheap, hardens two routes,
+     and is straightforwardly node:test-able at the core seam._
+
+7. **Daily report email is not duplicated on retry / double-fire** — `[app node:test]` — _EV-2. The
+   scheduled report sends via Resend with no idempotency key; EventBridge at-least-once + async-Lambda retry
+   + Resend's own 5xx retry can each produce a duplicate digest._
+   - [ ] The report send carries a stable idempotency token keyed on the report date (e.g. a Resend
+         `Idempotency-Key`), so a retried send for the same day does not produce a second email.
+   - [ ] Two sends for the same report date resolve to a single delivered email (idempotent).
+   - _P1: annoyance-only (a dup email to the owner), but the Resend idempotency-key fix needs no IAM change
+     and is testable at the sender seam. A per-day marker row would need write IAM — note that as the
+     heavier alternative in design-notes; the idempotency-key is the chosen path._
+
+8. **Storage-disabled visitors get distinct beacon session ids** — `[app node:test]`
+   `[frontend-manual]` — _FE-3. When `sessionStorage` is unavailable (private mode), `getSessionId()`
+   returns the literal `'no-session'` for every visitor, merging distinct visitors into one bucket in the
+   daily report's session count and the per-session inspector._
+   - [ ] When `sessionStorage` throws/unavailable, the session id is a freshly-generated per-load random id
+         (not a shared constant), so two such visitors produce different ids.
+   - [ ] When `sessionStorage` is available, behavior is unchanged (stable per-tab id as today).
+   - _P1: analytics-quality fix; the FE module gains its first test (closes part of TC-02) and the fallback
+     is a one-line change in the catch branch._
+
+9. **Chat deep-probe (`?deep=1`) has a server-side cooldown** — `[chat pytest]` — _SEC-7 /
+   CHAT-SMOKE-1. The admin-gated deep smoke mints a REAL paid Gemini Live session with no per-call
+   cooldown/in-flight guard; a key-holder (or the key-carrying admin SPA) can fire paid probes back-to-back._
+   - [ ] A second deep probe within a short server-side min-interval of the previous one is rejected (e.g.
+         429 / "cooldown") rather than minting another paid Live session.
+   - [ ] After the cooldown elapses, a deep probe is allowed again; the once-daily report caller is
+         unaffected (interval well under 24h).
+   - _P1: gated by a timing-safe admin key so not externally exploitable, but "do it right" caps the cost if
+     the key leaks; testable in the chat pytest suite against the smoke handler._
+
+10. **Separate probe-scoped key for the chat smoke endpoint** — `[chat pytest]` `[frontend-manual]` —
+    _FE-2. The admin SPA forwards the contact-admin session key as `x-admin-key` to the chat ECS host, so
+    one secret unlocks two trust domains. Decision: split a dedicated key (see design-notes)._
+    - [ ] The chat `/api/chat/smoke` endpoint validates a probe-scoped credential distinct from the
+          contact-admin key (its own env secret on the chat container), with a timing-safe compare.
+    - [ ] The admin SPA sends the probe-scoped key (not the contact-admin key) to the chat host; the deep
+          probe still works end-to-end against staging.
+    - [ ] A compromise of one trust domain's key does not unlock the other.
+    - _P1: owner-only residual risk today, but "do everything the right way" = trust-domain separation.
+      qa-verifier confirms the deep probe still works in the admin panel against staging after the split._
+
+11. **`avgFirstToken` is defined consistently across digest and admin panel** — `[app node:test]`
+    `[frontend-manual]` — _AGG-2. The daily digest counts `firstTokenLatencyMs` only for `stream && ok`
+    turns; the admin transcripts/summary panel counts it for ANY finite value — so the same data shows two
+    different "avg first token" numbers to the same operator._
+    - [ ] The two surfaces either compute the average from the same definition, OR the admin panel labels
+          them distinctly (e.g. "avg first token (streamed OK)" vs "(all text turns)") so they are not
+          silently conflated.
+    - [ ] The chosen definition is covered by a test so a regression re-diverges them red.
+    - _P1: operator-confusion only, no data loss; pick the stream+ok "healthy streaming" definition as the
+      canonical one (reuse the shared aggregator) or label distinctly. qa-verifier confirms the admin panel
+      reads correctly._
+
+12. **Every contact submission has a matching terminal funnel event** — `[app node:test]` — _FE-4. On a
+    2xx response with a missing/non-object body or non-JSON content-type, `contact.js` shows the user an
+    error but emits no `contact_submit_ok`/`contact_submit_error`, so the funnel records an open
+    `contact_submit` with no outcome — skewing the daily report's success/error rate._
+    - [ ] A 2xx-with-unexpected-reply path emits a terminal `contact_submit_error` (e.g.
+          `reason: 'unexpected_reply'`) before returning, so every `contact_submit` has a matching outcome.
+    - [ ] The normal success and 4xx/5xx/validation/network paths are unchanged (still emit their existing
+          terminal events).
+    - _P1: minor analytics skew; the user already sees the right message. Easy node:test against the contact
+      core's event-emission contract._
+
+### P2 — follow-ups (this milestone if time; else fast-follow, owner's call)
+
+13. **Daily-report empty-day average test asserts the real property** — `[app node:test]` —
+    _AGG-3 / TC-04. The empty-day test asserts `report.avgFirstTokenMs` (a top-level property that never
+    exists → always `undefined` → passes vacuously) instead of `report.chat.avgFirstTokenMs`, so it would
+    not catch a regression that made the nested average `NaN`._
+    - [ ] The empty-day test asserts `report.chat.avgFirstTokenMs === undefined`, and a deliberate `NaN`
+          there would make it fail.
+    - _P2: test-quality only, code is correct. Bundle into a test-hardening pass._
+
+14. **Chat day-boundary `+00:00` rows are captured by the lookback** — `[app node:test]` — _AGG-1. The
+    `queryDay` `:start` bound is built as a JS `...000Z` string; Python chat `createdAt` uses the `+00:00`
+    offset form, which sorts lexicographically below `Z`, so a chat row in microseconds 0–999 of a UTC day
+    is dropped from the next day's lookback._
+    - [ ] The `:start` lower bound sorts at/below both the `...000Z` and `...+00:00` representations (e.g. a
+          fractionless `${day}T00:00:00` lower bound), OR chat `createdAt` is normalized to `Z` form on write.
+    - [ ] A regression test in `report-queries.test.mjs` asserts a `+00:00` midnight chat row is included.
+    - _P2: practically unreachable trigger (session starting in the first ~1ms of a UTC day with turns
+      crossing midnight) and even then only cross-midnight tail turns are undercounted in one day's report._
+
+15. **`/api/events` 202 count is unambiguous** — `[app node:test]` — _EV-3. The 202 `accepted` count is the
+    persisted-count, silently omitting events the server dropped (unnamed, >100, excess params), with no
+    signal — though the FE never reads the response body._
+    - [ ] The 202 response either renames `accepted` to `persisted`, OR additionally returns
+          `received`/`dropped`, so the count is unambiguous.
+    - _P2: zero consumer reads it today; cosmetic. Trivial if touched._
+
+16. **Per-day query is bounded under a flood** — `[app node:test]` `[app infra-template]` — _EV-1.
+    `queryDayWith` pushes every row of a UTC day into one unbounded array; under a sustained flood the daily
+    report could OOM/timeout (256MB/60s). The Errors alarm (item 2) makes a silent failure visible; this
+    bounds the cause._
+    - [ ] `queryDayWith` either caps the materialized item count or aggregates incrementally within the
+          pagination loop instead of collecting the whole day in memory.
+    - [ ] The existing report-queries tests stay green; a test pins the bounded/incremental behavior.
+    - _P2: requires an attacker sustaining the throttle ceiling for a full day; with item 2's alarm in place
+      a failure is at least observed. Item 5's lowered amplification also reduces the achievable volume._
+
+17. **DynamoDB tables have PITR + retention on the durable business data** — `[app infra-template]` —
+    _INFRA-4. No table has `PointInTimeRecoverySpecification` or `DeletionPolicy/UpdateReplacePolicy: Retain`;
+    a stack delete or replacing update destroys all rows. The meaningful gap is `ContactMessagesTable`
+    (real inbound contact data); `SiteEventsTable` is TTL-pruned analytics (lower stakes)._
+    - [ ] `ContactMessagesTable` (and `ChatTranscriptsTable`) have `DeletionPolicy: Retain` +
+          `UpdateReplacePolicy: Retain` and `PointInTimeRecoveryEnabled: true`.
+    - [ ] `SiteEventsTable` has `Retain` policies (PITR optional given the 120-day TTL).
+    - _P2: DR/config hardening, not active loss; loss only on an operator-initiated delete/replace. Note:
+      the genuinely valuable gap (ContactMessagesTable) is PRE-EXISTING, unchanged by this branch._
+
+18. **Per-IP rate limiting on the public events beacon** — `[app infra-template]` — _SEC-3 (deeper half).
+    Beyond item 5's amplification reduction + budget alarm, a real per-IP ceiling is the durable fix._
+    - [ ] A per-IP control bounds beacon abuse independent of the global stage throttle (e.g. a WAF
+          RateBasedRule on the HttpApi, or a conditional-write token-bucket keyed by `ipHash`+minute).
+    - _P2: the deeper structural mitigation; item 5 (budget alarm + lowered amplification) is the P1 floor.
+      Escalation note: a WAF RuleGroup adds AWS cost — navigator/dev-ops call whether to add WAF on a
+      personal portfolio vs the cheaper token-bucket; see design-notes._
+
+19. **Stale CORS comment in the beacon is corrected** — `[app node:test]` (or doc-only) — _SEC-5. The
+    `js/site-events.js` comment claims the gateway returns `Access-Control-Allow-Origin: *` (false — the
+    template uses an explicit allowlist), which could mislead a future maintainer into "fixing" CORS in a
+    way that breaks the beacon._
+    - [ ] The comment states the true reason (`text/plain` keeps the POST a CORS-safelisted simple request,
+          avoiding preflight) and no longer claims a wildcard ACAO.
+    - _P2: pure comment defect, zero runtime effect. No code change required._
+
+20. **Dead `utcDayBounds` helper is removed or wired in** — `[app node:test]` — _TC-01. `utcDayBounds`
+    returns HALF-OPEN bounds and is tested, but it has zero production callers; the live path
+    (`queryDayWith`) uses an inclusive-last-ms end. Divergent, dead, false coverage._
+    - [ ] `utcDayBounds` is either deleted (with its test) as dead code, OR consumed by
+          `report-queries-core` so a single tested contract is the one shipped.
+    - _P2: live path is already correctly tested; only the unused helper is the trap._
+
+21. **FE beacon module has test coverage** — `[app node:test]` — _TC-02. `js/site-events.js`
+    (recordEvent/flushEvents/buffer-cap/text-plain) ships with zero tests; the backend half is well-covered._
+    - [ ] A node:test (stubbing `navigator.sendBeacon`, `fetch`, `sessionStorage`) asserts: buffer flushes at
+          the cap, `recordEvent` stamps `ts` and no-ops on empty name, `flushEvents` no-ops on empty buffer and
+          swaps the buffer before posting, and the `text/plain` blob type is preserved.
+    - _P2: best-effort analytics, errors swallowed by design. Partly overlaps item 8's consent/session test;
+      land them together._
+
+22. **Thin handler wrappers above the core seam are tested** — `[app node:test]` — _TC-03. The
+    `getSessionEvents` day-defaulting + `?date` regex guard (logic, not glue) and the daily-report
+    `fetchDeepChatChecks` timeout/error mapping are untested above the pure-core seam._
+    - [ ] A handler-level test for `getSessionEvents` (inject a fake `queryDay`) asserts the today-UTC
+          default, the `?date` regex guard, and `lookbackDays:1`.
+    - [ ] (Ideally) a test for `contact-daily-report`'s `fetchDeepChatChecks` timeout/error mapping.
+    - _P2: small low-risk branch behind the admin-key gate; the regex already blocks malformed dates._
+
+23. **Lambda runtime and CI node major match** — `[CI]` — _INFRA-6. `Globals.Function.Runtime` is
+    `nodejs22.x` while the deploy workflows' node:test + SAM steps pin `node-version: 20`, so the suite is
+    validated on a different major than ships (low risk — code is baseline ESM + @aws-sdk + fetch)._
+    - [ ] The CI `actions/setup-node` `node-version` is bumped to `22` in the deploy + test workflows so the
+          suite runs on the same major that ships to Lambda.
+    - _P2: also clears the Node 20 deprecation warning noted in progress.md. Pure CI hygiene._
+
+### INFRA-3 — dual cron (folded into item 2's pass)
+
+> **INFRA-3** (two scheduled functions both at `cron(0 12 * * ? *)`) is a low smell — two emails in the
+> same minute, only when failed contact rows exist. Address it opportunistically while touching the
+> template for item 2: either stagger the failure-report cron (e.g. `cron(30 11 * * ? *)`) or fold
+> failed-contact detail into the daily digest. Not its own item; one-line acceptance: the two scheduled
+> functions no longer fire at the same UTC minute (or are consolidated to one). `[app infra-template]`, P2.
+
+## Next up (post-milestone — pre-existing OPTIONAL tail, NOT in this milestone)
+
+> _**All ten invariants are fully proven** (the last open clause — #8's 55s cap — shipped 2026-06-04; see
+> Shipped "Invariant-completion pins"). The items below are the LOW-priority / OPTIONAL tdd-critic hardening
+> tail that predates this milestone: #9 cross-turn pinning (1–2), then optional #10 hardening (3–4). None
+> blocks any invariant or the stage deploy — defer until the Pre-prod hardening milestone is signed off._
 
 1. **Pin cross-turn fallback-first persistence** — `[chat]` — _tdd-critic follow-up on the #9
    sign-off: the in-turn first-chunk fallback is now proven, but the routing chain's memory that

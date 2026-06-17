@@ -47,9 +47,11 @@ ticking each box as it goes.
 
 
 ## Tics
-Read your inbox at the start of your turn (`.claude/hooks/tics inbox <your-role> --scope <scope>`). Your
-handoff + the suite result are recorded automatically when you finish (the SubagentStop hook) —
-don't hand-emit handoffs. Emit only what the result can't capture: a `verdict` (reviewers:
-`pass`/`concerns`/`block`) or a `msg`/`note`, via `.claude/hooks/tic.sh <your-role> <to> <kind>
-"<one line>"`. The tic log is agent-to-agent communication, not chat — see
-`docs/tics/tic-protocol.md`.
+You have NO Bash — coordinate via your granted MCP tools (`mcp__tics__*`), not the
+`tic.sh`/`tics` CLI. Read your inbox at the start of your turn with `mcp__tics__tics_inbox`
+(`role: <your-role>`, optional `scope`); read the board/needs with `mcp__tics__tics_board`
+and `mcp__tics__tics_review`. Your handoff + the suite result are recorded automatically when
+you finish (the SubagentStop hook) — don't hand-emit handoffs. Emit only what the result can't
+capture: a `verdict` (reviewers: `pass`/`concerns`/`block`) or a `msg`/`note`, via
+`mcp__tics__tic_emit` (`from: <your-role>`, `to`, `kind`, `msg`; optional `ref`/`result`/`session`).
+The tic log is agent-to-agent communication, not chat — see `docs/tics/tic-protocol.md`.

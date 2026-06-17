@@ -81,6 +81,18 @@ extract_write_targets() {
     | grep -vE '[$*?`]|^&|^[0-9]+$' || true
 }
 
+# Sensitive-surface guard (opt-in): paths matching SECURITY_GLOB (set in tdd.config) require a
+# deliberate review pass — set SECURITY_REVIEW=1 to permit the edit. Applies in EVERY phase, INCLUDING
+# off, so the disarm switch can't slip auth/secret/CORS edits past review. Empty/unset glob = no-op.
+security_guard() {
+  [ -n "${SECURITY_GLOB:-}" ] || return 0
+  printf '%s' "$1" | grep -qE "$SECURITY_GLOB" || return 0
+  [ "${SECURITY_REVIEW:-0}" = "1" ] && return 0
+  echo "BLOCKED (security surface): $1 matches SECURITY_GLOB and needs a review pass. Set SECURITY_REVIEW=1 for this edit (after an architect/security review), or adjust SECURITY_GLOB in tdd.config." >&2
+  emit_tic guard orchestrator block "security-surface edit refused ($1) — SECURITY_REVIEW not set" "$1" blocked
+  exit 2
+}
+
 # Decide ONE path under the current phase: returns 0 (allow) or exits 2 (block). Used for the
 # Edit/Write file_path AND for each Bash write-target — the verdict is identical either way, so
 # a Bash redirect into source is gated exactly like a Write to it.
@@ -89,6 +101,8 @@ gate_path() {
   # The loop's control plane is exempt from the phase gate (writing it operates the gate). This must
   # come FIRST — otherwise transitioning red->green by writing .claude/state/phase is itself blocked.
   if is_control "$P"; then return 0; fi
+  # Sensitive surfaces are gated in EVERY phase (incl. off), after the control-plane exemption.
+  security_guard "$P"
   # Docs/ADRs are never code-under-test → not blocked in ANY phase (claims still apply). An ADR is
   # a published seam: auto-emit a `contract` when one is first CREATED (once; not on later edits).
   if is_doc "$P"; then
