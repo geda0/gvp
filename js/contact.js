@@ -1,5 +1,6 @@
 import { contactApiUrl } from './site-config.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
+import { trackEvent } from './analytics.js'
 
 /** Assigned in initContactForm; opens #contactDialog without synthetic button click. */
 let openContactDialogImpl = (_prefill) => {}
@@ -116,11 +117,13 @@ export function initContactForm() {
 
     if (!payload.email || !payload.message) {
       setStatus('Email and message are required.', 'error')
+      trackEvent('contact_submit_error', { reason: 'validation' })
       return
     }
 
     setBusy(true)
     setStatus('Sending…', 'muted')
+    trackEvent('contact_submit')
 
     try {
       const res = await fetch(contactEndpoint, {
@@ -154,6 +157,7 @@ export function initContactForm() {
           }
         }
         setStatus(msg, 'error')
+        trackEvent('contact_submit_error', { code: res.status })
         return
       }
 
@@ -169,10 +173,12 @@ export function initContactForm() {
       // Success only means persisted server-side. Delivery may be immediate or queued.
       setStatus(CONTACT_SUCCESS_TEXT, 'success')
       setSuccessView(CONTACT_SUCCESS_TEXT)
+      trackEvent('contact_submit_ok')
 
       form.reset()
     } catch (_) {
       setStatus('Network error. Try again.', 'error')
+      trackEvent('contact_submit_error', { reason: 'network' })
     } finally {
       setBusy(false)
     }

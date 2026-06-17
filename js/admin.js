@@ -67,6 +67,10 @@ const healthEl = document.getElementById('adminHealthDetail')
 const smokeTableEl = document.getElementById('adminSmokeTable')
 const smokeOverallEl = document.getElementById('adminSmokeOverall')
 const deepProbeBtn = document.getElementById('adminDeepProbeBtn')
+const sessionIdEl = document.getElementById('adminSessionId')
+const sessionDateEl = document.getElementById('adminSessionDate')
+const loadSessionBtn = document.getElementById('adminLoadSessionBtn')
+const sessionTimelineEl = document.getElementById('adminSessionTimeline')
 const outcomeEl = document.getElementById('adminOutcomeDetail')
 const limitEl = document.getElementById('adminLimit')
 const loadMoreBtn = document.getElementById('adminLoadMoreBtn')
@@ -290,6 +294,46 @@ async function runDeepProbe() {
   } finally {
     deepProbeBtn.disabled = false
     deepProbeBtn.textContent = label
+  }
+}
+
+function renderSessionTimeline(result) {
+  if (!sessionTimelineEl) return
+  const events = (result && result.events) || []
+  if (!events.length) {
+    sessionTimelineEl.innerHTML = '<tr><td colspan="4">No events for that session/day.</td></tr>'
+    return
+  }
+  sessionTimelineEl.innerHTML = events
+    .map((e) => {
+      const stamp = Number.isFinite(e.ts) ? e.ts : e.createdAt
+      const when = stamp ? new Date(stamp).toLocaleTimeString() : '—'
+      const where = [e.section, e.page].filter(Boolean).map(escapeHtml).join(' · ') || '—'
+      const params =
+        e.params && typeof e.params === 'object'
+          ? Object.entries(e.params)
+              .map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(v)}`)
+              .join(', ')
+          : ''
+      return `<tr><td>${escapeHtml(when)}</td><td>${escapeHtml(e.event || '—')}</td><td>${where}</td><td>${escapeHtml(params)}</td></tr>`
+    })
+    .join('')
+}
+
+async function loadSession() {
+  const id = (sessionIdEl?.value || '').trim()
+  if (!id) {
+    setStatus(globalStatus, 'Enter a session id to inspect.', 'error')
+    return
+  }
+  const date = (sessionDateEl?.value || '').trim()
+  setStatus(globalStatus, 'Loading session timeline…')
+  try {
+    const q = `/session/${encodeURIComponent(id)}${date ? `?date=${encodeURIComponent(date)}` : ''}`
+    renderSessionTimeline(await requestContact(q))
+    setStatus(globalStatus, 'Session timeline loaded.', 'success')
+  } catch (error) {
+    setStatus(globalStatus, error.message || 'Could not load session.', 'error')
   }
 }
 
@@ -960,6 +1004,13 @@ tabContactBtn?.addEventListener('click', () => setActiveTab('contact'))
 tabTranscriptsBtn?.addEventListener('click', () => setActiveTab('transcripts'))
 tabReportBtn?.addEventListener('click', () => setActiveTab('report'))
 deepProbeBtn?.addEventListener('click', runDeepProbe)
+loadSessionBtn?.addEventListener('click', loadSession)
+sessionIdEl?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    loadSession()
+  }
+})
 reportDateEl?.addEventListener('change', () => {
   reportHasLoaded = false
   void loadDailyReport()
