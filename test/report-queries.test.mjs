@@ -30,18 +30,21 @@ test('queryDayWith drains every page following LastEvaluatedKey', async () => {
   assert.deepEqual(run.calls[1].ExclusiveStartKey, { id: 2 }, 'second page threads the prior LastEvaluatedKey')
 })
 
-test('queryDayWith ranges a single UTC day with half-open [start, nextDayStart) bounds', async () => {
+test('queryDayWith ranges a single UTC day with a DynamoDB-valid BETWEEN key condition', async () => {
   const run = fakeRunner([{ Items: [] }])
   await queryDayWith(run, { tableName: 't', listPk: 'EVENT', day: '2026-06-16' })
 
   const params = run.calls[0]
+  // DynamoDB allows only ONE condition per key, so a sort-key range MUST be BETWEEN
+  // (not `>= :start AND < :end`, which is rejected with a ValidationException).
   assert.match(
     params.KeyConditionExpression,
-    />=\s*:start.*<\s*:end/,
-    'uses a half-open >= start AND < end range (not an inclusive BETWEEN .999Z)'
+    /createdAt BETWEEN :start AND :end/,
+    'sort-key range uses BETWEEN (one condition per key)'
   )
+  assert.doesNotMatch(params.KeyConditionExpression, /createdAt\s*(>=|<)/, 'never two comparators on createdAt')
   assert.equal(params.ExpressionAttributeValues[':start'], '2026-06-16T00:00:00.000Z')
-  assert.equal(params.ExpressionAttributeValues[':end'], '2026-06-17T00:00:00.000Z', 'end is the EXCLUSIVE next-day midnight')
+  assert.equal(params.ExpressionAttributeValues[':end'], '2026-06-16T23:59:59.999Z', 'inclusive end = last ms of the day')
   assert.equal(params.ExpressionAttributeValues[':pk'], 'EVENT')
 })
 
@@ -51,7 +54,7 @@ test('queryDayWith lookbackDays extends the start bound back N days (for midnigh
 
   const params = run.calls[0]
   assert.equal(params.ExpressionAttributeValues[':start'], '2026-06-15T00:00:00.000Z', 'start moved back one day')
-  assert.equal(params.ExpressionAttributeValues[':end'], '2026-06-17T00:00:00.000Z', 'end still excludes the day after the target')
+  assert.equal(params.ExpressionAttributeValues[':end'], '2026-06-16T23:59:59.999Z', 'end stays the last ms of the target day')
 })
 
 test('queryDayWith returns [] without a tableName and never calls the runner', async () => {
