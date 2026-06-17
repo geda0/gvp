@@ -41,6 +41,11 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional email for SNS when chat Lambda errors exceed alarm threshold (empty skips alarm).
+  SmokeProbeKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Probe-scoped secret validated by /api/chat/smoke (x-smoke-key). Distinct from the contact admin key.
 
 Conditions:
   HasChatTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
@@ -91,6 +96,7 @@ Resources:
           CHAT_LIVE_VOICE_STRICT: '0'
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
+          SMOKE_PROBE_KEY: !Ref SmokeProbeKey
       Events:
         RootAny:
           Type: HttpApi

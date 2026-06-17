@@ -163,10 +163,12 @@ export function initContactForm() {
 
       if (body === null || typeof body !== 'object') {
         setStatus('The contact service returned an unexpected reply. Try again.', 'error')
+        trackEvent('contact_submit_error', { reason: 'unexpected_reply' })
         return
       }
       if (!wantsJson) {
         setStatus('The contact service returned an unexpected reply. Try again.', 'error')
+        trackEvent('contact_submit_error', { reason: 'unexpected_reply' })
         return
       }
 

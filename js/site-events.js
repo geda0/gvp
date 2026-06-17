@@ -5,14 +5,16 @@
 // (survives page unload) with a fetch keepalive fallback.
 
 import { eventsApiUrl } from './site-config.js'
+import { hasAnalyticsConsent } from './consent.js'
 
 const SESSION_KEY = 'gvp-events-session'
 const FLUSH_INTERVAL_MS = 4000
-const MAX_BUFFER = 40
+const MAX_BUFFER = 25
 
 let buffer = []
 let timer = null
 let started = false
+let fallbackSessionId = null
 
 function getSessionId() {
   try {
@@ -25,7 +27,12 @@ function getSessionId() {
     }
     return id
   } catch {
-    return 'no-session'
+    if (!fallbackSessionId) {
+      fallbackSessionId =
+        (crypto && crypto.randomUUID && crypto.randomUUID()) ||
+        `s-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    }
+    return fallbackSessionId
   }
 }
 
@@ -38,11 +45,11 @@ function post(payload) {
   if (!eventsApiUrl) return
   const body = JSON.stringify(payload)
   // Send as text/plain (a CORS-safelisted content type) so the cross-origin POST is
-  // a "simple" request: no preflight. This matters because sendBeacon always sends
-  // with credentials mode "include", and the browser blocks a credentialed request
-  // against the gateway's `Access-Control-Allow-Origin: *` (wildcard is illegal with
-  // credentials) — which silently dropped every beacon. A simple request sidesteps
-  // that; the server's parseJsonBody JSON.parses the body regardless of content-type.
+  // a "simple" request: no preflight. navigator.sendBeacon always uses credentials
+  // mode "include"; a non-safelisted Content-Type (e.g. application/json) would
+  // trigger a CORS preflight, which sendBeacon cannot send — the beacon would be
+  // silently dropped. text/plain is CORS-safelisted so the POST stays simple and
+  // no preflight is needed; the server JSON.parses the body regardless of content-type.
   try {
     if (navigator.sendBeacon) {
       const blob = new Blob([body], { type: 'text/plain;charset=UTF-8' })
@@ -66,6 +73,7 @@ function post(payload) {
 
 export function flushEvents() {
   if (!buffer.length) return
+  if (!hasAnalyticsConsent()) return   // buffer-preserve: keep events until consent is granted
   const events = buffer
   buffer = []
   post({ sessionId: getSessionId(), events })

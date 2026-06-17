@@ -18,6 +18,14 @@ Parameters:
   AdminApiKey:
     Type: String
     NoEcho: true
+  IpHashPepper:
+    Type: String
+    NoEcho: true
+    Default: ''
+  SmokeProbeKey:
+    Type: String
+    NoEcho: true
+    Default: ''
   ContactCorsOrigins:
     Type: String
     Default: 'https://marwanelgendy.link,https://www.marwanelgendy.link,http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173'
@@ -107,6 +115,8 @@ Resources:
 
   ContactMessagesTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -128,9 +138,13 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
 
   ChatTranscriptsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -152,12 +166,16 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
 
   # First-party site-interaction events (analytics we own). Same id+byCreatedAt
   # GSI shape as the other tables so the daily report can range-query a UTC day.
   # Raw rows self-expire via the `ttl` attribute (set ~120 days out in code).
   SiteEventsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -218,11 +236,50 @@ Resources:
       AlarmActions:
         - !Ref ContactAlarmTopic
 
+  DailyReportErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Daily report Lambda is erroring (scheduled digest unreliable).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref DailyReportFunction
+      AlarmActions:
+        - !Ref ContactAlarmTopic
+
+  ContactFailureReportErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Contact failure-report Lambda is erroring (scheduled report unreliable).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ContactFailureReportFunction
+      AlarmActions:
+        - !Ref ContactAlarmTopic
+
   ContactIngressFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
       Handler: contact-ingress.handler
+      Environment:
+        Variables:
+          IP_HASH_PEPPER: !Ref IpHashPepper
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ContactMessagesTable
@@ -247,6 +304,9 @@ Resources:
     Properties:
       CodeUri: src/
       Handler: events-ingress.handler
+      Environment:
+        Variables:
+          IP_HASH_PEPPER: !Ref IpHashPepper
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SiteEventsTable
@@ -276,6 +336,7 @@ Resources:
           ADMIN_API_KEY: !Ref AdminApiKey
           CHAT_SMOKE_URL: !Ref ChatSmokeUrl
           SMOKE_DEEP_IN_REPORT: !Ref SmokeDeepInReport
+          SMOKE_PROBE_KEY: !Ref SmokeProbeKey
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref ContactMessagesTable
@@ -316,7 +377,7 @@ Resources:
         DailyReport:
           Type: Schedule
           Properties:
-            Schedule: cron(0 12 * * ? *)
+            Schedule: cron(30 11 * * ? *)
 
   ContactAdminFunction:
     Type: AWS::Serverless::Function

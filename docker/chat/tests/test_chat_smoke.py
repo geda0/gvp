@@ -18,9 +18,37 @@ async def test_smoke_requires_admin_key(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_contact_admin_key_alone_does_not_unlock_smoke(client: AsyncClient, monkeypatch) -> None:
+    """FE-2: the contact-admin key is NOT the smoke credential. Presenting only the
+    contact-admin key (no probe-scoped key) must be rejected, so a leaked admin key
+    can't mint paid Live probes."""
+    monkeypatch.setenv("ADMIN_API_KEY", "contact-admin-secret")
+    monkeypatch.setenv("SMOKE_PROBE_KEY", "probe-secret")
+    r = await client.get("/api/chat/smoke", headers={"x-admin-key": "contact-admin-secret"})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_smoke_accepts_probe_scoped_key(client: AsyncClient, monkeypatch) -> None:
+    """FE-2: the probe-scoped secret (its own chat-container env var) unlocks smoke."""
+    monkeypatch.setenv("ADMIN_API_KEY", "contact-admin-secret")
+    monkeypatch.setenv("SMOKE_PROBE_KEY", "probe-secret")
+    r = await client.get("/api/chat/smoke", headers={"x-smoke-key": "probe-secret"})
+    assert r.status_code == 200
+    assert r.json()["depth"] == "cheap"
+
+
+@pytest.mark.asyncio
+async def test_smoke_probe_key_is_timing_safe_and_rejects_wrong_value(client: AsyncClient, monkeypatch) -> None:
+    monkeypatch.setenv("SMOKE_PROBE_KEY", "probe-secret")
+    r = await client.get("/api/chat/smoke", headers={"x-smoke-key": "wrong"})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_smoke_cheap_reports_host_check(client: AsyncClient, monkeypatch) -> None:
-    monkeypatch.setenv("ADMIN_API_KEY", "secret")
-    r = await client.get("/api/chat/smoke", headers={"x-admin-key": "secret"})
+    monkeypatch.setenv("SMOKE_PROBE_KEY", "secret")
+    r = await client.get("/api/chat/smoke", headers={"x-smoke-key": "secret"})
     assert r.status_code == 200
     body = r.json()
     assert body["depth"] == "cheap"
@@ -36,7 +64,7 @@ async def test_smoke_cheap_reports_host_check(client: AsyncClient, monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_smoke_deep_runs_the_live_probe_and_marks_it_paid(client: AsyncClient, monkeypatch) -> None:
-    monkeypatch.setenv("ADMIN_API_KEY", "secret")
+    monkeypatch.setenv("SMOKE_PROBE_KEY", "secret")
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     from app import live_gemini
 
@@ -44,7 +72,7 @@ async def test_smoke_deep_runs_the_live_probe_and_marks_it_paid(client: AsyncCli
         return {"ok": True}
 
     monkeypatch.setattr(live_gemini, "probe_live_session", fake_probe)
-    r = await client.get("/api/chat/smoke?deep=1", headers={"x-admin-key": "secret"})
+    r = await client.get("/api/chat/smoke?deep=1", headers={"x-smoke-key": "secret"})
     assert r.status_code == 200
     body = r.json()
     assert body["depth"] == "deep"
@@ -55,7 +83,7 @@ async def test_smoke_deep_runs_the_live_probe_and_marks_it_paid(client: AsyncCli
 
 @pytest.mark.asyncio
 async def test_smoke_deep_probe_failure_is_a_fail_check_not_a_500(client: AsyncClient, monkeypatch) -> None:
-    monkeypatch.setenv("ADMIN_API_KEY", "secret")
+    monkeypatch.setenv("SMOKE_PROBE_KEY", "secret")
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     from app import live_gemini
 
@@ -63,7 +91,7 @@ async def test_smoke_deep_probe_failure_is_a_fail_check_not_a_500(client: AsyncC
         raise RuntimeError("live api down")
 
     monkeypatch.setattr(live_gemini, "probe_live_session", boom)
-    r = await client.get("/api/chat/smoke?deep=1", headers={"x-admin-key": "secret"})
+    r = await client.get("/api/chat/smoke?deep=1", headers={"x-smoke-key": "secret"})
     assert r.status_code == 200, "a probe failure must not 500 the smoke endpoint"
     body = r.json()
     live = next(c for c in body["checks"] if c["name"] == "chat_model_live")

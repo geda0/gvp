@@ -66,6 +66,7 @@ const detailEl = document.getElementById('adminMessageDetail')
 const healthEl = document.getElementById('adminHealthDetail')
 const smokeTableEl = document.getElementById('adminSmokeTable')
 const smokeOverallEl = document.getElementById('adminSmokeOverall')
+const smokeProbeKeyEl = document.getElementById('adminSmokeProbeKey')
 const deepProbeBtn = document.getElementById('adminDeepProbeBtn')
 const sessionIdEl = document.getElementById('adminSessionId')
 const sessionDateEl = document.getElementById('adminSessionDate')
@@ -122,6 +123,7 @@ const chatMarkUnreviewedBtn = document.getElementById('chatMarkUnreviewedBtn')
 
 let activeTab = 'contact'
 let adminKey = sessionStorage.getItem('admin-api-key') || ''
+let smokeProbeKey = sessionStorage.getItem('smoke-probe-key') || ''
 let selectedMessageId = null
 let currentMessages = []
 let selectedDetailItem = null
@@ -277,7 +279,7 @@ async function runDeepProbe() {
     const tasks = [requestContact('/smoke?depth=deep')]
     if (chatSmokeUrl) {
       tasks.push(
-        fetch(`${chatSmokeUrl}?deep=1`, { headers: { 'x-admin-key': adminKey } })
+        fetch(`${chatSmokeUrl}?deep=1`, { headers: { 'x-smoke-key': smokeProbeKey } })
           .then((r) => r.json())
           .catch((e) => ({ checks: [{ name: 'chat_model_live', status: 'fail', detail: String((e && e.message) || e), latencyMs: 0, cost: 'paid' }] }))
       )
@@ -1000,9 +1002,21 @@ authForm?.addEventListener('submit', async (event) => {
   }
 })
 
+function syncSmokeProbeKey() {
+  smokeProbeKey = (smokeProbeKeyEl?.value || '').trim()
+  if (smokeProbeKey) {
+    sessionStorage.setItem('smoke-probe-key', smokeProbeKey)
+  } else {
+    sessionStorage.removeItem('smoke-probe-key')
+  }
+  if (deepProbeBtn) deepProbeBtn.disabled = !smokeProbeKey
+}
+
 tabContactBtn?.addEventListener('click', () => setActiveTab('contact'))
 tabTranscriptsBtn?.addEventListener('click', () => setActiveTab('transcripts'))
 tabReportBtn?.addEventListener('click', () => setActiveTab('report'))
+smokeProbeKeyEl?.addEventListener('change', syncSmokeProbeKey)
+smokeProbeKeyEl?.addEventListener('input', syncSmokeProbeKey)
 deepProbeBtn?.addEventListener('click', runDeepProbe)
 loadSessionBtn?.addEventListener('click', loadSession)
 sessionIdEl?.addEventListener('keydown', (event) => {
@@ -1211,6 +1225,10 @@ signOutBtn?.addEventListener('click', () => {
   if (loadMoreBtn) loadMoreBtn.hidden = true
   if (chatLoadMoreBtn) chatLoadMoreBtn.hidden = true
   sessionStorage.removeItem('admin-api-key')
+  smokeProbeKey = ''
+  if (smokeProbeKeyEl) smokeProbeKeyEl.value = ''
+  sessionStorage.removeItem('smoke-probe-key')
+  if (deepProbeBtn) deepProbeBtn.disabled = true
   app.hidden = true
   authCard.hidden = false
   authInput.value = ''
@@ -1220,6 +1238,10 @@ signOutBtn?.addEventListener('click', () => {
   setActiveTab('contact')
   setStatus(globalStatus, '')
 })
+
+// Restore probe key from sessionStorage and sync button state
+if (smokeProbeKey && smokeProbeKeyEl) smokeProbeKeyEl.value = smokeProbeKey
+if (deepProbeBtn) deepProbeBtn.disabled = !smokeProbeKey
 
 if (adminKey) {
   if (!contactAdminBaseUrl && !isLocalAdminHost) {

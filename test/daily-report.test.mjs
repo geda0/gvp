@@ -82,8 +82,18 @@ test('buildDailyReport tolerates an all-empty day without throwing', () => {
   assert.equal(report.site.sessions, 0)
   assert.equal(report.chat.turns, 0)
   assert.equal(report.contact.submissions, 0)
-  assert.equal(report.avgFirstTokenMs, undefined)
+  // Empty day has no streamed ok turns, so avg first-token latency is undefined.
+  // (Guards report.chat.avgFirstTokenMs — the real key — not a vacuous top-level miss:
+  // a stray NaN or number from an over-eager average would now fail this.)
+  assert.equal(report.chat.avgFirstTokenMs, undefined)
   assert.ok(Array.isArray(report.site.byEvent))
+})
+
+test('buildDailyReport reports avgFirstTokenMs on a populated day (non-vacuous counterpart)', () => {
+  const { day, events, chatSessions, contactMessages } = fixture()
+  const report = buildDailyReport({ day, events, chatSessions, contactMessages })
+  // One streamed ok turn with firstTokenLatencyMs 800 -> average is 800.
+  assert.equal(report.chat.avgFirstTokenMs, 800)
 })
 
 test('buildDailyReport buckets chat turns by per-turn capturedAt, not session start day', () => {

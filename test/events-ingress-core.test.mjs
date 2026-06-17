@@ -38,6 +38,35 @@ test('a valid event batch is persisted and returns an accepted count', async () 
   assert.ok(persisted.every((r) => r.listPk === 'EVENT'), 'each row is an EVENT row')
 })
 
+test('the 202 body reports honest counts when some rows are dropped', async () => {
+  let persisted = null
+  const handler = createEventsHandler({
+    persistEvents: async (rows) => {
+      persisted = rows
+    },
+    env: okEnv
+  })
+
+  const response = await handler(
+    batchEvent({
+      sessionId: 'sess-drop',
+      events: [
+        { event: 'page_view' },
+        { event: '' }, // dropped — no event name
+        { params: { x: 1 } }, // dropped — no event name
+        { event: 'theme_change' }
+      ]
+    })
+  )
+  const body = JSON.parse(response.body)
+
+  assert.equal(response.statusCode, 202)
+  assert.equal(body.received, 4, 'received must report the raw count the client sent')
+  assert.equal(body.persisted, 2, 'persisted must report only the rows actually written')
+  assert.equal(body.dropped, 2, 'dropped must surface validation/over-cap losses, not hide them')
+  assert.ok(Array.isArray(persisted) && persisted.length === 2, 'only the two valid rows are written')
+})
+
 test('an empty batch is a no-op success and never touches the store', async () => {
   let persistCalled = false
   const handler = createEventsHandler({
@@ -86,6 +115,46 @@ test('non-POST is refused with 405 and no IO', async () => {
   })
   assert.equal(response.statusCode, 405)
   assert.equal(persistCalled, false)
+})
+
+test('an oversized body is rejected before JSON.parse, with no IO', async () => {
+  let persistCalled = false
+  let parsed = false
+  const handler = createEventsHandler({
+    persistEvents: async () => {
+      persistCalled = true
+    },
+    env: okEnv
+  })
+  // A ~70KB body exceeds the ~64KB events cap. If the guard runs BEFORE JSON.parse,
+  // we never even need valid JSON — a giant non-JSON blob is refused outright.
+  const giant = 'x'.repeat(70 * 1024)
+  const response = await handler({
+    requestContext: { http: { method: 'POST' } },
+    headers: { origin: 'http://localhost:8000' },
+    body: giant,
+    get isBase64Encoded() {
+      parsed = true
+      return false
+    }
+  })
+  assert.equal(response.statusCode, 413, 'an over-cap body is refused with 413 (Payload Too Large)')
+  assert.equal(persistCalled, false, 'an over-cap request never reaches the store')
+  assert.equal(parsed, false, 'the guard short-circuits before the body is ever decoded/parsed')
+})
+
+test('a normal <=40-event batch is unaffected by the size guard', async () => {
+  let persisted = null
+  const handler = createEventsHandler({
+    persistEvents: async (rows) => {
+      persisted = rows
+    },
+    env: okEnv
+  })
+  const events = Array.from({ length: 40 }, (_, i) => ({ event: `e${i}`, params: { i } }))
+  const response = await handler(batchEvent({ sessionId: 's', events }))
+  assert.equal(response.statusCode, 202, 'a normal batch is well under the size cap')
+  assert.ok(Array.isArray(persisted) && persisted.length > 0, 'a normal batch still persists')
 })
 
 test('malformed JSON returns 400 without IO', async () => {

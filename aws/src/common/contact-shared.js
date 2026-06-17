@@ -24,10 +24,13 @@ export function makeId() {
   return crypto.randomUUID()
 }
 
-export function hashIp(ip) {
+export function hashIp(ip, pepper) {
   const value = safeTrim(ip)
   if (!value) return ''
-  return crypto.createHash('sha256').update(value).digest('hex').slice(0, 16)
+  if (pepper) {
+    return crypto.createHmac('sha256', pepper).update(value).digest('hex').slice(0, 16)
+  }
+  return ''
 }
 
 export function getClientIp(headers = {}) {
@@ -61,7 +64,7 @@ export function buildMessageRecord(payload, headers = {}) {
   const message = clampLen(payload?.message, 4000)
   const company = clampLen(payload?.company, 120)
   const userAgent = clampLen(getUserAgent(headers), 240)
-  const ipHash = hashIp(getClientIp(headers))
+  const ipHash = hashIp(safeTrim(String(getClientIp(headers)).split(',')[0]), process.env.IP_HASH_PEPPER)
   const normalizedMessage = {
     id,
     createdAt,

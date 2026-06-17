@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import {
   buildEventRecord,
-  normalizeEventBatch,
-  utcDayBounds
+  normalizeEventBatch
 } from '../aws/src/common/events-shared.js'
 
 test('buildEventRecord normalizes a single interaction into a durable EVENT row', () => {
@@ -31,18 +31,72 @@ test('buildEventRecord normalizes a single interaction into a durable EVENT row'
   assert.equal(record.userAgent, 'test-agent')
 })
 
-test('buildEventRecord hashes the client IP and never stores it raw', () => {
-  const ip = '198.51.100.23'
-  const record = buildEventRecord(
-    { event: 'page_view', sessionId: 's1' },
-    { 'x-forwarded-for': `${ip}, 70.0.0.1` }
-  )
-  assert.ok(record.ipHash, 'a client IP must produce a non-empty hash')
-  assert.notEqual(record.ipHash, ip, 'the raw IP must never be stored')
-  assert.doesNotMatch(JSON.stringify(record), /198\.51\.100\.23/, 'no raw IP anywhere in the row')
-  // Same IP hashes stably; a different IP hashes differently.
-  const again = buildEventRecord({ event: 'page_view', sessionId: 's2' }, { 'x-forwarded-for': ip })
-  assert.equal(record.ipHash, again.ipHash, 'identical IPs hash to the same value')
+// ADR-0008 SEC-2: the visitor ipHash must be KEYED end-to-end. buildEventRecord
+// reads IP_HASH_PEPPER and passes it through, so record.ipHash is the HMAC of the
+// client IP — and when the pepper is missing it FAILS SAFE to '' rather than the
+// reversible unkeyed hash. We mutate process.env here, so save/restore the prior
+// value to avoid leaking key state into other tests/files.
+test('buildEventRecord keys the client IP with IP_HASH_PEPPER, never the raw or unkeyed hash', () => {
+  const prevPepper = process.env.IP_HASH_PEPPER
+  try {
+    const ip = '198.51.100.23'
+    const pepper = 'events-pepper'
+    process.env.IP_HASH_PEPPER = pepper
+    const expectedKeyed = crypto
+      .createHmac('sha256', pepper)
+      .update(ip)
+      .digest('hex')
+      .slice(0, 16)
+    const legacyUnkeyed = crypto
+      .createHash('sha256')
+      .update(ip)
+      .digest('hex')
+      .slice(0, 16)
+
+    const record = buildEventRecord(
+      { event: 'page_view', sessionId: 's1' },
+      { 'x-forwarded-for': `${ip}, 70.0.0.1` }
+    )
+
+    // The stored hash is the KEYED HMAC of the leftmost (real visitor) IP...
+    assert.equal(record.ipHash, expectedKeyed, 'ipHash must be the keyed HMAC of the client IP')
+    // ...which proves it is neither the raw IP nor the reversible unkeyed hash.
+    assert.notEqual(record.ipHash, ip, 'the raw IP must never be stored')
+    assert.notEqual(record.ipHash, legacyUnkeyed, 'ipHash must not be the reversible unkeyed hash')
+    assert.doesNotMatch(JSON.stringify(record), /198\.51\.100\.23/, 'no raw IP anywhere in the row')
+    // Same IP hashes stably under the same pepper.
+    const again = buildEventRecord({ event: 'page_view', sessionId: 's2' }, { 'x-forwarded-for': ip })
+    assert.equal(record.ipHash, again.ipHash, 'identical IPs hash to the same value')
+  } finally {
+    if (prevPepper === undefined) delete process.env.IP_HASH_PEPPER
+    else process.env.IP_HASH_PEPPER = prevPepper
+  }
+})
+
+test('buildEventRecord fails safe to an empty ipHash when IP_HASH_PEPPER is unset', () => {
+  const prevPepper = process.env.IP_HASH_PEPPER
+  try {
+    const ip = '198.51.100.23'
+    delete process.env.IP_HASH_PEPPER
+    const legacyUnkeyed = crypto
+      .createHash('sha256')
+      .update(ip)
+      .digest('hex')
+      .slice(0, 16)
+
+    const record = buildEventRecord(
+      { event: 'page_view', sessionId: 's1' },
+      { 'x-forwarded-for': `${ip}, 70.0.0.1` }
+    )
+
+    // No key -> no hash. Fail safe to '' rather than the reversible unkeyed hash.
+    assert.equal(record.ipHash, '', 'with no pepper ipHash must be omitted, never the unkeyed hash')
+    assert.notEqual(record.ipHash, legacyUnkeyed, 'must not degrade to the reversible unkeyed hash')
+    assert.doesNotMatch(JSON.stringify(record), /198\.51\.100\.23/, 'no raw IP anywhere in the row')
+  } finally {
+    if (prevPepper === undefined) delete process.env.IP_HASH_PEPPER
+    else process.env.IP_HASH_PEPPER = prevPepper
+  }
 })
 
 test('buildEventRecord carries a TTL so raw events self-expire', () => {
@@ -82,11 +136,13 @@ test('normalizeEventBatch keeps only well-formed events and clamps an oversized 
 test('normalizeEventBatch enforces a hard per-request cap', () => {
   const events = Array.from({ length: 500 }, (_, i) => ({ event: `e${i}` }))
   const out = normalizeEventBatch({ sessionId: 's', events }, {})
-  assert.ok(out.length <= 100, 'a single request must not be able to write an unbounded number of rows')
+  assert.ok(out.length <= 25, 'a single request must not be able to write an unbounded number of rows')
 })
 
-test('utcDayBounds returns the inclusive ISO start and exclusive next-day start for a UTC day', () => {
-  const { startIso, endIso } = utcDayBounds('2026-06-15')
-  assert.equal(startIso, '2026-06-15T00:00:00.000Z')
-  assert.equal(endIso, '2026-06-16T00:00:00.000Z')
+// SEC-3: the per-request cap is tightened to 25 (one DynamoDB BatchWrite chunk).
+// A typical flush is well under this; a 40-event batch is over and must be clamped.
+test('normalizeEventBatch clamps a 40-event batch to the tightened 25-row cap', () => {
+  const events = Array.from({ length: 40 }, (_, i) => ({ event: `e${i}` }))
+  const out = normalizeEventBatch({ sessionId: 's', events }, {})
+  assert.equal(out.length, 25, 'a 40-event batch normalizes to at most 25 rows')
 })

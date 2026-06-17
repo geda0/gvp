@@ -16,7 +16,7 @@ export const EVENT_LIST_PK = 'EVENT'
 // Hard caps so a single request can never write an unbounded number of rows or
 // store oversized blobs. The frontend batches small flushes; anything beyond
 // this is almost certainly abuse.
-const MAX_EVENTS_PER_BATCH = 100
+const MAX_EVENTS_PER_BATCH = 25
 const MAX_EVENT_NAME_LEN = 80
 const MAX_PARAM_VALUE_LEN = 240
 const MAX_PARAMS = 24
@@ -56,7 +56,7 @@ export function buildEventRecord(payload, headers = {}, batchSessionId = '') {
   // x-forwarded-for is "client, proxy1, proxy2"; the leftmost entry is the real
   // visitor. Hash only that so one visitor counts once regardless of proxy chain.
   const clientIp = safeTrim(String(getClientIp(headers)).split(',')[0])
-  const ipHash = hashIp(clientIp)
+  const ipHash = hashIp(clientIp, process.env.IP_HASH_PEPPER)
   const ttl = Math.floor(Date.now() / 1000) + EVENT_TTL_DAYS * 24 * 60 * 60
 
   return {
@@ -90,13 +90,6 @@ export function normalizeEventBatch(body, headers = {}) {
     rows.push(buildEventRecord(raw, headers, batchSessionId))
   }
   return rows
-}
-
-// Inclusive start / exclusive end ISO timestamps for a UTC calendar day.
-export function utcDayBounds(day) {
-  const start = new Date(`${day}T00:00:00.000Z`)
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
-  return { startIso: start.toISOString(), endIso: end.toISOString() }
 }
 
 // The UTC calendar day (YYYY-MM-DD) immediately before `ref` (defaults to now).

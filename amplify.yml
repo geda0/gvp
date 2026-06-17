@@ -1,0 +1,28 @@
+# AWS Amplify build spec for the static site.
+#
+# This site is plain HTML/CSS/JS — there is NO build step. Amplify just publishes the
+# repository as-is. The one thing that DOES vary per environment is the committed
+# `gvp:*-api-url` meta tags in index.html / admin/index.html, which pin the contact + chat
+# backends. The 2026-06-04 incident (a fast-forward of `agent` -> `main` that silently
+# carried the STAGING API hosts onto production) is what this preBuild guard exists to catch.
+#
+# IMPORTANT (dev-ops): set GVP_EXPECTED_ENV per Amplify app in the Amplify console env vars:
+#   - the PROD    app must set  GVP_EXPECTED_ENV=prod   (serves main, prod hosts)
+#   - the STAGING app must set  GVP_EXPECTED_ENV=stage  (serves agent, staging hosts)
+# The guard below uses that PER-APP value (never a hardcoded environment), so the build FAILS
+# (non-zero exit) whenever the committed HTML hosts don't match the app's environment.
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        # Fail the build if the shipped API hosts don't match this app's GVP_EXPECTED_ENV.
+        - GVP_EXPECTED_ENV=$GVP_EXPECTED_ENV node --test test/frontend-api-url-env-guard.test.mjs
+    build:
+      commands: []
+  artifacts:
+    baseDirectory: /
+    files:
+      - '**/*'
+  cache:
+    paths: []

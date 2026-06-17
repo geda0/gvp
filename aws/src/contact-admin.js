@@ -192,10 +192,13 @@ async function getDailyReport(day) {
 // day-range GSI query (lookbackDays:1 for a session that began just before midnight) and
 // filters/sorts in-Lambda — no bySession GSI yet. Defaults to today (UTC) since session
 // inspection is usually recent; ?date= overrides for older sessions.
-async function getSessionEvents(sessionId, date) {
+// `queryDayFn` is an injectable seam (defaults to the real queryDay) so handler-level
+// tests can supply a fake runner without standing up DynamoDB. Production call sites
+// omit it, so behavior is unchanged.
+export async function getSessionEvents(sessionId, date, queryDayFn = queryDay) {
   const today = new Date().toISOString().slice(0, 10)
   const day = /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : today
-  const rows = await queryDay(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day, lookbackDays: 1 })
+  const rows = await queryDayFn(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day, lookbackDays: 1 })
   return { sessionId, day, events: orderSessionEvents(rows, sessionId) }
 }
 

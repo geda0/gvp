@@ -148,9 +148,12 @@
           <article class="admin-card">
             <div class="admin-card__header admin-card__header--row">
               <h2>Smoke test <span id="adminSmokeOverall" class="pill" data-tone="muted">—</span></h2>
-              <button id="adminDeepProbeBtn" type="button" class="admin-button-secondary">Run deep probe (live agent)</button>
+              <div class="admin-inline">
+                <input id="adminSmokeProbeKey" type="password" placeholder="Smoke probe key" autocomplete="off" style="width:14em">
+                <button id="adminDeepProbeBtn" type="button" class="admin-button-secondary" disabled>Run deep probe (live agent)</button>
+              </div>
             </div>
-            <p class="admin-subtitle">Exercises real dependencies. The deep probe makes one live Gemini call to confirm the chat agent actually responds.</p>
+            <p class="admin-subtitle">Exercises real dependencies. The deep probe makes one live Gemini call to confirm the chat agent actually responds. Enter the <code>SMOKE_PROBE_KEY</code> to enable it.</p>
             <div class="admin-table-wrap">
               <table class="admin-table">
                 <thead><tr><th>Check</th><th>Status</th><th>Detail</th><th>Latency</th></tr></thead>
@@ -235,7 +238,7 @@
             <p class="admin-card__hint" id="streamSummarySessionsHint">— turns · — of conversations</p>
           </article>
           <article class="admin-card">
-            <h2>Avg first-token</h2>
+            <h2>Avg first token (all text turns)</h2>
             <p id="streamSummaryFirstToken">-</p>
             <p class="admin-card__hint" id="streamSummaryFirstTokenHint">avg output: — chars/turn</p>
           </article>
@@ -439,7 +442,7 @@
         <section class="admin-grid admin-grid--cards admin-grid--cards--stream">
           <article class="admin-card"><h2>Chat sessions</h2><p id="reportChatSessions">-</p></article>
           <article class="admin-card"><h2>Chat failures</h2><p id="reportChatFailures">-</p><p class="admin-card__hint" id="reportChatFailuresHint">— fell back</p></article>
-          <article class="admin-card"><h2>Avg first token</h2><p id="reportChatFirstToken">-</p></article>
+          <article class="admin-card"><h2>Avg first token (streamed OK)</h2><p id="reportChatFirstToken">-</p></article>
           <article class="admin-card"><h2>Flagged sessions</h2><p id="reportChatFlagged">-</p></article>
         </section>
 

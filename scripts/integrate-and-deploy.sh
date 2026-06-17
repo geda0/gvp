@@ -152,6 +152,8 @@ PO=(
   "$(sam_param_override ContactFromEmail "${CONTACT_FROM_EMAIL}")"
   "$(sam_param_override AlarmEmail "${ALARM_EMAIL}")"
   "$(sam_param_override AdminApiKey "${ADMIN_API_KEY}")"
+  "$(sam_param_override IpHashPepper "${IP_HASH_PEPPER:-}")"
+  "$(sam_param_override SmokeProbeKey "${SMOKE_PROBE_KEY:-}")"
 )
 
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
@@ -261,6 +263,7 @@ if [[ "${run_chat_sam}" == "true" ]]; then
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
     "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
     "ChatVoiceModel=${CHAT_VOICE_MODEL:-gemini-3.1-flash-live-preview}"
+    "SmokeProbeKey=${SMOKE_PROBE_KEY:-}"
   )
   if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
     CHAT_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")

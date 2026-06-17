@@ -29,6 +29,15 @@ def _reset_gemini_limit_state() -> None:
     gls.reset_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _reset_smoke_cooldown_state() -> None:
+    from app import main
+
+    main.reset_smoke_cooldown_for_tests()
+    yield
+    main.reset_smoke_cooldown_for_tests()
+
+
 @pytest.fixture
 async def client() -> AsyncClient:
     from app.main import app

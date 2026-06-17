@@ -564,6 +564,22 @@ def _check_admin_key(request: Request) -> bool:
     return hmac.compare_digest(expected.encode('utf-8'), provided.encode('utf-8'))
 
 
+def _check_smoke_key(request: Request) -> bool:
+    """Validate the PROBE-SCOPED smoke credential (x-smoke-key) with a timing-safe
+    compare. This is a DISTINCT secret from the contact-admin key (ADMIN_API_KEY):
+    the smoke probe can mint a real (paid) Live session, so a leaked contact-admin
+    key alone must not unlock it. Read from the chat container's own SMOKE_PROBE_KEY."""
+    import hmac
+
+    expected = (os.environ.get('SMOKE_PROBE_KEY') or '').strip()
+    if not expected:
+        return False
+    provided = request.headers.get('x-smoke-key') or ''
+    if not provided:
+        return False
+    return hmac.compare_digest(expected.encode('utf-8'), provided.encode('utf-8'))
+
+
 @app.get("/api/chat/host-status")
 def chat_host_status(request: Request) -> JSONResponse:
     """Persistence + provider health snapshot, consumed by the admin panel.
@@ -603,6 +619,21 @@ def chat_host_status(request: Request) -> JSONResponse:
 
 _SMOKE_RANK = {"pass": 0, "warn": 1, "fail": 2}
 
+# Monotonic timestamp of the last paid deep probe that was actually run, used to
+# enforce a server-side cooldown so the paid Live probe can't be hammered.
+_smoke_last_deep_probe: float | None = None
+
+
+def _smoke_now() -> float:
+    """Monotonic clock for the deep-probe cooldown (patchable in tests)."""
+    return time.monotonic()
+
+
+def reset_smoke_cooldown_for_tests() -> None:
+    """Clear the deep-probe cooldown state (pytest isolation)."""
+    global _smoke_last_deep_probe
+    _smoke_last_deep_probe = None
+
 
 def _smoke_check(name: str, status: str, started: float, detail: str, cost: str = "free") -> dict[str, Any]:
     return {
@@ -619,12 +650,34 @@ async def chat_smoke(request: Request) -> JSONResponse:
     """Smoke test for the chat host. CHEAP tier: is the provider/chain configured.
     DEEP tier (?deep=1): a REAL Gemini Live probe (mint -> upstream WS -> setupComplete)
     that proves the live model + credential actually work — what a static 'ok' misses.
-    Admin-key gated (same secret as host-status, so the admin SPA + the daily-report
-    Lambda can call it). Never raises: a probe failure becomes a 'fail' check, 200."""
-    if not _check_admin_key(request):
+    Gated by a PROBE-SCOPED key (x-smoke-key / SMOKE_PROBE_KEY), distinct from the
+    contact-admin key so a leaked admin key can't mint paid probes. The deep tier is
+    rate-limited by a server-side cooldown (SMOKE_DEEP_MIN_INTERVAL_SEC); the trusted
+    once-daily report caller passes ?report=1 to bypass it. Never raises: a probe
+    failure becomes a 'fail' check, 200."""
+    global _smoke_last_deep_probe
+    if not _check_smoke_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     deep = (request.query_params.get("deep") or "").strip() in ("1", "true", "yes")
+    is_report = (request.query_params.get("report") or "").strip() in ("1", "true", "yes")
+
+    # SEC-7: server-side cooldown on the paid deep probe. The once-daily report caller
+    # (report=1) is exempt so an ad-hoc dashboard probe can't starve the daily digest.
+    if deep and not is_report:
+        min_interval = float(os.environ.get("SMOKE_DEEP_MIN_INTERVAL_SEC", "60") or 60)
+        now = _smoke_now()
+        last = _smoke_last_deep_probe
+        if min_interval > 0 and last is not None and (now - last) < min_interval:
+            retry_after = int(min_interval - (now - last)) + 1
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+                content={"error": "cooldown", "retryAfterSeconds": retry_after},
+            )
+        # Arm the cooldown for the next ad-hoc probe.
+        _smoke_last_deep_probe = now
+
     checks: list[dict[str, Any]] = []
 
     t0 = time.monotonic()

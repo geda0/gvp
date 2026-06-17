@@ -6,16 +6,25 @@ import {
 } from './common/contact-shared.js'
 import { normalizeEventBatch } from './common/events-shared.js'
 
-// First-party analytics ingress. Fire-and-forget by design: the browser beacons
-// a small batch of interaction events; we validate, clamp, and persist them, and
-// answer 202 Accepted. There is no honeypot and nothing user-facing depends on
-// the response, so failures are reported honestly (500) but never thrown.
+// A single beacon batch is small (<=25 events, clamped params). Refuse anything
+// past ~64KB outright — it can only be malformed or abusive, and bounding the
+// size BEFORE JSON.parse keeps a giant body from costing parse CPU at all.
+const MAX_BODY_BYTES = 64 * 1024
+
 export function createEventsHandler({ persistEvents, env = process.env }) {
   return async (event) => {
     const origin = resolveCorsOrigin(event)
     const method = event?.requestContext?.http?.method || event?.httpMethod || 'POST'
     if (method === 'OPTIONS') return optionsResponse(origin)
     if (method !== 'POST') return json(405, { error: 'Method not allowed' }, origin)
+
+    // Size-gate the raw body before decoding or parsing it. Byte length of the
+    // raw string is an upper bound on the decoded length, so the check is sound
+    // for both plain and base64 bodies without touching event.body's encoding.
+    const rawBody = event?.body
+    if (typeof rawBody === 'string' && Buffer.byteLength(rawBody, 'utf8') > MAX_BODY_BYTES) {
+      return json(413, { error: 'Payload too large' }, origin)
+    }
 
     let body
     try {
@@ -28,9 +37,13 @@ export function createEventsHandler({ persistEvents, env = process.env }) {
       return json(500, { error: 'Events service is not configured.' }, origin)
     }
 
+    const received = Array.isArray(body?.events) ? body.events.length : 0
     const rows = normalizeEventBatch(body, event.headers || {})
+    const persisted = rows.length
+    const dropped = received - persisted
+
     if (!rows.length) {
-      return json(202, { ok: true, accepted: 0 }, origin)
+      return json(202, { ok: true, accepted: 0, received, persisted: 0, dropped }, origin)
     }
 
     try {
@@ -43,7 +56,10 @@ export function createEventsHandler({ persistEvents, env = process.env }) {
       return json(500, { error: 'Events could not be recorded.' }, origin)
     }
 
-    return json(202, { ok: true, accepted: rows.length }, origin)
+    // Honest counts: `received` is what the client sent, `persisted` is what was
+    // written, `dropped` is validation/over-cap loss. `accepted` is retained as
+    // an alias of `persisted` for any existing client reading the old field.
+    return json(202, { ok: true, accepted: persisted, received, persisted, dropped }, origin)
   }
 }
 

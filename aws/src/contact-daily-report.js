@@ -34,8 +34,8 @@ async function fetchDeepChatChecks() {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 30000)
   try {
-    const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}deep=1`, {
-      headers: { 'x-admin-key': process.env.ADMIN_API_KEY || '' },
+    const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}deep=1&report=1`, {
+      headers: { 'x-smoke-key': process.env.SMOKE_PROBE_KEY || '' },
       signal: controller.signal
     })
     const body = await res.json().catch(() => null)
@@ -90,7 +90,8 @@ export const handler = async (event) => {
     subject: `[Daily report] ${day} — ${report.site.totalEvents} interactions, ${report.chat.turns} chat turns, ${report.contact.submissions} contacts`,
     html: renderReportHtml(report),
     text: renderReportText(report),
-    replyTo: null
+    replyTo: null,
+    idempotencyKey: `daily-report-${day}`
   })
 
   return {

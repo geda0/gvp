@@ -1,6 +1,6 @@
 const REQUEST_TIMEOUT_MS = 10000
 
-async function postOnce({ apiKey, payload }) {
+async function postOnce({ apiKey, payload, idempotencyKey }) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -8,7 +8,10 @@ async function postOnce({ apiKey, payload }) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        // A stable, date-derived key lets Resend dedupe a retry/double-fire to ONE
+        // delivery; omitted entirely on the default path so each contact send is distinct.
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
       },
       body: JSON.stringify(payload),
       signal: controller.signal
@@ -25,7 +28,8 @@ export async function sendViaResend({
   subject,
   text,
   html,
-  replyTo
+  replyTo,
+  idempotencyKey
 }) {
   const payload = {
     from,
@@ -41,7 +45,7 @@ export async function sendViaResend({
   let response
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      response = await postOnce({ apiKey, payload })
+      response = await postOnce({ apiKey, payload, idempotencyKey })
     } catch (networkError) {
       if (attempt === 0) continue
       throw networkError

@@ -21,10 +21,21 @@ function shiftDayBack(day, n) {
 // that started just before midnight must still be fetched for the next day's report
 // (its later turns are then filtered per-turn by aggregateChat). lookbackDays:1
 // covers a session spanning a single UTC midnight.
-export async function queryDayWith(runQuery, { tableName, listPk, day, indexName = 'byCreatedAt', lookbackDays = 0 }) {
+//
+// AGG-1: the lower bound is FRACTIONLESS (`${day}T00:00:00`, no `.000Z`). DynamoDB's
+// BETWEEN is a lexicographic string compare; the Python chat container renders
+// midnight as `...T00:00:00+00:00` (offset form), and `+` (0x2B) sorts BELOW `.`
+// (0x2E), so a `.000Z` lower bound would EXCLUDE a `+00:00` midnight row. A fractionless
+// bound has nothing after the seconds, so it sorts at/below BOTH the `.000Z` and
+// `+00:00` midnight forms and captures the boundary row.
+//
+// EV-1: `maxItems` caps how many rows are materialized so a pathological day (a flood
+// of rows in one partition) can't grow the Lambda heap without bound. Pagination stops
+// once the cap is reached. Default is high enough that a normal day is returned whole.
+export async function queryDayWith(runQuery, { tableName, listPk, day, indexName = 'byCreatedAt', lookbackDays = 0, maxItems = 50000 }) {
   if (!tableName) return []
   const fromDay = lookbackDays > 0 ? shiftDayBack(day, lookbackDays) : day
-  const startIso = `${fromDay}T00:00:00.000Z`
+  const startIso = `${fromDay}T00:00:00` // fractionless: sorts at/below both `.000Z` and `+00:00`
   const endIso = `${day}T23:59:59.999Z` // inclusive last ms of the target day
   const items = []
   let startKey
@@ -41,6 +52,10 @@ export async function queryDayWith(runQuery, { tableName, listPk, day, indexName
       ExclusiveStartKey: startKey
     })
     items.push(...((response && response.Items) || []))
+    if (items.length >= maxItems) {
+      items.length = maxItems // cap the materialized set; stop draining the flood
+      break
+    }
     startKey = response && response.LastEvaluatedKey
   } while (startKey)
   return items
