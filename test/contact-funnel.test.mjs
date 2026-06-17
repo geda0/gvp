@@ -4,10 +4,10 @@ import assert from 'node:assert/strict'
 // S15 (FE-4) — every contact submit must end on a TERMINAL funnel event.
 //
 // The submit handler in js/contact.js mirrors GA events through trackEvent ->
-// recordEvent (js/site-events.js), which buffers and only beacons after consent.
+// recordEvent (js/site-events.js), which buffers and beacons unconditionally.
 // So we assert via the public seam the rest of the FE suite uses: install a fake
-// browser env that captures sendBeacon calls, drive a submit, grant consent, flush,
-// and read the funnel events back off the captured beacon blob.
+// browser env that captures sendBeacon calls, drive a submit, flush, and read the
+// funnel events back off the captured beacon blob.
 //
 // The bug this guards: a 2xx response whose body is missing/non-object or whose
 // content-type is not JSON sets an error STATUS but historically returned WITHOUT
@@ -17,8 +17,6 @@ import assert from 'node:assert/strict'
 // MODULE-LOAD time, so every browser global the modules touch must be stubbed
 // BEFORE we import them. Static imports hoist and would run before the stubs, so
 // the modules are loaded via a cache-busted dynamic import().
-
-const CONSENT_KEY = 'gvp-analytics-consent'
 
 function makeStorage() {
   const map = new Map()
@@ -192,8 +190,8 @@ async function readBeaconPayload(beaconCall) {
   return JSON.parse(await beaconCall.blob.text())
 }
 
-// Wire up the contact form against `env`, dispatch a submit, grant consent, flush,
-// and return the funnel events that left the page on the beacon.
+// Wire up the contact form against `env`, dispatch a submit, flush, and return the
+// funnel events that left the page on the beacon (no consent flag needed).
 //
 // contact.js is loaded cache-busted (fresh handler each test), but a busted ENTRY
 // module imports its deps via their PLAIN specifiers, so contact -> analytics ->
@@ -201,7 +199,6 @@ async function readBeaconPayload(beaconCall) {
 // read/flush that same canonical buffer — and drain any leftover from a prior test
 // first so each test only sees its own events.
 async function submitAndCollectEvents(env) {
-  env.localStorage.setItem(CONSENT_KEY, 'granted')
   const { flushEvents } = await import('../js/site-events.js')
   flushEvents() // drain anything a prior test left in the shared buffer
   env.beaconCalls.length = 0

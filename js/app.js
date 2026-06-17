@@ -5,8 +5,7 @@ import {
   bindOutboundTracking,
   trackThemeChange
 } from './analytics.js'
-import { flushEvents, initSiteEvents } from './site-events.js'
-import { hasAnalyticsConsent, initConsentBanner } from './consent.js'
+import { initSiteEvents } from './site-events.js'
 import { initNavigation } from './navigation.js'
 import { initTheme, getTheme, getThemePreference, transitionToPreference } from './theme.js'
 import { initStarfield } from './starfield.js'
@@ -30,18 +29,7 @@ let spacemanPosition = null
 let currentSection = 'home'
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Analytics is gated on consent.  If already granted, init immediately;
-  // otherwise show the banner and init + flush only when the visitor accepts.
-  if (hasAnalyticsConsent()) {
-    initAnalytics()
-  } else {
-    initConsentBanner({
-      onAccept: () => {
-        initAnalytics()
-        flushEvents()
-      }
-    })
-  }
+  initAnalytics()
   initSiteEvents()
   bindOutboundTracking()
   initTheme()

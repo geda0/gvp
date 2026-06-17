@@ -16,3 +16,11 @@ verified. Never release on a red bar or unaccepted work._
 - qa-verifier PASS (5/5): live keyed ipHash (HMAC pepper active), honest events received/persisted/dropped, /api/chat/smoke trust-domain split (401 no-key + 401 admin-key), consent gate served, staging metas correct. Test data cleaned; zero defects.
 - Prod untouched. New prereq secrets (IP_HASH_PEPPER, SMOKE_PROBE_KEY) mapped in deploy-staging.yml + deploy-prod.yml.
 - Deferred: S16 AWS Budget alarm (owner runbook), S30 per-IP WAF (ADR-0009 rejected for this blast radius).
+
+## 2026-06-17 — PROMOTED TO PROD (GREEN + qa PASS)
+- `main` @ `d45e18d` (FF from agent ff93fff + prod-host re-pin). deploy-prod run 27722767780 GREEN (test+env-guard=prod + deploy).
+- `page` UPDATE_COMPLETE — NEW prod resources created clean: SiteEventsTable, EventsIngressFunction, DailyReportFunction, DailyDigest cron (12:00 UTC, ENABLED), DailyReport+ContactFailureReport Errors alarms; IpHashPepper+SmokeProbeKey params. `gvp-chat-express-prod` UPDATE_COMPLETE (image prod-d45e18d, SmokeProbeKey).
+- Required a prod-IAM widening (owner-authorized): gvp-prod-deploy policy IAM resource page-Contact* -> page-* (to create the new non-Contact Lambda roles).
+- qa PASS on prod: keyed ipHash 5ac3d2dd… (IP_HASH_PEPPER live, not inert), smoke trust-split 401/401, consent served, prod metas (no staging leak). Live www serves PROD hosts.
+- Amplify prod app = d2ey3rf8zwq2lv ("home", main->www/apex), build job 242 SUCCEEDED.
+- Open (owner): set GVP_EXPECTED_ENV=prod on Amplify app d2ey3rf8zwq2lv (arms the amplify.yml fail-closed guard for future promotions); verify positive smoke path with the prod SMOKE_PROBE_KEY. Deferred: S16 budget alarm, S30 WAF.
