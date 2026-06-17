@@ -29,6 +29,11 @@ Parameters:
     Type: String
     Default: ''
     Description: DynamoDB transcripts table (page stack output). Empty disables persistence.
+  SmokeProbeKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: 'Probe-scoped key (distinct from the contact-admin key) that gates the deep /api/chat/smoke Live probe. Empty leaves the deep probe locked.'
   GeminiModel:
     Type: String
     Default: gemini-3.1-flash-lite
@@ -146,6 +151,7 @@ Resources:
           - { Name: CHAT_TRANSCRIPTS_TABLE, Value: !Ref ChatTranscriptsTableName }
           - { Name: AWS_REGION, Value: !Ref AWS::Region }
           - { Name: CHAT_READY_VERBOSE, Value: !If [IsStage, '1', '0'] }
+          - { Name: SMOKE_PROBE_KEY, Value: !Ref SmokeProbeKey }
       ScalingTarget:
         MinTaskCount: !Ref MinTaskCount
         MaxTaskCount: !Ref MaxTaskCount

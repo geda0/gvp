@@ -10,6 +10,8 @@ const templatePath = fileURLToPath(new URL('../aws/template.yaml', import.meta.u
 const template = readFileSync(templatePath, 'utf8')
 const chatTemplatePath = fileURLToPath(new URL('../aws/chat-template.yaml', import.meta.url))
 const chatTemplate = readFileSync(chatTemplatePath, 'utf8')
+const chatExpressTemplatePath = fileURLToPath(new URL('../aws/chat-express-template.yaml', import.meta.url))
+const chatExpressTemplate = readFileSync(chatExpressTemplatePath, 'utf8')
 
 test('SAM template declares report-reliability, DR, and cron-stagger hardening (ADR-0009 S7+S23+S24)', () => {
   // --- S7 (INFRA-2): Lambda Errors alarms for both scheduled report functions ---
@@ -136,5 +138,19 @@ test('templates declare + wire the IpHashPepper and SmokeProbeKey secrets (ADR-0
     chatTemplate,
     /SMOKE_PROBE_KEY:\s*!Ref \w+/,
     'expected SMOKE_PROBE_KEY wired into the chat container Environment in aws/chat-template.yaml'
+  )
+
+  // --- chat-express-template.yaml is the STAGING chat path (ECS Express); it must ALSO
+  // declare a SmokeProbeKey param and wire SMOKE_PROBE_KEY into the container, or the
+  // staging deep probe 401s even though the daily-report Lambda sends the key. ---
+  assert.match(
+    chatExpressTemplate,
+    /SmokeProbeKey:\s*\n\s*Type:\s*String\s*\n\s*NoEcho:\s*true/,
+    'expected a NoEcho SmokeProbeKey parameter in aws/chat-express-template.yaml'
+  )
+  assert.match(
+    chatExpressTemplate,
+    /SMOKE_PROBE_KEY,\s*Value:\s*!Ref SmokeProbeKey/,
+    'expected SMOKE_PROBE_KEY wired into the chat-express container Environment'
   )
 })
