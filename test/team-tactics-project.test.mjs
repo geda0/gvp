@@ -55,22 +55,18 @@ test('team-tactics chatSummary stays curated for chat retrieval', () => {
   assert.equal(chatEntry.summary, entry.chatSummary)
 })
 
-test('team-tactics 0.55 copy surfaces MCP cross-tool coordination without overclaiming', () => {
+test('team-tactics 0.56 copy surfaces MCP cross-tool coordination without overclaiming', () => {
   const entry = teamTacticsEntry()
   const description = entry.description || ''
   const chatSummary = entry.chatSummary || ''
 
-  // Criterion 1: description names the MCP capability AND cross-tool coordination.
-  assert.match(description, /\bMCP\b/, 'description must mention the MCP capability (0.55)')
+  assert.match(description, /\bMCP\b/, 'description must mention the MCP capability (0.56)')
   assert.match(
     description,
     /cross-tool|other tools?|Cursor/i,
     'description must mention cross-tool coordination (other tools / Cursor)'
   )
 
-  // Criterion 2: description tells the tic-bus tool-surface truth — names the write path,
-  // marks MCP opt-in, keeps signal/block/commit hook-only — and does NOT claim other tools
-  // can emit those gate-only events.
   assert.match(description, /tic_emit|emit/, 'description must name the MCP write path (tic_emit / emit)')
   assert.match(description, /opt-in/i, 'description must make clear the MCP path is opt-in')
   assert.match(
@@ -84,18 +80,15 @@ test('team-tactics 0.55 copy surfaces MCP cross-tool coordination without overcl
     'description must NOT claim other-tool agents can emit signal/block/commit'
   )
 
-  // Criterion 3: chatSummary keeps the tic bus + gate framing AND adds the 0.55 MCP /
-  // cross-tool (shared-bus) coordination sentence.
   assert.match(chatSummary, /tic bus/i, 'chatSummary must reference the tic bus')
   assert.match(chatSummary, /gate/i, 'chatSummary must reference the gate')
-  assert.match(chatSummary, /MCP/, 'chatSummary must name the MCP server (0.55)')
+  assert.match(chatSummary, /MCP/, 'chatSummary must name the MCP server (0.56)')
   assert.match(
     chatSummary,
     /cross-tool|other tools?|cursor|shared bus/i,
     'chatSummary must name cross-tool / shared-bus coordination'
   )
 
-  // Criterion 7: accountability surfaces once, truthfully — as an advisory nudge, never as a block.
   const accountabilityText = `${description}\n${chatSummary}`
   assert.match(
     accountabilityText,

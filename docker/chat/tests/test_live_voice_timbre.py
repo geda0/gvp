@@ -4,7 +4,7 @@ Invariant #10: every minted Live session uses a deep, slow male preset,
 defaulting to Charon. Changing the voice must be a deliberate CHAT_LIVE_VOICE
 override, never an accident. This file characterizes that contract by calling
 the pure resolver / config builders directly (no session minting, no client,
-no network) — see docs/tdd/project-invariants.md #10.
+no network).
 
 S1: with no CHAT_LIVE_VOICE override, _live_voice_name() resolves to exactly
 'Charon' — the core timbre lock.

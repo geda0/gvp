@@ -2,7 +2,8 @@
 
 _Owned by the architect (with the product-owner). For LARGE projects only — when the domain has
 clear bounded contexts worth building in parallel. Small projects: leave this single-section.
-A section is a vertical slice (a bounded context across layers); its contracts are the seams._
+A section is a vertical slice (a bounded context across layers); its contracts are the seams.
+See `docs/tdd/sectioning.md` for when + how to section._
 
 ## Sections
 | section | owner (team/pair) | boundary contracts (seams) | status |

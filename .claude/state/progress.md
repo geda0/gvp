@@ -3,6 +3,18 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-06-16 — ttics reinstall recovered + reporting fixes (app layer).** A fresh Cursor 0.56.0
+  reinstall had reset the data files to stubs; restored backlog/progress/invariants/releases/plan/
+  design-notes from `main` and merged `tdd.config` (LAYERS="app chat", `node --test`, chat pytest layer;
+  kept the new 0.56 knobs). Then fixed the new **reporting** feature via the red→green loop: #1 chat
+  day-bucketing (`aggregateChat` buckets each turn by its TRUE UTC day from `capturedAt`/`utcDayOf`;
+  `queryDay` now half-open via the shared `utcDayBounds` + `lookbackDays:1`, wired into both report
+  consumers), #2 BatchWrite **UnprocessedItems** drain (`persistEventRows` extracted, tested, wired),
+  plus HTML-escaping + queryDay-pagination regression tests. Suites GREEN: **app `node --test` 74 pass /
+  1 skip · chat pytest 91**. tdd-critic = CONCERNS, top one addressed (UTC parse). Backlogged follow-ups:
+  handler-level look-back test (needs ddb injection), `capturedAt`-less fallback-day test, and the
+  security/infra hardening tail (WAF/per-IP rate limit, body-size cap, HMAC IP hash, DailyReport DLQ/alarm,
+  dual-cron consolidation, idempotency). Active layer: **app** · phase: **off**.
 - Feature in flight: **none**. **ALL TEN INVARIANTS NOW FULLY PROVEN** — the last open clause
   (#8's 55s API-Gateway cap) shipped 2026-06-04, plus two contact-core tdd-critic pins (Obs A
   `markSending` order, Obs C enqueued `idempotencyKey`) and the #7 non-stream-OK cell
@@ -15,18 +27,10 @@
 - tdd-critic milestone audit = **PASS-on-substance** (all pins honest/RED-capable). Two CONCERNS
   were pre-existing soft spots: #7 ok-cell (now CLOSED) and #10 coupling/allowlist (OPTIONAL,
   backlogged). Plus a minor non-blocking note: pin-1 order could deep-equal the full call sequence.
-- **DEPLOYED to STAGING + PROD (2026-06-04), both GREEN.** Two contact-only, test-gated CI
-  pipelines: `deploy-staging.yml` (push→`agent` → `page-staging`, role `gvp-staging-ci-deploy`)
-  and `deploy-prod.yml` (push→`main` → prod `page`, role `gvp-prod-ci-deploy`, main-only trust).
-  Amplify builds the frontends (`agent`→chat.marwanelgendy.link · `main`→www.marwanelgendy.link).
-  Prod deploy run `26938125929` GREEN; QA-gated by a staging E2E contact submission (qa-verifier
-  PASS). Prod chat (ECS `chat-api.marwanelgendy.link`) untouched/manual. ⚠ CI actions on Node20
-  (GitHub deprecation 2026-06-16).
-- Branch `claude/compassionate-dubinsky-de3583`: merged the navigator's `agent` work (`c99fa96`:
-  frontend guards #1/#2, "Team Tactics" showcase project) by fast-forward, then added the
-  invariant-completion pins (`40c3d94` contact Obs A/C · `7246297` chat #8 cap · ok-cell + docs).
-  ⚠ NOT YET PUSHED to `agent`/`main`. `origin/agent` = `c99fa96`; `main` = `fda626f` (both lack the
-  new pins + the #8/#9/#10 chat tests — a deploy-neutral docs/tests delta; no production code change).
+- **DEPLOYED to STAGING + PROD (2026-06-06), both GREEN.** Team Tactics contact CTA promoted
+  agent→main (`d9ce997`) with prod API metas preserved. Staging deploy `27051135017` · prod deploy
+  `27051407724`. Amplify: `agent`→chat.marwanelgendy.link · `main`→www.marwanelgendy.link.
+  ⚠ CI actions on Node20 (GitHub deprecation 2026-06-16).
 - Next backlog: only the LOW-priority / OPTIONAL tdd-critic hardening tail remains (#9 cross-turn
   fallback-first + `last_model_id`; OPTIONAL #10 voice allowlist + preset/cadence coupling). None
   blocks an invariant. Reasonable checkpoint with the navigator on whether to grind these or stop.
@@ -59,6 +63,10 @@
    red→test-writer / green→implementer; tdd-critic every ~3 cycles.
 
 ## Cycle log (newest first)
+- 2026-06-06 — **PRODUCTION release: Team Tactics contact CTA.** Merged `origin/agent` → `main`
+  (`d9ce997`), prod API metas kept (`index.html`/`admin` staging hosts rejected). deploy-prod run
+  `27051407724` GREEN. qa-verifier PASS on staging before promote; navigator confirmed prod path.
+  Recorded in `releases.md`.
 - 2026-06-06 — **SHIPPED Team Tactics contact CTA** (`[app]`). Private repo: `link` → `#contact`,
   `linkText` → **Request access**, `contactPrefill` with subject/message. [`js/project-link.js`](js/project-link.js)
   + [`js/projects.js`](js/projects.js) closes project dialog and lazy-opens contact form on CTA click.

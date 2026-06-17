@@ -15,6 +15,9 @@ import {
   resolveCorsOrigin,
   unauthorized as unauthorizedBase
 } from './common/contact-shared.js'
+import { buildDailyReport } from './common/daily-report.js'
+import { previousUtcDay } from './common/events-shared.js'
+import { queryDay } from './common/report-queries.js'
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const sqs = new SQSClient({})
@@ -168,6 +171,19 @@ async function listMessages(limit, cursorRaw) {
     items,
     nextCursor
   }
+}
+
+// Same builder the scheduled email uses, so the board and the inbox never
+// disagree. Day-scoped GSI range queries across all three owned backends.
+async function getDailyReport(day) {
+  const [events, chatSessions, contactMessages] = await Promise.all([
+    queryDay(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day }),
+    // lookbackDays:1 mirrors the scheduled report: fetch sessions that started just
+    // before midnight so their post-midnight turns are bucketed onto the right day.
+    queryDay(ddb, { tableName: process.env.CHAT_TRANSCRIPTS_TABLE, listPk: CHAT_LIST_PK, day, lookbackDays: 1 }),
+    queryDay(ddb, { tableName: process.env.CONTACT_MESSAGES_TABLE, listPk: LIST_PK, day })
+  ])
+  return buildDailyReport({ day, events, chatSessions, contactMessages })
 }
 
 async function getSummary() {
@@ -903,6 +919,13 @@ export const handler = async (event) => {
       return json(400, { error: 'Cannot suppress report for a sent message' })
     }
     return json(200, { ok: true, reportSuppressed: true })
+  }
+
+  if (method === 'GET' && path.endsWith('/daily-report')) {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(event?.queryStringParameters?.date || '')
+      ? event.queryStringParameters.date
+      : previousUtcDay()
+    return json(200, await getDailyReport(day))
   }
 
   if (method === 'GET' && path.endsWith('/summary')) {

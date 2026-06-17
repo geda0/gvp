@@ -5,6 +5,7 @@ import {
   bindOutboundTracking,
   trackThemeChange
 } from './analytics.js'
+import { initSiteEvents } from './site-events.js'
 import { initNavigation } from './navigation.js'
 import { initTheme, getTheme, getThemePreference, transitionToPreference } from './theme.js'
 import { initStarfield } from './starfield.js'
@@ -29,6 +30,7 @@ let currentSection = 'home'
 
 document.addEventListener('DOMContentLoaded', async () => {
   initAnalytics()
+  initSiteEvents()
   bindOutboundTracking()
   initTheme()
   initStarfield('canvas', { getTheme })

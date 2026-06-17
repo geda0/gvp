@@ -1,4 +1,6 @@
-// analytics.js - Google Analytics wrapper
+// analytics.js - Google Analytics wrapper (+ first-party event mirror)
+import { recordEvent } from './site-events.js'
+
 const GA_MEASUREMENT_ID = 'G-EYTRKC93DL'
 
 function hasGtag() {
@@ -16,7 +18,10 @@ export function initAnalytics() {
 }
 
 export function trackEvent(eventName, params = {}) {
-  if (!hasGtag() || !eventName) return
+  if (!eventName) return
+  // First-party copy first (independent of GA being present), then GA.
+  recordEvent(eventName, params)
+  if (!hasGtag()) return
   window.gtag('event', eventName, {
     transport_type: 'beacon',
     ...params
@@ -24,8 +29,9 @@ export function trackEvent(eventName, params = {}) {
 }
 
 export function trackVirtualPageView(section, pagePath) {
-  if (!hasGtag()) return
   const path = pagePath || (section === 'home' ? '/' : `/${section}`)
+  recordEvent('page_view', { section, page_path: path })
+  if (!hasGtag()) return
   window.gtag('event', 'page_view', {
     page_title: `gvp_${section}`,
     page_path: path,

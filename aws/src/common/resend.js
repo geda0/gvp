@@ -24,13 +24,15 @@ export async function sendViaResend({
   to,
   subject,
   text,
+  html,
   replyTo
 }) {
   const payload = {
     from,
     to,
     subject,
-    text,
+    ...(text ? { text } : {}),
+    ...(html ? { html } : {}),
     ...(replyTo ? { reply_to: replyTo } : {})
   }
 
