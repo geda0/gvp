@@ -13,10 +13,8 @@ import assert from 'node:assert/strict'
 // BEFORE we import it. Static imports hoist and would run before the stubs, so
 // the module is loaded via a cache-busted dynamic import().
 //
-// The consent gate (ADR-0008) is a chokepoint: flushEvents() no-ops until consent
-// is granted, so tests that assert a post seed localStorage with 'granted'.
-
-const CONSENT_KEY = 'gvp-analytics-consent'
+// There is no consent gate: flushEvents() posts unconditionally, so no test seeds
+// any consent flag before flushing.
 
 function makeStorage() {
   const map = new Map()
@@ -119,11 +117,10 @@ async function readBeaconPayload(beaconCall) {
   return JSON.parse(await beaconCall.blob.text())
 }
 
-// Load a fresh beacon module instance against a given env, grant consent, record
-// one event, flush, and return the single beacon payload that left the page.
+// Load a fresh beacon module instance against a given env, record one event, flush,
+// and return the single beacon payload that left the page (no consent flag needed).
 async function emitOneAndFlush(env) {
   const { recordEvent, flushEvents } = await import(`../js/site-events.js${bust()}`)
-  env.localStorage.setItem(CONSENT_KEY, 'granted')
   recordEvent('project_interaction', { project_id: 'gvp' })
   flushEvents()
   assert.equal(env.beaconCalls.length, 1, 'expected exactly one beacon to be sent')
@@ -172,7 +169,6 @@ test('getSessionId returns a stable per-tab id across flushes when sessionStorag
   const env = installBrowserEnv({ randomUUID: () => 'stable-tab-id' })
   try {
     const { recordEvent, flushEvents } = await import(`../js/site-events.js${bust()}`)
-    env.localStorage.setItem(CONSENT_KEY, 'granted')
 
     // Act — two separate flushes within the same load.
     recordEvent('a', {})
@@ -194,7 +190,6 @@ test('recordEvent stamps a numeric ts on each buffered interaction', async () =>
   const env = installBrowserEnv()
   try {
     const { recordEvent, flushEvents } = await import(`../js/site-events.js${bust()}`)
-    env.localStorage.setItem(CONSENT_KEY, 'granted')
 
     const before = Date.now()
     recordEvent('project_interaction', { project_id: 'gvp' })
@@ -214,7 +209,6 @@ test('recordEvent no-ops on an empty or missing event name', async () => {
   const env = installBrowserEnv()
   try {
     const { recordEvent, flushEvents } = await import(`../js/site-events.js${bust()}`)
-    env.localStorage.setItem(CONSENT_KEY, 'granted')
 
     recordEvent('', { project_id: 'gvp' })
     recordEvent(undefined, { project_id: 'gvp' })
@@ -236,7 +230,6 @@ test('the buffer auto-flushes at the server batch cap (<=25), not above it', asy
   const env = installBrowserEnv()
   try {
     const { recordEvent } = await import(`../js/site-events.js${bust()}`)
-    env.localStorage.setItem(CONSENT_KEY, 'granted')
 
     // One short of the cap: still buffering, no auto-flush yet.
     for (let i = 0; i < SERVER_BATCH_CAP - 1; i++) recordEvent('tick', { i })
@@ -260,7 +253,6 @@ test('flushEvents is a no-op when the buffer is empty', async () => {
   const env = installBrowserEnv()
   try {
     const { flushEvents } = await import(`../js/site-events.js${bust()}`)
-    env.localStorage.setItem(CONSENT_KEY, 'granted')
 
     flushEvents()
 
@@ -271,26 +263,10 @@ test('flushEvents is a no-op when the buffer is empty', async () => {
   }
 })
 
-test('flushEvents does not post until consent is granted', async () => {
-  const env = installBrowserEnv()
-  try {
-    const { recordEvent, flushEvents } = await import(`../js/site-events.js${bust()}`)
-    // Consent NOT granted.
-    recordEvent('project_interaction', { project_id: 'gvp' })
-    flushEvents()
-
-    assert.equal(env.beaconCalls.length, 0, 'no beacon without consent')
-    assert.equal(env.fetchCalls.length, 0, 'no keepalive fetch without consent')
-  } finally {
-    env.restore()
-  }
-})
-
 test('the beacon posts a CORS-safelisted text/plain blob', async () => {
   const env = installBrowserEnv()
   try {
     const { recordEvent, flushEvents } = await import(`../js/site-events.js${bust()}`)
-    env.localStorage.setItem(CONSENT_KEY, 'granted')
 
     recordEvent('project_interaction', { project_id: 'gvp' })
     flushEvents()

@@ -10,6 +10,14 @@
   Planned: product-owner backlog (`.claude/state/backlog.md`) + 3 decisions (`design-notes.md`); architect
   **ADR-0008** (HMAC ipHash pepper + consent gate) + **ADR-0009** (amplify guard / DLQ-alarm / abuse / DR /
   cron); planner **31-slice queue in `plan.md`** (P0 S1–S7+S31, P1 S8–S20, P2 S21–S29; S30 per-IP WAF DEFERRED).
+  **PROMOTED TO PROD — GREEN + qa PASS (2026-06-17): `main` @ d45e18d, deploy-prod run 27722767780.** FF + re-pin
+  prod hosts (no leak, env-guard 3/3) → new `page` resources created clean (SiteEventsTable, EventsIngress/DailyReport
+  Lambdas, 12:00-UTC cron LIVE, alarms) + `gvp-chat-express-prod` updated; prod IAM widened page-Contact*→page-*
+  (owner-authorized) for the new Lambda roles. qa on prod: keyed ipHash live (5ac3d2dd…, not inert), smoke split 401/401,
+  consent served, prod metas. `agent` keeps staging hosts (main +1 = the prod re-pin). OPEN (owner): set
+  GVP_EXPECTED_ENV=prod on Amplify app d2ey3rf8zwq2lv to arm the amplify.yml guard; verify positive smoke path w/ prod
+  SMOKE_PROBE_KEY. Deferred: S16 budget alarm, S30 WAF. See releases.md + memory prod-promotion-procedure.
+  ---
   **SHIPPED TO STAGING — GREEN + qa PASS (2026-06-17): `agent` @ d242979, deploy-staging run 27720539158.** Both
   stacks UPDATE_COMPLETE with IpHashPepper+SmokeProbeKey; qa-verifier PASS (live keyed ipHash 22cabe9f…, honest event
   counts, smoke trust-split 401/401, consent served; test data cleaned). CI test gate 120/120/0. app `node --test`

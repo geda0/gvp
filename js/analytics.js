@@ -1,6 +1,5 @@
 // analytics.js - Google Analytics wrapper (+ first-party event mirror)
 import { recordEvent } from './site-events.js'
-import { hasAnalyticsConsent } from './consent.js'
 
 const GA_MEASUREMENT_ID = 'G-EYTRKC93DL'
 
@@ -9,7 +8,6 @@ function hasGtag() {
 }
 
 export function initAnalytics() {
-  if (!hasAnalyticsConsent()) return
   window.dataLayer = window.dataLayer || []
   function gtag() {
     dataLayer.push(arguments)

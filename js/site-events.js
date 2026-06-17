@@ -5,7 +5,6 @@
 // (survives page unload) with a fetch keepalive fallback.
 
 import { eventsApiUrl } from './site-config.js'
-import { hasAnalyticsConsent } from './consent.js'
 
 const SESSION_KEY = 'gvp-events-session'
 const FLUSH_INTERVAL_MS = 4000
@@ -73,7 +72,6 @@ function post(payload) {
 
 export function flushEvents() {
   if (!buffer.length) return
-  if (!hasAnalyticsConsent()) return   // buffer-preserve: keep events until consent is granted
   const events = buffer
   buffer = []
   post({ sessionId: getSessionId(), events })

@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted. Addresses pre-prod review findings **SEC-2** (unsalted SHA-256 IP hash) and **SEC-1**
+**SEC-2 (HMAC ipHash): Accepted + shipped (staging + prod).** **SEC-1 (consent gate): REVERSED 2026-06-17**
+— the owner decided the site does not need an analytics-consent gate (personal portfolio, sole data
+controller, low blast radius; the pre-prod review rated consent acceptable-to-skip). The consent banner +
+the GA/beacon consent gating + `js/consent.js` were removed; analytics + the first-party beacon fire
+unconditionally as before. The SEC-1 sections below are retained for history only and no longer reflect the code.
+
+Addresses pre-prod review findings **SEC-2** (unsalted SHA-256 IP hash) and **SEC-1**
 (no consent gate before GA + first-party beacon). Both touch privacy seams that the new
 first-party events store widened, so they are decided together.
 
