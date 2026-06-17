@@ -1,5 +1,3 @@
-import { utcDayBounds } from './events-shared.js'
-
 // SDK-FREE so it can be unit-tested with a fake runner (no aws/src deps in the
 // node --test baseline). The thin SDK wrapper lives in report-queries.js.
 
@@ -13,8 +11,10 @@ function shiftDayBack(day, n) {
 // falls within the target UTC day, draining pagination. `runQuery(params)` is the
 // injected DynamoDB query runner (resolves to { Items, LastEvaluatedKey }).
 //
-// Bounds are half-open [start, nextDayStart) via the shared utcDayBounds helper —
-// one definition of "a UTC day", reused everywhere, so the boundary can't drift.
+// DynamoDB allows only ONE condition per key, so the createdAt range MUST be a
+// single BETWEEN (an inclusive [start, end] over millisecond-precision ISO
+// timestamps) — `createdAt >= :start AND createdAt < :end` is rejected with a
+// ValidationException ("must only contain one condition per key").
 //
 // `lookbackDays > 0` widens the START bound back N days while keeping the same end.
 // Chat transcript rows freeze createdAt at the session's FIRST turn, so a session
@@ -24,15 +24,15 @@ function shiftDayBack(day, n) {
 export async function queryDayWith(runQuery, { tableName, listPk, day, indexName = 'byCreatedAt', lookbackDays = 0 }) {
   if (!tableName) return []
   const fromDay = lookbackDays > 0 ? shiftDayBack(day, lookbackDays) : day
-  const { startIso } = utcDayBounds(fromDay)
-  const { endIso } = utcDayBounds(day) // exclusive next-day midnight
+  const startIso = `${fromDay}T00:00:00.000Z`
+  const endIso = `${day}T23:59:59.999Z` // inclusive last ms of the target day
   const items = []
   let startKey
   do {
     const response = await runQuery({
       TableName: tableName,
       IndexName: indexName,
-      KeyConditionExpression: 'listPk = :pk AND createdAt >= :start AND createdAt < :end',
+      KeyConditionExpression: 'listPk = :pk AND createdAt BETWEEN :start AND :end',
       ExpressionAttributeValues: {
         ':pk': listPk,
         ':start': startIso,
