@@ -24,3 +24,8 @@ verified. Never release on a red bar or unaccepted work._
 - qa PASS on prod: keyed ipHash 5ac3d2dd… (IP_HASH_PEPPER live, not inert), smoke trust-split 401/401, consent served, prod metas (no staging leak). Live www serves PROD hosts.
 - Amplify prod app = d2ey3rf8zwq2lv ("home", main->www/apex), build job 242 SUCCEEDED.
 - Open (owner): set GVP_EXPECTED_ENV=prod on Amplify app d2ey3rf8zwq2lv (arms the amplify.yml fail-closed guard for future promotions); verify positive smoke path with the prod SMOKE_PROBE_KEY. Deferred: S16 budget alarm, S30 WAF.
+
+## 2026-06-17 — Consent gate REMOVED → staging + prod (owner: no consent needed)
+- SEC-1 reversed. Removed consent banner + GA/beacon gating; deleted js/consent.js + test/consent-gate.test.mjs; analytics + beacon fire unconditionally as before. ipHash HMAC (SEC-2) unaffected.
+- agent `473fcb8`; main merge `da62cad` (clean 3-way, prod hosts preserved, env-guard=prod 3/3). FE-only → SAM deploy workflows path-filtered (didn't run, correct); Amplify rebuilt FE (prod build job 243).
+- Verified: js/consent.js → 404 on staging + prod; analytics.js no consent ref; www 200; no staging leak. ADR-0008 status updated (SEC-1 reversed, retained for history).

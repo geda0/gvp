@@ -18,6 +18,7 @@ propagate.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -29,6 +30,32 @@ logger = logging.getLogger(__name__)
 
 _clients_lock = threading.Lock()
 _text_clients: dict[str, Any] = {}
+
+
+def _first_chunk_timeout(total_timeout: float) -> float:
+    """Per-attempt budget for a NON-final model's first chunk. A primary that
+    produces no first token within this window is abandoned in favour of the
+    fallback — well inside the overall request deadline so the fallback still has
+    room to answer. Configurable via GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS; capped at
+    60% of the total budget so it never starves the fallback."""
+    raw = os.environ.get('GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS')
+    try:
+        val = float(raw) if raw else 12.0
+    except ValueError:
+        val = 12.0
+    return max(0.1, min(val, total_timeout * 0.6))
+
+
+async def _aclose_quietly(iterator: Any) -> None:
+    """Close an abandoned async iterator (e.g. a stalled primary stream) without
+    letting teardown errors mask the fallback."""
+    aclose = getattr(iterator, 'aclose', None)
+    if aclose is None:
+        return
+    try:
+        await aclose()
+    except Exception:  # pragma: no cover - best-effort cleanup
+        pass
 
 
 def _max_output_tokens() -> int:
@@ -230,20 +257,55 @@ class GeminiRoutingChain:
         )
 
     async def ainvoke(self, inp: dict[str, Any], config: Any | None = None) -> Any:
-        from app.gemini_limit_state import note_primary_rate_limited
+        from app.alerts import fire_alert
+        from app.gemini_limit_state import (
+            note_primary_rate_limited,
+            note_primary_timed_out,
+        )
         from app.upstream_errors import is_upstream_rate_limit
 
         order = self._model_order()
         last_exc: BaseException | None = None
         for idx, model_id in enumerate(order):
+            is_last = idx == len(order) - 1
             chain = self._build_chain(model_id)
             try:
-                out = await chain.ainvoke(inp, config=config)
+                if is_last:
+                    out = await chain.ainvoke(inp, config=config)
+                else:
+                    out = await asyncio.wait_for(
+                        chain.ainvoke(inp, config=config),
+                        timeout=_first_chunk_timeout(self.timeout),
+                    )
                 self.last_model_id = model_id
                 return out
+            except asyncio.TimeoutError as e:
+                last_exc = e
+                if model_id == self.primary_id:
+                    note_primary_timed_out()
+                logger.warning(
+                    'gemini timeout model=%s remaining_attempts=%s',
+                    model_id,
+                    len(order) - idx - 1,
+                )
+                if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: timeout)',
+                    )
+                    raise
+                fire_alert(
+                    'chat_primary_timeout',
+                    f'{model_id} timed out; switching to {self.fallback_id}',
+                )
             except Exception as e:
                 last_exc = e
                 if not is_upstream_rate_limit(e):
+                    fire_alert(
+                        'chat_model_error',
+                        f'{model_id} errored: {type(e).__name__}',
+                        detail=str(e)[:300],
+                    )
                     raise
                 if model_id == self.primary_id:
                     note_primary_rate_limited()
@@ -252,8 +314,16 @@ class GeminiRoutingChain:
                     model_id,
                     len(order) - idx - 1,
                 )
-                if idx == len(order) - 1:
+                if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: rate-limited)',
+                    )
                     raise
+                fire_alert(
+                    'chat_primary_rate_limit',
+                    f'{model_id} rate-limited; switching to {self.fallback_id}',
+                )
         assert last_exc is not None
         raise last_exc
 
@@ -262,27 +332,65 @@ class GeminiRoutingChain:
         inp: dict[str, Any],
         config: Any | None = None,
     ) -> AsyncIterator[Any]:
-        """Stream chunks from the primary model; fall back only if the FIRST chunk
-        fails with a rate limit. Once any chunk is yielded we're committed to the
+        """Stream chunks from the primary model; fall back to the secondary if the
+        FIRST chunk rate-limits OR fails to arrive within the per-attempt budget (a
+        stalled/too-slow primary). Once any chunk is yielded we're committed to the
         current model — mid-stream errors propagate."""
-        from app.gemini_limit_state import note_primary_rate_limited
+        from app.alerts import fire_alert
+        from app.gemini_limit_state import (
+            note_primary_rate_limited,
+            note_primary_timed_out,
+        )
         from app.upstream_errors import is_upstream_rate_limit
 
         order = self._model_order()
         last_exc: BaseException | None = None
         for idx, model_id in enumerate(order):
+            is_last = idx == len(order) - 1
             chain = self._build_chain(model_id)
             stream = chain.astream(inp, config=config)
             iterator = stream.__aiter__()
             first_chunk: Any = None
             try:
-                first_chunk = await iterator.__anext__()
+                if is_last:
+                    first_chunk = await iterator.__anext__()
+                else:
+                    first_chunk = await asyncio.wait_for(
+                        iterator.__anext__(),
+                        timeout=_first_chunk_timeout(self.timeout),
+                    )
             except StopAsyncIteration:
                 self.last_model_id = model_id
                 return
+            except asyncio.TimeoutError as e:
+                last_exc = e
+                await _aclose_quietly(iterator)
+                if model_id == self.primary_id:
+                    note_primary_timed_out()
+                logger.warning(
+                    'gemini stream first_chunk_timeout model=%s remaining_attempts=%s',
+                    model_id,
+                    len(order) - idx - 1,
+                )
+                if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: first-chunk timeout)',
+                    )
+                    raise
+                fire_alert(
+                    'chat_primary_timeout',
+                    f'{model_id} stalled past first-chunk budget; switching to {self.fallback_id}',
+                )
+                continue
             except Exception as e:
                 last_exc = e
                 if not is_upstream_rate_limit(e):
+                    fire_alert(
+                        'chat_model_error',
+                        f'{model_id} errored: {type(e).__name__}',
+                        detail=str(e)[:300],
+                    )
                     raise
                 if model_id == self.primary_id:
                     note_primary_rate_limited()
@@ -291,8 +399,16 @@ class GeminiRoutingChain:
                     model_id,
                     len(order) - idx - 1,
                 )
-                if idx == len(order) - 1:
+                if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: rate-limited)',
+                    )
                     raise
+                fire_alert(
+                    'chat_primary_rate_limit',
+                    f'{model_id} rate-limited; switching to {self.fallback_id}',
+                )
                 continue
 
             self.last_model_id = model_id

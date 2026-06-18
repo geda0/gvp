@@ -37,8 +37,12 @@ _LIVE_TOOLS = types.Tool(
         types.FunctionDeclaration(
             name='open_resume',
             description=(
-                'Open the visitor-facing resume PDF in a new tab. Call this when the user asks to '
-                'see, open, download, or get the resume.'
+                'Reveal a resume download button on screen — this does NOT open anything by itself. '
+                'After calling it, tell the visitor to tap the on-screen button to open the resume '
+                '(do NOT claim you opened it). Call this ONLY when the visitor explicitly asks to '
+                'download or get the resume PDF. For "see", "view", "show me", or any question about '
+                'experience or background, call navigate_to_section("portfolio") instead so they see '
+                'the work in context (the resume link lives there).'
             ),
             parameters=types.Schema(type=types.Type.OBJECT, properties={}),
         ),

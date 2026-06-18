@@ -5,6 +5,7 @@ import { chatApiUrl } from './site-config.js'
 import { normalizeSection } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
+import { deriveReplyText } from './chat-reply-text.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
@@ -691,6 +692,9 @@ export function initChat() {
     if (action.prefill) {
       button.dataset.prefill = JSON.stringify(action.prefill)
     }
+    if (action.section) {
+      button.dataset.section = action.section
+    }
     return button
   }
 
@@ -1278,7 +1282,9 @@ export function initChat() {
         chatBus.emit('tool_call', { source, actions })
       }
       if (!firstDeltaSeen) chatBus.emit('streaming', { source, model })
-      const safeReply = String(reply || '').trim() || 'I do not have a response yet. Please try again.'
+      // The model sometimes fires a tool (open résumé / navigate / contact) with no
+      // prose — derive a useful line tied to the action instead of the bare fallback.
+      const safeReply = deriveReplyText(reply, actions)
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
       finalizeAssistantMessage(pendingAssistant, safeReply, actions)
       setStatus('')
@@ -1441,6 +1447,10 @@ export function initChat() {
       window.open(RESUME_URL, '_blank', 'noopener,noreferrer')
       return
     }
+    if (action === 'navigate') {
+      navigateToSection(actionEl.dataset.section || '')
+      return
+    }
     if (action === 'open-contact') {
       openContactFromChat(parsePrefill(actionEl.dataset.prefill))
       return
@@ -1472,10 +1482,36 @@ export function initChat() {
   // text-chat action handler below: same destinations, no buttons (voice executes
   // immediately). Return value is sent back as toolResponse.response so the model
   // knows the action ran.
+  // Move the page to a top-level section so the agent can SHOW the visitor around
+  // (text and voice share this one routine). Returns a tool-response-shaped result.
+  const navigateToSection = (section) => {
+    if (section === 'home') {
+      history.replaceState(null, '', './')
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    } else if (section === 'labs' || section === 'playground') {
+      window.location.hash = '#labs'
+    } else if (section === 'portfolio') {
+      window.location.hash = '#portfolio'
+    } else {
+      return { error: `unknown_section: ${section}` }
+    }
+    return { result: 'navigated', section }
+  }
+
   const applyVoiceToolCall = (name, args) => {
     if (name === 'open_resume') {
-      window.open(RESUME_URL, '_blank', 'noopener,noreferrer')
-      return { result: 'opened_resume' }
+      // Parity with text chat: don't yank the visitor into a new tab. Reveal the
+      // download button and let the agent ask them to tap it (the dialog click
+      // handler above opens the PDF on tap).
+      appendMessage('assistant', "Here's Marwan's résumé — tap to open it.", {
+        actions: [{ id: 'open-resume', label: 'Open resume' }],
+        forceScroll: true,
+      })
+      return {
+        result: 'resume_button_shown',
+        instruction:
+          'A résumé button is now on screen. Tell the visitor to tap it to open the résumé — do not claim you opened it yourself.',
+      }
     }
     if (name === 'open_contact_form') {
       const prefill = args && typeof args === 'object'
@@ -1487,18 +1523,7 @@ export function initChat() {
     }
     if (name === 'navigate_to_section') {
       const section = args && typeof args.section === 'string' ? args.section : ''
-      if (section === 'home') {
-        history.replaceState(null, '', './')
-        window.dispatchEvent(new HashChangeEvent('hashchange'))
-      } else if (section === 'labs' || section === 'playground') {
-        // Labs is the page formerly known as playground; route both to #labs.
-        window.location.hash = '#labs'
-      } else if (section === 'portfolio') {
-        window.location.hash = '#portfolio'
-      } else {
-        return { error: `unknown_section: ${section}` }
-      }
-      return { result: 'navigated', section }
+      return navigateToSection(section)
     }
     return { error: `unknown_tool: ${name}` }
   }

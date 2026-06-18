@@ -3,6 +3,14 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **ALL SHIPPED — staging + PROD live & verified (2026-06-17).** Sequence this session: pre-prod review → fix-everything
+  hardening milestone → staging (`agent` d242979, qa PASS) → PROD (`main` d45e18d, deploy-prod 27722767780, qa PASS;
+  keyed ipHash live, prod IAM widened page-Contact*→page-* owner-authorized) → then per owner the analytics **CONSENT
+  gate was removed** + deployed (`agent` 473fcb8 → `main` merge da62cad; `js/consent.js` 404 on staging+prod; ipHash
+  HMAC SEC-2 retained; ADR-0008 status=SEC-1 reversed). Live www green, PROD hosts (no leak). Suite 115/0/1, gate ARMED.
+  `agent`=working branch (staging hosts); `main`=prod (prod hosts). OPEN owner items: set `GVP_EXPECTED_ENV=prod` on
+  Amplify app `d2ey3rf8zwq2lv`; verify positive `/api/chat/smoke` with prod `SMOKE_PROBE_KEY`; deferred S16 budget +
+  S30 WAF. Older "IN FLIGHT" notes below are superseded. See `releases.md` + memory `prod-promotion-procedure`.
 - **2026-06-17 — MILESTONE "Pre-prod hardening → stage" IN FLIGHT.** Goal: TDD-fix all confirmed
   pre-prod review findings, then deploy `agent`→staging (NOT prod). 37-agent adversarial review of the
   22-commit `agent`→`main` diff found 28 confirmed issues; the only 2 "blockers" are ONE promotion-procedure

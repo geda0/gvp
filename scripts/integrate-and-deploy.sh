@@ -337,6 +337,19 @@ if [[ -n "${CHAT_ECR_REPOSITORY_URI:-}" && "${run_chat_docker}" == "true" ]]; th
     if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
       CHAT_EX_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
     fi
+    # Instant chat-degradation alerts (model switch / timeout / rate-limit / breakage).
+    # Reuse the contact email config so it activates without extra setup; empty -> dark.
+    CHAT_ALERT_TO="${CHAT_ALERT_EMAIL:-${CONTACT_REPORT_EMAIL:-${CONTACT_TO_EMAIL:-}}}"
+    CHAT_ALERT_FROM="${CHAT_ALERT_FROM_EMAIL:-${CONTACT_FROM_EMAIL:-}}"
+    if [[ -n "${RESEND_API_KEY:-}" && -n "${CHAT_ALERT_TO}" && -n "${CHAT_ALERT_FROM}" ]]; then
+      CHAT_EX_PO+=("ResendApiKey=${RESEND_API_KEY}")
+      CHAT_EX_PO+=("ChatAlertEmail=${CHAT_ALERT_TO}")
+      CHAT_EX_PO+=("ChatAlertFromEmail=${CHAT_ALERT_FROM}")
+      [[ -n "${CHAT_ALERT_COOLDOWN_SECONDS:-}" ]] && CHAT_EX_PO+=("ChatAlertCooldownSeconds=${CHAT_ALERT_COOLDOWN_SECONDS}")
+      echo "chat instant alerts: ON -> ${CHAT_ALERT_TO}"
+    else
+      echo "chat instant alerts: dark (set RESEND_API_KEY + CHAT_ALERT_EMAIL/CONTACT_REPORT_EMAIL + a from address to enable)"
+    fi
     aws cloudformation deploy \
       --template-file "${AWS_DIR}/chat-express-template.yaml" \
       --stack-name "${CHAT_EXPRESS_STACK}" \

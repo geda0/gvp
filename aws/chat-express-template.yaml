@@ -46,6 +46,23 @@ Parameters:
   ChatVoiceModel:
     Type: String
     Default: ''
+  ResendApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: 'Resend API key for instant chat-degradation alerts. Empty leaves alerts dark (no-op).'
+  ChatAlertEmail:
+    Type: String
+    Default: ''
+    Description: 'Recipient for instant chat alerts (model switch / timeout / rate-limit / breakage). Empty leaves alerts dark.'
+  ChatAlertFromEmail:
+    Type: String
+    Default: ''
+    Description: 'From address for instant chat alerts (a verified Resend sender). Empty leaves alerts dark.'
+  ChatAlertCooldownSeconds:
+    Type: String
+    Default: ''
+    Description: 'Throttle window per alert type in seconds (empty = default 3600).'
   ContainerPort:
     Type: Number
     Default: 8000
@@ -152,6 +169,11 @@ Resources:
           - { Name: AWS_REGION, Value: !Ref AWS::Region }
           - { Name: CHAT_READY_VERBOSE, Value: !If [IsStage, '1', '0'] }
           - { Name: SMOKE_PROBE_KEY, Value: !Ref SmokeProbeKey }
+          - { Name: CHAT_ENV, Value: !Ref StageName }
+          - { Name: RESEND_API_KEY, Value: !Ref ResendApiKey }
+          - { Name: CHAT_ALERT_EMAIL, Value: !Ref ChatAlertEmail }
+          - { Name: CHAT_ALERT_FROM_EMAIL, Value: !Ref ChatAlertFromEmail }
+          - { Name: CHAT_ALERT_COOLDOWN_SECONDS, Value: !Ref ChatAlertCooldownSeconds }
       ScalingTarget:
         MinTaskCount: !Ref MinTaskCount
         MaxTaskCount: !Ref MaxTaskCount
