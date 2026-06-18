@@ -5,6 +5,7 @@
 import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
+import { shouldRevealResumeButton } from './voice-resume-button.js'
 
 const INPUT_RATE = 16000
 
@@ -835,9 +836,24 @@ export function bindChatLiveVoice(opts) {
     scrollMessagesToBottom()
   }
 
+  // Safety net: the voice model sometimes SAYS "tap the on-screen button" for the
+  // résumé without actually calling open_resume, leaving the promise with no button.
+  // If this finished turn promised the résumé button and no open_resume fired, reveal
+  // it through the same handler so the words are always backed by a button.
+  const maybeRevealPromisedResumeButton = () => {
+    if (typeof onToolCall !== 'function') return
+    if (!shouldRevealResumeButton(assistantDraft, turnToolCalls)) return
+    try {
+      onToolCall('open_resume', {})
+    } catch (_) {
+      /* a safety net must never break the turn */
+    }
+  }
+
   const finalizeTurn = () => {
     if (userBubble) finalizeBubble(userBubble, userDraft.trim())
     if (assistantBubble) finalizeBubble(assistantBubble, assistantDraft.trim())
+    maybeRevealPromisedResumeButton()
     // Fire-and-forget persist before clearing drafts. Mirrors the text-chat
     // persistence path so the admin panel sees voice turns alongside text turns.
     persistVoiceTurn(userDraft, assistantDraft, turnToolCalls, {

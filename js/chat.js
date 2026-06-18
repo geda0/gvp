@@ -1507,11 +1507,10 @@ export function initChat() {
         actions: [{ id: 'open-resume', label: 'Open resume' }],
         forceScroll: true,
       })
-      return {
-        result: 'resume_button_shown',
-        instruction:
-          'A résumé button is now on screen. Tell the visitor to tap it to open the résumé — do not claim you opened it yourself.',
-      }
+      // Keep the tool response minimal: the "ask them to tap the button" guidance
+      // lives in the tool DESCRIPTION. A second copy here made the voice model say
+      // it twice (the rambling, run-on reply). The button is already on screen.
+      return { result: 'resume_button_shown' }
     }
     if (name === 'open_contact_form') {
       const prefill = args && typeof args === 'object'
