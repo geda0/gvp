@@ -26,3 +26,9 @@ export function timeControlMode(width) {
 export function timeTriggerLabel({ open } = {}) {
   return open ? 'Close time of day picker' : 'Open time of day picker'
 }
+
+/** Legacy theme-switcher “Auto” icon — static on the mobile dropdown trigger. */
+export const TIME_TRIGGER_ICON_HTML =
+  '<svg class="theme-icon theme-icon--auto" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">' +
+  '<circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.25"/>' +
+  '<path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>'

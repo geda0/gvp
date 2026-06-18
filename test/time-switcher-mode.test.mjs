@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   timeControlMode,
   timeTriggerLabel,
+  TIME_TRIGGER_ICON_HTML,
 } from '../js/time-switcher-mode.js'
 
 test('timeControlMode collapses to a dropdown at/below the mobile breakpoint and stays inline above it', () => {
@@ -36,4 +37,10 @@ test('timeTriggerLabel names the time-of-day control, differs by open state, and
   // The label is static chrome, never the live hour — it must leak no digits.
   assert.doesNotMatch(closed, /\d/)
   assert.doesNotMatch(open, /\d/)
+})
+
+test('TIME_TRIGGER_ICON_HTML is the legacy theme-switcher Auto SVG (half light / half dark)', () => {
+  assert.match(TIME_TRIGGER_ICON_HTML, /theme-icon--auto/)
+  assert.match(TIME_TRIGGER_ICON_HTML, /<circle/)
+  assert.match(TIME_TRIGGER_ICON_HTML, /<path/)
 })

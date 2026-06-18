@@ -22,7 +22,7 @@ import { initContactForm } from './contact.js'
 import { initSpacemanProjectContext } from './spaceman-project-context.js'
 import { initChat, collapseChatDialog, syncChatLaunchers, EV_OPEN_CHAT } from './chat.js'
 import { initAgentNode } from './agent-node.js'
-import { timeControlMode, timeTriggerLabel } from './time-switcher-mode.js'
+import { timeControlMode, timeTriggerLabel, TIME_TRIGGER_ICON_HTML } from './time-switcher-mode.js'
 
 // Global spaceman reference for navigation hooks
 let spaceman = null
@@ -276,8 +276,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!timeTriggerBtn) return
     timeTriggerBtn.setAttribute('aria-label', timeTriggerLabel({ open: timePanelOpen }))
     timeTriggerBtn.setAttribute('aria-expanded', String(timePanelOpen))
-    // Mirror current icon inside the trigger
-    timeTriggerBtn.textContent = getTheme() === 'garden' ? '☀️' : '🌙'
+    let iconEl = timeTriggerBtn.querySelector('.time-trigger__icon')
+    if (!iconEl) {
+      iconEl = document.createElement('span')
+      iconEl.className = 'time-trigger__icon theme-toggle-icon--svg'
+      iconEl.setAttribute('aria-hidden', 'true')
+      timeTriggerBtn.replaceChildren(iconEl)
+    }
+    iconEl.innerHTML = TIME_TRIGGER_ICON_HTML
   }
 
   const openTimePanel = () => {
