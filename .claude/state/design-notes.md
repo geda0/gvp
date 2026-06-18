@@ -201,3 +201,132 @@ E (polish): 10 = hero leads with work; 11 = transitions/card treatment not cheap
 ## Prior shipped (see backlog Shipped + progress.md)
 Contact durability, chat invariants #7–#10, frontend guards #1/#2, invariant-completion pins, Team
 Tactics contact CTA, pre-prod hardening (staging + prod).
+
+---
+
+# FEATURE IN FLIGHT (full-team redo) — Team Tactics: professionally present the real engineering
+
+> **Context.** The Team Tactics project entry (`data/projects.json` `playground[]`, id `team-tactics`)
+> was just written SOLO (commit `c8aefad` content + `65be977` a faq build-script fix). We are redoing it
+> through the full team-tactics framework to add the rigor the solo pass skipped. The content already
+> reads well; the gap is **rigor**: (a) every engineering claim must be present AND traceable to code,
+> and (b) the regressions the solo pass left unguarded must be locked behind tests.
+>
+> **The latent bug this redo must fence off (verified).** `scripts/build-chat-knowledge.mjs` holds the
+> `const FAQ` source of truth and writes `data/chat-knowledge/faq.json` verbatim, plus derives
+> `data/chat-knowledge/projects.json` from `data/projects.json` (`summary` ← `chatSummary`, `tech` ←
+> `tech`). The solo run found the `FAQ` const had a stale `resume-access` answer (`open_resume`) while
+> prod shipped `navigate_to_section`, so any `npm run build:chat-knowledge` silently reverted prod
+> behavior. The drift is **fixed today** (both the `FAQ` const at line 128 and committed `faq.json` at
+> line 67 say `navigate_to_section`; a rebuild currently produces NO diff). There is NO test guarding
+> this idempotency and NO test guarding the project-content invariants beyond the existing
+> `test/team-tactics-project.test.mjs`. This feature adds those guards.
+
+## Ground truth (verified against code this cycle — do NOT re-derive, cite this)
+- **MCP server is hand-rolled + zero-dependency + stdio JSON-RPC 2.0.** `.claude/hooks/tics-mcp.cjs`
+  line 4: "hand-rolled, zero-dependency stdio JSON-RPC 2.0". Its only `require()`s are Node builtins
+  (`fs`, `path`, `child_process`) + a sibling kit file (`tics-view.cjs`) — no npm package, no SDK.
+- **The MCP exposes exactly 7 bus tools** (declared in `TOOL_DESCRIPTORS`, dispatched in the call
+  switch): `tic_emit`, `tics_log`, `tics_inbox`, `tics_board`, `tics_review`, `tics_answer`, `tics_map`.
+- **Hook-only/unforgeable kinds** (an MCP/other-tool agent can NOT emit these): `signal`, `block`,
+  `commit`. Agent-emittable via the bus: `tic_emit` for handoff/need/verdict/note/claim/etc.
+- **The kit ships with zero runtime dependencies** (pure Node + bash; no `node_modules` shipped).
+- **The current `team-tactics` entry already carries the claims** in `description`, `chatSummary`,
+  `cardDescription`, and `tech[]` ("Hand-rolled MCP server", "JSON-RPC 2.0", "Zero-dependency"). The
+  redo VERIFIES + LOCKS them, it does not have to author them from scratch.
+- **`resume-access` correct value = `navigate_to_section`** (NOT `open_resume`) in BOTH the `FAQ` const
+  and committed `faq.json`. The rebuild is currently idempotent.
+
+## Decision the navigator/owner should note (not a blocker — defaults stand)
+- This is a **rigor/verification redo of an already-shipped solo entry**, NOT new product scope. No copy
+  rewrite is requested; if any claim is found inaccurate to code during the build, the fix is to make the
+  COPY match the code (not to weaken a test). Escalate only if a claim the owner wants surfaced turns out
+  to be FALSE against code (none found this cycle).
+
+## ACCEPTANCE CRITERIA — observable behaviors (the bar; do not lower to accept)
+
+### AC-1 — Card presents the engineering, not just the workflow `[app node:test]`
+- [ ] The `team-tactics` card (`cardDescription`) names the **technology + features**, not only the
+      red/green workflow: it surfaces the **hand-rolled MCP server** and the **zero-dependency** nature
+      (both phrases observably present in the rendered card copy).
+- [ ] The card still leads the playground/Work grid as the featured entry (`featured: true`, first in
+      `playground[]`) with its existing visual (`image: team-tactics.svg`) intact.
+
+### AC-2 — Detail copy reads as professionally-presented engineering `[app node:test]` + `[qa]`
+- [ ] The dialog `description` surfaces the engineering story: the **hand-rolled MCP server**, that it is
+      **JSON-RPC 2.0 over stdio written from scratch with no SDK**, the **zero-dependency** kit, and the
+      **cross-tool** reach (an agent in another tool / Cursor can read bus state + emit via `tic_emit`).
+- [ ] The description keeps the accuracy guardrails: the MCP write path is **opt-in**, and `signal` /
+      `block` / `commit` stay **hook-only / unforgeable** — it must NOT claim other-tool agents can emit
+      those gate events.
+- [ ] `[qa]` On the running site, opening the Team Tactics card shows tech tags + detail copy that read
+      as a credible engineering write-up (not marketing fluff, not a bare workflow recap), legible across
+      space/garden themes and desktop/mobile, reduced-motion respected.
+
+### AC-3 — Tech tags present AND each claim is traceable to code `[app node:test]`
+- [ ] `tech[]` includes the engineering claims as discrete tags: at minimum **"Hand-rolled MCP server"**,
+      **"JSON-RPC 2.0"**, and **"Zero-dependency"** (the headline verifiable claims).
+- [ ] **Traceability — every surfaced engineering claim is true against code:**
+  - "hand-rolled" + "JSON-RPC 2.0" + "stdio" ↔ `.claude/hooks/tics-mcp.cjs` (line-4 banner +
+    `LATEST_PROTOCOL` / stdio dispatch).
+  - "zero-dependency" / "no SDK" ↔ `tics-mcp.cjs` requires only Node builtins + the sibling kit file
+    (a test can assert no `require()` of a third-party package and that the kit ships no `node_modules`).
+  - the named MCP tools the copy references resolve to the **actual 7** (`tic_emit`, `tics_log`,
+    `tics_inbox`, `tics_board`, `tics_review`, `tics_answer`, `tics_map`) — the copy must not name a
+    tool the server doesn't expose, and must not claim other-tool agents emit `signal`/`block`/`commit`.
+
+### AC-4 — chat summary surfaces the same engineering, accurately `[app node:test]`
+- [ ] `chatSummary` (and therefore the derived `data/chat-knowledge/projects.json` `summary`, which the
+      build copies verbatim) references the **tic bus**, the **gate**, the **MCP server**, and the
+      **cross-tool / shared-bus** reach — so the chat agent describes the engineering, not just the loop.
+- [ ] `chatSummary` ≠ a duplicate of `cardDescription` (chat keeps its own curated paragraph; existing
+      invariant) and stays in sync with `chat-knowledge/projects.json` `summary`.
+
+### AC-5 — chat-knowledge build is idempotent (fences the latent bug) `[app node:test]`
+- [ ] Running `npm run build:chat-knowledge` against the committed inputs produces **NO diff** in
+      `data/chat-knowledge/` — committed `faq.json`, `projects.json`, `roles.json`, `bio.json` are
+      byte-stable across a rebuild (a node:test that builds the FAQ/projects payload and asserts it
+      equals the committed file fails RED on any future drift).
+- [ ] Specifically: the built `faq.json` entry `resume-access` carries `trigger_tool:
+      "navigate_to_section"` (NOT `open_resume`) — pinned so a future edit to the `FAQ` const that
+      re-introduces `open_resume`, or a stale committed `faq.json`, is caught by a red test.
+- [ ] The derived `chat-knowledge/projects.json` team-tactics `summary` + `tech` equal what the build
+      produces from `data/projects.json` (no silent drift between source entry and the chat-knowledge
+      artifact).
+
+### AC-6 — Presentation-field invariant survives future edits `[app node:test]`
+- [ ] A node:test pins that the `team-tactics` entry keeps its required presentation fields non-empty:
+      `cardDescription`, `description`, `chatSummary`, `tech[]` (non-empty), `image`, plus the contact
+      CTA contract already covered (`link: #contact`, `linkText: Request access`, `contactPrefill`).
+- [ ] No card ships with an empty/placeholder description after the redo (guards against a future edit
+      blanking a field the renderer reads).
+
+## THE BAR — unit-testable (node:test) vs qa-verifier eyes
+**Unit-testable now (`node --test`, app layer) — the gate must go RED on regression:**
+- AC-1 (card names MCP + zero-dependency)
+- AC-2 first two bullets (description surfaces the engineering story + keeps opt-in/hook-only guardrails)
+- AC-3 (tech tags present + every claim traceable to code in `.claude/hooks/tics-mcp.cjs`, including the
+  exact 7-tool set and the no-third-party-`require` / no-SDK assertion)
+- AC-4 (chatSummary surfaces the engineering + stays in sync, not a card duplicate)
+- AC-5 (build idempotency: `faq.json` byte-stable, `resume-access` → `navigate_to_section`, derived
+  projects.json in sync) — **the load-bearing regression guard the solo pass skipped**
+- AC-6 (presentation-field invariant non-empty)
+> Much of AC-1/2/3/4/6 extends the existing `test/team-tactics-project.test.mjs`; AC-3 traceability and
+> AC-5 idempotency are the NEW guards. Note: AC-3's "no `require()` of a third-party package" and the
+> 7-tool assertion read `.claude/hooks/tics-mcp.cjs` — confirm with the architect that asserting against
+> a kit file from the app suite is acceptable (it is the source of truth for the claim; an alternative is
+> a fixture snapshot of the tool names). Navigator decision flagged, default = read the kit file.
+
+**Requires qa-verifier eyes on the running site (cannot be a unit test):**
+- AC-2 third bullet — the card/detail/tech-tags actually READ as professionally-presented engineering in
+  a browser, across space/garden themes and desktop/mobile, reduced-motion respected. (Tests can prove
+  the claims are PRESENT and ACCURATE; only a human can judge that they READ as credible engineering, not
+  fluff.)
+
+## Hand-off to orchestrator
+- Drive AC-5 (idempotency guard) and AC-3 (traceability guard) **first** — they are the rigor the solo
+  pass skipped and the highest-value red→green slices. AC-1/2/4/6 mostly tighten the existing
+  team-tactics test. qa-verifier signs AC-2's "reads as engineering" bullet on the running site.
+- Source of truth: claims in `.claude/hooks/tics-mcp.cjs`; entry in `data/projects.json`
+  `playground[]#team-tactics`; build in `scripts/build-chat-knowledge.mjs`; artifacts in
+  `data/chat-knowledge/{faq,projects}.json`; existing test `test/team-tactics-project.test.mjs`.

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -353,7 +353,16 @@ async function main() {
   ])
 }
 
-main().catch((error) => {
-  console.error('Failed to build chat knowledge pack:', error)
-  process.exitCode = 1
-})
+export { FAQ, buildProjects, buildRoles }
+
+// Run main() only when invoked directly as the CLI. Use import.meta.main when
+// present (Node 22.18+/24+), else fall back to a path compare so the build CLI
+// works on every supported Node — never a silent no-op.
+const runAsCli =
+  import.meta.main ?? (!!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+if (runAsCli) {
+  main().catch((error) => {
+    console.error('Failed to build chat knowledge pack:', error)
+    process.exitCode = 1
+  })
+}

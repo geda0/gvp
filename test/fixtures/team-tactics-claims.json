@@ -1,0 +1,21 @@
+{
+  "_comment": "Committed, human-maintained source of truth for the Team Tactics marketing claim (ADR-0012, AC-3). The product test asserts the projects.json copy/tags agree with THIS fixture; the live .claude/hooks/tics-mcp.cjs read is only a skip-if-absent tripwire on slow-moving facts. Changing the claimed tool set or the no-SDK promise must be a deliberate edit here.",
+  "mcpToolNames": [
+    "tic_emit",
+    "tics_log",
+    "tics_inbox",
+    "tics_board",
+    "tics_review",
+    "tics_answer",
+    "tics_map"
+  ],
+  "headlineTechTags": [
+    "Hand-rolled MCP server",
+    "JSON-RPC 2.0",
+    "Zero-dependency"
+  ],
+  "noSdkInvariant": {
+    "forbiddenImportMarker": "@modelcontextprotocol",
+    "allowedRequireKinds": ["node-builtin", "sibling-kit-file"]
+  }
+}
