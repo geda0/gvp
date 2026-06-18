@@ -111,3 +111,34 @@ export function chromeThemeAt(hours) {
   const { sun, star } = sceneParamsAt(hours)
   return sun >= star ? 'garden' : 'space'
 }
+
+// ── Preference model ────────────────────────────────────────────────────────
+// The living theme stores either 'time' (auto — follow the local clock) or
+// 'time:<hours>' (a pinned hour from the slider). Anything else — legacy
+// space/garden/studio/auto, empty, junk — resolves to auto so old visitors and
+// fresh visitors both land in the live day/night world.
+
+/** @returns {{auto: boolean, hours: number|null}} */
+export function parseThemePref(stored) {
+  const s = stored == null ? '' : String(stored)
+  if (s === 'time') return { auto: true, hours: null }
+  const m = /^time:(-?\d+(?:\.\d+)?)$/.exec(s)
+  if (m) return { auto: false, hours: clampHours(parseFloat(m[1])) }
+  return { auto: true, hours: null }
+}
+
+/** @param {{auto: boolean, hours: number|null}} pref */
+export function serializeThemePref(pref) {
+  if (pref && pref.auto === false && Number.isFinite(pref.hours)) {
+    return `time:${clampHours(pref.hours)}`
+  }
+  return 'time'
+}
+
+/** The hour to render for a preference: pinned value, or the clock for auto. */
+export function resolveThemeHours(pref, date) {
+  if (pref && pref.auto === false && Number.isFinite(pref.hours)) {
+    return clampHours(pref.hours)
+  }
+  return hoursFromDate(date instanceof Date ? date : new Date())
+}

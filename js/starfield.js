@@ -10,6 +10,18 @@ import {
   starSpeedMultiplierForPreference,
   snowSpeedMultiplierForPreference
 } from './starfield-prefs.js'
+import { sceneParamsAt } from './theme-time.js'
+
+/** Living time-of-day mode is active when theme.js has marked the root. */
+function isTimeMode() {
+  return typeof document !== 'undefined' && document.documentElement.hasAttribute('data-time')
+}
+
+/** Current hour the theme is rendering (set on the root by theme.js). */
+function currentTimeHours() {
+  const v = parseFloat(document.documentElement.dataset.timeHours)
+  return Number.isFinite(v) ? v : 12
+}
 
 export function initStarfield(canvasId, options = {}) {
   const canvas = document.getElementById(canvasId);
@@ -227,7 +239,12 @@ export function initStarfield(canvasId, options = {}) {
     centerY = h / 2;
     fl = w;
     const theme = getTheme();
-    if (theme === 'space') {
+    if (isTimeMode()) {
+      // Living theme: stars are always the canvas scene (their opacity is
+      // modulated by the hour); snow is opt-in elsewhere, never here.
+      numStars = starCountForCurrentPreference(w, h, cores);
+      initStars(numStars);
+    } else if (theme === 'space') {
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
     } else if (theme === 'garden') {
@@ -295,7 +312,34 @@ export function initStarfield(canvasId, options = {}) {
     c.clearRect(0, 0, canvas.width, canvas.height);
   }
 
+  function drawTime() {
+    // Stars fade with the hour: full at night, gone by midday, partial at dusk.
+    // We erase a fraction each frame (destination-out) instead of washing the
+    // canvas dark — that keeps the motion-streak trails AND leaves the canvas
+    // transparent so the interpolated sky (body background) shows through.
+    const w = canvas.width;
+    const h = canvas.height;
+    const starWeight = sceneParamsAt(currentTimeHours()).star;
+    c.globalCompositeOperation = 'destination-out';
+    c.fillStyle = `rgba(0, 0, 0, ${prefersReducedMotion ? 1 : 0.22})`;
+    c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'source-over';
+    if (starWeight <= 0.01) return;
+    starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
+    c.save();
+    c.globalAlpha = starWeight;
+    for (var i = 0; i < numStars; i++) {
+      stars[i].show();
+      stars[i].move();
+    }
+    c.restore();
+  }
+
   function draw() {
+    if (isTimeMode()) {
+      drawTime();
+      return;
+    }
     const theme = getTheme();
     if (theme === 'garden') {
       drawSnow();
@@ -331,6 +375,14 @@ export function initStarfield(canvasId, options = {}) {
   document.addEventListener('visibilitychange', onVisibilityChange);
 
   window.addEventListener('themechange', () => {
+    if (isTimeMode()) {
+      // Time mode fires themechange as the chrome flips garden/space at dawn/dusk.
+      // Keep the star pool (drawTime modulates its opacity); only ensure it exists
+      // and drop any leftover snow. Re-allocating every flip would reset the sky.
+      snowflakes = [];
+      if (!stars.length) resizeCanvas();
+      return;
+    }
     const theme = getTheme();
     if (theme === 'space') {
       snowflakes = [];

@@ -399,6 +399,15 @@ html:not([data-theme="garden"]):not([data-theme="studio"]) body {
     background-attachment: fixed;
 }
 
+/* Living time-of-day theme: the body shows the continuously-interpolated sky.
+   --time-sky is set inline on :root by theme.js (and the pre-paint script), so
+   it wins over the per-data-theme body backgrounds above. */
+html[data-time] body {
+    background: var(--time-sky) !important;
+    background-color: transparent;
+    background-attachment: fixed;
+}
+
 #light {
     background-image: var(--overlay-gradient);
     position: fixed;
@@ -2254,6 +2263,85 @@ body.contact-dialog-open {
 .theme-switcher {
     position: relative;
     display: inline-flex;
+}
+
+/* Living time-of-day slider (replaces the old theme menu). A native range input
+   gives drag + keyboard + a11y for free; the track is a small day-arc preview. */
+.time-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.time-switcher__icon {
+    font-size: 0.92rem;
+    line-height: 1;
+    width: 1.15em;
+    text-align: center;
+}
+
+.time-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 96px;
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        #141926 0%, #2a2150 22%, #e0a85a 29%, #7eb0c8 38%,
+        #86b8cf 50%, #7eb0c8 71%, #5b3358 79%, #1a1330 88%, #141926 100%);
+    border: 1px solid var(--border-subtle);
+    cursor: pointer;
+    outline-offset: 3px;
+    margin: 0;
+}
+
+.time-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #e8b070;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    cursor: grab;
+}
+
+.time-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #e8b070;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    cursor: grab;
+}
+
+.time-slider:active::-webkit-slider-thumb {
+    cursor: grabbing;
+}
+
+.time-auto {
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--navbar-link);
+    font-size: 0.68em;
+    font-weight: 500;
+    font-family: var(--font-body);
+    padding: 0.18rem 0.4rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    line-height: 1.2;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.time-auto[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.time-auto:hover {
+    border-color: var(--border-strong);
 }
 
 .theme-toggle {

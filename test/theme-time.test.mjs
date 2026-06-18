@@ -7,6 +7,9 @@ import {
   skyStopsAt,
   skyGradientAt,
   chromeThemeAt,
+  parseThemePref,
+  serializeThemePref,
+  resolveThemeHours,
 } from '../js/theme-time.js'
 
 const approx = (a, b, eps = 0.02) => Math.abs(a - b) <= eps
@@ -94,4 +97,30 @@ test('inputs are defensive: nullish / out-of-range hours never throw', () => {
   assert.doesNotThrow(() => sceneParamsAt(-5))
   assert.doesNotThrow(() => skyGradientAt(99))
   assert.equal(typeof chromeThemeAt(undefined), 'string')
+})
+
+test('parseThemePref: "time" is auto, "time:H" is pinned, legacy/empty → auto', () => {
+  assert.deepEqual(parseThemePref('time'), { auto: true, hours: null })
+  assert.deepEqual(parseThemePref('time:19.5'), { auto: false, hours: 19.5 })
+  assert.deepEqual(parseThemePref('time:26'), { auto: false, hours: 2 })
+  assert.deepEqual(parseThemePref('garden'), { auto: true, hours: null })
+  assert.deepEqual(parseThemePref('space'), { auto: true, hours: null })
+  assert.deepEqual(parseThemePref(null), { auto: true, hours: null })
+  assert.deepEqual(parseThemePref(''), { auto: true, hours: null })
+})
+
+test('serializeThemePref round-trips the pinned hour and clamps it', () => {
+  assert.equal(serializeThemePref({ auto: true, hours: null }), 'time')
+  assert.equal(serializeThemePref({ auto: false, hours: 19.5 }), 'time:19.5')
+  assert.equal(serializeThemePref({ auto: false, hours: 25 }), 'time:1')
+})
+
+test('resolveThemeHours: pinned returns the hour, auto reads the date', () => {
+  assert.equal(resolveThemeHours({ auto: false, hours: 7 }, new Date(2020, 0, 1, 3, 0)), 7)
+  assert.equal(resolveThemeHours({ auto: true, hours: null }, new Date(2020, 0, 1, 9, 30)), 9.5)
+})
+
+test('parse → serialize round-trips both modes', () => {
+  assert.equal(serializeThemePref(parseThemePref('time')), 'time')
+  assert.equal(serializeThemePref(parseThemePref('time:8.25')), 'time:8.25')
 })
