@@ -124,8 +124,8 @@ const FAQ = [
       "send me the resume",
       "show me his resume"
     ],
-    a: "Yes. Marwan keeps a public resume PDF on the site.",
-    trigger_tool: "open_resume"
+    a: "His work is right here on the site — the Portfolio section walks through his professional projects with the story behind each, and there's a résumé PDF linked at the bottom of it if you'd like the one-pager. Want me to take you there?",
+    trigger_tool: "navigate_to_section"
   },
   {
     id: "leave-apptio-why",
