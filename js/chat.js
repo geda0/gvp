@@ -1500,8 +1500,18 @@ export function initChat() {
 
   const applyVoiceToolCall = (name, args) => {
     if (name === 'open_resume') {
-      window.open(RESUME_URL, '_blank', 'noopener,noreferrer')
-      return { result: 'opened_resume' }
+      // Parity with text chat: don't yank the visitor into a new tab. Reveal the
+      // download button and let the agent ask them to tap it (the dialog click
+      // handler above opens the PDF on tap).
+      appendMessage('assistant', "Here's Marwan's résumé — tap to open it.", {
+        actions: [{ id: 'open-resume', label: 'Open resume' }],
+        forceScroll: true,
+      })
+      return {
+        result: 'resume_button_shown',
+        instruction:
+          'A résumé button is now on screen. Tell the visitor to tap it to open the résumé — do not claim you opened it yourself.',
+      }
     }
     if (name === 'open_contact_form') {
       const prefill = args && typeof args === 'object'
