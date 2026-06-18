@@ -12,14 +12,15 @@
 // `star`/`sun`/`firefly` = 0–1 scene weights. h must be ascending; midnight (0)
 // is reused as the h=24 endpoint so the cycle wraps continuously.
 const KEYFRAMES = [
-  { h: 0, sky: ['#10131f', '#171d2c', '#222a40'], star: 1, sun: 0, firefly: 0.15, ground: 0 },
+  { h: 0, sky: ['#10131f', '#171d2c', '#222a40'], star: 1, sun: 0, firefly: 0, ground: 0 },
   { h: 5, sky: ['#10131f', '#171d2c', '#222a40'], star: 1, sun: 0, firefly: 0, ground: 0 },
   { h: 7, sky: ['#2a2150', '#8a5a6a', '#e0a85a'], star: 0.35, sun: 0.15, firefly: 0, ground: 0.45 },
   { h: 9, sky: ['#7eb0c8', '#a8cfae', '#4d7a58'], star: 0, sun: 0.6, firefly: 0, ground: 1 },
   { h: 12, sky: ['#86b8cf', '#b0d4b6', '#4d7a58'], star: 0, sun: 1, firefly: 0, ground: 1 },
   { h: 17, sky: ['#7eb0c8', '#a8cfae', '#4d7a58'], star: 0, sun: 0.55, firefly: 0, ground: 1 },
   { h: 19, sky: ['#160f2e', '#5b3358', '#3a6b48'], star: 0.4, sun: 0.12, firefly: 1, ground: 0.7 },
-  { h: 21, sky: ['#10131f', '#171d2c', '#222a40'], star: 1, sun: 0, firefly: 0.35, ground: 0 },
+  // Fireflies fade out with the garden by ~9pm — none in deep-night space.
+  { h: 21, sky: ['#10131f', '#171d2c', '#222a40'], star: 1, sun: 0, firefly: 0, ground: 0 },
 ]
 
 // Virtual wrap endpoint: midnight again at h=24.

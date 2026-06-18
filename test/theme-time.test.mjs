@@ -45,6 +45,14 @@ test('scene params hit their keyframe extremes', () => {
   assert.ok(dusk.ground > 0.4 && dusk.ground < 1)
 })
 
+test('fireflies are confined to dusk — none in deep night or day (they belong to the garden)', () => {
+  assert.equal(sceneParamsAt(1).firefly, 0)
+  assert.equal(sceneParamsAt(23).firefly, 0)
+  assert.equal(sceneParamsAt(0).firefly, 0)
+  assert.equal(sceneParamsAt(12).firefly, 0)
+  assert.ok(sceneParamsAt(19).firefly > 0.9) // still peak at dusk
+})
+
 test('ground weight: garden is present by day, gone deep at night', () => {
   assert.equal(sceneParamsAt(2).ground, 0)
   assert.ok(sceneParamsAt(12).ground > sceneParamsAt(6).ground)

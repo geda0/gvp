@@ -280,11 +280,12 @@ export function initStarfield(canvasId, options = {}) {
     fl = w;
     const theme = getTheme();
     if (isTimeMode()) {
-      // Living theme: stars are always the canvas scene (their opacity is
-      // modulated by the hour); snow is opt-in elsewhere, never here.
+      // Living theme: stars (opacity modulated by the hour) + fireflies at dusk
+      // + a constant gentle snow that's always there, every season.
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
       initFireflies();
+      initSnow();
     } else if (theme === 'space') {
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
@@ -320,8 +321,7 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
-  function drawSnow() {
-    c.clearRect(0, 0, canvas.width, canvas.height);
+  function drawSnowParticles() {
     const w = canvas.width;
     const h = canvas.height;
     const time = Date.now() * 0.001;
@@ -345,6 +345,11 @@ export function initStarfield(canvasId, options = {}) {
       const size = d.r * 2;
       c.drawImage(snowSprite, d.x - d.r, d.y - d.r, size, size);
     }
+  }
+
+  function drawSnow() {
+    c.clearRect(0, 0, canvas.width, canvas.height);
+    drawSnowParticles();
   }
 
   function drawStudio() {
@@ -396,6 +401,11 @@ export function initStarfield(canvasId, options = {}) {
     if (sp.firefly > 0.01 && fireflies.length) {
       drawFireflies(sp.firefly);
     }
+
+    // Snow is always there — a constant gentle fall over day and night alike.
+    if (snowflakes.length) {
+      drawSnowParticles();
+    }
   }
 
   function draw() {
@@ -440,10 +450,9 @@ export function initStarfield(canvasId, options = {}) {
   window.addEventListener('themechange', () => {
     if (isTimeMode()) {
       // Time mode fires themechange as the chrome flips garden/space at dawn/dusk.
-      // Keep the star pool (drawTime modulates its opacity); only ensure it exists
-      // and drop any leftover snow. Re-allocating every flip would reset the sky.
-      snowflakes = [];
-      if (!stars.length) resizeCanvas();
+      // Keep the pools (drawTime modulates star opacity; snow is always on); just
+      // ensure they exist. Re-allocating on every flip would reset the scene.
+      if (!stars.length || !snowflakes.length) resizeCanvas();
       return;
     }
     const theme = getTheme();
