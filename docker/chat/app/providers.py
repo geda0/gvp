@@ -101,9 +101,11 @@ def chat_tools() -> list[Any]:
                 types.FunctionDeclaration(
                     name='open_resume',
                     description=(
-                        'Open the resume PDF as a download. Call this ONLY when the visitor explicitly asks to '
-                        'open, download, or get the PDF file itself. For questions about experience or background, '
-                        'or "show me your work", do NOT call this — answer, then navigate_to_section("portfolio").'
+                        'Download the resume PDF file. Call this ONLY when the visitor explicitly asks to '
+                        'download or save the PDF/file (e.g. "download your resume", "send me the PDF", "get the '
+                        'resume file"). Do NOT call it for "see", "view", "show me", or "where is" the resume, '
+                        'nor for any question about experience or background — for ALL of those call '
+                        'navigate_to_section("portfolio") so they see the work in context (the resume link lives there).'
                     ),
                     parameters=types.Schema(type=types.Type.OBJECT, properties={}),
                 ),
