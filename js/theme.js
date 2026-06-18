@@ -5,6 +5,7 @@
 import {
   skyGradientAt,
   chromeThemeAt,
+  sceneParamsAt,
   parseThemePref,
   serializeThemePref,
   resolveThemeHours,
@@ -67,6 +68,8 @@ export function applyThemeTime(hours) {
   root.setAttribute('data-theme', chrome);
   root.dataset.timeHours = String(Math.round(currentHours * 100) / 100);
   root.style.setProperty('--time-sky', skyGradientAt(currentHours));
+  // Garden scene (trees / ocean) lingers into dawn + dusk, gone deep at night.
+  root.style.setProperty('--garden-opacity', String(sceneParamsAt(currentHours).ground));
   window.dispatchEvent(
     new CustomEvent('themechange', { detail: { theme: chrome, hours: currentHours } })
   );

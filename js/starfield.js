@@ -4,6 +4,7 @@ import {
   calculateFullStarCount,
   starCountForPreference,
   snowflakeCountForPreference,
+  fireflyCountForPreference,
   spaceTrailAlphaForPreference,
   defaultExperienceStarCount,
   defaultExperienceSnowflakeCount,
@@ -68,6 +69,27 @@ export function initStarfield(canvasId, options = {}) {
     sc.beginPath();
     sc.arc(cx, cy, SNOW_SPRITE_RADIUS, 0, Math.PI * 2);
     sc.fill();
+  }
+
+  // Firefly state (living theme, dusk/evening). Warm golden motes drifting low.
+  let fireflies = [];
+  const FIREFLY_SPRITE_RADIUS = 6;
+  const fireflySprite = document.createElement('canvas');
+  fireflySprite.width = FIREFLY_SPRITE_RADIUS * 2;
+  fireflySprite.height = FIREFLY_SPRITE_RADIUS * 2;
+  {
+    const fc = fireflySprite.getContext('2d');
+    const g = fc.createRadialGradient(
+      FIREFLY_SPRITE_RADIUS, FIREFLY_SPRITE_RADIUS, 0,
+      FIREFLY_SPRITE_RADIUS, FIREFLY_SPRITE_RADIUS, FIREFLY_SPRITE_RADIUS
+    );
+    g.addColorStop(0, 'rgba(255, 244, 170, 0.95)');
+    g.addColorStop(0.4, 'rgba(255, 212, 94, 0.55)');
+    g.addColorStop(1, 'rgba(255, 212, 94, 0)');
+    fc.fillStyle = g;
+    fc.beginPath();
+    fc.arc(FIREFLY_SPRITE_RADIUS, FIREFLY_SPRITE_RADIUS, FIREFLY_SPRITE_RADIUS, 0, Math.PI * 2);
+    fc.fill();
   }
 
   const reducedMotionMql = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -230,6 +252,24 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
+  function initFireflies() {
+    fireflies = [];
+    const count = fireflyCountForPreference(prefersReducedMotion);
+    const w = canvas.width;
+    const h = canvas.height;
+    for (let i = 0; i < count; i++) {
+      fireflies.push({
+        x: Math.random() * w,
+        y: h * 0.55 + Math.random() * h * 0.42, // lower band, among trees / ground
+        phase: Math.random() * Math.PI * 2,
+        blinkPhase: Math.random() * Math.PI * 2,
+        blinkSpeed: 0.6 + Math.random() * 1.2,
+        drift: 6 + Math.random() * 10,
+        scale: 0.7 + Math.random() * 0.9
+      });
+    }
+  }
+
   function resizeCanvas() {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -244,6 +284,7 @@ export function initStarfield(canvasId, options = {}) {
       // modulated by the hour); snow is opt-in elsewhere, never here.
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
+      initFireflies();
     } else if (theme === 'space') {
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
@@ -312,27 +353,49 @@ export function initStarfield(canvasId, options = {}) {
     c.clearRect(0, 0, canvas.width, canvas.height);
   }
 
+  function drawFireflies(weight) {
+    const t = Date.now() * 0.001;
+    const moving = !prefersReducedMotion;
+    c.save();
+    for (let i = 0; i < fireflies.length; i++) {
+      const f = fireflies[i];
+      const dx = moving ? Math.sin(t * 0.5 + f.phase) * f.drift : 0;
+      const dy = moving ? Math.cos(t * 0.35 + f.phase) * f.drift * 0.5 : 0;
+      const blink = moving ? 0.6 + 0.4 * Math.sin(t * f.blinkSpeed + f.blinkPhase) : 0.85;
+      c.globalAlpha = Math.max(0, weight * blink);
+      const size = FIREFLY_SPRITE_RADIUS * 2 * f.scale;
+      c.drawImage(fireflySprite, f.x + dx - size / 2, f.y + dy - size / 2, size, size);
+    }
+    c.restore();
+  }
+
   function drawTime() {
-    // Stars fade with the hour: full at night, gone by midday, partial at dusk.
-    // We erase a fraction each frame (destination-out) instead of washing the
-    // canvas dark — that keeps the motion-streak trails AND leaves the canvas
+    // Stars fade with the hour (full at night → gone by midday); fireflies glow
+    // at dusk/evening. We erase a fraction each frame (destination-out) instead of
+    // washing the canvas dark — keeps motion-streak trails AND leaves the canvas
     // transparent so the interpolated sky (body background) shows through.
     const w = canvas.width;
     const h = canvas.height;
-    const starWeight = sceneParamsAt(currentTimeHours()).star;
+    const sp = sceneParamsAt(currentTimeHours());
     c.globalCompositeOperation = 'destination-out';
     c.fillStyle = `rgba(0, 0, 0, ${prefersReducedMotion ? 1 : 0.22})`;
     c.fillRect(0, 0, w, h);
     c.globalCompositeOperation = 'source-over';
-    if (starWeight <= 0.01) return;
-    starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
-    c.save();
-    c.globalAlpha = starWeight;
-    for (var i = 0; i < numStars; i++) {
-      stars[i].show();
-      stars[i].move();
+
+    if (sp.star > 0.01) {
+      starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
+      c.save();
+      c.globalAlpha = sp.star;
+      for (var i = 0; i < numStars; i++) {
+        stars[i].show();
+        stars[i].move();
+      }
+      c.restore();
     }
-    c.restore();
+
+    if (sp.firefly > 0.01 && fireflies.length) {
+      drawFireflies(sp.firefly);
+    }
   }
 
   function draw() {

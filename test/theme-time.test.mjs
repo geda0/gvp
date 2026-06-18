@@ -32,19 +32,29 @@ test('scene params hit their keyframe extremes', () => {
   const midnight = sceneParamsAt(0)
   assert.equal(midnight.star, 1)
   assert.equal(midnight.sun, 0)
+  assert.equal(midnight.ground, 0)
 
   const noon = sceneParamsAt(12)
   assert.equal(noon.sun, 1)
   assert.equal(noon.star, 0)
+  assert.equal(noon.ground, 1)
 
   const dusk = sceneParamsAt(19)
   assert.equal(dusk.firefly, 1)
+  // The garden still lingers at dusk (twilight garden) — not fully gone.
+  assert.ok(dusk.ground > 0.4 && dusk.ground < 1)
+})
+
+test('ground weight: garden is present by day, gone deep at night', () => {
+  assert.equal(sceneParamsAt(2).ground, 0)
+  assert.ok(sceneParamsAt(12).ground > sceneParamsAt(6).ground)
+  assert.ok(sceneParamsAt(6).ground >= 0) // dawn fading in
 })
 
 test('every scene param stays within [0,1] across the whole day', () => {
   for (let h = 0; h < 24; h += 0.25) {
     const p = sceneParamsAt(h)
-    for (const k of ['star', 'sun', 'firefly']) {
+    for (const k of ['star', 'sun', 'firefly', 'ground']) {
       assert.ok(p[k] >= 0 && p[k] <= 1, `${k} out of range at h=${h}: ${p[k]}`)
     }
   }

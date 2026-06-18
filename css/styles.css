@@ -200,6 +200,13 @@
     visibility: visible;
 }
 
+/* Living theme: the garden scene fades in/out by the hour (set on :root by
+   theme.js) so the trees + ocean linger through dawn and dusk, not just midday. */
+html[data-time] .garden-scene {
+    visibility: visible;
+    opacity: var(--garden-opacity, 0);
+}
+
 /* Soft sun glow high in the sky (warms the gradient without competing with snow) */
 .garden-sun {
     position: absolute;
