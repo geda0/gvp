@@ -522,6 +522,8 @@ function main(argv, defaultRoot) {
   const csFile = cmd === "claim-session" ? rest.shift() : null;
   const soName = cmd === "section-status" ? rest.shift() : null;
   const foSpec = cmd === "fan-out" ? rest.shift() : null;
+  const whereArg = cmd === "where" ? rest.shift() : null;
+  const howArg = cmd === "how" ? rest.shift() : null;
   const ansHandle = cmd === "answer" ? rest.shift() : null;
   const ansText = cmd === "answer" ? rest.join(" ") : null;
   if (cmd === "answer") { rest.length = 0; }
@@ -532,6 +534,9 @@ function main(argv, defaultRoot) {
     case "conductor": return ticsConductor(target, all);
     case "claims": return ticsClaims(target, all);
     case "sections": return ticsSections(target, all);
+    case "map": return ticsLandmarks(target, all);
+    case "where": return ticsWhere(target, whereArg, all);
+    case "how": return ticsHow(target, howArg, all);
     case "cycle": return ticsCycle(target);
     case "gate": return ticsGate(target, all);
     case "claim-check": return claimCheckCli(target, cfFile, cfScope);
@@ -631,4 +636,87 @@ function toolTally(tics) {
   }
   return out;
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, livenessTier, fleetModel, ticsBoard, ticsRoster, ticsReview, ticsAnswer, fanOut, greenAttestation, attestationTally, isHookSignedRed, cfgStr, evidenceFor, openNeeds, main, toolTally };
+function verifyMark(targetDir, tic) {
+  const ref = tic && tic.ref || "";
+  // only path-like refs are git-checkable; skip area:/topic keys and bare tokens
+  if (ref.indexOf("/") === -1 || ref.indexOf("area:") === 0) return "";
+  try {
+    const out = cp.execFileSync("git", ["-C", targetDir, "log", "-1", "--format=%cI", "--", ref],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    var c = Date.parse(out), t = Date.parse(tic.ts);
+    if (c && t && c > t) return " ↻ verify (code changed since)";
+  } catch (e) { /* not a repo / untracked path -> fail safe, no nudge */ }
+  return "";
+}
+function landmarkMap(targetDir, all) {
+  const t = loadFor(targetDir, all);
+  const map = new Map();
+  const TYPE = (x) => (x.kind === "contract" ? "decision" : (x.result || "landmark"));
+  for (const x of t) {
+    if ((x.kind !== "landmark" && x.kind !== "contract") || !x.ref) continue;
+    if (x.kind === "landmark" && x.result === "retract") {
+      for (const k of map.keys()) {
+        if (k.indexOf(x.ref + " ") === 0 && k !== x.ref + " decision") map.delete(k);
+      }
+    } else {
+      map.set(x.ref + " " + TYPE(x), x);
+    }
+  }
+  return map;
+}
+function ticsWhere(targetDir, pathArg, all) {
+  const map = landmarkMap(targetDir, all);
+  const matches = [];
+  for (const x of map.values()) {
+    const ref = x.ref || "";
+    if (ref === pathArg || pathArg.indexOf(ref) !== -1 || ref.indexOf(pathArg) !== -1) matches.push(x);
+  }
+  if (!matches.length) { return 0; }
+  console.log("Context for " + pathArg + ":");
+  for (const x of matches) console.log("  " + x.ref + " — " + x.msg + verifyMark(targetDir, x));
+  return 0;
+}
+function ticsHow(targetDir, taskArg, all) {
+  const map = landmarkMap(targetDir, all);
+  const lower = (taskArg || "").toLowerCase();
+  const matches = [];
+  for (const x of map.values()) {
+    if (x.result !== "route") continue;
+    if ((x.ref + " " + x.msg).toLowerCase().indexOf(lower) !== -1) matches.push(x);
+  }
+  if (!matches.length) { console.log("no route for " + taskArg); return 0; }
+  for (const x of matches) console.log("  " + x.ref + " — " + x.msg);
+  return 0;
+}
+function ticsLandmarks(targetDir, all) {
+  const map = landmarkMap(targetDir, all);
+  if (!map.size) {
+    console.log("No crumbs yet — leave one: tic.sh <role> '*' landmark '<what>' <path> <landmark|route|caveat>");
+    return 0;
+  }
+  const groups = { landmark: [], route: [], caveat: [], decision: [] };
+  for (const x of map.values()) {
+    const type = x.kind === "contract" ? "decision" : ((x.result === "route" || x.result === "caveat") ? x.result : "landmark");
+    groups[type].push(x);
+  }
+  for (const g of ["landmark", "route", "caveat", "decision"]) groups[g].sort(function(a, b) { return (a.ref || "") < (b.ref || "") ? -1 : 1; });
+  console.log("Context map (learned crumbs — self-reported):");
+  if (groups.landmark.length) {
+    console.log("  Landmarks");
+    for (const x of groups.landmark) console.log("    " + x.ref + " — " + x.msg + "  (" + x.from + ", " + (x.ts || "").slice(11, 19) + ")" + verifyMark(targetDir, x));
+  }
+  if (groups.route.length) {
+    console.log("  Routes");
+    for (const x of groups.route) console.log("    " + x.ref + " — " + x.msg + "  (" + x.from + ", " + (x.ts || "").slice(11, 19) + ")" + verifyMark(targetDir, x));
+  }
+  if (groups.caveat.length) {
+    console.log("  Caveats");
+    for (const x of groups.caveat) console.log("    " + x.ref + " — " + x.msg + "  (" + x.from + ", " + (x.ts || "").slice(11, 19) + ")" + verifyMark(targetDir, x));
+  }
+  if (groups.decision.length) {
+    console.log("  Decisions");
+    for (const x of groups.decision) console.log("    " + x.ref + " — " + x.msg);
+  }
+  return 0;
+}
+module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, livenessTier, fleetModel, ticsBoard, ticsRoster, ticsReview, ticsAnswer, fanOut, greenAttestation, attestationTally, isHookSignedRed, cfgStr, evidenceFor, openNeeds, main, toolTally, ticsLandmarks, landmarkMap, ticsWhere, ticsHow };

@@ -65,8 +65,15 @@ if [ "$RESULT" = "green" ]; then
   echo 0 > "$STREAK"
 else
   _rs=$(( $(cat "$STREAK" 2>/dev/null || echo 0) + 1 )); echo "$_rs" > "$STREAK"
-  if [ "$_rs" -eq "${RED_STREAK_LIMIT:-5}" ]; then
-    emit_tic run-suite orchestrator stuck "$_rs reds in a row on [$LAYER] — suspected over-constrained or contradictory test; reconsider the failing test (route to test-writer) or ask the navigator, don't keep grinding" "${EDITED:-}" "$_rs"
+  _lim="${RED_STREAK_LIMIT:-5}"; [ "$_lim" -ge 1 ] 2>/dev/null || _lim=1   # guard the `% _lim` below against a 0/garbage misconfig
+  if [ "$_rs" -ge "$_lim" ]; then
+    if [ "$_rs" -ge $(( _lim * 2 )) ]; then
+      _rsmsg="[red-storm] STOP grinding — $_rs reds in a row on [$LAYER]. The failing TEST is almost certainly over-constrained or wrong, not the code. Go back to phase=red and have the test-writer FIX the test, or ask the navigator — do not keep editing source."
+    else
+      _rsmsg="[red-storm] $_rs reds in a row on [$LAYER] — the failing test is likely over-constrained or contradictory; reconsider it (route to test-writer) or ask the navigator, don't keep grinding."
+    fi
+    echo "$_rsmsg"
+    [ $(( _rs % _lim )) -eq 0 ] && emit_tic run-suite orchestrator stuck "$_rsmsg" "${EDITED:-}" "$_rs"
   fi
 fi
 
