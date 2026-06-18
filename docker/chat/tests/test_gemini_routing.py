@@ -77,6 +77,22 @@ class _HangFirstChunk:
         return gen()
 
 
+class _SlowOkStream:
+    """Fallback whose first chunk arrives only AFTER a delay longer than the
+    per-attempt first-chunk budget — valid output the UNCAPPED final attempt must
+    still wait for (proves the last model is not time-boxed)."""
+
+    def __init__(self, delay: float) -> None:
+        self._delay = delay
+
+    def astream(self, _payload, config=None):
+        async def gen():
+            await asyncio.sleep(self._delay)
+            yield MsgChunk(text="from-fallback")
+
+        return gen()
+
+
 class _RateLimitInvoke:
     """Primary (non-streaming): ainvoke raises an upstream 429."""
 
@@ -282,6 +298,66 @@ async def test_primary_stream_timeout_flips_prefer_fallback(
     _ = [c async for c in chain.astream({"messages": []})]
 
     assert gemini_limit_state.prefer_fallback_first() is True
+    assert gemini_limit_state.primary_timeout_hits_today() == 1
+
+
+@pytest.mark.asyncio
+async def test_final_attempt_first_chunk_is_uncapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The LAST model must run without the per-attempt first-chunk cap, so a
+    slow-but-valid fallback still answers (the overall request deadline governs).
+    Guards against a regression that time-boxes the final attempt too."""
+    from app import gemini_limit_state
+
+    gemini_limit_state.reset_for_tests()
+    chain = GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=0.3,  # first-chunk budget = min(12, 0.18) = 0.18s
+    )
+    # Primary stalls -> fall back; fallback's first chunk is later than 0.18s but
+    # must NOT be capped (the final attempt is uncapped).
+    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": _SlowOkStream(0.4)}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    chunks = [c async for c in chain.astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+
+
+@pytest.mark.asyncio
+async def test_primary_timeout_then_fallback_failure_exhausts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Primary times out -> fall back; if the fallback also fails the error
+    propagates, and ONLY the primary's timeout is recorded (the note is keyed on
+    the primary, not 'any timeout')."""
+    from app import gemini_limit_state
+
+    gemini_limit_state.reset_for_tests()
+    chain = GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=0.3,
+    )
+    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": _RateLimitFirstChunk()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    with pytest.raises(UpstreamError):
+        async for _ in chain.astream({"messages": []}):
+            pass
+
     assert gemini_limit_state.primary_timeout_hits_today() == 1
 
 

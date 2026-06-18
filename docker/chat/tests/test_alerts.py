@@ -76,6 +76,32 @@ async def test_throttled_per_event_type(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_send_failure_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The actual send must never raise — a failing HTTP call is caught inside
+    _send so a fire-and-forget alert can never break (or warn on) a chat turn."""
+    _configure(monkeypatch)
+    import httpx
+
+    class _BoomClient:
+        def __init__(self, *a, **k) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a) -> bool:
+            return False
+
+        async def post(self, *a, **k):
+            raise RuntimeError('network boom')
+
+    monkeypatch.setattr(httpx, 'AsyncClient', _BoomClient)
+
+    # Direct call: must complete without raising despite the post() failure.
+    await alerts._send('chat_primary_timeout', 'summary', 'detail')
+
+
+@pytest.mark.asyncio
 async def test_throttle_resets_after_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure(monkeypatch)
     monkeypatch.setenv('CHAT_ALERT_COOLDOWN_SECONDS', '0')
