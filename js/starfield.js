@@ -281,7 +281,7 @@ export function initStarfield(canvasId, options = {}) {
     const theme = getTheme();
     if (isTimeMode()) {
       // Living theme: stars (opacity modulated by the hour) + fireflies at dusk
-      // + a constant gentle snow that's always there, every season.
+      // + soft snow during daylight (drawTime gates each by the hour).
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
       initFireflies();
@@ -375,36 +375,55 @@ export function initStarfield(canvasId, options = {}) {
   }
 
   function drawTime() {
-    // Stars fade with the hour (full at night → gone by midday); fireflies glow
-    // at dusk/evening. We erase a fraction each frame (destination-out) instead of
-    // washing the canvas dark — keeps motion-streak trails AND leaves the canvas
-    // transparent so the interpolated sky (body background) shows through.
     const w = canvas.width;
     const h = canvas.height;
     const sp = sceneParamsAt(currentTimeHours());
+    const dayScene = sp.sun >= sp.star; // daytime (garden) vs night (space)
+
+    if (dayScene) {
+      // Daytime: FULL clear every frame so snow renders as soft, soothing
+      // snowflakes with no motion trails — exactly like the original garden snow.
+      // (Stars are ~0 by day, so there's no trail to preserve.)
+      c.clearRect(0, 0, w, h);
+      if (sp.star > 0.01) {
+        starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
+        c.save();
+        c.globalAlpha = sp.star;
+        for (var i = 0; i < numStars; i++) {
+          stars[i].show();
+          stars[i].move();
+        }
+        c.restore();
+      }
+      if (snowflakes.length && sp.sun > 0.01) {
+        // Snow falls only in daylight; it fades in at dawn and out toward dusk.
+        c.save();
+        c.globalAlpha = Math.min(1, sp.sun);
+        drawSnowParticles();
+        c.restore();
+      }
+      return;
+    }
+
+    // Night: star motion-streak trails via a partial erase (keeps the canvas
+    // transparent so the interpolated sky shows through) + fireflies at dusk.
+    // No snow at night.
     c.globalCompositeOperation = 'destination-out';
     c.fillStyle = `rgba(0, 0, 0, ${prefersReducedMotion ? 1 : 0.22})`;
     c.fillRect(0, 0, w, h);
     c.globalCompositeOperation = 'source-over';
-
     if (sp.star > 0.01) {
       starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
       c.save();
       c.globalAlpha = sp.star;
-      for (var i = 0; i < numStars; i++) {
-        stars[i].show();
-        stars[i].move();
+      for (var j = 0; j < numStars; j++) {
+        stars[j].show();
+        stars[j].move();
       }
       c.restore();
     }
-
     if (sp.firefly > 0.01 && fireflies.length) {
       drawFireflies(sp.firefly);
-    }
-
-    // Snow is always there — a constant gentle fall over day and night alike.
-    if (snowflakes.length) {
-      drawSnowParticles();
     }
   }
 
