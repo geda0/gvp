@@ -257,6 +257,7 @@ class GeminiRoutingChain:
         )
 
     async def ainvoke(self, inp: dict[str, Any], config: Any | None = None) -> Any:
+        from app.alerts import fire_alert
         from app.gemini_limit_state import (
             note_primary_rate_limited,
             note_primary_timed_out,
@@ -288,10 +289,23 @@ class GeminiRoutingChain:
                     len(order) - idx - 1,
                 )
                 if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: timeout)',
+                    )
                     raise
+                fire_alert(
+                    'chat_primary_timeout',
+                    f'{model_id} timed out; switching to {self.fallback_id}',
+                )
             except Exception as e:
                 last_exc = e
                 if not is_upstream_rate_limit(e):
+                    fire_alert(
+                        'chat_model_error',
+                        f'{model_id} errored: {type(e).__name__}',
+                        detail=str(e)[:300],
+                    )
                     raise
                 if model_id == self.primary_id:
                     note_primary_rate_limited()
@@ -301,7 +315,15 @@ class GeminiRoutingChain:
                     len(order) - idx - 1,
                 )
                 if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: rate-limited)',
+                    )
                     raise
+                fire_alert(
+                    'chat_primary_rate_limit',
+                    f'{model_id} rate-limited; switching to {self.fallback_id}',
+                )
         assert last_exc is not None
         raise last_exc
 
@@ -314,6 +336,7 @@ class GeminiRoutingChain:
         FIRST chunk rate-limits OR fails to arrive within the per-attempt budget (a
         stalled/too-slow primary). Once any chunk is yielded we're committed to the
         current model — mid-stream errors propagate."""
+        from app.alerts import fire_alert
         from app.gemini_limit_state import (
             note_primary_rate_limited,
             note_primary_timed_out,
@@ -350,11 +373,24 @@ class GeminiRoutingChain:
                     len(order) - idx - 1,
                 )
                 if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: first-chunk timeout)',
+                    )
                     raise
+                fire_alert(
+                    'chat_primary_timeout',
+                    f'{model_id} stalled past first-chunk budget; switching to {self.fallback_id}',
+                )
                 continue
             except Exception as e:
                 last_exc = e
                 if not is_upstream_rate_limit(e):
+                    fire_alert(
+                        'chat_model_error',
+                        f'{model_id} errored: {type(e).__name__}',
+                        detail=str(e)[:300],
+                    )
                     raise
                 if model_id == self.primary_id:
                     note_primary_rate_limited()
@@ -364,7 +400,15 @@ class GeminiRoutingChain:
                     len(order) - idx - 1,
                 )
                 if is_last:
+                    fire_alert(
+                        'chat_upstream_unavailable',
+                        f'all chat models failed (last={model_id}: rate-limited)',
+                    )
                     raise
+                fire_alert(
+                    'chat_primary_rate_limit',
+                    f'{model_id} rate-limited; switching to {self.fallback_id}',
+                )
                 continue
 
             self.last_model_id = model_id
