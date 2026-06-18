@@ -1,181 +1,116 @@
-// theme.js - Theme system (space | garden | studio) + auto pref following system color-scheme
+// theme.js — living "time of day" theme. One local-clock hour (or a pinned hour
+// from the slider) drives an interpolated sky gradient + the garden/space chrome
+// palette (reused from styles.css). All the math is in theme-time.js (pure +
+// unit-tested); this module is the thin DOM/state layer.
+import {
+  skyGradientAt,
+  chromeThemeAt,
+  sceneParamsAt,
+  parseThemePref,
+  serializeThemePref,
+  resolveThemeHours,
+  hoursFromDate,
+  clampHours,
+} from './theme-time.js';
+
 const STORAGE_KEY = 'gvp-theme';
-const THEMES = ['space', 'garden', 'studio'];
-const PREFS = ['space', 'garden', 'studio', 'auto'];
+const AUTO_TICK_MS = 60000; // re-sample the clock once a minute in auto mode
 
-// Garden theme gradient (matches styles.css --bg-primary)
-const GARDEN_GRADIENT = 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%)';
+let currentHours = 12;
+let autoTimer = null;
 
-// Keep in sync with --bg-space-gradient in styles.css (mirrored + toned down)
-const SPACE_SCENE_GRADIENT =
-  'radial-gradient(ellipse 100% 75% at 82% 6%, rgba(150, 130, 170, 0.03) 0%, transparent 50%), ' +
-  'radial-gradient(ellipse 95% 70% at 18% 90%, rgba(78, 110, 175, 0.075) 0%, transparent 52%), ' +
-  'radial-gradient(ellipse 120% 85% at 50% -5%, #222a40 0%, #1b2235 40%, #171d2c 65%, #141926 100%)';
-
-// Keep in sync with --bg-studio-gradient in styles.css
-const STUDIO_SCENE_GRADIENT =
-  'radial-gradient(ellipse 80% 60% at 14% 12%, rgba(212, 188, 156, 0.32) 0%, transparent 55%), ' +
-  'radial-gradient(ellipse 70% 55% at 88% 86%, rgba(170, 158, 188, 0.22) 0%, transparent 60%), ' +
-  'linear-gradient(180deg, #f4ede0 0%, #ece3d2 60%, #e2d6bf 100%)';
-
-// Softer cross-fade: lower peak opacity + longer ease (sync #sceneTransitionOverlay in styles.css)
-const SCENE_OVERLAY_TRANSITION = 'opacity 0.78s cubic-bezier(0.33, 0, 0.18, 1)';
-const SCENE_OVERLAY_MAX_OPACITY = 0.86;
-
-let isTransitioning = false;
-let systemMql = null;
-let systemMqlListener = null;
-
-function backgroundForTheme(theme) {
-  if (theme === 'garden') return GARDEN_GRADIENT;
-  if (theme === 'studio') return STUDIO_SCENE_GRADIENT;
-  return SPACE_SCENE_GRADIENT;
-}
-
-function resolveAuto() {
-  // Light → studio (paper, low distraction). Dark → space.
-  const mql = window.matchMedia('(prefers-color-scheme: dark)');
-  return mql.matches ? 'space' : 'garden';
-}
-
-export function getThemePreference() {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (PREFS.includes(stored)) return stored;
-  return 'space';
-}
-
-export function getTheme() {
-  const pref = getThemePreference();
-  return pref === 'auto' ? resolveAuto() : pref;
-}
-
-function applyResolvedTheme(theme) {
-  if (!THEMES.includes(theme)) return;
-  document.documentElement.setAttribute('data-theme', theme);
-  window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
-}
-
-export function setThemePreference(pref) {
-  if (!PREFS.includes(pref)) return;
-  localStorage.setItem(STORAGE_KEY, pref);
-  document.documentElement.setAttribute('data-theme-pref', pref);
-  applyResolvedTheme(pref === 'auto' ? resolveAuto() : pref);
-  ensureSystemListener();
-}
-
-// Back-compat alias used by older callers (treats theme name as preference)
-export function setTheme(theme) {
-  setThemePreference(theme);
-}
-
-function ensureSystemListener() {
-  const pref = getThemePreference();
-  if (pref === 'auto') {
-    if (systemMql) return;
-    systemMql = window.matchMedia('(prefers-color-scheme: dark)');
-    systemMqlListener = () => {
-      if (getThemePreference() !== 'auto') return;
-      applyResolvedTheme(resolveAuto());
-    };
-    systemMql.addEventListener('change', systemMqlListener);
-  } else if (systemMql && systemMqlListener) {
-    systemMql.removeEventListener('change', systemMqlListener);
-    systemMql = null;
-    systemMqlListener = null;
+function readStored() {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch (_) {
+    return null;
   }
+}
+
+function readPref() {
+  return parseThemePref(readStored());
+}
+
+function writePref(pref) {
+  try {
+    localStorage.setItem(STORAGE_KEY, serializeThemePref(pref));
+  } catch (_) {
+    /* private mode / storage off — runtime still works, just no persistence */
+  }
+}
+
+/** Slider state for the UI: { auto, hours }. */
+export function getThemeState() {
+  const pref = readPref();
+  return { auto: pref.auto, hours: resolveThemeHours(pref) };
+}
+
+/**
+ * Chrome palette ('garden' | 'space') for the current hour. Kept so the existing
+ * callers that branch on a discrete theme (spaceman.js, starfield.js) keep
+ * working — daylight uses the garden palette, night uses space.
+ */
+export function getTheme() {
+  return chromeThemeAt(currentHours);
+}
+
+/** Back-compat preference label for any old caller. */
+export function getThemePreference() {
+  return readPref().auto ? 'auto' : 'pinned';
+}
+
+/** Paint the world at a given hour: interpolated sky + chrome + scene marker. */
+export function applyThemeTime(hours) {
+  currentHours = clampHours(hours);
+  const root = document.documentElement;
+  const chrome = chromeThemeAt(currentHours);
+  root.setAttribute('data-time', '');
+  root.setAttribute('data-theme', chrome);
+  root.dataset.timeHours = String(Math.round(currentHours * 100) / 100);
+  root.style.setProperty('--time-sky', skyGradientAt(currentHours));
+  // Garden scene (trees / ocean) lingers into dawn + dusk, gone deep at night.
+  root.style.setProperty('--garden-opacity', String(sceneParamsAt(currentHours).ground));
+  window.dispatchEvent(
+    new CustomEvent('themechange', { detail: { theme: chrome, hours: currentHours } })
+  );
+}
+
+function stopAutoTick() {
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+}
+
+function startAutoTick() {
+  stopAutoTick();
+  autoTimer = setInterval(() => applyThemeTime(hoursFromDate(new Date())), AUTO_TICK_MS);
+}
+
+/** Follow the visitor's local clock (the default). */
+export function setAutoTime() {
+  writePref({ auto: true, hours: null });
+  applyThemeTime(hoursFromDate(new Date()));
+  startAutoTick();
+}
+
+/** Pin a specific hour (the slider was dragged). */
+export function setPinnedTime(hours) {
+  stopAutoTick();
+  const h = clampHours(hours);
+  writePref({ auto: false, hours: h });
+  applyThemeTime(h);
 }
 
 export function initTheme() {
-  const pref = getThemePreference();
-  const resolved = pref === 'auto' ? resolveAuto() : pref;
-  document.documentElement.setAttribute('data-theme', resolved);
-  document.documentElement.setAttribute('data-theme-pref', pref);
-  ensureSystemListener();
+  const pref = readPref();
+  applyThemeTime(resolveThemeHours(pref));
+  if (pref.auto) startAutoTick();
 }
 
-export function transitionToPreference(pref) {
-  if (!PREFS.includes(pref)) return;
-  const target = pref === 'auto' ? resolveAuto() : pref;
-  _transitionTo(pref, target);
-}
-
-// Back-compat: callers that pass a concrete theme name get the same animation path.
-export function transitionToTheme(theme) {
-  if (!PREFS.includes(theme)) return;
-  transitionToPreference(theme);
-}
-
-function _transitionTo(pref, targetTheme) {
-  if (isTransitioning) return;
-
-  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (prefersReducedMotion) {
-    setThemePreference(pref);
-    return;
-  }
-
-  const overlay = document.getElementById('sceneTransitionOverlay');
-  if (!overlay) {
-    setThemePreference(pref);
-    return;
-  }
-
-  isTransitioning = true;
-  overlay.classList.add('transitioning');
-
-  overlay.style.background = backgroundForTheme(targetTheme);
-  overlay.style.transition = SCENE_OVERLAY_TRANSITION;
-
-  const TRANSITION_TIMEOUT = 3200;
-  let timeoutId = setTimeout(() => {
-    isTransitioning = false;
-    overlay.classList.remove('transitioning');
-    overlay.style.opacity = '0';
-    if (getTheme() !== targetTheme || getThemePreference() !== pref) {
-      setThemePreference(pref);
-    }
-  }, TRANSITION_TIMEOUT);
-
-  const cleanup = () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      timeoutId = null;
-    }
-    overlay.classList.remove('transitioning');
-    isTransitioning = false;
-  };
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      overlay.style.opacity = String(SCENE_OVERLAY_MAX_OPACITY);
-    });
-  });
-
-  const onFirstTransitionEnd = (event) => {
-    if (event.propertyName !== 'opacity') return
-    overlay.removeEventListener('transitionend', onFirstTransitionEnd);
-
-    setThemePreference(pref);
-
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => {
-      cleanup();
-    }, 1000);
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        overlay.style.opacity = '0';
-      });
-    });
-
-    const onSecondTransitionEnd = (event) => {
-      if (event.propertyName !== 'opacity') return
-      overlay.removeEventListener('transitionend', onSecondTransitionEnd);
-      cleanup();
-    };
-
-    overlay.addEventListener('transitionend', onSecondTransitionEnd);
-  };
-
-  overlay.addEventListener('transitionend', onFirstTransitionEnd);
-}
+// ── Back-compat no-op shims (the old multi-theme menu API; its callers are
+//    being replaced by the slider). Kept so stale imports never throw. ──
+export function setTheme() {}
+export function setThemePreference() {}
+export function transitionToTheme() {}
+export function transitionToPreference() {}

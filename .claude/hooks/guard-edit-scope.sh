@@ -41,6 +41,18 @@ is_adr() { printf '%s' "$1" | grep -qE '(^|/)docs/decisions/'; }
 # gate must not block it (else you can't leave red: writing phase=green is itself refused in red).
 is_control() { printf '%s' "$1" | grep -qE '(^|/)\.claude/state/'; }
 
+# Context map (ADR 0019): on an edit, surface what we know about this path — the learned crumbs
+# (landmark/route/caveat) earlier agents left, via `tics where`. Opt-in (CONTEXT_MAP=1), ADVISORY:
+# printed to stderr, NEVER blocks. Silent when the reader returns nothing.
+landmark_hint() {
+  [ "${CONTEXT_MAP:-0}" = "1" ] || return 0
+  [ -x "$ROOT/.claude/hooks/tics" ] || return 0
+  _lh="$("$ROOT/.claude/hooks/tics" where "$1" 2>/dev/null)"
+  [ -n "$_lh" ] || return 0
+  printf 'NOTE (context map) — what we know about %s:\n%s\n' "$1" "$_lh" >&2
+  return 0
+}
+
 # P1: enforced claims — block an edit to a path held by ANOTHER scope, and AUTO-CLAIM a
 # still-unclaimed path for the editing scope, so disjoint-write fan-out is collision-safe
 # with zero manual bookkeeping (the first toucher owns it; rivals are then blocked).
@@ -78,7 +90,7 @@ extract_write_targets() {
     | grep -oE '[0-9]*>>?[[:space:]]*[^[:space:]&|;<>()`]+|(^|[[:space:]])tee([[:space:]]+-a)?[[:space:]]+[^[:space:]&|;<>()`-][^[:space:]&|;<>()`]*' \
     | sed -E 's/^[0-9]*>>?[[:space:]]*//; s/^[[:space:]]*tee([[:space:]]+-a)?[[:space:]]+//' \
     | sed -E "s/^[\"']//; s/[\"']\$//" \
-    | grep -vE '[$*?`]|^&|^[0-9]+$' || true
+    | grep -vE '[$*?`]|^&|^[0-9]+$|^/dev/' || true
 }
 
 # Sensitive-surface guard (opt-in): paths matching SECURITY_GLOB (set in tdd.config) require a
@@ -138,6 +150,7 @@ gate_path() {
 # REDIRECT target — a read/build/test has no target, so it's allowed (allow-by-default). NOTE: the
 # while-loop runs in THIS shell (no pipe) so a block's `exit 2` propagates, not lost in a subshell.
 if [ -n "${P:-}" ]; then
+  landmark_hint "$P"
   gate_path "$P"
 elif [ "$TOOL" = "Bash" ] && [ -n "${CMD:-}" ]; then
   while IFS= read -r _t; do [ -n "$_t" ] && gate_path "$_t"; done <<EOF2

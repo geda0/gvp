@@ -200,6 +200,13 @@
     visibility: visible;
 }
 
+/* Living theme: the garden scene fades in/out by the hour (set on :root by
+   theme.js) so the trees + ocean linger through dawn and dusk, not just midday. */
+html[data-time] .garden-scene {
+    visibility: visible;
+    opacity: var(--garden-opacity, 0);
+}
+
 /* Soft sun glow high in the sky (warms the gradient without competing with snow) */
 .garden-sun {
     position: absolute;
@@ -396,6 +403,15 @@ html:not([data-theme="garden"]):not([data-theme="studio"]) body {
 [data-theme="studio"] body {
     background-color: var(--studio-paper);
     background-image: var(--bg-studio-gradient);
+    background-attachment: fixed;
+}
+
+/* Living time-of-day theme: the body shows the continuously-interpolated sky.
+   --time-sky is set inline on :root by theme.js (and the pre-paint script), so
+   it wins over the per-data-theme body backgrounds above. */
+html[data-time] body {
+    background: var(--time-sky) !important;
+    background-color: transparent;
     background-attachment: fixed;
 }
 
@@ -2254,6 +2270,172 @@ body.contact-dialog-open {
 .theme-switcher {
     position: relative;
     display: inline-flex;
+}
+
+/* Living time-of-day slider (replaces the old theme menu). A native range input
+   gives drag + keyboard + a11y for free; the track is a small day-arc preview. */
+.time-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.time-switcher__icon {
+    font-size: 0.92rem;
+    line-height: 1;
+    width: 1.15em;
+    text-align: center;
+}
+
+.time-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 96px;
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        #141926 0%, #2a2150 22%, #e0a85a 29%, #7eb0c8 38%,
+        #86b8cf 50%, #7eb0c8 71%, #5b3358 79%, #1a1330 88%, #141926 100%);
+    border: 1px solid var(--border-subtle);
+    cursor: pointer;
+    outline-offset: 3px;
+    margin: 0;
+}
+
+.time-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #e8b070;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    cursor: grab;
+}
+
+.time-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #e8b070;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    cursor: grab;
+}
+
+.time-slider:active::-webkit-slider-thumb {
+    cursor: grabbing;
+}
+
+.time-auto {
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--navbar-link);
+    font-size: 0.68em;
+    font-weight: 500;
+    font-family: var(--font-body);
+    padding: 0.18rem 0.4rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    line-height: 1.2;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.time-auto[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.time-auto:hover {
+    border-color: var(--border-strong);
+}
+
+/* ── Time-switcher responsive collapse ────────────────────────────────────────
+   On desktop (≥768px): trigger is hidden, panel is inline (existing layout).
+   On mobile (≤767px):  trigger is the compact icon button, panel is a popover.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Compact trigger — hidden on desktop; shown on mobile */
+.time-trigger {
+    display: none; /* desktop: off */
+    align-items: center;
+    justify-content: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    padding: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--navbar-link);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.time-trigger:hover,
+.time-trigger:focus-visible {
+    border-color: var(--border-strong);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.time-trigger:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
+
+.time-trigger[aria-expanded="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* Panel: inline on desktop (default), popover on mobile */
+.time-panel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* hidden attribute is authoritative in both desktop and mobile presentations */
+.time-panel[hidden] {
+    display: none;
+}
+
+/* ── Mobile: popover ─────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+    /* Show the compact trigger */
+    .time-trigger {
+        display: inline-flex;
+    }
+
+    /* Panel becomes a fixed popover (escapes header's overflow clipping) */
+    .time-panel {
+        position: fixed;
+        top: var(--time-panel-y, 3rem);
+        left: var(--time-panel-x, 1rem);
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.45rem 0.6rem;
+        background: var(--surface-elevated);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-md);
+        z-index: 1050;
+        animation: time-panel-in 0.14s ease-out;
+    }
+}
+
+@keyframes time-panel-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .time-panel {
+        animation: none;
+    }
 }
 
 .theme-toggle {

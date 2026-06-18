@@ -7,12 +7,20 @@ import {
   calculateFullStarCount,
   starCountForPreference,
   snowflakeCountForPreference,
+  fireflyCountForPreference,
   spaceTrailAlphaForPreference,
   defaultExperienceStarCount,
   defaultExperienceSnowflakeCount,
   starSpeedMultiplierForPreference,
   snowSpeedMultiplierForPreference
 } from '../js/starfield-prefs.js'
+
+test('firefly count: default vs reduced-motion floor', () => {
+  assert.equal(fireflyCountForPreference(false), STARFIELD_DEFAULT_EXPERIENCE.fireflyCount)
+  const reduced = fireflyCountForPreference(true)
+  assert.ok(reduced < fireflyCountForPreference(false))
+  assert.ok(reduced >= STARFIELD_REDUCED_MOTION.fireflyMin)
+})
 
 test('full star count matches reference 1080p @ 4 cores', () => {
   const full = calculateFullStarCount(1920, 1080, 4)

@@ -70,7 +70,7 @@ function rpcError(id, code, message) {
   return { jsonrpc: "2.0", id: (id === undefined ? null : id), error: { code: code, message: message } };
 }
 
-const EMITTABLE_KINDS = ["delegate","handoff","stuck","verdict","msg","note","claim","release","contract","need","section"];
+const EMITTABLE_KINDS = ["delegate","handoff","stuck","verdict","msg","note","claim","release","contract","need","section","landmark"];
 
 // Hook-only `from` identities: emitted by the run-suite/SubagentStop/guard/witness hooks (via emit_tic in
 // tics-lib.sh), NEVER by an agent. Reserving them keeps GT-1's from=subagent delegation signal unforgeable.
@@ -120,6 +120,19 @@ const TOOL_DESCRIPTORS = [
       properties: {
         scope: { type: "string" },
         all:   { type: "boolean" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "tics_map",
+    description: "Read the learned context map (landmark/route/caveat crumbs + ADR decisions). Optional: path -> crumbs for that path; task -> route recipes matching the task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        task: { type: "string" },
+        all:  { type: "boolean" },
       },
       required: [],
     },
@@ -240,6 +253,20 @@ function callBoard(id, args, ctx) {
   }
 }
 
+function callMap(id, args, ctx) {
+  try {
+    var all = args.all !== false;
+    var r;
+    if (args.path) r = ctx.runReader(TV.ticsWhere, [ctx.target, String(args.path), all]);
+    else if (args.task) r = ctx.runReader(TV.ticsHow, [ctx.target, String(args.task), all]);
+    else r = ctx.runReader(TV.ticsLandmarks, [ctx.target, all]);
+    return toolText(id, r.text);
+  } catch (e) {
+    ctx.log("tics_map failed:", String(e));
+    return toolError(id, "tics_map failed: " + String(e && e.message || e));
+  }
+}
+
 function callReview(id, args, ctx) {
   var scope = args.scope || null;
   var all = (args.all === undefined) ? true : !!args.all;
@@ -287,6 +314,7 @@ function handleToolsCall(id, params, ctx) {
   switch (name) {
     case "tics_inbox": return callInbox(id, params.arguments || {}, ctx);
     case "tics_board": return callBoard(id, params.arguments || {}, ctx);
+    case "tics_map": return callMap(id, params.arguments || {}, ctx);
     case "tics_review": return callReview(id, params.arguments || {}, ctx);
     case "tics_log": return callLog(id, params.arguments || {}, ctx);
     case "tic_emit": return callEmit(id, params.arguments || {}, ctx);
@@ -386,6 +414,7 @@ function writeCursorRule(target) {
     "- Call `tics_inbox` (your role) and `tics_board` for what is addressed to you + fleet state; check `tics_review` and settle one open need with `tics_answer`.\n" +
     "- Contribute honestly with `tic_emit` (handoff/need/verdict/note/claim). You cannot emit signal/block/commit (hook-only kinds), and your contributions are classified **unrefereed** (self-reported), never hook-signed.\n" +
     "- Spawning sub-actors? Give EACH a distinct `session` and pass it on every `tic_emit` — otherwise they merge into one indistinguishable actor (`session=\"\"`). A self-set `session` is provenance, not authentication, just like `from`.\n" +
+    "- **Context map (learned crumbs):** before exploring an area, call `tics_map` (optional `path` -> crumbs for that file, or `task` -> route recipes) for what earlier agents learned. Leave one when you learn something durable: `tic_emit` kind=`landmark`, ref=`<path or area>`, result=`landmark|route|caveat`, msg=`<what you learned>`. When you change a thing you have a crumb about, emit a FRESH crumb — newest-per-ref wins. Self-reported; trust accordingly. See `docs/tics/context-map.md`.\n" +
     "\n" +
     "**Enforcement, stated plainly — this is a convention, not a gate here.** The Claude Code referee — the phase x layer edit\n" +
     "gate, the **security-surface guard** (it blocks auth/secret/CORS edits), green-bar signing, and no-finish-on-red — **does\n" +
@@ -432,6 +461,6 @@ function serve(ctx) {
 }
 function start() { return serve(makeCtx()); }
 
-module.exports = { dispatch, handleLine, makeCtx, resolveVersion, resolveTargetDir, TOOL_DESCRIPTORS, EMITTABLE_KINDS, handleToolsCall, callEmit, callInbox, callBoard, callReview, callLog, callAnswer, emit, runReader, toolText, toolError, serve, start, writeMcpServerEntry, writeCursorMcp, writeProjectMcp, writeCursorRule, mcpInstall };
+module.exports = { dispatch, handleLine, makeCtx, resolveVersion, resolveTargetDir, TOOL_DESCRIPTORS, EMITTABLE_KINDS, handleToolsCall, callEmit, callInbox, callBoard, callMap, callReview, callLog, callAnswer, emit, runReader, toolText, toolError, serve, start, writeMcpServerEntry, writeCursorMcp, writeProjectMcp, writeCursorRule, mcpInstall };
 
 if (require.main === module) { serve(makeCtx({ target: process.argv[2] ? path.resolve(process.argv[2]) : undefined })); }

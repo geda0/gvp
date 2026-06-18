@@ -6,7 +6,8 @@
 export const STARFIELD_DEFAULT_EXPERIENCE = {
   snowCount: 200,
   spaceTrailAlpha: 0.59,
-  baseStars: 717
+  baseStars: 717,
+  fireflyCount: 22
 }
 
 export const STARFIELD_REDUCED_MOTION = {
@@ -15,7 +16,9 @@ export const STARFIELD_REDUCED_MOTION = {
   starMin: 36,
   snowMult: 0.42,
   snowMin: 28,
-  spaceTrailAlpha: 0.66
+  spaceTrailAlpha: 0.66,
+  fireflyMult: 0.4,
+  fireflyMin: 6
 }
 
 /**
@@ -50,6 +53,13 @@ export function snowflakeCountForPreference(prefersReducedMotion) {
   const rm = STARFIELD_REDUCED_MOTION
   if (!prefersReducedMotion) return def.snowCount
   return Math.max(rm.snowMin, Math.floor(def.snowCount * rm.snowMult))
+}
+
+export function fireflyCountForPreference(prefersReducedMotion) {
+  const def = STARFIELD_DEFAULT_EXPERIENCE
+  const rm = STARFIELD_REDUCED_MOTION
+  if (!prefersReducedMotion) return def.fireflyCount
+  return Math.max(rm.fireflyMin, Math.floor(def.fireflyCount * rm.fireflyMult))
 }
 
 export function spaceTrailAlphaForPreference(prefersReducedMotion) {

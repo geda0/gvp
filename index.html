@@ -23,13 +23,22 @@
     <link rel="stylesheet" href="css/spaceman.css" />
     <script>
         (function () {
-            var k = 'gvp-theme', prefs = ['space', 'garden', 'studio', 'auto'], p = localStorage.getItem(k);
-            if (!p || prefs.indexOf(p) === -1) p = 'auto';
-            var t = p === 'auto'
-                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'space' : 'garden')
-                : p;
-            document.documentElement.setAttribute('data-theme', t);
-            document.documentElement.setAttribute('data-theme-pref', p);
+            // Living "time of day" theme — pre-paint the right sky + chrome so there's
+            // no flash before theme.js refines it to the exact interpolated gradient.
+            try {
+                var p = localStorage.getItem('gvp-theme') || 'time';
+                var h, m = /^time:(-?\d+(?:\.\d+)?)$/.exec(p);
+                if (m) { h = parseFloat(m[1]); }
+                else { var d = new Date(); h = d.getHours() + d.getMinutes() / 60; }
+                h = ((h % 24) + 24) % 24;
+                var day = h >= 7 && h < 19;
+                var root = document.documentElement;
+                root.setAttribute('data-time', '');
+                root.setAttribute('data-theme', day ? 'garden' : 'space');
+                root.style.setProperty('--time-sky', day
+                    ? 'linear-gradient(180deg, #7eb0c8 0%, #a8cfae 50%, #4d7a58 100%)'
+                    : 'linear-gradient(180deg, #10131f 0%, #171d2c 50%, #222a40 100%)');
+            } catch (e) { document.documentElement.setAttribute('data-theme', 'space'); }
         })();
     </script>
     <!-- Google tag (gtag.js) -->
@@ -44,11 +53,19 @@
         <nav class="navbar">
             <div class="navbar-left">
                 <a href="./" id="homeNav" class="section-invisible">Home</a>
-                <div class="theme-switcher">
-                    <button type="button" id="themeToggle" class="theme-toggle" data-pref="auto" data-current="space"
-                        aria-haspopup="menu" aria-expanded="false" aria-controls="themeMenu"
-                        aria-label="Theme: Auto — change theme"></button>
-                    <ul id="themeMenu" class="theme-menu" role="menu" aria-labelledby="themeToggle" hidden></ul>
+                <div class="time-switcher" id="timeSwitcher">
+                    <!-- Compact trigger shown only on tight (≤767px) viewports -->
+                    <button type="button" id="timeTrigger" class="time-trigger"
+                        aria-haspopup="true" aria-expanded="false" aria-controls="timePanel"
+                        aria-label="Open time of day picker"></button>
+                    <!-- Panel: inline on desktop, popover on mobile -->
+                    <div id="timePanel" class="time-panel">
+                        <span class="time-switcher__icon" id="timeIcon" aria-hidden="true"></span>
+                        <input type="range" id="timeSlider" class="time-slider" min="0" max="24" step="0.25" value="12"
+                            aria-label="Time of day — drag to set the scene, or press Auto to follow your local time" />
+                        <button type="button" id="timeAuto" class="time-auto" aria-pressed="true"
+                            aria-label="Follow my local time">Auto</button>
+                    </div>
                 </div>
             </div>
             <div class="navbar-center">
