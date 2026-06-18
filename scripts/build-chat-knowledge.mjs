@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -124,8 +124,8 @@ const FAQ = [
       "send me the resume",
       "show me his resume"
     ],
-    a: "Yes. Marwan keeps a public resume PDF on the site.",
-    trigger_tool: "open_resume"
+    a: "His work is right here on the site — the Portfolio section walks through his professional projects with the story behind each, and there's a résumé PDF linked at the bottom of it if you'd like the one-pager. Want me to take you there?",
+    trigger_tool: "navigate_to_section"
   },
   {
     id: "leave-apptio-why",
@@ -353,7 +353,16 @@ async function main() {
   ])
 }
 
-main().catch((error) => {
-  console.error('Failed to build chat knowledge pack:', error)
-  process.exitCode = 1
-})
+export { FAQ, buildProjects, buildRoles }
+
+// Run main() only when invoked directly as the CLI. Use import.meta.main when
+// present (Node 22.18+/24+), else fall back to a path compare so the build CLI
+// works on every supported Node — never a silent no-op.
+const runAsCli =
+  import.meta.main ?? (!!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+if (runAsCli) {
+  main().catch((error) => {
+    console.error('Failed to build chat knowledge pack:', error)
+    process.exitCode = 1
+  })
+}
