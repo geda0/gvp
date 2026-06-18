@@ -2351,6 +2351,93 @@ body.contact-dialog-open {
     border-color: var(--border-strong);
 }
 
+/* ── Time-switcher responsive collapse ────────────────────────────────────────
+   On desktop (≥768px): trigger is hidden, panel is inline (existing layout).
+   On mobile (≤767px):  trigger is the compact icon button, panel is a popover.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Compact trigger — hidden on desktop; shown on mobile */
+.time-trigger {
+    display: none; /* desktop: off */
+    align-items: center;
+    justify-content: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    padding: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--navbar-link);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.time-trigger:hover,
+.time-trigger:focus-visible {
+    border-color: var(--border-strong);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.time-trigger:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+}
+
+.time-trigger[aria-expanded="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* Panel: inline on desktop (default), popover on mobile */
+.time-panel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* hidden attribute is authoritative in both desktop and mobile presentations */
+.time-panel[hidden] {
+    display: none;
+}
+
+/* ── Mobile: popover ─────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+    /* Show the compact trigger */
+    .time-trigger {
+        display: inline-flex;
+    }
+
+    /* Panel becomes a fixed popover (escapes header's overflow clipping) */
+    .time-panel {
+        position: fixed;
+        top: var(--time-panel-y, 3rem);
+        left: var(--time-panel-x, 1rem);
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.45rem 0.6rem;
+        background: var(--surface-elevated);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-md);
+        z-index: 1050;
+        animation: time-panel-in 0.14s ease-out;
+    }
+}
+
+@keyframes time-panel-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .time-panel {
+        animation: none;
+    }
+}
+
 .theme-toggle {
     position: relative;
     border: 1px solid var(--border-subtle);

@@ -54,11 +54,18 @@
             <div class="navbar-left">
                 <a href="./" id="homeNav" class="section-invisible">Home</a>
                 <div class="time-switcher" id="timeSwitcher">
-                    <span class="time-switcher__icon" id="timeIcon" aria-hidden="true"></span>
-                    <input type="range" id="timeSlider" class="time-slider" min="0" max="24" step="0.25" value="12"
-                        aria-label="Time of day — drag to set the scene, or press Auto to follow your local time" />
-                    <button type="button" id="timeAuto" class="time-auto" aria-pressed="true"
-                        aria-label="Follow my local time">Auto</button>
+                    <!-- Compact trigger shown only on tight (≤767px) viewports -->
+                    <button type="button" id="timeTrigger" class="time-trigger"
+                        aria-haspopup="true" aria-expanded="false" aria-controls="timePanel"
+                        aria-label="Open time of day picker"></button>
+                    <!-- Panel: inline on desktop, popover on mobile -->
+                    <div id="timePanel" class="time-panel">
+                        <span class="time-switcher__icon" id="timeIcon" aria-hidden="true"></span>
+                        <input type="range" id="timeSlider" class="time-slider" min="0" max="24" step="0.25" value="12"
+                            aria-label="Time of day — drag to set the scene, or press Auto to follow your local time" />
+                        <button type="button" id="timeAuto" class="time-auto" aria-pressed="true"
+                            aria-label="Follow my local time">Auto</button>
+                    </div>
                 </div>
             </div>
             <div class="navbar-center">
