@@ -101,8 +101,9 @@ def chat_tools() -> list[Any]:
                 types.FunctionDeclaration(
                     name='open_resume',
                     description=(
-                        'Open the visitor-facing resume PDF in a new tab. Call this when the user asks to '
-                        'see, open, download, or get the resume.'
+                        'Open the resume PDF as a download. Call this ONLY when the visitor explicitly asks to '
+                        'open, download, or get the PDF file itself. For questions about experience or background, '
+                        'or "show me your work", do NOT call this — answer, then navigate_to_section("portfolio").'
                     ),
                     parameters=types.Schema(type=types.Type.OBJECT, properties={}),
                 ),
@@ -124,6 +125,25 @@ def chat_tools() -> list[Any]:
                                 description='Pre-filled message body in the visitor\'s voice.',
                             ),
                         },
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name='navigate_to_section',
+                    description=(
+                        'Scroll the visitor to a top-level section of THIS site so they can see it. Call this '
+                        'when they ask to see the work, projects, portfolio, or labs, or ask you to show them '
+                        'around — guide them to the section instead of dumping a link or the resume.'
+                    ),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            'section': types.Schema(
+                                type=types.Type.STRING,
+                                enum=['home', 'portfolio', 'labs'],
+                                description='Section id: home, portfolio (professional work), or labs (personal builds).',
+                            ),
+                        },
+                        required=['section'],
                     ),
                 ),
             ],

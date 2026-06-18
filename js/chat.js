@@ -691,6 +691,9 @@ export function initChat() {
     if (action.prefill) {
       button.dataset.prefill = JSON.stringify(action.prefill)
     }
+    if (action.section) {
+      button.dataset.section = action.section
+    }
     return button
   }
 
@@ -1441,6 +1444,10 @@ export function initChat() {
       window.open(RESUME_URL, '_blank', 'noopener,noreferrer')
       return
     }
+    if (action === 'navigate') {
+      navigateToSection(actionEl.dataset.section || '')
+      return
+    }
     if (action === 'open-contact') {
       openContactFromChat(parsePrefill(actionEl.dataset.prefill))
       return
@@ -1472,6 +1479,22 @@ export function initChat() {
   // text-chat action handler below: same destinations, no buttons (voice executes
   // immediately). Return value is sent back as toolResponse.response so the model
   // knows the action ran.
+  // Move the page to a top-level section so the agent can SHOW the visitor around
+  // (text and voice share this one routine). Returns a tool-response-shaped result.
+  const navigateToSection = (section) => {
+    if (section === 'home') {
+      history.replaceState(null, '', './')
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    } else if (section === 'labs' || section === 'playground') {
+      window.location.hash = '#labs'
+    } else if (section === 'portfolio') {
+      window.location.hash = '#portfolio'
+    } else {
+      return { error: `unknown_section: ${section}` }
+    }
+    return { result: 'navigated', section }
+  }
+
   const applyVoiceToolCall = (name, args) => {
     if (name === 'open_resume') {
       window.open(RESUME_URL, '_blank', 'noopener,noreferrer')
@@ -1487,18 +1510,7 @@ export function initChat() {
     }
     if (name === 'navigate_to_section') {
       const section = args && typeof args.section === 'string' ? args.section : ''
-      if (section === 'home') {
-        history.replaceState(null, '', './')
-        window.dispatchEvent(new HashChangeEvent('hashchange'))
-      } else if (section === 'labs' || section === 'playground') {
-        // Labs is the page formerly known as playground; route both to #labs.
-        window.location.hash = '#labs'
-      } else if (section === 'portfolio') {
-        window.location.hash = '#portfolio'
-      } else {
-        return { error: `unknown_section: ${section}` }
-      }
-      return { result: 'navigated', section }
+      return navigateToSection(section)
     }
     return { error: `unknown_tool: ${name}` }
   }

@@ -237,6 +237,13 @@ def _actions_from_result(result: Any) -> list[dict[str, Any]]:
         if name == 'open_resume':
             actions.append({'id': 'open-resume', 'label': 'Open resume'})
             continue
+        if name == 'navigate_to_section':
+            section = args.get('section')
+            if isinstance(section, str) and section.strip():
+                sec = section.strip()
+                labels = {'home': 'Go to Home', 'portfolio': 'See the Portfolio', 'labs': 'See the Labs'}
+                actions.append({'id': 'navigate', 'section': sec, 'label': labels.get(sec, f'Go to {sec}')})
+            continue
         if name == 'open_contact_form':
             action: dict[str, Any] = {'id': 'open-contact', 'label': 'Open contact form'}
             subject = args.get('subject')

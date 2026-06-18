@@ -1102,6 +1102,7 @@ body:not(.content-open) section#home {
 
 #portfolioContent > .portfolio-intro {
     margin-top: clamp(3rem, 10vh, 5rem);
+    text-align: center;
 }
 
 .portfolio-resume-link {
@@ -1121,6 +1122,22 @@ body:not(.content-open) section#home {
 
 #portfolioContent > .portfolio-intro + section#portfolioProjects {
     margin-top: 2rem;
+}
+
+/* Demoted "about + résumé" footer — context BELOW the work, not the lead.
+   Quiet by design so the projects read first and the section stops feeling
+   like a résumé. */
+.portfolio-about {
+    margin-top: clamp(2.5rem, 7vh, 4rem);
+    padding-top: clamp(1.5rem, 4vh, 2rem);
+    border-top: 1px solid rgba(127, 127, 127, 0.22);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    opacity: 0.72;
+}
+
+.portfolio-about .portfolio-resume-link a {
+    font-weight: 500;
 }
 
 /* Teaser link from the Portfolio page across to Labs. */
