@@ -1281,7 +1281,22 @@ export function initChat() {
         chatBus.emit('tool_call', { source, actions })
       }
       if (!firstDeltaSeen) chatBus.emit('streaming', { source, model })
-      const safeReply = String(reply || '').trim() || 'I do not have a response yet. Please try again.'
+      let safeReply = String(reply || '').trim()
+      if (!safeReply) {
+        // The model sometimes fires a tool (open résumé / navigate / contact) with no prose.
+        // Don't show the bare "try again" fallback — say something useful tied to the action.
+        const nav = actions.find((x) => x && x.id === 'navigate')
+        if (nav) {
+          const where = nav.section === 'portfolio' ? 'the Portfolio' : nav.section === 'labs' ? 'Labs' : nav.section === 'home' ? 'Home' : 'that section'
+          safeReply = `Sure — tap below to jump to ${where}, where the work walks through each project.`
+        } else if (actions.some((x) => x && x.id === 'open-resume')) {
+          safeReply = "Here's Marwan's résumé to download — tap below. His work is also laid out right here on the site, so I'm happy to walk you through the Portfolio instead."
+        } else if (actions.some((x) => x && x.id === 'open-contact')) {
+          safeReply = "I've opened the contact form for you below — fire away."
+        } else {
+          safeReply = 'I do not have a response yet. Please try again.'
+        }
+      }
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
       finalizeAssistantMessage(pendingAssistant, safeReply, actions)
       setStatus('')
