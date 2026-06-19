@@ -32,7 +32,7 @@
   {
     "id": "ai-assistant-chatbot",
     "name": "AI assistant & chatbot",
-    "summary": "Grounded AI assistant — SSE-streaming text chat, Gemini Live browser-direct voice, automatic model fallback, and durable per-turn telemetry. The AI on this site runs on FastAPI + direct google-genai SDK on ECS Express Mode. POST /api/chat with stream: true returns text/event-stream — event: token per chunk, event: done on completion, event: error on failure. The first token typically lands in under a second. Grounded answers: a knowledge pack built from resume, project, and bio sources is injected into every turn. Automatic model fallback: on primary rate-limit, the routing chain transparently retries the secondary model — but only if no chunk has flushed yet; once a token reaches the client the chain commits. Voice (Gemini Live): POST /api/live/session mints an ephemeral token; the browser opens Google's Live API directly — no server relay, works from any HTTPS host. Durable per-turn telemetry: every turn (success, error, or timeout) writes a DynamoDB row before the response returns, capturing stream, firstTokenLatencyMs, fallbackUsed, status, errorCode, toolCalls, and retrieval snapshot. Admin observability: private dashboard with streamed-session cards, 30-day sparkline, errors-by-code table, and a clickable recent-failures list. What it demonstrates: the engineering reality of production AI — streaming UX, fallback routing, durable failure capture, and observability are where the work actually lives.",
+    "summary": "Grounded AI assistant — SSE-streaming text chat, browser-direct Gemini Live voice, automatic model fallback on rate-limit or timeout, instant degradation alerts, and durable per-turn telemetry. The AI on this site runs on FastAPI + the direct google-genai SDK on ECS Express Mode. POST /api/chat with stream: true returns text/event-stream — event: token per chunk, event: done on completion, event: error on failure — and the first token typically lands in under a second. Grounded answers: a knowledge pack built from resume, project, and bio sources is injected into every turn, and the matched retrieval snapshot is persisted with each turn. It guides, not just answers: the assistant acts through tool calls — it navigates you to a section, reveals the résumé download button instead of dumping a PDF link, and pre-fills the contact form — the same tool actions in both text and voice, scoped to intent (say \"show me the work\" and it navigates; \"download the résumé\" and it reveals the button). Automatic model fallback: if the primary rate-limits, or stalls past a per-attempt first-token budget of about twelve seconds, the routing chain abandons it and falls back to the faster secondary model — and a stall flips a same-day prefer-fallback-first cooldown so later turns skip the known-slow model. The commit-on-first-chunk invariant still holds: once a token reaches the client the chain is committed and mid-stream errors propagate. Instant alerts: the moment chat degrades — a switch to fallback, a primary timeout, a rate-limit, or all models down — a throttled email fires (at most one per event type per hour), so failures surface immediately, not just in the daily digest. Voice (Gemini Live): POST /api/live/session mints a single-use ephemeral token and the browser connects directly to Google's Live API — the server holds no socket — with a WebSocket relay on ECS as a fallback transport for environments where browser-direct is blocked. The running transcript comes from input and output audio transcription, and voice turns persist like text turns. Durable per-turn telemetry: every turn — success, error, or timeout — writes a DynamoDB row before the response returns, capturing stream, firstTokenLatencyMs, fallbackUsed, status, errorCode, toolCalls, and the retrieval snapshot. Admin observability: a private dashboard with streamed-session cards, a 30-day sparkline, an errors-by-code table, and a clickable recent-failures list, plus a GET /api/chat/host-status diagnostic. What it demonstrates: the model is rarely the hard part — streaming UX, fallback routing, durable failure capture, and observability are where the work actually lives.",
     "why_it_matters": "Production AI reality: the model is rarely the hard part. Streaming UX, fallback routing, durable failure capture, and observability are where the work lives. Demonstrates Marwan's habits applied to a personal site where every choice is visible.",
     "tech": [
       "Gemini",
@@ -40,6 +40,8 @@
       "FastAPI",
       "google-genai SDK",
       "SSE Streaming",
+      "Function calling",
+      "WebSocket relay",
       "AWS ECS Express",
       "Lambda",
       "DynamoDB",
@@ -59,6 +61,7 @@
       "aws",
       "python",
       "data pipelines",
+      "frontend",
       "serverless",
       "playground"
     ]

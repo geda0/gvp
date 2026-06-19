@@ -34,6 +34,23 @@ The gate is **fail-closed**: any unrecognized or missing phase blocks edits, so 
 forgotten phase can't silently bypass the referee. Set `off` deliberately when
 you're not in a cycle.
 
+### Visual / hard-to-unit-test work
+Rendering, canvas, and CSS slices *feel* like `off` work — but they're usually
+**mixed**. Before reaching for `off`, split the pure testable predicate out of the
+pixels: **is there a function under the render?** (`snowsToday(date)`,
+`allocate(mode) -> count`, a reducer, a layout calc?) If yes, that's a red→green
+slice — **TDD it**. Only the irreducible draw/composite (a canvas trail artifact,
+exact pixel layout) is genuinely `off`-exempt. Applying `off` to the *whole* slice
+sweeps the testable logic along with the un-testable pixels — that's how an
+"always-on" bug ships when the one-line `snowsToday` predicate would have caught it.
+
+For the irreducible visual part, don't eyeball it: get a **qa-verifier verdict** —
+a `pass`/`concerns`/`block` tic against the `design-notes.md` acceptance bullets, an
+auditable bus record. The rule that prevents the "always-on" bug is the simplest one,
+and it holds for **every** tool: **use the full framework** — don't let "it's just
+visual / plumbing" become a reason to drop the loop. This is a navigator + method
+discipline (ADR 0005, ADR 0020), not a tool-specific gate.
+
 **Layer** (`.claude/state/layer`): one of the layers you declared in
 `.claude/tdd.config`. **If your project has a single layer** (the default
 `app`), the layer never changes and you can ignore the layer talk — the phase
