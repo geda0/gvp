@@ -4,7 +4,7 @@ These are the rules the gvp portfolio system must ALWAYS uphold — the things t
 must never silently break. For any new code path that touches one, the test that
 proves it comes FIRST.
 
-> **Honesty note (adoption bootstrap; updated 2026-06-04):** invariants **#1** (no secrets in
+> **Honesty note (adoption bootstrap; updated 2026-06-25):** invariants **#1** (no secrets in
 > the shipped frontend) and **#2** (API bases from meta tags / same-origin local fallback) are
 > proven by `test/frontend-no-secrets.test.mjs` and `test/frontend-api-config.test.mjs`. Invariants
 > **#3, #4, #5**
@@ -26,12 +26,26 @@ proves it comes FIRST.
 > own environment's API bases — `main`=prod, `agent`=staging, diverging only on the
 > `gvp:*-api-url` metas) is proven by `test/frontend-api-url-env-guard.test.mjs`, born from the
 > 2026-06-04 staging-on-prod fast-forward incident (hotfixed in `843e648`).
-> **Proven set: ALL ELEVEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11.** Every CHAT-layer
-> invariant (#7, #8, #9, #10) and every `[app]` invariant (#1–#6, #11) now holds; there are no
-> open invariant clauses. Each claim is a characterization test that fails CI on regression and belongs on
-> the upgrade backlog. Each claim is cited to `file:line` so the navigator can confirm it against
-> the code, not take it on faith. Line numbers are from the state of the repo at adoption and may
-> drift; treat the cited function/symbol as the anchor.
+> **Proven set: ALL FIFTEEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15.**
+> Every CHAT-layer invariant (#7, #8, #9, #10, #13, #14, #15) and every `[app]` invariant (#1–#6,
+> #11, #12) now holds; there are no open invariant clauses. **#12–#15 are the 2026-06-25 pass** over
+> load-bearing behavior shipped since 2026-06-04: **#12** (the living theme is a pure, bounded,
+> continuous function of local time) is proven by `test/theme-time.test.mjs`; **#13** (chat falls
+> back on a primary first-chunk TIMEOUT, not only a rate-limit — the stall sibling of #9) is proven
+> by `docker/chat/tests/test_gemini_routing.py`; **#14** (instant alerts are best-effort and can
+> never raise into / delay a chat turn) is proven by `docker/chat/tests/test_alerts.py`; **#15**
+> (the chat-knowledge build is idempotent on committed source and `resume-access` stays
+> `navigate_to_section`) is proven by `test/chat-knowledge-build.test.mjs` (ADR-0012). Each claim is
+> a characterization test that fails CI on regression and belongs on the upgrade backlog. Each claim
+> is cited to `file:line` so the navigator can confirm it against the code, not take it on faith.
+> Line numbers are from the state of the repo at adoption and may drift; treat the cited
+> function/symbol as the anchor.
+>
+> **Considered but NOT promoted (2026-06-25):** the voice-résumé safety net
+> (`js/voice-resume-button.js`) and the empty-reply derivation (`js/chat-reply-text.js`) are pure,
+> well-tested helpers (`test/voice-resume-button.test.mjs`, `test/chat-reply-text.test.mjs`), but a
+> regression there degrades a single reply's copy — it is not a durability, safety, secret, or
+> correctness defect — so they stay feature tests, not invariants. See "Out of scope."
 
 ## Invariants
 
@@ -257,6 +271,103 @@ proves it comes FIRST.
       rides the existing CI `node --test` via `GITHUB_REF_NAME`. Run:
       `GVP_EXPECTED_ENV=prod node --test test/frontend-api-url-env-guard.test.mjs`.
 
+12. **The living theme is a pure, bounded, continuous function of local time.** `[app]`
+    The time-of-day engine maps one scalar (local wall-clock hours) to the sky gradient,
+    the canvas-scene weights (`star`/`sun`/`firefly`/`ground`), and which chrome palette
+    to apply — with **no DOM, no imports, no side effects**. Every scene weight stays in
+    **[0,1]** across the whole day; the cycle is **continuous** across every keyframe
+    boundary AND across the midnight wrap (no visible jump at 0↔24); the sky/scene/chrome
+    are a deterministic function of the hour alone; and out-of-range / nullish inputs are
+    clamped, never thrown. (Reduced-motion easing of the resulting star/snow counts is
+    owned by #6, not here — this engine has no animation.)
+    - Implemented by: `js/theme-time.js:14-27` (the ascending `KEYFRAMES` + the virtual
+      `h=24` wrap endpoint that reuses midnight); `:30-34` (`clampHours` wraps into
+      `[0,24)`, non-finite → 0); `:66-88` (`_segmentAt` + `sceneParamsAt` — `_lerp` between
+      the two bracketing keyframes, all weights in `[0,1]`); `:91-115` (`skyStopsAt` /
+      `skyGradientAt` interpolate the hex stops, `chromeThemeAt` picks `garden`/`space` off
+      `sun ≥ star`); consumed (not duplicated) at `js/starfield.js:14,380` (`import
+      { sceneParamsAt }` → `sceneParamsAt(currentTimeHours())`).
+    - Proven by: `test/theme-time.test.mjs` — *"every scene param stays within [0,1] across
+      the whole day"* (steps `h` 0→24 by 0.25, asserts each weight in `[0,1]`), *"scene
+      params are continuous — no jumps across a keyframe boundary"* (11.98 vs 12.02 within
+      ε), *"scene params wrap continuously across midnight"* (23.98 vs 0.02 within ε),
+      *"scene params hit their keyframe extremes"*, *"skyStopsAt … matches keyframes
+      exactly"*, *"chromeThemeAt picks garden by day and space by night"*, and *"inputs are
+      defensive: nullish / out-of-range hours never throw"*. Run: `node --test`.
+
+13. **On a primary first-chunk TIMEOUT (a stall) the chat chain falls back too — not only
+    on a rate limit; and the FINAL attempt is uncapped.** `[chat]` The stall sibling of #9:
+    if the primary produces no first chunk within the per-attempt first-chunk budget
+    (`min(GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS|12s, 60% of the request deadline)`),
+    `GeminiRoutingChain` abandons it and tries the fallback on **both** `astream` and
+    `ainvoke`. The timeout is recorded (`note_primary_timed_out`) so subsequent turns
+    `prefer_fallback_first` — mirroring the 429 cooldown — and visitors stop eating the
+    stall on every turn. The **last** model in the order runs WITHOUT the per-attempt cap
+    (only the overall request deadline #8 governs it), so a slow-but-valid fallback still
+    answers. Commit-on-first-chunk (#9) is unchanged: once a chunk yields, mid-stream
+    errors propagate.
+    - Implemented by: `docker/chat/app/gemini_routing.py:35-46` (`_first_chunk_timeout` —
+      12s default, capped at 60% of the total budget); `:355-385` (`astream`: `is_last` →
+      bare `__anext__`, else `wait_for(_first_chunk_timeout)`; on `TimeoutError`
+      `_aclose_quietly` the stalled iterator, `note_primary_timed_out()`, `continue` to the
+      fallback; re-raise when `is_last`); `:273-300` (`ainvoke` analogue); the daily
+      prefer-fallback flip in `docker/chat/app/gemini_limit_state.py:55-63`
+      (`note_primary_timed_out` sets `_prefer_fallback = True`).
+    - Proven by: `docker/chat/tests/test_gemini_routing.py` —
+      *test_astream_first_chunk_timeout_falls_back* (primary hangs → joined content `==
+      "from-fallback"`), *test_ainvoke_timeout_falls_back* (non-stream analogue),
+      *test_primary_stream_timeout_flips_prefer_fallback* (`prefer_fallback_first()` flips
+      `False`→`True`, `primary_timeout_hits_today() == 1`),
+      *test_final_attempt_first_chunk_is_uncapped* (fallback's first chunk arrives AFTER the
+      per-attempt budget but is still awaited — the last attempt is not time-boxed), and
+      *test_primary_timeout_then_fallback_failure_exhausts* (primary stalls → fallback
+      fails → error propagates, and only the PRIMARY's timeout is recorded). Run: `cd
+      docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+
+14. **Operational alerting is best-effort: an instant alert can never raise into — or
+    delay — a chat turn.** `[chat]` `fire_alert` is fire-and-forget: it is a no-op when
+    unconfigured (ships **dark** — needs `CHAT_ALERT_EMAIL`/`CONTACT_REPORT_EMAIL` +
+    `RESEND_API_KEY`), it never raises in a sync (no-running-loop) context, it is throttled
+    to one email per event type per cooldown window (`CHAT_ALERT_COOLDOWN_SECONDS`, default
+    3600s), and the actual `_send` swallows EVERY exception. The request path schedules the
+    send as a detached task and returns immediately, so a broken or slow alert provider can
+    never block the turn the alert is about (the alerts fired from `gemini_routing.py`'s
+    fallback/timeout branches must stay on this best-effort contract).
+    - Implemented by: `docker/chat/app/alerts.py:53-54` (`alerts_enabled` gate),
+      `:80-94` (`fire_alert` — early-return when disabled or throttled; `get_running_loop`
+      `RuntimeError` → debug-log and return, never raise; `loop.create_task(_send(...))`
+      detached), `:65-72` (`_should_send` per-event-type cooldown), `:106-137` (`_send`
+      wrapped in `try/except Exception` — a failed/≥400 HTTP post is logged, never raised);
+      callers `docker/chat/app/gemini_routing.py:292-326,376-411`.
+    - Proven by: `docker/chat/tests/test_alerts.py` — *test_dark_by_default_is_no_op*
+      (`alerts_enabled() is False` + `fire_alert` does not raise with no config/loop),
+      *test_fire_alert_outside_loop_never_raises* (configured but no running loop → safe
+      no-op), *test_send_failure_is_swallowed* (a `post()` that raises is caught inside
+      `_send`, which completes normally), *test_throttled_per_event_type* (same type within
+      cooldown sends once; a different type is independent), and
+      *test_throttle_resets_after_cooldown*. Run: `cd docker/chat && PYTHONPATH=. python3 -m
+      pytest tests -q`.
+
+15. **The chat-knowledge artifacts are an idempotent rebuild of committed source, and
+    `resume-access` routes to the on-site section.** `[chat]` Rebuilding
+    `data/chat-knowledge/{faq,projects,roles,bio}.json` from the committed source
+    (`build-chat-knowledge.mjs`'s `FAQ`, `data/projects.json`, `resume/resume.json`,
+    `bio.source.json`) through the builder's OWN exported functions reproduces the committed
+    artifacts **byte-for-byte** (`JSON.stringify(value, null, 2) + '\n'`) — a hand-edit to
+    either side, or a no-op CLI letting them drift, is caught. The `resume-access` FAQ entry
+    carries `trigger_tool: "navigate_to_section"` (NOT `open_resume`), pinning the
+    agent-as-guide posture (ADR-0010/0012: guide on-site, never default to the résumé PDF).
+    - Implemented by: `scripts/build-chat-knowledge.mjs` (exported `FAQ`, `buildProjects`,
+      `buildRoles`; `main()` CLI side effect gated so the module imports purely — the seam
+      ADR-0012 §AC-5 mandates); committed outputs in `data/chat-knowledge/` (the five files
+      `bio.json`, `bio.source.json`, `faq.json`, `projects.json`, `roles.json`).
+    - Proven by: `test/chat-knowledge-build.test.mjs` — *"rebuilding faq.json … equals the
+      committed artifact (idempotent)"*, the `projects.json` / `roles.json` / `bio.json`
+      passthrough analogues (each `serialize(builder(source)) === committed(name)`), and
+      *"resume-access FAQ entry triggers navigate_to_section, never open_resume"*. Recorded
+      in `docs/decisions/ADR-0012-team-tactics-claim-traceability-and-build-idempotency-test-seams.md`.
+      Run: `node --test`.
+
 ## Out of scope / explicitly allowed
 
 - **"Single origin" is not literal in production.** The shipped meta tags point chat
@@ -315,3 +426,15 @@ proves it comes FIRST.
 - **CORS allowlist contents and the `www`/apex/`chat.` host expansion** are configuration
   driven by `CHAT_CORS_ORIGINS` / `CONTACT_CORS_ORIGINS`; the invariant is "never `*`,"
   not any specific origin set.
+
+- **Reply-copy polish is a feature, not an invariant.** `deriveReplyText`
+  (`js/chat-reply-text.js`) — which turns an empty tool-only reply into an action-tied line
+  instead of the dead "no response yet" fallback — and `shouldRevealResumeButton`
+  (`js/voice-resume-button.js`) — which reveals the résumé button when the voice agent
+  *says* "tap the button" without calling `open_resume` — are pure, unit-tested helpers
+  (`test/chat-reply-text.test.mjs`, `test/voice-resume-button.test.mjs`) and a genuine UX
+  improvement. But a regression there degrades the wording / affordance of a single reply;
+  it is not a durability, secret, safety, or correctness defect, so they remain feature
+  tests, not "must NEVER silently break" invariants. The agent-as-guide POSTURE they serve
+  is invariant only where it crosses a real seam — the `resume-access ⇒ navigate_to_section`
+  routing pinned in #15.
