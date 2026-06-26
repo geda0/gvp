@@ -101,9 +101,9 @@ export const handler = async (event) => {
     body: JSON.stringify({
       ok: true,
       date: day,
-      events: events.length,
-      chatSessions: chatSessions.length,
-      contactMessages: contactMessages.length
+      events: report.site.totalEvents,
+      chatSessions: report.chat.sessions,
+      contactMessages: report.contact.submissions
     })
   }
 }
