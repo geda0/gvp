@@ -49,15 +49,6 @@ function aggregateSite(events, { day, tz } = {}) {
   }
 }
 
-// The UTC calendar day (YYYY-MM-DD) of an ISO timestamp, normalized so an offset
-// form (e.g. ...+05:00 or the ...+00:00 chat writers emit) buckets by its true UTC
-// instant, not its literal local-date prefix. Falls back to the leading 10 chars
-// only when the value is unparseable.
-function utcDayOf(ts) {
-  const ms = Date.parse(ts)
-  return Number.isNaN(ms) ? String(ts).slice(0, 10) : new Date(ms).toISOString().slice(0, 10)
-}
-
 function aggregateChat(chatSessions, { day, tz } = {}) {
   let turns = 0
   let textTurns = 0

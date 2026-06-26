@@ -15,9 +15,7 @@ import {
   resolveCorsOrigin,
   unauthorized as unauthorizedBase
 } from './common/contact-shared.js'
-import { buildDailyReport } from './common/daily-report.js'
 import { buildDailyReportForDay } from './common/daily-report-build.js'
-import { previousUtcDay } from './common/events-shared.js'
 import { queryDay } from './common/report-queries.js'
 import { rollupSmoke, timedCheck } from './common/smoke-core.js'
 import { orderSessionEvents } from './common/session-timeline-core.js'
@@ -978,9 +976,12 @@ export const handler = async (event) => {
   }
 
   if (method === 'GET' && path.endsWith('/daily-report')) {
+    // No ?date -> default to the owner's previous LOCAL day (REPORT_TZ), applied inside
+    // buildDailyReportForDay, so the dashboard default matches the email (ADR-0013).
+    // (Passing previousUtcDay() here would reintroduce the UTC off-by-one at midnight.)
     const day = /^\d{4}-\d{2}-\d{2}$/.test(event?.queryStringParameters?.date || '')
       ? event.queryStringParameters.date
-      : previousUtcDay()
+      : undefined
     return json(200, await getDailyReport(day))
   }
 

@@ -111,3 +111,14 @@ test('buildDailyReportForDay defaults tz + day when omitted', async () => {
   const report = await buildDailyReportForDay(fakeQueryDay, { tables: { events: 'EV', chat: 'CH', contact: 'CT' } })
   assert.match(report.date, /^\d{4}-\d{2}-\d{2}$/, 'defaults to the previous local day')
 })
+
+test('default day is the previous LOCAL day, not the previous UTC day', async () => {
+  // Both the admin /daily-report endpoint (no ?date) and the scheduled email rely on
+  // this default. It MUST be the owner-local previous day (REPORT_TZ default
+  // America/Los_Angeles), matching the email — never previousUtcDay (the bug: near
+  // midnight UTC the two differ by a calendar day, so the board/email read 0).
+  const fakeQueryDay = async () => []
+  const report = await buildDailyReportForDay(fakeQueryDay, { tables: { events: 'EV', chat: 'CH', contact: 'CT' } })
+  assert.equal(report.date, previousLocalDay('America/Los_Angeles'), 'default = previous LOCAL day')
+  assert.equal(report.tz, 'America/Los_Angeles', 'default tz is the owner timezone')
+})
