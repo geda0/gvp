@@ -380,17 +380,26 @@ proves it comes FIRST.
     live smoke latencies) made every EventBridge retry 409 so the report **never reliably
     sent** (ADR-0014). The handler also treats that specific 409 as success
     (`isResendIdempotencyConflict`) — at-most-once delivery, never a thrown retry-storm;
-    any other Resend error still throws.
+    any other Resend error still throws. **The key is also scoped per ENVIRONMENT**
+    (`reportIdempotencyKey(day, fn)` → `daily-report-${stack}-${day}`, stack derived from
+    `AWS_LAMBDA_FUNCTION_NAME`) and **only the prod stack emails** (`reportEmailEnabled`
+    false for `*-staging-*`) — because staging + prod share one Resend account and
+    staging's cron fires ~14s first; an unscoped key let staging claim the day and 409
+    prod's real report every day (ADR-0014 addendum — the actual root cause of the 0-data
+    reports).
     - Implemented by: `aws/src/common/daily-report.js` (pinned `generatedAt`,
-      `stabilizeSmokeForReport`, `isResendIdempotencyConflict`) + the
-      `aws/src/contact-daily-report.js` handler (stabilizes the live smoke; swallows only
-      the idempotency 409). Recorded in
+      `stabilizeSmokeForReport`, `isResendIdempotencyConflict`, `reportEnvScope`,
+      `reportIdempotencyKey`, `reportEmailEnabled`) + the
+      `aws/src/contact-daily-report.js` handler (stabilizes the live smoke; env-scoped
+      key; emails only on the prod stack; swallows only the idempotency 409). Recorded in
       `docs/decisions/ADR-0014-daily-report-send-idempotency.md`.
     - Proven by: `test/daily-report.test.mjs` — *"renders byte-identical HTML and text
       across two builds"* (and the with-stabilized-smoke analogue), *"pins generatedAt to
       the report day rather than wall-clock"*, the `stabilizeSmokeForReport`
-      projection / no-mutation / omit-when-empty tests, and *"isResendIdempotencyConflict
-      is true only for a 409 invalid_idempotent_request"*. Run: `node --test`.
+      projection / no-mutation / omit-when-empty tests, *"isResendIdempotencyConflict
+      is true only for a 409 invalid_idempotent_request"*, *"reportIdempotencyKey is
+      scoped per environment"*, and *"reportEmailEnabled is false for the staging stack"*;
+      handler wiring pinned in `test/daily-report-wiring.test.mjs`. Run: `node --test`.
 
 ## Out of scope / explicitly allowed
 

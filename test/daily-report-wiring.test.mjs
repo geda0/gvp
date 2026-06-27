@@ -46,12 +46,20 @@ test('daily report wires the probe-scoped smoke credential, the report cooldown 
     'expected the deep chat probe URL fragment to be deep=1&report=1 (the SEC-7 cooldown bypass on the actual probe URL — a stray report=1 in a comment or a report=0 must NOT satisfy this)'
   )
 
-  // --- S11 / EV-2: the daily email send must forward a stable Idempotency-Key
-  // derived from the report DAY (e.g. `daily-report-<day>`) so a retry / double-fire
-  // of the scheduled report collapses to ONE delivered email. ---
+  // --- S11 / EV-2 (+ ADR-0014 addendum): the daily email send must forward a stable
+  // Idempotency-Key derived from the report DAY *and the environment* — so a retry /
+  // double-fire collapses to ONE email, AND staging (which fires ~14s earlier on the
+  // shared Resend account) can no longer claim the day and 409 prod's real report.
+  // The key is built by the unit-tested pure `reportIdempotencyKey(day, fnName)`
+  // (→ `daily-report-<stack>-<day>`), and the send is gated to the prod stack. ---
   assert.match(
     report,
-    /idempotencyKey:\s*`daily-report-\$\{day\}`/,
-    'expected sendViaResend to be called with idempotencyKey: `daily-report-${day}` so a report retry dedupes to one email'
+    /idempotencyKey:\s*reportIdempotencyKey\(day,\s*fnName\)/,
+    'expected sendViaResend idempotencyKey: reportIdempotencyKey(day, fnName) — a per-(env,day) key so staging never 409s prod (ADR-0014)'
+  )
+  assert.match(
+    report,
+    /reportEmailEnabled\(fnName\)/,
+    'expected the send to be gated on reportEmailEnabled(fnName) so only the prod stack emails the owner digest'
   )
 })

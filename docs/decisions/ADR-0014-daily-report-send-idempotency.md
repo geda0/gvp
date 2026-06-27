@@ -266,3 +266,24 @@ convention (ADR-0006).
 - The pure seams (`stabilizeSmokeForReport`, `isResendIdempotencyConflict`, pinned
   `generatedAt`) live in the already-SDK-free `common/daily-report.js`, so they are
   directly unit-testable in the node:test baseline without `aws/src/node_modules`.
+
+## Addendum (2026-06-27) — per-environment send scope (the actual root cause)
+
+Verifying the fix on prod surfaced the deeper cause. Staging and prod share ONE
+Resend account, and the idempotency key was `daily-report-${day}` — **not**
+environment-scoped. Staging's EventBridge schedule fires ~14s before prod's (logs:
+staging `REPORT` at `12:00:23`, prod 409 at `12:00:37`), so **staging claimed the
+day's key with its near-empty body and prod's real-data report 409'd every day** —
+which is why the owner kept receiving 0-data reports. The determinism + 409-swallow
+fix above stops prod's error storm but does not stop staging from shadowing prod.
+
+Decision (owner-approved): **env-scope the key + silence staging's email.**
+- `reportEnvScope(functionName)` derives the SAM stack prefix from
+  `AWS_LAMBDA_FUNCTION_NAME` (`page` vs `page-staging`); `reportIdempotencyKey(day, fn)`
+  → `daily-report-${scope}-${day}`, so staging and prod never collide.
+- `reportEmailEnabled(functionName)` is false for the staging stack (true for
+  prod/unknown — never silently drops the prod digest); the handler only calls
+  `sendViaResend` when enabled. Staging still computes/persists + serves the dashboard.
+- All three are pure, exported from `common/daily-report.js` (ungated), unit-tested in
+  `test/daily-report.test.mjs`; the handler wiring is pinned in
+  `test/daily-report-wiring.test.mjs`.
