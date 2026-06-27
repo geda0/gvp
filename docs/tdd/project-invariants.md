@@ -26,7 +26,7 @@ proves it comes FIRST.
 > own environment's API bases — `main`=prod, `agent`=staging, diverging only on the
 > `gvp:*-api-url` metas) is proven by `test/frontend-api-url-env-guard.test.mjs`, born from the
 > 2026-06-04 staging-on-prod fast-forward incident (hotfixed in `843e648`).
-> **Proven set: ALL FIFTEEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15.**
+> **Proven set: ALL SIXTEEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16.**
 > Every CHAT-layer invariant (#7, #8, #9, #10, #13, #14, #15) and every `[app]` invariant (#1–#6,
 > #11, #12) now holds; there are no open invariant clauses. **#12–#15 are the 2026-06-25 pass** over
 > load-bearing behavior shipped since 2026-06-04: **#12** (the living theme is a pure, bounded,
@@ -367,6 +367,30 @@ proves it comes FIRST.
       *"resume-access FAQ entry triggers navigate_to_section, never open_resume"*. Recorded
       in `docs/decisions/ADR-0012-team-tactics-claim-traceability-and-build-idempotency-test-seams.md`.
       Run: `node --test`.
+
+16. **The daily-report email body is deterministic per day, and a Resend idempotency
+    409 is a no-op success.** `[app]` `buildDailyReport({ day })` stamps a day-canonical
+    `generatedAt` (`${day}T00:00:00.000Z`, not wall-clock), and the email's live smoke
+    health card is projected to categorical form before rendering
+    (`stabilizeSmokeForReport` keeps `overall`/`depth` + per-check `{ name, status, cost }`;
+    drops `latencyMs`, timestamps, and `detail`) — so two builds of the same day + rows
+    render **byte-for-byte-identical** HTML and text. The scheduled send is keyed
+    `daily-report-${day}`, and Resend rejects that key with a *changed* body (HTTP 409
+    `invalid_idempotent_request`); a non-deterministic body (the old `nowIso()` stamp +
+    live smoke latencies) made every EventBridge retry 409 so the report **never reliably
+    sent** (ADR-0014). The handler also treats that specific 409 as success
+    (`isResendIdempotencyConflict`) — at-most-once delivery, never a thrown retry-storm;
+    any other Resend error still throws.
+    - Implemented by: `aws/src/common/daily-report.js` (pinned `generatedAt`,
+      `stabilizeSmokeForReport`, `isResendIdempotencyConflict`) + the
+      `aws/src/contact-daily-report.js` handler (stabilizes the live smoke; swallows only
+      the idempotency 409). Recorded in
+      `docs/decisions/ADR-0014-daily-report-send-idempotency.md`.
+    - Proven by: `test/daily-report.test.mjs` — *"renders byte-identical HTML and text
+      across two builds"* (and the with-stabilized-smoke analogue), *"pins generatedAt to
+      the report day rather than wall-clock"*, the `stabilizeSmokeForReport`
+      projection / no-mutation / omit-when-empty tests, and *"isResendIdempotencyConflict
+      is true only for a 409 invalid_idempotent_request"*. Run: `node --test`.
 
 ## Out of scope / explicitly allowed
 

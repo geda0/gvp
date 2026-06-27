@@ -1,7 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import { sendViaResend } from './common/resend.js'
-import { renderReportHtml, renderReportText } from './common/daily-report.js'
+import { renderReportHtml, renderReportText, stabilizeSmokeForReport, isResendIdempotencyConflict } from './common/daily-report.js'
 import { buildDailyReportForDay } from './common/daily-report-build.js'
 import { queryDay } from './common/report-queries.js'
 import { rollupSmoke, timedCheck } from './common/smoke-core.js'
@@ -73,7 +73,7 @@ export const handler = async (event) => {
   // on day attribution (ADR-0013). The shared builder widens the UTC query window
   // and the aggregators trim it per-row. Manual/back-fill: { date: 'YYYY-MM-DD' }
   // (interpreted as a local day).
-  const smoke = await computeReportSmoke()
+  const smoke = stabilizeSmokeForReport(await computeReportSmoke())
   const report = await buildDailyReportForDay((opts) => queryDay(ddb, opts), {
     tables: {
       events: process.env.SITE_EVENTS_TABLE,
@@ -85,16 +85,26 @@ export const handler = async (event) => {
   })
   const day = report.date
 
-  await sendViaResend({
-    apiKey: process.env.RESEND_API_KEY,
-    from: process.env.CONTACT_FROM_EMAIL,
-    to: process.env.CONTACT_REPORT_EMAIL || process.env.CONTACT_TO_EMAIL,
-    subject: `[Daily report] ${day} — ${report.site.totalEvents} interactions, ${report.chat.turns} chat turns, ${report.contact.submissions} contacts`,
-    html: renderReportHtml(report),
-    text: renderReportText(report),
-    replyTo: null,
-    idempotencyKey: `daily-report-${day}`
-  })
+  let idempotent = false
+  try {
+    await sendViaResend({
+      apiKey: process.env.RESEND_API_KEY,
+      from: process.env.CONTACT_FROM_EMAIL,
+      to: process.env.CONTACT_REPORT_EMAIL || process.env.CONTACT_TO_EMAIL,
+      subject: `[Daily report] ${day} — ${report.site.totalEvents} interactions, ${report.chat.turns} chat turns, ${report.contact.submissions} contacts`,
+      html: renderReportHtml(report),
+      text: renderReportText(report),
+      replyTo: null,
+      idempotencyKey: `daily-report-${day}`
+    })
+  } catch (error) {
+    if (isResendIdempotencyConflict(error)) {
+      console.log('daily-report: already sent for ' + day + ' (idempotent 409)')
+      idempotent = true
+    } else {
+      throw error
+    }
+  }
 
   return {
     statusCode: 200,
@@ -103,7 +113,8 @@ export const handler = async (event) => {
       date: day,
       events: report.site.totalEvents,
       chatSessions: report.chat.sessions,
-      contactMessages: report.contact.submissions
+      contactMessages: report.contact.submissions,
+      ...(idempotent ? { idempotent: true } : {})
     })
   }
 }
