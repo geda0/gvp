@@ -1,8 +1,8 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import { sendViaResend } from './common/resend.js'
-import { buildDailyReport, renderReportHtml, renderReportText } from './common/daily-report.js'
-import { previousUtcDay } from './common/events-shared.js'
+import { renderReportHtml, renderReportText, stabilizeSmokeForReport, isResendIdempotencyConflict } from './common/daily-report.js'
+import { buildDailyReportForDay } from './common/daily-report-build.js'
 import { queryDay } from './common/report-queries.js'
 import { rollupSmoke, timedCheck } from './common/smoke-core.js'
 
@@ -68,40 +68,53 @@ async function computeReportSmoke() {
 // own — first-party site events, chat transcripts, contact submissions — into one
 // structured report, then emails a sleek HTML digest (plain-text fallback).
 export const handler = async (event) => {
-  // Allow a manual/back-fill invocation with { date: 'YYYY-MM-DD' }.
-  const day = (event && event.date) || previousUtcDay()
-
-  const [events, chatSessions, contactMessages] = await Promise.all([
-    queryDay(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day }),
-    // lookbackDays:1 — chat rows freeze createdAt at the first turn, so a session
-    // started just before midnight must be fetched here; aggregateChat({day}) then
-    // counts only the turns whose own capturedAt falls on `day`.
-    queryDay(ddb, { tableName: process.env.CHAT_TRANSCRIPTS_TABLE, listPk: 'CHAT_TRANSCRIPT', day, lookbackDays: 1 }),
-    queryDay(ddb, { tableName: process.env.CONTACT_MESSAGES_TABLE, listPk: 'CONTACT', day })
-  ])
-
-  const smoke = await computeReportSmoke()
-  const report = buildDailyReport({ day, events, chatSessions, contactMessages, smoke })
-
-  await sendViaResend({
-    apiKey: process.env.RESEND_API_KEY,
-    from: process.env.CONTACT_FROM_EMAIL,
-    to: process.env.CONTACT_REPORT_EMAIL || process.env.CONTACT_TO_EMAIL,
-    subject: `[Daily report] ${day} — ${report.site.totalEvents} interactions, ${report.chat.turns} chat turns, ${report.contact.submissions} contacts`,
-    html: renderReportHtml(report),
-    text: renderReportText(report),
-    replyTo: null,
-    idempotencyKey: `daily-report-${day}`
+  // The report's day is the owner's LOCAL calendar day (REPORT_TZ, default
+  // America/Los_Angeles), not UTC, so the email and the local-time dashboard agree
+  // on day attribution (ADR-0013). The shared builder widens the UTC query window
+  // and the aggregators trim it per-row. Manual/back-fill: { date: 'YYYY-MM-DD' }
+  // (interpreted as a local day).
+  const smoke = stabilizeSmokeForReport(await computeReportSmoke())
+  const report = await buildDailyReportForDay((opts) => queryDay(ddb, opts), {
+    tables: {
+      events: process.env.SITE_EVENTS_TABLE,
+      chat: process.env.CHAT_TRANSCRIPTS_TABLE,
+      contact: process.env.CONTACT_MESSAGES_TABLE
+    },
+    day: event && event.date,
+    smoke
   })
+  const day = report.date
+
+  let idempotent = false
+  try {
+    await sendViaResend({
+      apiKey: process.env.RESEND_API_KEY,
+      from: process.env.CONTACT_FROM_EMAIL,
+      to: process.env.CONTACT_REPORT_EMAIL || process.env.CONTACT_TO_EMAIL,
+      subject: `[Daily report] ${day} — ${report.site.totalEvents} interactions, ${report.chat.turns} chat turns, ${report.contact.submissions} contacts`,
+      html: renderReportHtml(report),
+      text: renderReportText(report),
+      replyTo: null,
+      idempotencyKey: `daily-report-${day}`
+    })
+  } catch (error) {
+    if (isResendIdempotencyConflict(error)) {
+      console.log('daily-report: already sent for ' + day + ' (idempotent 409)')
+      idempotent = true
+    } else {
+      throw error
+    }
+  }
 
   return {
     statusCode: 200,
     body: JSON.stringify({
       ok: true,
       date: day,
-      events: events.length,
-      chatSessions: chatSessions.length,
-      contactMessages: contactMessages.length
+      events: report.site.totalEvents,
+      chatSessions: report.chat.sessions,
+      contactMessages: report.contact.submissions,
+      ...(idempotent ? { idempotent: true } : {})
     })
   }
 }

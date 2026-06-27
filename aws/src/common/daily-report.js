@@ -1,4 +1,4 @@
-import { nowIso } from './contact-shared.js'
+import { localDayOf } from './events-shared.js'
 
 function esc(value) {
   return String(value == null ? '' : value)
@@ -16,14 +16,18 @@ function topN(counts, n) {
     .slice(0, n)
 }
 
-function aggregateSite(events) {
+function aggregateSite(events, { day, tz } = {}) {
+  // ADR-0013: the query window over-fetches neighbouring local days, so filter by
+  // the owner-local day here (no-op when day is unset — used by callers that
+  // pre-scope). totalEvents etc. then count only the report's day.
+  const rows = day ? events.filter((e) => localDayOf(e?.createdAt, tz) === day) : events
   const byEventCounts = {}
   const bySectionCounts = {}
   const byPageCounts = {}
   const sessions = new Set()
   const visitors = new Set()
 
-  for (const e of events) {
+  for (const e of rows) {
     const name = e?.event || 'unknown'
     byEventCounts[name] = (byEventCounts[name] || 0) + 1
     if (e?.section) bySectionCounts[e.section] = (bySectionCounts[e.section] || 0) + 1
@@ -33,7 +37,7 @@ function aggregateSite(events) {
   }
 
   return {
-    totalEvents: events.length,
+    totalEvents: rows.length,
     sessions: sessions.size,
     uniqueVisitors: visitors.size,
     byEvent: Object.entries(byEventCounts)
@@ -44,16 +48,7 @@ function aggregateSite(events) {
   }
 }
 
-// The UTC calendar day (YYYY-MM-DD) of an ISO timestamp, normalized so an offset
-// form (e.g. ...+05:00 or the ...+00:00 chat writers emit) buckets by its true UTC
-// instant, not its literal local-date prefix. Falls back to the leading 10 chars
-// only when the value is unparseable.
-function utcDayOf(ts) {
-  const ms = Date.parse(ts)
-  return Number.isNaN(ms) ? String(ts).slice(0, 10) : new Date(ms).toISOString().slice(0, 10)
-}
-
-function aggregateChat(chatSessions, { day } = {}) {
+function aggregateChat(chatSessions, { day, tz } = {}) {
   let turns = 0
   let textTurns = 0
   let voiceTurns = 0
@@ -71,7 +66,7 @@ function aggregateChat(chatSessions, { day } = {}) {
     let sessionHasTurn = false
     for (const t of sessionTurns) {
       const ts = (typeof t?.capturedAt === 'string' && t.capturedAt) || session?.createdAt || ''
-      if (day && utcDayOf(ts) !== day) continue
+      if (day && localDayOf(ts, tz) !== day) continue
       sessionHasTurn = true
       turns += 1
       if (t?.modality === 'voice') voiceTurns += 1
@@ -109,10 +104,11 @@ function aggregateChat(chatSessions, { day } = {}) {
   }
 }
 
-function aggregateContact(contactMessages) {
+function aggregateContact(contactMessages, { day, tz } = {}) {
+  const rows = day ? contactMessages.filter((m) => localDayOf(m?.createdAt, tz) === day) : contactMessages
   const byStatus = {}
   const senders = []
-  for (const m of contactMessages) {
+  for (const m of rows) {
     const status = m?.status || 'unknown'
     byStatus[status] = (byStatus[status] || 0) + 1
     senders.push({
@@ -124,7 +120,7 @@ function aggregateContact(contactMessages) {
     })
   }
   return {
-    submissions: contactMessages.length,
+    submissions: rows.length,
     sent: byStatus.sent || 0,
     failed: byStatus.failed || 0,
     queued: (byStatus.queued || 0) + (byStatus.sending || 0),
@@ -133,13 +129,32 @@ function aggregateContact(contactMessages) {
   }
 }
 
+// ADR-0014: projects a live smoke object to only the deterministic categorical
+// fields. Drops latencyMs, timestamps, and detail so the email body is stable
+// across retries. Returns undefined when the input is absent or has no checks
+// (so the renderer omits the card entirely).
+export function stabilizeSmokeForReport(smoke) {
+  if (!smoke || !Array.isArray(smoke.checks) || smoke.checks.length === 0) return undefined
+  const result = { overall: smoke.overall }
+  if (smoke.depth !== undefined) result.depth = smoke.depth
+  result.checks = smoke.checks.map(({ name, status, cost }) => ({ name, status, cost }))
+  return result
+}
+
+// ADR-0014: predicate for swallowing a Resend per-day idempotency 409 on retry.
+export function isResendIdempotencyConflict(error) {
+  return Boolean(error && error.status === 409 && error.body && error.body.name === 'invalid_idempotent_request')
+}
+
 // Pure aggregator: takes the day's already-fetched rows from each source and
 // returns one structured report object. Shared by the scheduled email Lambda and
 // the admin endpoint so the email and the board can never disagree.
-export function buildDailyReport({ day, events = [], chatSessions = [], contactMessages = [], smoke } = {}) {
-  const site = aggregateSite(events)
-  const chat = aggregateChat(chatSessions, { day })
-  const contact = aggregateContact(contactMessages)
+export function buildDailyReport({ day, tz = 'UTC', events = [], chatSessions = [], contactMessages = [], smoke } = {}) {
+  // ADR-0013: every aggregator buckets by the owner-local day (tz). tz defaults to
+  // 'UTC' so an omitted tz reproduces the old UTC-day behavior (backward compatible).
+  const site = aggregateSite(events, { day, tz })
+  const chat = aggregateChat(chatSessions, { day, tz })
+  const contact = aggregateContact(contactMessages, { day, tz })
 
   const highlights = [
     `${site.totalEvents} site interaction${site.totalEvents === 1 ? '' : 's'} across ${site.sessions} session${site.sessions === 1 ? '' : 's'}`,
@@ -149,7 +164,8 @@ export function buildDailyReport({ day, events = [], chatSessions = [], contactM
 
   return {
     date: day,
-    generatedAt: nowIso(),
+    tz,
+    generatedAt: day ? `${day}T00:00:00.000Z` : new Date().toISOString(),
     site,
     chat,
     contact,
@@ -188,7 +204,7 @@ function smokeCard(smoke) {
     (smoke.checks || [])
       .map(
         (c) =>
-          `<tr><td>${esc(c.name)}</td><td><span class="pill pill--${smokePill(c.status)}">${esc(c.status)}</span></td><td>${esc(c.detail)}</td><td class="num">${esc(c.latencyMs)} ms${c.cost === 'paid' ? ' · paid' : ''}</td></tr>`
+          `<tr><td>${esc(c.name)}</td><td><span class="pill pill--${smokePill(c.status)}">${esc(c.status)}</span></td><td>${esc(c.detail)}</td><td class="num">${c.latencyMs != null ? esc(c.latencyMs) + ' ms' : ''}${c.cost === 'paid' ? ' · paid' : ''}</td></tr>`
       )
       .join('') || '<tr><td colspan="4" class="muted">No checks</td></tr>'
   return `
@@ -291,7 +307,7 @@ export function renderReportHtml(report) {
     <table style="margin-top:14px"><thead><tr><td>From</td><td>Subject</td><td>Status</td></tr></thead><tbody>${senderRows}</tbody></table>
   </div>
 
-  <div class="foot">Generated ${esc(report.generatedAt)} &middot; covers UTC day ${esc(report.date)}</div>
+  <div class="foot">Generated ${esc(report.generatedAt)} &middot; covers ${esc(report.date)}${report.tz ? ` (${esc(report.tz)})` : ''}</div>
 </div></body></html>`
 }
 
@@ -304,7 +320,7 @@ export function renderReportText(report) {
     ...(report.smoke
       ? ['', `HEALTH: ${String(report.smoke.overall).toUpperCase()}`,
           ...(report.smoke.checks || []).map(
-            (c) => `  ${String(c.status).toUpperCase()} — ${c.name}: ${c.detail} (${c.latencyMs} ms${c.cost === 'paid' ? ', paid' : ''})`
+            (c) => `  ${String(c.status).toUpperCase()} — ${c.name}${c.detail != null ? ': ' + c.detail : ''}${c.latencyMs != null ? ' (' + c.latencyMs + ' ms' + (c.cost === 'paid' ? ', paid' : '') + ')' : c.cost === 'paid' ? ' (paid)' : ''}`
           )]
       : []),
     '',

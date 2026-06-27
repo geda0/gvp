@@ -54,11 +54,6 @@ export function getTheme() {
   return chromeThemeAt(currentHours);
 }
 
-/** Back-compat preference label for any old caller. */
-export function getThemePreference() {
-  return readPref().auto ? 'auto' : 'pinned';
-}
-
 /** Paint the world at a given hour: interpolated sky + chrome + scene marker. */
 export function applyThemeTime(hours) {
   currentHours = clampHours(hours);
@@ -107,10 +102,3 @@ export function initTheme() {
   applyThemeTime(resolveThemeHours(pref));
   if (pref.auto) startAutoTick();
 }
-
-// ── Back-compat no-op shims (the old multi-theme menu API; its callers are
-//    being replaced by the slider). Kept so stale imports never throw. ──
-export function setTheme() {}
-export function setThemePreference() {}
-export function transitionToTheme() {}
-export function transitionToPreference() {}

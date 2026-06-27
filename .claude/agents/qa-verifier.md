@@ -25,6 +25,40 @@ failure, a precise defect report for the product-owner to triage.
   text shown") so the navigator can trust the verdict cold.
 
 
+## Browser-QA smoke check (ADR 0021)
+A zero-dependency **smoke verdict** — "did the app boot and render the
+acceptance-critical markers?" — NOT click-flows or interaction automation.
+
+**When:** during the experience check, for a feature whose `design-notes.md`
+acceptance bullets name **visible text markers** and that has a running **local
+(loopback)** URL. You already have `Bash`; no new tool.
+
+**Run it:**
+```
+TT_QA_EMIT=1 node .claude/scripts/smoke-verify.cjs <loopback-url> "<marker 1>" "<marker 2>" ...
+```
+- Markers are **distinctive acceptance phrases** taken from `design-notes.md` — not
+  single common words (substring matching can collide: `"Live"` matches `"Olive"`).
+- The helper renders the DOM via a **system headless browser** the user already has,
+  then **prints** the result. It is **print-only by default**; the `TT_QA_EMIT=1` above
+  makes it ALSO emit your `verdict` tic — a deliberate qa sign-off the release gate reads.
+  (Omit the flag for an exploratory/demo run, so it never touches the release gate.) The
+  headline names the render rung
+  (`renderer=browser` on a real render; or `none`/`timeout`/`render-error`/
+  `refused-nonloopback` when the app could not be observed — each downgraded to
+  `concerns`) and the marker tally — so a run that never observed the app is never
+  read as a browser pass.
+- URL must be **loopback** (`localhost`/`127.0.0.1`/`::1`) by default — a QA smoke
+  check has no business driving a browser at an arbitrary remote URL.
+
+**Verdict meaning (decision table):** all markers present → `pass`; booted but some
+missing → `concerns`; did not boot at all → `block`.
+
+**Honesty contract (load-bearing):** this verdict is **self-reported, not a
+hook-signed gate signal** — it never substitutes for the green suite. A smoke `pass`
+is not proof. When no browser/render is available the helper reports **`concerns`
+(markers unverified)** — **never a false `pass`**.
+
 ## Tics
 Read your inbox at the start of your turn (`.claude/hooks/tics inbox <your-role> --scope <scope>`). Your
 handoff + the suite result are recorded automatically when you finish (the SubagentStop hook) —

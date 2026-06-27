@@ -97,3 +97,40 @@ export function previousUtcDay(ref = new Date()) {
   const d = new Date(ref.getTime() - 24 * 60 * 60 * 1000)
   return d.toISOString().slice(0, 10)
 }
+
+// ── Owner-local-timezone day helpers (ADR-0013) ──────────────────────────────
+// The daily report buckets by the owner's local calendar day (REPORT_TZ), not
+// UTC, so the email/report and the local-time admin dashboard agree at the day
+// boundary. `en-CA` renders dates in ISO YYYY-MM-DD order; Intl + timeZone is
+// DST-correct on the nodejs22 runtime (ICU built in).
+
+// The YYYY-MM-DD of instant `ts` in `tz`. Falls back to the leading 10 chars when
+// `ts` is unparseable (mirrors the utcDayOf fallback contract).
+export function localDayOf(ts, tz) {
+  const ms = Date.parse(ts)
+  if (Number.isNaN(ms)) return String(ts).slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date(ms))
+}
+
+// The local calendar day in `tz` immediately before `now` — the report's default
+// target day.
+export function previousLocalDay(tz, now = new Date()) {
+  const today = localDayOf(now.toISOString(), tz)
+  // Step back one full day from today's local midnight (24h is always < the gap
+  // between two local calendar days, even across a DST transition).
+  return localDayOf(new Date(Date.parse(`${today}T12:00:00Z`) - 24 * 60 * 60 * 1000).toISOString(), tz)
+}
+
+// The UTC `day` to pass to queryDay (with lookbackDays: 1) so the fetched window
+// is a SUPERSET of the local day `localDay` under any offset / DST: it is the next
+// calendar day, giving the window [localDay 00:00Z, localDay+1 23:59:59.999Z].
+export function utcWindowDayForLocal(localDay) {
+  return new Date(Date.parse(`${localDay}T00:00:00Z`) + 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10)
+}

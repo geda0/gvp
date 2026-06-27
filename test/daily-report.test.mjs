@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildDailyReport, renderReportHtml, renderReportText } from '../aws/src/common/daily-report.js'
+// ADR-0014 adds these exports. Imported as a namespace (not named bindings) so the
+// test file still LINKS before they exist — each new test then fails on a real
+// assertion (function not yet a function), not a module-link SyntaxError that would
+// take the whole file down.
+import * as dailyReport from '../aws/src/common/daily-report.js'
+
+const stabilizeSmokeForReport = (...args) => dailyReport.stabilizeSmokeForReport(...args)
+const isResendIdempotencyConflict = (...args) => dailyReport.isResendIdempotencyConflict(...args)
 
 function fixture() {
   const day = '2026-06-15'
@@ -35,7 +43,10 @@ test('buildDailyReport aggregates site interactions for the day', () => {
   const report = buildDailyReport({ day, events, chatSessions, contactMessages })
 
   assert.equal(report.date, day)
-  assert.ok(report.generatedAt, 'report records when it was generated')
+  // ADR-0014: generatedAt is pinned to the report day's canonical instant, not a
+  // wall-clock now() — the email body under key daily-report-${day} must be
+  // deterministic so Resend replays the original 2xx instead of 409-ing retries.
+  assert.equal(report.generatedAt, `${day}T00:00:00.000Z`, 'generatedAt is pinned to the report day, not wall-clock')
 
   assert.equal(report.site.totalEvents, 5, 'counts every interaction')
   assert.equal(report.site.sessions, 2, 'distinct sessionId count')
@@ -243,4 +254,120 @@ test('renderReportText yields a plain-text fallback with the date and section la
   assert.match(text, /Site/i)
   assert.match(text, /Chat/i)
   assert.match(text, /Contact/i)
+})
+
+// ---- ADR-0014: deterministic idempotency-keyed body ----
+
+test('buildDailyReport pins generatedAt to the report day rather than wall-clock', () => {
+  // The send is keyed daily-report-${day}; Resend 409s if the same key sees a
+  // changed body. A wall-clock generatedAt changes every call, so it MUST be the
+  // day's canonical instant.
+  const report = buildDailyReport({ day: '2026-06-25', chatSessions: [], events: [], contactMessages: [] })
+  assert.equal(report.generatedAt, '2026-06-25T00:00:00.000Z')
+})
+
+test('buildDailyReport renders byte-identical HTML and text across two builds with identical inputs', () => {
+  // This is the exact property Resend's idempotency depends on: same day + same
+  // rows -> same body, so a retry replays the original 2xx instead of 409.
+  const { day, events, chatSessions, contactMessages } = fixture()
+  const r1 = buildDailyReport({ day, events, chatSessions, contactMessages })
+  const r2 = buildDailyReport({ day, events, chatSessions, contactMessages })
+
+  assert.equal(r1.generatedAt, r2.generatedAt, 'generatedAt is stable across builds')
+  assert.equal(renderReportHtml(r1), renderReportHtml(r2), 'HTML body is byte-identical across builds')
+  assert.equal(renderReportText(r1), renderReportText(r2), 'text body is byte-identical across builds')
+})
+
+// ---- ADR-0014: stabilizeSmokeForReport projects a live rollup to categorical form ----
+
+function liveSmokeFixture() {
+  return {
+    overall: 'pass',
+    depth: 'deep',
+    generatedAt: '2026-06-26T12:00:00Z',
+    checks: [
+      { name: 'contact_table', status: 'pass', latencyMs: 42, cost: 'free', detail: 'reachable in 42ms' },
+      { name: 'chat_model_live', status: 'fail', latencyMs: 1900, cost: 'paid', detail: 'HTTP 500 after 1900ms' }
+    ]
+  }
+}
+
+test('stabilizeSmokeForReport keeps categorical fields and drops latency, timestamp, and detail', () => {
+  const stabilized = stabilizeSmokeForReport(liveSmokeFixture())
+  assert.deepEqual(stabilized, {
+    overall: 'pass',
+    depth: 'deep',
+    checks: [
+      { name: 'contact_table', status: 'pass', cost: 'free' },
+      { name: 'chat_model_live', status: 'fail', cost: 'paid' }
+    ]
+  })
+})
+
+test('stabilizeSmokeForReport is deterministic and does not mutate its input', () => {
+  const live = liveSmokeFixture()
+  const before = JSON.parse(JSON.stringify(live))
+  const a = stabilizeSmokeForReport(live)
+  const b = stabilizeSmokeForReport(live)
+  assert.deepEqual(a, b, 'two projections of the same input are deep-equal')
+  assert.deepEqual(live, before, 'the original live smoke object is not mutated')
+})
+
+test('stabilizeSmokeForReport returns undefined for empty/missing smoke (card omitted)', () => {
+  assert.equal(stabilizeSmokeForReport(undefined), undefined)
+  assert.equal(stabilizeSmokeForReport(null), undefined)
+  assert.equal(stabilizeSmokeForReport({}), undefined, 'a checks-less object projects to undefined so the card is omitted')
+})
+
+test('renderReportHtml of a stabilized smoke shows check names and status but no latency numbers', () => {
+  const smoke = stabilizeSmokeForReport(liveSmokeFixture())
+  const report = buildDailyReport({ day: '2026-06-26', events: [], chatSessions: [], contactMessages: [], smoke })
+  const html = renderReportHtml(report)
+
+  assert.match(html, /contact_table/, 'keeps the check name')
+  assert.match(html, /chat_model_live/, 'keeps the live model check name')
+  assert.match(html, /paid/, 'keeps the categorical cost')
+  // The latency numbers must not survive into the deduped email body.
+  assert.doesNotMatch(html, /42\s*ms/i, 'no per-check latency number for the contact probe')
+  assert.doesNotMatch(html, /1900/, 'no per-check latency number for the live model probe')
+})
+
+test('buildDailyReport with a stabilized smoke renders byte-identical HTML and text across builds', () => {
+  // The smoke card was the second (trickier) non-determinism source. Pin that its
+  // stabilized form is ALSO byte-stable through both renderers, so the smoke branch
+  // can't silently reintroduce the per-retry drift that 409s the send.
+  const smoke = stabilizeSmokeForReport(liveSmokeFixture())
+  const { day, events, chatSessions, contactMessages } = fixture()
+  const r1 = buildDailyReport({ day, events, chatSessions, contactMessages, smoke })
+  const r2 = buildDailyReport({ day, events, chatSessions, contactMessages, smoke })
+  assert.equal(renderReportHtml(r1), renderReportHtml(r2), 'HTML (incl. smoke card) is byte-identical')
+  assert.equal(renderReportText(r1), renderReportText(r2), 'text (incl. smoke) is byte-identical')
+})
+
+test('renderReportText of a stabilized smoke degrades cleanly — name + cost, no latency or detail', () => {
+  const smoke = stabilizeSmokeForReport(liveSmokeFixture())
+  const report = buildDailyReport({ day: '2026-06-26', events: [], chatSessions: [], contactMessages: [], smoke })
+  const text = renderReportText(report)
+  assert.match(text, /chat_model_live/, 'keeps the check name')
+  assert.match(text, /paid/i, 'keeps the categorical cost')
+  assert.doesNotMatch(text, /\d\s*ms/i, 'no per-check latency number survives into the text body')
+  assert.doesNotMatch(text, /HTTP 500/, 'no live detail string survives')
+})
+
+// ---- ADR-0014: isResendIdempotencyConflict predicate ----
+
+test('isResendIdempotencyConflict is true only for a 409 invalid_idempotent_request', () => {
+  assert.equal(
+    isResendIdempotencyConflict({ status: 409, body: { name: 'invalid_idempotent_request' } }),
+    true,
+    'the specific Resend idempotency conflict is recognized'
+  )
+})
+
+test('isResendIdempotencyConflict is false for other 409 names, non-409, bare Error, null, and undefined', () => {
+  assert.equal(isResendIdempotencyConflict({ status: 409, body: { name: 'something_else' } }), false, 'other-named 409 still throws')
+  assert.equal(isResendIdempotencyConflict({ status: 500, body: { name: 'invalid_idempotent_request' } }), false, 'non-409 status is a real failure')
+  assert.equal(isResendIdempotencyConflict(new Error('x')), false, 'a bare Error has no status/body')
+  assert.equal(isResendIdempotencyConflict(null), false)
+  assert.equal(isResendIdempotencyConflict(undefined), false)
 })

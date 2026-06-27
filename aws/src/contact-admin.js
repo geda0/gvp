@@ -15,8 +15,7 @@ import {
   resolveCorsOrigin,
   unauthorized as unauthorizedBase
 } from './common/contact-shared.js'
-import { buildDailyReport } from './common/daily-report.js'
-import { previousUtcDay } from './common/events-shared.js'
+import { buildDailyReportForDay } from './common/daily-report-build.js'
 import { queryDay } from './common/report-queries.js'
 import { rollupSmoke, timedCheck } from './common/smoke-core.js'
 import { orderSessionEvents } from './common/session-timeline-core.js'
@@ -175,17 +174,21 @@ async function listMessages(limit, cursorRaw) {
   }
 }
 
-// Same builder the scheduled email uses, so the board and the inbox never
-// disagree. Day-scoped GSI range queries across all three owned backends.
+// Same shared builder the scheduled email uses, so the board and the email can
+// never disagree on day attribution. Buckets by the owner's LOCAL day (REPORT_TZ,
+// default America/Los_Angeles), not UTC (ADR-0013); `day` (the ?date param) is read
+// as a local day, and defaults to the previous local day when absent.
 async function getDailyReport(day) {
-  const [events, chatSessions, contactMessages] = await Promise.all([
-    queryDay(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day }),
-    // lookbackDays:1 mirrors the scheduled report: fetch sessions that started just
-    // before midnight so their post-midnight turns are bucketed onto the right day.
-    queryDay(ddb, { tableName: process.env.CHAT_TRANSCRIPTS_TABLE, listPk: CHAT_LIST_PK, day, lookbackDays: 1 }),
-    queryDay(ddb, { tableName: process.env.CONTACT_MESSAGES_TABLE, listPk: LIST_PK, day })
-  ])
-  return buildDailyReport({ day, events, chatSessions, contactMessages })
+  return buildDailyReportForDay((opts) => queryDay(ddb, opts), {
+    tables: {
+      events: process.env.SITE_EVENTS_TABLE,
+      chat: process.env.CHAT_TRANSCRIPTS_TABLE,
+      chatListPk: CHAT_LIST_PK,
+      contact: process.env.CONTACT_MESSAGES_TABLE,
+      contactListPk: LIST_PK
+    },
+    day
+  })
 }
 
 // Per-session timeline: every site interaction for one sessionId, in order. Reuses the
@@ -973,9 +976,12 @@ export const handler = async (event) => {
   }
 
   if (method === 'GET' && path.endsWith('/daily-report')) {
+    // No ?date -> default to the owner's previous LOCAL day (REPORT_TZ), applied inside
+    // buildDailyReportForDay, so the dashboard default matches the email (ADR-0013).
+    // (Passing previousUtcDay() here would reintroduce the UTC off-by-one at midnight.)
     const day = /^\d{4}-\d{2}-\d{2}$/.test(event?.queryStringParameters?.date || '')
       ? event.queryStringParameters.date
-      : previousUtcDay()
+      : undefined
     return json(200, await getDailyReport(day))
   }
 

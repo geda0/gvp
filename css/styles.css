@@ -82,64 +82,6 @@
     --home-hero-pad-bottom: clamp(1.2rem, 3.2vh, 1.85rem);
 }
 
-/* Design tokens — studio (paper / low-distraction reading mode) */
-[data-theme="studio"] {
-    --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
-    --font-body: "Source Sans 3", system-ui, -apple-system, sans-serif;
-    --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
-
-    --studio-paper: #f4ede0;
-    --studio-paper-deep: #e2d6bf;
-    --bg-primary: var(--studio-paper);
-    /* Keep in sync with STUDIO_SCENE_GRADIENT in theme.js */
-    --bg-studio-gradient:
-        radial-gradient(ellipse 80% 60% at 14% 12%, rgba(212, 188, 156, 0.32) 0%, transparent 55%),
-        radial-gradient(ellipse 70% 55% at 88% 86%, rgba(170, 158, 188, 0.22) 0%, transparent 60%),
-        linear-gradient(180deg, #f4ede0 0%, #ece3d2 60%, #e2d6bf 100%);
-
-    --text-primary: #1b1f26;
-    --text-muted: rgba(27, 31, 38, 0.72);
-    --text-muted-plus: rgba(27, 31, 38, 0.86);
-    --text-muted-extra: rgba(27, 31, 38, 0.6);
-    --text-subtle: rgba(27, 31, 38, 0.48);
-
-    --surface: rgba(255, 250, 240, 0.55);
-    --surface-elevated: rgba(252, 247, 236, 0.96);
-    --border-subtle: rgba(82, 65, 40, 0.14);
-    --border-strong: rgba(82, 65, 40, 0.24);
-
-    --accent: #3d4f7a;
-    --accent-hover: #51648f;
-    --on-accent: #fbf7ef;
-
-    --shadow-sm: 0 1px 2px rgba(60, 40, 18, 0.08);
-    --shadow-md: 0 10px 28px rgba(60, 40, 18, 0.12), 0 2px 6px rgba(60, 40, 18, 0.06);
-
-    --nav-bg: rgba(244, 237, 224, 0.92);
-    --nav-inner-bg: transparent;
-    --footer-bg: rgba(232, 222, 200, 0.96);
-    --navbar-bg: rgba(244, 237, 224, 0.85);
-    --navbar-link: #1b1f26;
-    --navbar-link-hover-bg: transparent;
-    --navbar-link-hover-color: var(--accent-hover);
-    --link-color: #3d4f7a;
-    --link-visited: #5a4a78;
-    --link-hover: var(--accent-hover);
-    --footer-link-color: var(--link-color);
-    --footer-link-visited: var(--link-visited);
-    --footer-link-hover: var(--accent-hover);
-    --overlay-gradient: radial-gradient(ellipse 85% 50% at 50% 12%, rgba(255, 250, 235, 0.4), transparent 60%);
-    --heading-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-
-    --chat-launcher-ring: var(--accent);
-    --chat-launcher-glow-chrome: color-mix(in srgb, var(--accent) 50%, #c4b89f 50%);
-    --chat-launcher-ring-mix: color-mix(in srgb, var(--chat-launcher-glow-chrome) 52%, var(--border-subtle));
-    --chat-launcher-glow-outer: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
-    --chat-launcher-glow-focus: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
-    --chat-launcher-dot-halo: color-mix(in srgb, var(--chat-launcher-glow-chrome) 28%, transparent);
-    --chat-launcher-glow-diffuse: color-mix(in srgb, var(--chat-launcher-glow-chrome) 22%, transparent);
-}
-
 [data-theme="garden"] {
     --bg-primary: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
     --text-primary: #0d1a12;
@@ -388,7 +330,7 @@ body {
     line-height: 1.6;
 }
 
-html:not([data-theme="garden"]):not([data-theme="studio"]) body {
+html:not([data-theme="garden"]) body {
     background-color: var(--space-deep);
     background-image: var(--bg-space-gradient);
     background-attachment: fixed;
@@ -397,12 +339,6 @@ html:not([data-theme="garden"]):not([data-theme="studio"]) body {
 [data-theme="garden"] body {
     background: var(--bg-primary);
     background-color: transparent;
-    background-attachment: fixed;
-}
-
-[data-theme="studio"] body {
-    background-color: var(--studio-paper);
-    background-image: var(--bg-studio-gradient);
     background-attachment: fixed;
 }
 
@@ -642,10 +578,6 @@ h3 {
     background: rgba(255, 255, 255, 0.42);
 }
 
-[data-theme="studio"] .project__tag {
-    background: rgba(255, 250, 240, 0.7);
-}
-
 .projects-load-error {
     color: var(--text-muted);
     font-size: 0.95rem;
@@ -716,12 +648,6 @@ body.project-dialog-open {
     -webkit-backdrop-filter: blur(14px);
 }
 
-[data-theme="studio"] .project-dialog__backdrop {
-    background: rgba(60, 48, 28, 0.42);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-}
-
 .project-dialog__panel {
     position: relative;
     z-index: 1;
@@ -741,11 +667,6 @@ body.project-dialog-open {
 
 [data-theme="garden"] .project-dialog__panel {
     background: rgb(252, 253, 250);
-    box-shadow: var(--shadow-md);
-}
-
-[data-theme="studio"] .project-dialog__panel {
-    background: var(--surface-elevated);
     box-shadow: var(--shadow-md);
 }
 
@@ -2057,24 +1978,6 @@ body.contact-dialog-open {
     border-color: var(--border-subtle);
 }
 
-[data-theme="studio"] .highlight {
-    background: rgba(255, 250, 240, 0.55);
-    border-color: var(--border-subtle);
-}
-
-[data-theme="studio"] .experience-summary,
-[data-theme="studio"] .portfolio-earlier-career {
-    background: rgba(255, 250, 240, 0.55);
-    border: 1px solid var(--border-subtle);
-    border-radius: 0.85rem;
-    padding: 1.4rem 1.5rem;
-}
-
-[data-theme="studio"] .portfolio-earlier-career {
-    margin-top: 1.5rem;
-    padding-bottom: 1.4rem;
-}
-
 /* Garden theme: running text otherwise sits directly over the ocean stripe and tree
    silhouettes, which kills contrast (most visible on mobile where the ocean band
    crosses portfolio intro and labs intro). Give the prose blocks the same translucent panel
@@ -2438,203 +2341,6 @@ body.contact-dialog-open {
     }
 }
 
-.theme-toggle {
-    position: relative;
-    border: 1px solid var(--border-subtle);
-    color: var(--navbar-link);
-    padding: 0.28rem 0.42rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    font-size: 0.72em;
-    font-weight: 500;
-    font-family: var(--font-body);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    transition:
-        border-color 0.2s ease,
-        color 0.2s ease,
-        background 0.2s ease;
-    background: transparent;
-}
-
-/* Trigger background reflects the CURRENT theme (not the next one) so the
-   button itself is a small preview of the active scene. */
-.theme-toggle[data-current="space"] {
-    background:
-        radial-gradient(ellipse 120% 100% at 80% 0%, rgba(150, 145, 185, 0.14) 0%, transparent 55%),
-        radial-gradient(ellipse 100% 90% at 10% 100%, rgba(90, 125, 195, 0.22) 0%, transparent 50%),
-        linear-gradient(195deg, #222a40 0%, #1b2235 55%, #141926 100%);
-    color: #ccd2dd;
-    border-color: rgba(140, 165, 210, 0.18);
-}
-
-.theme-toggle[data-current="garden"] {
-    background: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
-    color: #0d1a12;
-    border-color: rgba(13, 26, 18, 0.18);
-}
-
-.theme-toggle[data-current="studio"] {
-    background: linear-gradient(180deg, #f4ede0 0%, #ece3d2 60%, #e2d6bf 100%);
-    color: #1b1f26;
-    border-color: rgba(82, 65, 40, 0.22);
-}
-
-/* Auto: keep the active theme preview; the half-circle SVG marks system mode. */
-.theme-toggle[data-pref="auto"] {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
-}
-
-.theme-toggle:hover,
-.theme-toggle:focus-visible,
-.theme-toggle--open {
-    border-color: var(--border-strong);
-}
-
-.theme-toggle:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-}
-
-.theme-toggle::after {
-    content: '▾';
-    font-size: 0.7em;
-    opacity: 0.7;
-    margin-left: 0.05rem;
-    line-height: 1;
-}
-
-.theme-toggle--open::after {
-    transform: translateY(-1px) rotate(180deg);
-}
-
-.theme-menu {
-    /* position:fixed so the menu escapes the fixed <header>'s clipping (the
-       header has overflow-x:hidden which also affects overflow-y). JS sets
-       --theme-menu-x / --theme-menu-y from the trigger's bounding rect. */
-    position: fixed;
-    top: var(--theme-menu-y, 3rem);
-    left: var(--theme-menu-x, 1rem);
-    margin: 0;
-    padding: 0.3rem;
-    list-style: none;
-    min-width: 12.5rem;
-    background: var(--surface-elevated);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
-    z-index: 1050;
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    /* Subtle slide-in */
-    animation: theme-menu-in 0.14s ease-out;
-}
-
-.theme-menu[hidden] {
-    display: none;
-}
-
-@keyframes theme-menu-in {
-    from { opacity: 0; transform: translateY(-4px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-
-.theme-menu__title {
-    padding: 0.35rem 0.55rem 0.4rem;
-    margin-bottom: 0.15rem;
-    font-family: var(--font-body);
-    font-size: 0.72em;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border-subtle);
-    cursor: default;
-}
-
-.theme-menu__item {
-    display: grid;
-    grid-template-columns: 1.4rem 1fr auto;
-    align-items: center;
-    gap: 0.55rem;
-    padding: 0.4rem 0.5rem;
-    border-radius: var(--radius-sm);
-    color: var(--text-primary);
-    cursor: pointer;
-    font-family: var(--font-body);
-    font-size: 0.86em;
-    line-height: 1.2;
-    outline: none;
-}
-
-.theme-menu__item:hover,
-.theme-menu__item:focus {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.theme-menu__item:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-.theme-menu__item--checked {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.theme-menu__swatch {
-    width: 1.2rem;
-    height: 1.2rem;
-    border-radius: 50%;
-    border: 1px solid var(--border-subtle);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.theme-menu__swatch--space {
-    background:
-        radial-gradient(circle at 70% 30%, rgba(150, 145, 185, 0.28), transparent 60%),
-        radial-gradient(circle at 30% 70%, rgba(90, 125, 195, 0.42), transparent 60%),
-        linear-gradient(200deg, #222a40 0%, #141926 100%);
-}
-
-.theme-menu__swatch--garden {
-    background: linear-gradient(180deg, #7eb0c8 0%, #a8cfae 48%, #4d7a58 100%);
-}
-
-.theme-menu__swatch--studio {
-    background: linear-gradient(180deg, #f4ede0 0%, #e2d6bf 100%);
-}
-
-.theme-menu__swatch--auto {
-    background: linear-gradient(90deg, #141926 0%, #141926 50%, #f4ede0 50%, #f4ede0 100%);
-}
-
-.theme-menu__text {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.theme-menu__label {
-    font-weight: 500;
-    white-space: nowrap;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-}
-
-.theme-menu__icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.1em;
-    height: 1.1em;
-    font-size: 1em;
-    line-height: 1;
-    flex: 0 0 1.1em;
-}
-
-.theme-menu__icon--svg,
 .theme-toggle-icon--svg {
     display: inline-flex;
     align-items: center;
@@ -2642,35 +2348,6 @@ body.contact-dialog-open {
     width: 1.1em;
     height: 1.1em;
     flex: 0 0 1.1em;
-}
-
-.theme-icon--auto {
-    display: block;
-    width: 100%;
-    height: 100%;
-}
-
-.theme-menu__desc {
-    font-size: 0.78em;
-    color: var(--text-muted);
-    white-space: nowrap;
-}
-
-.theme-menu__check {
-    color: var(--accent);
-    font-size: 0.95em;
-    line-height: 1;
-    visibility: hidden;
-}
-
-.theme-menu__item--checked .theme-menu__check {
-    visibility: visible;
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .theme-menu {
-        animation: none;
-    }
 }
 
 h1 {
@@ -2767,11 +2444,6 @@ h6 {
         gap: 0.28rem;
     }
 
-    .theme-toggle {
-        padding: 0.28rem 0.42rem;
-        font-size: 0.72em;
-    }
-
     .read-more {
         font-size: 0.8em;
     }
@@ -2796,13 +2468,6 @@ h6 {
     --link-hover: var(--accent-hover);
 }
 
-[data-theme="studio"] body[data-section="portfolio"] main {
-    --accent: #2f3f63;
-    --accent-hover: #43577f;
-    --link-color: #2a3958;
-    --link-hover: var(--accent-hover);
-}
-
 [data-theme="space"] body[data-section="labs"] main {
     --accent: #6a98e8;
     --accent-hover: #82adf0;
@@ -2817,9 +2482,3 @@ h6 {
     --link-hover: var(--accent-hover);
 }
 
-[data-theme="studio"] body[data-section="labs"] main {
-    --accent: #2f3f63;
-    --accent-hover: #43577f;
-    --link-color: #2a3958;
-    --link-hover: var(--accent-hover);
-}
