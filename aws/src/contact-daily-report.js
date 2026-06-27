@@ -1,7 +1,14 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb'
 import { sendViaResend } from './common/resend.js'
-import { renderReportHtml, renderReportText, stabilizeSmokeForReport, isResendIdempotencyConflict } from './common/daily-report.js'
+import {
+  renderReportHtml,
+  renderReportText,
+  stabilizeSmokeForReport,
+  isResendIdempotencyConflict,
+  reportIdempotencyKey,
+  reportEmailEnabled
+} from './common/daily-report.js'
 import { buildDailyReportForDay } from './common/daily-report-build.js'
 import { queryDay } from './common/report-queries.js'
 import { rollupSmoke, timedCheck } from './common/smoke-core.js'
@@ -85,25 +92,35 @@ export const handler = async (event) => {
   })
   const day = report.date
 
+  // Per-environment send (ADR-0014 addendum): only the prod stack emails the owner's
+  // digest, and the idempotency key is scoped per stack — so staging (which fires ~14s
+  // earlier on the shared Resend account) can no longer claim the day and 409 prod.
+  const fnName = process.env.AWS_LAMBDA_FUNCTION_NAME
   let idempotent = false
-  try {
-    await sendViaResend({
-      apiKey: process.env.RESEND_API_KEY,
-      from: process.env.CONTACT_FROM_EMAIL,
-      to: process.env.CONTACT_REPORT_EMAIL || process.env.CONTACT_TO_EMAIL,
-      subject: `[Daily report] ${day} — ${report.site.totalEvents} interactions, ${report.chat.turns} chat turns, ${report.contact.submissions} contacts`,
-      html: renderReportHtml(report),
-      text: renderReportText(report),
-      replyTo: null,
-      idempotencyKey: `daily-report-${day}`
-    })
-  } catch (error) {
-    if (isResendIdempotencyConflict(error)) {
-      console.log('daily-report: already sent for ' + day + ' (idempotent 409)')
-      idempotent = true
-    } else {
-      throw error
+  let emailed = false
+  if (reportEmailEnabled(fnName)) {
+    try {
+      await sendViaResend({
+        apiKey: process.env.RESEND_API_KEY,
+        from: process.env.CONTACT_FROM_EMAIL,
+        to: process.env.CONTACT_REPORT_EMAIL || process.env.CONTACT_TO_EMAIL,
+        subject: `[Daily report] ${day} — ${report.site.totalEvents} interactions, ${report.chat.turns} chat turns, ${report.contact.submissions} contacts`,
+        html: renderReportHtml(report),
+        text: renderReportText(report),
+        replyTo: null,
+        idempotencyKey: reportIdempotencyKey(day, fnName)
+      })
+      emailed = true
+    } catch (error) {
+      if (isResendIdempotencyConflict(error)) {
+        console.log('daily-report: already sent for ' + day + ' (idempotent 409)')
+        idempotent = true
+      } else {
+        throw error
+      }
     }
+  } else {
+    console.log('daily-report: email suppressed for non-prod stack (' + (fnName || 'unknown') + ') ' + day)
   }
 
   return {
@@ -114,6 +131,7 @@ export const handler = async (event) => {
       events: report.site.totalEvents,
       chatSessions: report.chat.sessions,
       contactMessages: report.contact.submissions,
+      emailed,
       ...(idempotent ? { idempotent: true } : {})
     })
   }

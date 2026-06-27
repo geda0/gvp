@@ -146,6 +146,28 @@ export function isResendIdempotencyConflict(error) {
   return Boolean(error && error.status === 409 && error.body && error.body.name === 'invalid_idempotent_request')
 }
 
+// ADR-0014 addendum — per-environment send scope. staging + prod share one Resend
+// account, so a single `daily-report-${day}` key let staging (which fires ~14s first)
+// claim the day and 409 prod's real report. The SAM stack prefix from the Lambda's own
+// function name (`page` vs `page-staging`) scopes the key so the two never collide.
+export function reportEnvScope(functionName) {
+  const fn = String(functionName || '')
+  const cut = fn.indexOf('-DailyReportFunction')
+  return (cut > 0 ? fn.slice(0, cut) : '') || 'report'
+}
+
+export function reportIdempotencyKey(day, functionName) {
+  return `daily-report-${reportEnvScope(functionName)}-${day}`
+}
+
+// Only the prod stack emails the owner's digest; staging still computes + persists the
+// report (and serves the dashboard) but must NOT email — otherwise it shadows prod on
+// the shared Resend namespace. Unknown/empty → enabled, so a naming surprise never
+// silently drops the prod digest.
+export function reportEmailEnabled(functionName) {
+  return !/(^|-)staging(-|$)/.test(String(functionName || ''))
+}
+
 // Pure aggregator: takes the day's already-fetched rows from each source and
 // returns one structured report object. Shared by the scheduled email Lambda and
 // the admin endpoint so the email and the board can never disagree.

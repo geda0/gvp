@@ -9,6 +9,9 @@ import * as dailyReport from '../aws/src/common/daily-report.js'
 
 const stabilizeSmokeForReport = (...args) => dailyReport.stabilizeSmokeForReport(...args)
 const isResendIdempotencyConflict = (...args) => dailyReport.isResendIdempotencyConflict(...args)
+const reportEnvScope = (...args) => dailyReport.reportEnvScope(...args)
+const reportEmailEnabled = (...args) => dailyReport.reportEmailEnabled(...args)
+const reportIdempotencyKey = (...args) => dailyReport.reportIdempotencyKey(...args)
 
 function fixture() {
   const day = '2026-06-15'
@@ -370,4 +373,34 @@ test('isResendIdempotencyConflict is false for other 409 names, non-409, bare Er
   assert.equal(isResendIdempotencyConflict(new Error('x')), false, 'a bare Error has no status/body')
   assert.equal(isResendIdempotencyConflict(null), false)
   assert.equal(isResendIdempotencyConflict(undefined), false)
+})
+
+// ---- ADR-0014 addendum: per-environment send scope (staging must not shadow prod) ----
+// Staging's cron fires ~14s before prod and claimed the SHARED Resend key
+// `daily-report-${day}`, so prod's real-data report 409'd every day and the owner
+// received staging's near-empty report. Scope the key per stack, and only prod emails.
+
+test('reportEnvScope extracts the SAM stack prefix from the Lambda function name', () => {
+  assert.equal(reportEnvScope('page-DailyReportFunction-c9fRdKLrcbU3'), 'page')
+  assert.equal(reportEnvScope('page-staging-DailyReportFunction-bi4eLy1Ydf82'), 'page-staging')
+  assert.equal(reportEnvScope(''), 'report', 'unknown name → a stable fallback scope')
+  assert.equal(reportEnvScope(undefined), 'report')
+  assert.equal(reportEnvScope('no-marker-here'), 'report')
+})
+
+test('reportIdempotencyKey is scoped per environment so staging and prod never collide', () => {
+  assert.equal(reportIdempotencyKey('2026-06-24', 'page-DailyReportFunction-x'), 'daily-report-page-2026-06-24')
+  assert.equal(reportIdempotencyKey('2026-06-24', 'page-staging-DailyReportFunction-y'), 'daily-report-page-staging-2026-06-24')
+  assert.notEqual(
+    reportIdempotencyKey('2026-06-24', 'page-DailyReportFunction-x'),
+    reportIdempotencyKey('2026-06-24', 'page-staging-DailyReportFunction-y'),
+    'same day, different stack → different key (no cross-env shadow)'
+  )
+})
+
+test('reportEmailEnabled is false for the staging stack, true for prod and unknown', () => {
+  assert.equal(reportEmailEnabled('page-DailyReportFunction-c9fRdKLrcbU3'), true, 'prod emails the digest')
+  assert.equal(reportEmailEnabled('page-staging-DailyReportFunction-bi4eLy1Ydf82'), false, 'staging must not email')
+  assert.equal(reportEmailEnabled(''), true, 'unknown → enabled (never silently drop the prod digest)')
+  assert.equal(reportEmailEnabled(undefined), true)
 })
