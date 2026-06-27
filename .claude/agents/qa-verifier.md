@@ -35,12 +35,15 @@ acceptance bullets name **visible text markers** and that has a running **local
 
 **Run it:**
 ```
-node .claude/scripts/smoke-verify.cjs <loopback-url> "<marker 1>" "<marker 2>" ...
+TT_QA_EMIT=1 node .claude/scripts/smoke-verify.cjs <loopback-url> "<marker 1>" "<marker 2>" ...
 ```
 - Markers are **distinctive acceptance phrases** taken from `design-notes.md` — not
   single common words (substring matching can collide: `"Live"` matches `"Olive"`).
 - The helper renders the DOM via a **system headless browser** the user already has,
-  then prints the result and emits a `verdict` tic. The headline names the render rung
+  then **prints** the result. It is **print-only by default**; the `TT_QA_EMIT=1` above
+  makes it ALSO emit your `verdict` tic — a deliberate qa sign-off the release gate reads.
+  (Omit the flag for an exploratory/demo run, so it never touches the release gate.) The
+  headline names the render rung
   (`renderer=browser` on a real render; or `none`/`timeout`/`render-error`/
   `refused-nonloopback` when the app could not be observed — each downgraded to
   `concerns`) and the marker tally — so a run that never observed the app is never

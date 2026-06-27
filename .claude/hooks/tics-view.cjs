@@ -3,6 +3,7 @@
 // tics-view.js — the tic READ layer (loadTics + views), shared by the installed reader
 // (.claude/hooks/tics) and the package CLI (bin/cli.js). Zero-dep; do NOT edit (refreshed).
 const fs = require("fs"), path = require("path"), cp = require("child_process");
+const READER_WINDOW = 40;
 function storePaths(targetDir, ignoreEnv) {
   const dir = path.join(targetDir, ".claude", "state");
   // TICS_DIR / TICS_FILE let parallel worktree sections share ONE spool bus (see docs/tdd/sectioning.md).
@@ -63,29 +64,38 @@ function collapseRunSuite(list) {
   }
   return out;
 }
-function ticsLog(targetDir, scopeFilter, all, showWitness) {
+function applyWindow(t, full) {
+  const total = t.length;
+  const truncated = !full && total > READER_WINDOW;
+  return { rows: truncated ? t.slice(-READER_WINDOW) : t, total, truncated };
+}
+function ticsLog(targetDir, scopeFilter, all, showWitness, full) {
   let t = loadFor(targetDir, all);
   if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
   if (!showWitness) t = t.filter((x) => !(x.kind === "note" && x.from === "witness"));
   if (!t.length) { console.log("No tics yet — the agent thread is empty (.claude/state/tics.jsonl)."); return 0; }
   t = collapseRunSuite(t);
-  for (const x of t) {
+  const { rows, total, truncated } = applyWindow(t, full);
+  for (const x of rows) {
     const when = (x.ts || "").slice(11, 19) || "--:--:--";
     const arrow = ((x.from || "?") + " -> " + (x.to || "*")).padEnd(28);
     const kind = (x.kind || "?").padEnd(9);
     const ctx = ("[" + (x.layer || "?") + "/" + (x.phase || "?") + " " + (x.scope || "*") + "]").padEnd(22);
     console.log(String(x.seq || "").padStart(3) + "  " + when + "  " + arrow + kind + ctx + " " + (x.msg || "") + (x._count > 1 ? " x" + x._count : "") + (x.result ? "  (" + x.result + ")" : ""));
   }
+  if (truncated) console.log("  … showing last " + READER_WINDOW + " of " + total + " — use --full to see all");
   return 0;
 }
-function ticsInbox(targetDir, role, scopeFilter) {
+function ticsInbox(targetDir, role, scopeFilter, full) {
   if (!role) { console.error("usage: tics inbox <role>   (e.g. tics inbox architect)"); return 2; }
-  let t = loadTics(targetDir).filter((x) => x.to === role || x.to === "*");
+  let t = loadTics(targetDir).filter((x) => (x.to === role || x.to === "*") && x.kind !== "signal");
   if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
   if (!t.length) { console.log("Inbox empty for '" + role + "' (no tics addressed to it or broadcast)."); return 0; }
   t = collapseRunSuite(t);
+  const { rows, total, truncated } = applyWindow(t, full);
   console.log("Inbox for " + role + "  (to = " + role + " or *):");
-  for (const x of t) console.log("  #" + (x.seq || "?") + "  " + (x.from || "?") + " [" + (x.kind || "?") + "]  " + (x.msg || "") + (x._count > 1 ? " x" + x._count : "") + (x.result ? "  (" + x.result + ")" : ""));
+  for (const x of rows) console.log("  #" + (x.seq || "?") + "  " + (x.from || "?") + " [" + (x.kind || "?") + "]  " + (x.msg || "") + (x._count > 1 ? " x" + x._count : "") + (x.result ? "  (" + x.result + ")" : ""));
+  if (truncated) console.log("  … showing last " + READER_WINDOW + " of " + total + " — use --full to see all");
   return 0;
 }
 function ticsConductor(targetDir, all) {
@@ -512,8 +522,8 @@ function fanOut(targetDir, specPath) {
   return 0;
 }
 function main(argv, defaultRoot) {
-  let scope = null, all = true, fromRole = null, showWitness = false; const rest = [];   // whole-picture by default (merge every worktree's bus); --here restricts to the local bus
-  for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else if (a === "--all") all = true; else if (a === "--here") all = false; else if (a === "--from") fromRole = argv[++i] || null; else if (a === "--witness") showWitness = true; else rest.push(a); }
+  let scope = null, all = true, fromRole = null, showWitness = false, full = false; const rest = [];   // whole-picture by default (merge every worktree's bus); --here restricts to the local bus
+  for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else if (a === "--all") all = true; else if (a === "--here") all = false; else if (a === "--from") fromRole = argv[++i] || null; else if (a === "--witness") showWitness = true; else if (a === "--full") full = true; else rest.push(a); }
   const cmd = rest.shift();
   const role = cmd === "inbox" ? rest.shift() : null;
   const cfFile = cmd === "claim-check" ? rest.shift() : null;
@@ -529,8 +539,8 @@ function main(argv, defaultRoot) {
   if (cmd === "answer") { rest.length = 0; }
   const target = rest[0] ? path.resolve(rest[0]) : (defaultRoot || process.cwd());
   switch (cmd) {
-    case "log": return ticsLog(target, scope, all, showWitness);
-    case "inbox": return ticsInbox(target, role, scope);
+    case "log": return ticsLog(target, scope, all, showWitness, full);
+    case "inbox": return ticsInbox(target, role, scope, full);
     case "conductor": return ticsConductor(target, all);
     case "claims": return ticsClaims(target, all);
     case "sections": return ticsSections(target, all);

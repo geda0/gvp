@@ -111,8 +111,10 @@ function main(argv) {
     : undefined;
   const result = smokeVerify(url, markers, { renderer });
   const headline = `smoke verdict=${result.verdict} renderer=${result.renderer} markers=${result.present.length}/${markers.length}`;
-  const tic = path.join(process.cwd(), '.claude', 'hooks', 'tic.sh');
-  child_process.spawnSync(tic, ['qa-verifier', '*', 'verdict', headline], { cwd: process.cwd(), encoding: 'utf8' });
+  if (process.env.TT_QA_EMIT === '1') {
+    const tic = path.join(process.cwd(), '.claude', 'hooks', 'tic.sh');
+    child_process.spawnSync(tic, ['qa-verifier', '*', 'verdict', headline, 'app', result.verdict], { cwd: process.cwd(), encoding: 'utf8' });
+  }
   console.log(headline);
 }
 

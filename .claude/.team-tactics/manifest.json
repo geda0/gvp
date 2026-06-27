@@ -1,253 +1,253 @@
 {
   "kit": "team-tactics",
-  "kitVersion": "0.66.1",
+  "kitVersion": "0.66.2",
   "configSchema": 2,
   "preset": "full-team",
-  "updatedAt": "2026-06-26T10:29:11.694Z",
+  "updatedAt": "2026-06-27T09:06:50.246Z",
   "files": {
     ".claude/agents/test-writer.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "dd792108942b4ba6e6a3b42ac9f73e24add307e9e1bbb52834b025350b630d8d"
     },
     ".claude/agents/implementer.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "7a9789626d30eae11fb503eba901bf73e2fd7144daa286032862958c0f4c5042"
     },
     ".claude/agents/tdd-critic.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "94cab166fe94ed9fd0619e7741f3b30224d73a9ca264efb9f69e7ddc28af8267"
     },
     ".claude/agents/planner.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "a618e3a7171bf2431614068c5fe036e0f3099e9171322622dabf7cd21e11264a"
     },
     ".claude/hooks/lib.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "a2f6412f1a17238628a17fa2c5d0ef752a92a8a4ac9fe630b11a345ccc717981"
     },
     ".claude/hooks/guard-edit-scope.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "4a2d45fff9ed5c7adb79f301fc34fc753055e09806dd683e717e9f6db3e569ec"
     },
     ".claude/hooks/run-suite.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "ad2ff4cfaea76d983b609d94cf14abd1a5942ea0fe27ada865b163c7c05afd14"
     },
     ".claude/hooks/require-green-to-stop.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "be8aba322789e23b9fb161430b62dec3836b9a0870c772bdfba711ba7041d4dd"
     },
     ".claude/hooks/session-green-check.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "b8ff9caf247d8b39c248e787538957d6f36307e8b7f9d673c4e67d369bdef938"
     },
     ".claude/hooks/solo-drift-check.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "d62ae34f74c7f6ac91bbb27bf7a829c510911ab46880b2f53f2451071999133e"
     },
     ".claude/hooks/subagent-handoff.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "26c5a178e6bf6aea63985256fa67b05dfac14e35ae216874bec5d8378fa8b7b8"
     },
     ".claude/hooks/prompt-directive.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "3ca1efc8544b4e6613adceab7ea2881414fdb0874603b2d70f43b3ef7d1242a9"
     },
     ".claude/hooks/tool-witness.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "f26ce3e57008c8d25e9e69039e6f39a13926861f12743fd11efba424a60fdeb3"
     },
     ".claude/hooks/tics-lib.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "31e7bb5cef415d5f59477904ce9f020301a6bf1139213fabdbf2b6e5e35b7694"
     },
     ".claude/hooks/tic.sh": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "0dffe3b830ea9206dd23eb09c7cbeaf7eae34b4dba1764bd168e060ac082a9e1"
     },
     ".claude/hooks/tics": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "1639fd5f4e327abdddc659dec8b0fce65168ca54b4c946b57813260db26d8ce3"
     },
     ".claude/hooks/tics-view.cjs": {
       "class": "mechanism",
-      "version": "0.66.1",
-      "sha256": "941dfea521f90974f5e1246ab0cf9cfd41f2ff3a42bbfe38269128bef98e1b5c"
+      "version": "0.66.2",
+      "sha256": "7c9b9b464225c31544416ca509631fc255cee9f4f0f4af9711af7616f0a0f509"
     },
     ".claude/hooks/tics-mcp.cjs": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "9896de04f53b21c61da6613c304323a6929108f5dfc1fc74e5947443c293c4cd"
     },
     "docs/tdd/tdd-workflow.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "cdba9fce9ce9de7cbae1cacb29a642f55c2e6ae30036e81c450d68382d96941f"
     },
     "docs/tdd/testing-philosophy.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "15b9304efdf0d25067e357d5d28d1825c5d9853877d3cabd5a86927db25768fe"
     },
     "docs/tdd/conventions.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "f5f5cc9468baa443c56e02f1319dc3e7456f557ee3e178197f4a3859e804da79"
     },
     "docs/tdd/divide-and-conquer.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "251c6f5dd1579cf04a2bab2f4c67f4d3d52c939ebf5b268059bbda963a888549"
     },
     "docs/tdd/tool-support.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "600cf8ec3e5c5d9f8bb194a1678bcdf563980aa43bf5fe8da268d1cb027a5c0d"
     },
     "docs/tics/tic-protocol.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "2ff8f76c6a69ed42e07dfcd4a529b9e29e3a1b71864f42468c7324113da715ab"
     },
     "docs/tics/context-map.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "f6079aa7ee1f5cb27a12af6d65d27034de1646eef001c132f0d0e4f098812de0"
     },
     ".claude/agents/product-owner.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "b523966c13bb566c7a87bc9addb7f807605b24dbf92672fb7b27d35d370f640e"
     },
     ".claude/agents/architect.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "649d6183c4f253cde3ff28e0a3babf8bbc8e9cf6ecc39b20d95cfcd4e4424c28"
     },
     ".claude/agents/qa-verifier.md": {
       "class": "agent",
-      "version": "0.66.1",
-      "sha256": "90ac7f7a8bd87546a8d0a420adb1f8bac7e9a69c959c87bb52795bd7fb9286dd"
+      "version": "0.66.2",
+      "sha256": "f89b9c287eb90177c11294d65dc7f850679e7ee91ba7f2ea5d3bc4d1a9a81a08"
     },
     ".claude/agents/project-manager.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "a83fa1a13a674fa69dae1f84ca38a40edad1ceed5a50d82529d53e294dc90945"
     },
     ".claude/agents/dev-ops.md": {
       "class": "agent",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "1578704f719899d1a61cb0592cdfedc0270e953d865b55d67dc3988e79110e95"
     },
     "docs/tdd/outer-loop.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "c1bb185021709ef7a8b7dbcc4608046d52d15ede81f33ef35c30f979e0d13cf0"
     },
     "docs/tdd/sectioning.md": {
       "class": "mechanism",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "020c96282992ea3e7baf50e3f67fa4781be137c2902e2566b7f516f7b1529bcd"
     },
     ".claude/state/backlog.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "75dd9bef13e6f8f8cc8e5d0da252138c82ae4716277b3995ac25107476d33fc4"
     },
     ".claude/state/releases.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "fe34148df7597d9f8f0a31cda42ab14b38d89ea9da5a02bf2e9447c0bba3b887"
     },
     ".claude/state/sections.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "f447f14d739e26dce3e335c98672b905405ebc36eef0b0467c52429080e19bc5"
     },
     ".claude/scripts/smoke-verify.cjs": {
       "class": "mechanism",
-      "version": "0.66.1",
-      "sha256": "a600954099ee63b552b104afa14baa51effe6da4c480e36d84f3e9d1ec490564"
+      "version": "0.66.2",
+      "sha256": "555986a7f1ecdcd94beafd487cfe4dd8f8310b2d899eebf35b3e6b35abb9c16c"
     },
     ".claude/tdd.config": {
       "class": "data",
-      "version": "0.66.1",
-      "sha256": "e89014cfc7b4fb8d386d514f2e4de8a12e8f2fe59b16b41b73ff54981b0cc928"
+      "version": "0.66.2",
+      "sha256": "98f34f9bca12b5215a4433f587530386d5cb739e88bb1d98d74cf22a588c7109"
     },
     ".claude/hooks/local.d/README.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "b0d26db93c45484c8b4a220bff93704b35c4bbffd3f44897aadf43c92a478396"
     },
     ".claude/state/design-notes.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "74ea7152169cb58902b5da9ff3c726de3e028cc2a087f36b3aa7c20166d1c5a4"
     },
     ".claude/state/progress.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "c5beb1e7f77aee6ac171a580090fcee9f4dbc0340f8e4ad5f0224fc5b09cb156"
     },
     ".claude/state/plan.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "bc12d612a35645e4aca38cb1d7d6f1c6be606fc7bc2d74e693612d00503883dd"
     },
     ".claude/state/phase": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "b470b84cf0cd3189e10615bffea7d5cbd9f61134ba1c2cfd513ddd45b776a5f6"
     },
     ".claude/state/layer": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "8a8f60ecb09b7e64c6d5214a8043865e608507db8c3f61f995eae6d078875901"
     },
     ".claude/state/.gitkeep": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "docs/tdd/project-invariants.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "683f7dafb7bbbb3ec12fd53a7a1155723bcec93e14a8fc96251415240642358b"
     },
     ".claude/settings.json": {
       "class": "entry",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "0a9536e0097abe6b74b8ace93720e91a0d64272d1403145eb58fcfad6fb372ac"
     },
     "AGENTS.md": {
       "class": "entry",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "4d685597407aa1c9b7f4a4360474d7e8899ad61fc7f6beb7b68ce964482930bb"
     },
     "CLAUDE.md": {
       "class": "entry",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "12749bfa7de5a91230d5bb68a562289057c4f0ba6dd5e7069dfa33f81b9d8892"
     },
     ".claude/KICKOFF.md": {
       "class": "data",
-      "version": "0.66.1",
+      "version": "0.66.2",
       "sha256": "95d2c6621c9f0b41b501bc852fb9c9001be0dbe19c984976bac12840ee1616bd"
     }
   }
