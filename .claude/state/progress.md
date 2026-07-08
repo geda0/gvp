@@ -3,6 +3,79 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-07-08 — starfield: trail residue fixed + ~1.8× faster draw (app layer, phase off, suite 194/1/0).**
+  Navigator: "front end is heavy, the stars trail never clears — clean the trail, perf should be better." Feature WIP
+  parked in `stash@{0}` first (restructure + content-depth); ttics 0.67.1 kit update kept in tree.
+  **Two real defects, both measured in-browser before touching code:**
+  (1) `drawTime` night used `globalCompositeOperation='destination-out'` + `fillRect(alpha 0.22)` as a partial erase —
+  multiplying 8-bit alpha by 0.78 leaves pixels STUCK at alpha 1 forever, so trails never drained (permanent ghosts).
+  (2) The real cost was NOT the trail: `Star.show()` built a `createRadialGradient` **per star per frame** AND a
+  `createLinearGradient` per streak — measured **67,903 + 64,197 gradient objects/sec (~1132 stars/frame)**, ~90ms/sec
+  in gradient *creation* alone. (The file already documented this exact fix for SNOW at ~6k/sec; stars were 20× worse.)
+  **Fix:** bake one radial-glow sprite + one linear streak-strip sprite per palette colour ONCE (the repo's own sprite
+  pattern), `drawImage` them; replace the partial erase with `clearRect` (deterministic, matches the day path).
+  **Gotcha found:** clearing removed the accumulation that was silently supplying ~4.5× brightness → sky looked dead
+  (litPixel 0.25%→0.04%). Fixed by drawing the WHOLE comet tail every frame from `STREAK_TAIL_FRAMES=8` of motion back
+  (deterministic, no accumulation), plus `STAR_GLOW_SCALE=2.2` + solid glow core (sub-pixel stars must read in ONE pass)
+  + `STREAK_ALPHA=0.62`. Lit-pixel coverage now matches old exactly (0.253 vs 0.250).
+  **Verified A/B, same viewport/hour:** draw callback 6.57ms → **3.61ms/frame**; main-thread busy 391 → **215 ms/sec**;
+  gradients/sec 132k → **0**; full-canvas composite `fillRect` 60/sec → 0 (now `clearRect`). Day/garden snow path + 0
+  console errors confirmed. Mean *luminance* is ~53% of old on purpose — the missing half was the accumulated smear haze.
+  TDD: NEW `test/starfield-perf.test.mjs` (canvas-stub: frames allocate ZERO gradients; night frame clears, never
+  `destination-out`) + NEW `test/starfield-streak.test.mjs` (pure `streakLength()`: tail spans >1 frame, clamps at
+  `STREAK_MAX_DIST`, 0 when motionless). Both RED-proven first. UNCOMMITTED.
+  NOTE (dev only): python `http.server` heuristic-caches `/js/*.js` + `/data/*.json`; a stale entry can serve OLD code
+  through a plain reload. Bump the `launch.json` port (new origin = new cache keys) to force fresh, or cache-bust fetch.
+  **OUTER LOOP (ran before the stage push) — it caught a real defect I shipped into the working tree:**
+  `tdd-critic` = **PASS-WITH-NITS** (#784, clear for staging, not prod). `product-owner` = **CONCERNS** (#786):
+  AC-1 (trail clears) ACCEPT, AC-3 (faster) ACCEPT, **AC-2 (clean/aesthetic) NOT SIGNED OFF** — coverage was restored by
+  spreading light wider (`STAR_GLOW_SCALE`), so each lit pixel is ~half as bright; "the missing light is haze" is
+  undecidable from the numbers (and the old baseline is a moving reference, since its brightness grew with tab uptime).
+  PO ruling: **staging = yes (for review), prod = no** until the NAVIGATOR eyeballs the sky. Aesthetics are navigator-owned
+  (his brand). **DEFECT FOUND + FIXED:** `STAR_GLOW_SCALE=2.2` + the 8-frame tail were applied to EVERY path, but only the
+  default-motion night path ever accumulated — old reduced-motion night erased at **alpha 1 (a full clear)** and the day
+  path already `clearRect`ed. So a11y + day/dawn paths were silently over-brightened/over-streaked. Fixed via red→green:
+  NEW pure seam `compensateForClearedTrail(prefersReducedMotion, dayScene)` + per-frame `starGlowScale`/`starTailFrames`
+  (mirrors the existing `starSpeedScale` pattern); `streakLength(dist, tailFrames)`. Default-motion night look preserved
+  (lit 0.249 vs old 0.250). Also hardened per critic: perf test now asserts `clearRect` ARGS (full canvas, not a sub-rect)
+  + `fillRect === 0`, and NEW test pins invariant #6's live clause (reduced motion → stars but ZERO streaks).
+  **Clean A/B (rAF-wrap only, same method both runs): 6.57 → 2.03 ms/frame, p95 7.2 → 2.2, busy 391 → 122 ms/sec.**
+  (An earlier "3.61ms" figure was inflated by instrumenting `drawImage`, which fires 126k/sec — discarded.)
+  Suite 196/1/0. **Known, NOT fixed (backlog):** `drawSpace()`/`drawSnow()`/`drawStudio()` are DEAD — `js/theme.js:62` sets
+  `data-time` unconditionally, so `isTimeMode()` is always true; `spaceTrailAlphaForPreference` therefore has NO live
+  consumer and invariant #6's trail-alpha clause is **vacuous while its test stays green**. Also `STREAK_MAX_DIST` kept its
+  name/value but changed meaning (per-frame skip threshold → tail cap), moving the saturation knee 150 → 18.75 px/frame.
+  Also unpinned: `streakColor` plumbing (`hsl(`→`hsla(` string replace) fails SILENTLY if `randomColor()` ever emits
+  modern `hsl(210 40% 80%)` syntax. See `.claude/state/backlog.md` (PO wrote 5 ordered follow-ups).
+- **2026-07-07 — ttics kit bumped 0.67.0 → 0.67.1 (latest).** Safe in-place update via the LOCAL monorepo checkout
+  (`node ~/workspace/tdd-pair/team-tactics/packages/team-tactics/bin/cli.js update <abs gvp path>`, NO --force) — GitHub
+  releases lag (latest published = v0.66.0), local `main` HEAD = v0.67.1 (ADR 0022/0023 speculative-draft lanes). All data
+  files `keep` (progress/plan/design-notes/invariants/tdd.config untouched), feature files byte-identical (md5-verified),
+  suite green 195/1/0 through refreshed hooks, gate behaviorally proven live this session (blocked a red-phase source edit,
+  passed the green ones). CLAUDE.md managed block + docs/tdd/outer-loop.md refreshed by the update. See [[ttics-install-topology]].
+- **2026-07-07 — content-depth slice #2: structured Work-card narratives (navigator-approved copy, suite 199/1/0).**
+  The two content-rich Work projects (team-tactics, ai-assistant-chatbot) now carry `problem`/`work`/`outcome` in
+  `data/projects.json` (faithfully re-shaped from their EXISTING approved copy — no invented claims), so their cards render
+  the Problem→Approach→Demonstrates narrative that Experience roles use (createProjectCard's `isStructured` branch — no code
+  change needed beyond the data). The two one-liner builds (monday-rover, gvp) deliberately stay FLAT to avoid padding.
+  TDD'd: NEW `test/work-card-structure.test.mjs` (DOM-stub behavior — asserts the two are structured + non-empty, the two
+  stay flat). Browser-verified end-to-end (fresh fetch + real render fns). NOTE: python `http.server` heuristic-caches
+  `/data/projects.json`, so a plain browser reload can render STALE flat cards after a data edit — not a code bug; force a
+  cache-bust fetch to see edits. Copy is navigator-approved wording; UNCOMMITTED. NEXT (optional): og:image/JSON-LD SEO,
+  or a11y polish — see the earlier direction menu.
+- **2026-07-07 — Work/Experience restructure: slop-audited + first content-depth slice (app layer, phase off, suite 195/1/0).**
+  Navigator asked to "take it to the next level; deepen content, but treat any uncommitted work as slop." qa-verifier +
+  tdd-critic pass over the in-flight (uncommitted) Portfolio/Labs→Experience/Work restructure via the running site +
+  full diff. Restructure is sound EXCEPT one confirmed slop bug: `renderProjectsSectionError` was called in `js/app.js`
+  (projects-load-failure path) but dropped from its import list → `ReferenceError` on that path (invisible to happy-path
+  browsing + existing tests). Fixed via red→green + NEW guard `test/app-projects-imports.test.mjs` (asserts app.js imports
+  every projects.js export it calls). Cleaned trivial cruft (dead `orderWorkProjects` import + stray blank line in
+  projects.js). Then content-depth slice #1: Work cards never rendered their `tech` tags (tags were gated behind the
+  `isStructured` branch) — lifted the tech-tag render out so structured roles AND flat build cards both surface their
+  stack; exported `createProjectCard`; NEW `test/project-card-tech.test.mjs` (DOM-stub behavior test, 3 cases).
+  Browser-verified both themes, zero console errors. UNCOMMITTED (navigator has not asked to commit). NEXT depth (needs
+  navigator: voice/fact-sensitive): give Work projects the structured problem→approach→demonstrates narrative that
+  Experience roles have, drafted from each project's existing truthful `description`/`chatSummary` — do NOT invent claims.
 - **ALL SHIPPED — staging + PROD live & verified (2026-06-17).** Sequence this session: pre-prod review → fix-everything
   hardening milestone → staging (`agent` d242979, qa PASS) → PROD (`main` d45e18d, deploy-prod 27722767780, qa PASS;
   keyed ipHash live, prod IAM widened page-Contact*→page-* owner-authorized) → then per owner the analytics **CONSENT

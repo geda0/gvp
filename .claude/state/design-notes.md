@@ -6,6 +6,88 @@
 
 ## Feature in flight (outer loop — full-team)
 
+### `starfield-perf` — trail residue + draw cost (PO ruling 2026-07-08: **CONCERNS**)
+
+Brief (navigator, verbatim): _"The front end is heavy, i think a main factor is the stars trail never
+clears, let us keep things clean and clean the trail. performance should be better."_
+
+Acceptance (observable behavior), and the ruling on each:
+
+- [x] **AC-1 — the trail actually clears.** Night frame fully clears; no `destination-out` residue.
+      _Verified:_ `drawTime()` night is now `clearRect`; `test/starfield-perf.test.mjs` asserts
+      `clearRect >= 1` and that `destination-out` is never set. Both assertions RED-proven against
+      `HEAD:js/starfield.js` (old code: "night frame must fully clear the canvas each frame" fails).
+      Root-cause arithmetic checks out: `destination-out` at srcAlpha 0.22 gives `dstA * 0.78`; 8-bit
+      `dstA=1 → 0.78 → rounds back to 1`, so touched pixels never drain. Real bug, really fixed.
+      _Scope note:_ the bug only ever affected default-motion users — the old reduced-motion night
+      already erased at alpha 1 (full clear). Doesn't weaken AC-1.
+- [x] **AC-3 — measurably faster.** _Verified structurally, not just by report:_ the per-star
+      `createRadialGradient` and per-streak `createLinearGradient` are gone from `Star.show()`;
+      sprites are baked once in the `STAR_PALETTE_SIZE` init loop and `drawImage`d. The perf test
+      counts allocations during pumped frames and asserts **zero**; against old code it counts
+      **1344** in three frames. That is a structural invariant, now pinned by a test — it does not
+      depend on trusting the browser numbers (6.57→3.61 ms/frame, 391→215 ms/sec busy).
+      The navigator's guessed cause (the trail) was **not** the heavy part; the real cost was
+      ~132k gradient objects/sec. Finding that is the substance of this change.
+- [ ] **AC-2 — the night sky looks clean, not smeary.** **NOT SIGNED OFF — navigator's call.**
+      The smear is gone (AC-1 discharges half of AC-2). What is *not* discharged is whether the
+      resulting sky is the sky the owner wants. See the luminance ruling below.
+
+**The luminance ruling (the crux).** The claim is that mean luminance at 53% of old is "the accumulated
+smear haze the navigator asked to remove," evidenced by lit-pixel coverage matching (0.250 → 0.253).
+**Coverage cannot support that claim.** Coverage is a threshold count — it is blind to intensity, which
+is precisely the dimension that changed. Take either reading of the luminance metric and the haze story
+has the wrong sign:
+- If mean luminance is *per lit pixel*: haze pixels are dim, so deleting them should **raise** the mean.
+  It halved.
+- If mean luminance is *over all pixels*: coverage held flat while total light halved, so the average
+  lit pixel is **half as bright**. Same contradiction.
+
+Coverage was restored by *spreading light wider* (`STAR_GLOW_SCALE=2.2`), not by restoring brightness —
+which is exactly the signature of "more pixels, each dimmer." Two of the three knobs are also below the
+old build's effective values *by construction*: the drawn tail is 8 frames where the old accumulation
+stayed visible for ~14–18 (`0.78^n`), and the head caps at `STREAK_ALPHA=0.62` where accumulation drove
+the head toward saturation. So a real part of the missing light is **the comet tails themselves, shorter
+and fainter** — not haze.
+
+The claim is not *refuted* either: the old comet head genuinely did saturate into bright smear, and
+"bright smear" is arguably what the brief asked to remove. It is **undecidable from these numbers**, and
+worse, the old baseline is itself time-dependent — the residue bug being fixed makes old brightness a
+function of how long the tab had been open, so "0.217 vs 0.115" compares against a moving, partly-dirty
+reference. **No number in this dossier can settle AC-2. Only the owner's eyes can.**
+
+**Escalation (brand/aesthetic — navigator-owned by policy).** This is the owner's personal portfolio and
+the night sky is brand identity. Halving the sky's light is a material aesthetic delta, not an
+implementation detail. Retuning is a one-line change: `STAR_GLOW_SCALE`, `STREAK_ALPHA`,
+`STREAK_TAIL_FRAMES` are `export const`s at module scope in `js/starfield.js` (verified — outside
+`initStarfield`), and `test/starfield-streak.test.mjs` pins only *relative* tail behavior, so a retune
+does not break the suite.
+
+**Staging: APPROVED. Prod: BLOCKED until the navigator has looked.** Staging (`agent` → Amplify staging
+host) is the correct and only realistic instrument for AC-2 — you cannot eyeball 1,100 animated stars
+from a luminance scalar. It is non-prod, the suite is green (194 pass / 1 skip / 0 fail, re-run and
+confirmed), the tests are behavior-level and RED-proven, and the retune is one line. Ship it to staging
+*for review*, not *as accepted*. Do **not** promote to `main`/prod on this verdict.
+
+**This verdict is load-bearing.** `tdd-critic` emitted #784 (`pass` — PASS-WITH-NITS, "clear for STAGING,
+NOT yet for prod") mid-review, clearing the other gate arm. `product-owner: concerns` is now the *only*
+thing holding `tics gate`. That is correct and deliberate: a `pass` from me would open prod on an
+unreviewed brand change. It stays `concerns` until the owner has looked.
+
+**tdd-critic #784 independently corroborates** three findings below and adds two worth carrying:
+- Confirms the trail diagnosis, the `STREAK_MAX_DIST` meaning-change (skip-threshold → tail cap,
+  saturation knee at 18.75 px/frame), and that `drawSpace()` is dead code — and sharpens the last one:
+  `spaceTrailAlphaForPreference` now has **no live consumer**, so invariant #6's "trail alpha" clause is
+  **vacuous while its test stays green**. A green test asserting nothing is worse than no test.
+- Notes the perf test's `clearRect()` stub **discards its arguments**, so "fully clears" is not actually
+  asserted — only that `clearRect` was *called*. My AC-1 accept rests on direct source inspection
+  (`c.clearRect(0, 0, w, h)`, full canvas) plus the `destination-out`-never-set assertion, both verified.
+  The accept stands, but the test is weaker than it reads. Tighten it (record args) before prod.
+- Also correct that the streak test's red was a missing-export `SyntaxError` (honest, non-triangulating).
+  The perf test's red *was* behavioral — 1344 gradient allocations in three frames. I confirmed both.
+
+---
+
 **MILESTONE: Work-showcase reframe + agent guide.** Turn the site from a résumé-shaped page into a
 **portfolio** that leads with the work, and turn the chat agent into a **guide** that walks visitors
 around the site. Five tracks (A IA merge → "Work"; B inline experience + résumé demotion; C guided-tour

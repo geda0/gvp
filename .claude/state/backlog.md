@@ -249,6 +249,53 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 ## In progress
 - _see `design-notes.md` + `progress.md`_
 
+### `starfield-perf` — PO verdict CONCERNS (2026-07-08). AC-1 + AC-3 accepted, AC-2 open.
+Staging push approved as the review instrument. **Prod promotion blocked** until the navigator rules on
+the night sky. Ordered follow-ups:
+
+1. **[navigator, blocking prod] Eyeball the night sky on staging and rule on brightness.**
+   Observable: owner views the staging night sky (hour ~22) side-by-side against prod and says either
+   "this is the sky" or gives a direction (brighter / longer tails / tighter stars). Mean luminance is
+   53% of old; the "it was all haze" rationale does not survive the coverage evidence (see
+   design-notes). Retune knobs, one line each in `js/starfield.js`: `STAR_GLOW_SCALE` (2.2),
+   `STREAK_ALPHA` (0.62), `STREAK_TAIL_FRAMES` (8). Do not tune before he looks — nobody has data.
+
+2. **[defect, small] `STAR_GLOW_SCALE=2.2` is applied on render paths that never had accumulation.**
+   Observable: with `prefers-reduced-motion: reduce`, night stars render at the same radius as the old
+   build (not 2.2x). Old reduced-motion night erased at alpha 1 — a **full clear**, no streaks, no
+   accumulation — so there was never any brightness debt to repay on that path. Same for the `drawTime`
+   *daytime* branch (`sp.star > 0.01` at dawn/dusk), which already `clearRect`'d. All A/B evidence was
+   captured with motion ON at hour 22, so both paths are unmeasured. Either scope the glow scale to the
+   accumulating path or confirm the enlargement is wanted. Guard with a test.
+
+3. **[nit] `streakLength()` clamps where the old code skipped.**
+   Old: `if (dist < 150)` → no streak at all for a big projected jump. New: `min(dist*8, 150)` → draws a
+   full 150px comet. Consequence: any star moving ≥18.75 px/frame now gets a *maximum-length* tail where
+   it used to get a `dist`-length one (a 20px/frame star: 20px → 150px). Mostly at the viewport edge
+   where near-camera stars race out, so likely benign — but `test/starfield-streak.test.mjs` enshrines
+   the clamp as if it were the preserved invariant. Confirm intent; if the skip mattered, restore it.
+
+4. **[code health, non-blocking] Dead `drawSpace()` still carries the old accumulating trail wash —
+   and it makes an invariant test vacuous.** `initTheme()` → `applyThemeTime()` sets `data-time`
+   unconditionally and nothing ever removes it, so `isTimeMode()` is always true and `draw()` only ever
+   reaches `drawTime()`. `drawSpace()` / `drawSnow()` / `drawStudio()` are unreachable at runtime.
+   `drawSpace()` still does a per-frame full-canvas `fillRect` wash and would now compound it with 2.2x
+   glows + 8x tails. Not a live defect (the "fillRect 60/sec → 0" claim is true of the live path). But
+   per tdd-critic #784, `spaceTrailAlphaForPreference` now has **no live consumer**, so invariant #6's
+   "trail alpha" clause is **vacuous while `test/starfield-reduced-motion.test.mjs` stays green**. A
+   green test that asserts nothing is a worse state than no test. Delete the dead path or re-point the
+   invariant at the live one.
+
+5. **[prod gate, from tdd-critic #784] Test-strength gaps that must close before prod, not staging.**
+   Observable: each is a test that fails if the behavior regresses. (a) `starfield.js:239`
+   reduced-motion ⇒ no streaks is the *live half of invariant #6* and is **untested** — boot with
+   `matchMedia matches:true`, assert `ctx.translate` calls `=== 0` (and `> 0` when false). (b) the perf
+   test's `clearRect()` stub **discards its args**, so "fully clears" is never actually asserted —
+   record args, assert `[0,0,1200,800]` and `fillRect === 0` on the night frame. (c) no seam at
+   `starfield.js:245-257`: a sign flip at `:251` leaves all four streak tests green — extract
+   `streakAnchor(x,y,px,py)` and test that the head lands at `(x,y)`. Nit: `:193`'s `hsl`→`hsla` string
+   surgery **fails silently** (canvas ignores an invalid `fillStyle`) — extract `streakColor()`.
+
 ## Shipped
 
 _Adoption baseline (2026-06-03): invariant #6 (reduced motion) proven by
