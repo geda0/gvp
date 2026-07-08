@@ -29,6 +29,29 @@ Model tiering and **slice-sizing** are one convention: size the red→green slic
 tiered-down implementer (faster model) gets a finer slice, a capable test-writer/role a coarser one (same
 one-behavior-per-red invariant at both; see "Slice granularity" in `docs/tdd/divide-and-conquer.md`, ADR 0010).
 
+### Speculative delegation (ADR 0022) — the verify side
+Tiering says who *drafts*; ADR 0022 says how the draft is *verified* (the shape of speculative decoding
+at the agent level: a fast drafter proposes, the big model verifies — verifying is far cheaper than
+generating). The pipeline per slice: fast-tier draft → the **free mechanical verify** (the gate + the
+hook-signed suite green) → a **confidence-gated diff review** by the orchestrator (the capable model),
+whose ruling is a draft-review `verdict` tic TO the drafting role with an explicit result —
+**accept** / **edit** (the orchestrator fixes small issues itself, refactor phase) / **reject** (keep
+everything accepted, redo only the rejected slice — lossless, never a full redo). The review is skipped
+(AUTO-ACCEPT: the green is the floor, the tdd-critic still samples) only when every confidence signal
+holds — first-try green, small diff, only in-scope files, no test edits; any miss → review before
+proceeding; under time/cost pressure review only the low-confidence slices. `tics roster` folds the
+draft-review verdicts into a per-role `drafts a/e/r` tally — tune `MODEL_<ROLE>` on that acceptance
+data, exactly as a speculative-decoding drafter is tuned on its acceptance rate.
+
+**Sanctioned draft lanes.** The same draft/verify shape extends beyond the implementer: the **planner's
+slice queue** (advisory — the orchestrator reviews ordering/sizing; the gate still referees every slice),
+**refactor proposals** after green (the suite staying green is the mechanical verifier), and **chores**
+(release notes, ledger rows, progress updates, commit messages — already the PM/dev-ops fast tier). The
+line that keeps this honest: **auto-accept exists only where a mechanical verifier does.** A green suite
+can vouch for a refactor; nothing mechanical vouches for a plan or a doc, so those drafts are always
+reviewed by the capable model. And judgment is never drafted — acceptance criteria, ADR decisions, and
+final test design can only be verified by redoing them.
+
 ## The loop, per feature
 1. **PLAN** — product-owner selects the next backlog item and writes its acceptance
    criteria (observable behaviors) into `design-notes.md`. Surface decisions to the

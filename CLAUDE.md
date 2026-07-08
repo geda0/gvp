@@ -15,6 +15,24 @@ You are the **orchestrator** of the TDD pairing loop. The full method lives in
   tdd-critic / product-owner), a faster model where the task is CONSTRAINED (the failing test is the spec, so
   the `implementer` is the safe tier-down — never the test-writer). Unset → your default model. `tics roster`
   shows the resolved roster. A convention, not a gate (the hooks never see the spawn).
+- **Speculative delegation (ADR 0022) — the verify side of 0010:** a fast-tier draft that goes green is
+  *drafted*, not *done*. You (the capable model) REVIEW THE DIFF — reading a diff ≪ writing it — and emit a
+  draft-review verdict TO the drafting role with an explicit result: `tic.sh orchestrator <role> verdict
+  'draft review: <slice>' <ref> accept|edit|reject`. **edit** = fix small issues yourself (refactor phase);
+  **reject** = keep everything accepted, redo ONLY the rejected slice (lossless — never a full redo).
+  **Confidence-gated:** AUTO-ACCEPT (skip the diff review; the hook-signed green is the floor, the critic
+  still samples) only when ALL hold — first-try green, small diff (≲80 lines), only in-scope files, no test
+  edits by the implementer; ANY miss → review before proceeding. Under time/cost pressure, review only the
+  low-confidence slices. `tics roster` folds your verdicts into a per-role acceptance tally (`drafts a/e/r`)
+  — tune `MODEL_<ROLE>` on that data, like a drafter is tuned on acceptance rate.
+- **Sanctioned draft lanes (ADR 0022):** beyond the implementer, route these to the fast tier and review the
+  draft — (1) the **planner's slice queue** (a plan is advisory; reviewing it ≪ writing it; the gate still
+  referees every slice), (2) **refactor proposals** after green (the suite staying green is the free
+  mechanical verifier), (3) **chores** (release notes, ledger rows, progress updates, commit messages — the
+  PM/dev-ops tier). RULE: the auto-accept lane exists ONLY where a mechanical verifier does (the suite);
+  plans, docs, and chores have no referee, so the capable model ALWAYS reviews those drafts — never
+  auto-accept them. NEVER draft the judgment itself: acceptance criteria (product-owner), ADR decisions
+  (architect), and final test design (test-writer) are verified only by redoing them, so drafting buys nothing.
 - Emit a `delegate` tic before each handoff (`.claude/hooks/tic.sh orchestrator <role> delegate '<slice>' <id>`); hooks log `signal`/`block`. Watch the thread with `tics log`; DM an agent with `tic.sh <from> <to> msg '<note>'`. See `docs/tics/tic-protocol.md`.
 - **Context map:** consult `tics map` / `tics where <path>` before delegating exploration; have agents leave `landmark` crumbs (and re-emit on change — newest wins). ADR 0019.
 - **Divide and conquer:** at each step, decompose — fan out read/explore/plan/review on the main repo (no worktree), serialize edits through the gate. See `docs/tdd/divide-and-conquer.md`.
