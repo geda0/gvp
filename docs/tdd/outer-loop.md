@@ -61,13 +61,44 @@ final test design can only be verified by redoing them.
    an existing contract.
 3. **BUILD** — run the inner red→green→refactor loop for each acceptance bullet
    (for cross-layer features: backend contract → frontend → one e2e journey).
-4. **ACCEPT** — for UX features, qa-verifier drives the running app; then the
-   product-owner signs off against acceptance, or files follow-ups/defects.
+4. **ACCEPT** — for UX features, someone drives the running app and emits an experience
+   `verdict` tic (see "The QA seam" below); then the product-owner signs off against
+   acceptance, citing that verdict, or files follow-ups/defects.
 5. **RECORD** — product-owner updates `backlog.md`; orchestrator updates
    `progress.md`.
 6. **RELEASE** — at a milestone boundary (accepted, bar green), the project-manager
    (with dev-ops) commits, git-tags, and deploys the milestone, verifies health, and
    records it in `releases.md`. Surface release blockers; then take the next feature.
+
+### The QA seam — the verdict tic, not the agent (ADR 0024)
+The seam at ACCEPT is a **verdict tic**, **not the `qa-verifier` agent**. An experience ruling that
+isn't on the bus does not exist. So **whoever observed** — with whatever instrument — emits it:
+`kind=verdict`, `from` = the role that actually looked, `to` = `product-owner`, an explicit
+`result` (`pass|concerns|block`, never inferred from prose), and a `msg` that **names the
+instrument**.
+
+The instrument vocabulary is a closed set (extend only by ADR):
+
+| instrument | what it is | what it can answer |
+|---|---|---|
+| `smoke` | the `smoke-verify.cjs` CLI (ADR 0021) | *only* "is this **text marker** in the rendered DOM" |
+| `browser-mcp` | a host browser tool (screenshot / eval / console) | pixel- and console-level; host-specific; self-reported |
+| `human` | the navigator looked | anything; final authority |
+| `none` | no instrument was used | **nothing** |
+
+`instrument=none` ⇒ the only permitted result is `concerns` (msg must say *unverified*) — **never a
+`pass` without an instrument.** And `smoke`'s range is a hard limit: it sees **text markers**; it
+**cannot see** **appearance** — a pixel/appearance bullet ("the trail never clears") is outside its
+range and needs `browser-mcp` or `human`.
+
+Who observes is **whoever holds the instrument — including the orchestrator** when it is the one
+with the browser tool. But it emits the verdict under **its own `from`**: emitting as
+`from=qa-verifier` when the `qa-verifier` agent didn't run is identity **launder**ing (nothing
+mechanical stops it — `qa-verifier` is agent-assertable — so the discipline must). The
+**product-owner**'s accept on a milestone with any **experience**-level bullet must **cite** the
+experience verdict(s) it relies on; with no experience verdict on the bus, its ruling is
+`concerns`, not accept. (We do **not** extend `tics gate` for this — whether a bullet is
+experience-level is judgment, audited by `tdd-critic`, not a mechanical predicate.)
 
 ## Reviews on the bus
 Every outer-loop ruling is a `verdict` tic, not only a doc edit: the **product-owner** emits

@@ -416,11 +416,17 @@ function writeCursorRule(target) {
     "- Spawning sub-actors? Give EACH a distinct `session` and pass it on every `tic_emit` — otherwise they merge into one indistinguishable actor (`session=\"\"`). A self-set `session` is provenance, not authentication, just like `from`.\n" +
     "- **Context map (learned crumbs):** before exploring an area, call `tics_map` (optional `path` -> crumbs for that file, or `task` -> route recipes) for what earlier agents learned. Leave one when you learn something durable: `tic_emit` kind=`landmark`, ref=`<path or area>`, result=`landmark|route|caveat`, msg=`<what you learned>`. When you change a thing you have a crumb about, emit a FRESH crumb — newest-per-ref wins. Self-reported; trust accordingly. See `docs/tics/context-map.md`.\n" +
     "\n" +
-    "**Enforcement, stated plainly — this is a convention, not a gate here.** The Claude Code referee — the phase x layer edit\n" +
-    "gate, the **security-surface guard** (it blocks auth/secret/CORS edits), green-bar signing, and no-finish-on-red — **does\n" +
-    "NOT run in Cursor**; nothing here forces these calls, so self-enforce per the checklist in `docs/tdd/tool-support.md`. The\n" +
-    "one mechanical gate you CAN have: run **`npx tics install-hooks`** once — it installs git hooks (pre-commit green-bar +\n" +
-    "pre-push release gate) that fire under any tool.\n";
+    "**Enforcement is host-dependent — assume you are refereed.** The kit's `.claude/settings.json` hooks (the phase x layer\n" +
+    "edit gate, the security-surface guard for auth/secret/CORS edits, green-bar signing, no-finish-on-red) fire only if your\n" +
+    "host runs them on its edit/stop events. Whether Cursor does is **host-dependent**: one Cursor configuration was observed\n" +
+    "running them (2026-07-07), but that is a single observation, not a guarantee for your version — so **assume refereed and\n" +
+    "self-enforce** per the checklist in `docs/tdd/tool-support.md`. Probe it mechanically: after an edit, read the bus\n" +
+    "(`.claude/hooks/tics log`); a **hook-signed** tic from `run-suite` (`signal`) or `guard` (`block`) naming your file proves\n" +
+    "the hooks fired for your tool (those `from` identities are unforgeable). No such tic means **self-reported** only, which\n" +
+    "proves nothing either way (the hooks are silent when they allow) — so self-enforce regardless. If a hook blocks you,\n" +
+    "comply; never flip `.claude/state/phase` merely to unblock an edit — it declares what you are doing, not a permission slip.\n" +
+    "The one gate you can guarantee under any tool: run **`npx tics install-hooks`** once — git hooks (pre-commit green-bar +\n" +
+    "pre-push release gate) that fire regardless of host.\n";
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(file, body);
   return file;
