@@ -3,6 +3,31 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-07-10 — p75 + "true form" of the wake: shimmering colored threads (app, phase off, suite 210/1/0). UNCOMMITTED — awaiting navigator intensity call.**
+  The accepted accumulation-trail fix is COMMITTED (`e20446e`). On top of it, per the navigator: "try p75 with the true
+  form — the dust is the result of interaction with the gravitational layers of spacetime; make it a line thin, magic
+  colorful like the stars glowing, random like fairies being."
+  Built: (1) **p75** — `DEPOSIT_FRAMES` 3 -> 6, so the derived fade is 0.578 (clears in 6 frames, keeps more smear);
+  invariant "wake never outlives deposit" still holds (6<=6). (2) **twinkle** — NEW pure seams `twinkle(phase,speed,t)`,
+  `makeTwinklePhase/Speed`, `TWINKLE_MIN`; each Star gets a random phase+speed (reassigned on respawn), and the streak
+  deposit's globalAlpha is modulated by `twinkle(...)` on `nowSeconds` (set once/frame in drawTime) — so each wake
+  shimmers on its own clock ("fairies"). (3) **magic colorful** — `streakColor` now boosts saturation (muted star * 2.3,
+  capped) + alpha 0.85, and screen-blend blooms overlaps; the STAR stays desaturated (distant sun), only the WAKE is vivid.
+  Also removes the last of the silent hsl->hsla string-surgery bug (parses components, throws on unknown form).
+  TDD: NEW `test/starfield-twinkle.test.mjs` (5 tests: range [TWINKLE_MIN,1], varies over time, hits both extremes,
+  two stars independent, random phase covers [0,2pi) + positive speed spread). Suite 210/1/0.
+  **Measured in-browser (dialed values TWINKLE_MIN=0.18, sat*2.3, alpha0.85):** ~76% of lit pixels are saturated/colored
+  (meanSat 0.26) — the "magic colorful" is real and measurable. Day/garden `normal`+snow intact, 0 console errors.
+  **DIALED UP per navigator ("push it more magical/visible"):** `TWINKLE_MIN` 0.32->0.18->0.10 (more sparkle contrast),
+  `streakColor` alpha 0.7->0.85->0.95 + saturation *1.9->*2.3->*2.8, `STREAK_MAX_DIST` 150->260. The real visibility lever
+  was thread LENGTH: constant-tuning barely moved it (coloredPct 0.048->0.057), because a streak was one frame of motion.
+  Added `STREAK_LENGTH_MULT = 4` — the streak is now drawn `dist*4` long (clamped to STREAK_MAX_DIST), head-at-star,
+  tapering at the tail. LENGTH ONLY, never width (width scaling was the "mantis ray"). coloredPct jumped 0.057->0.081,
+  meanSat ->0.34. Now reads at page scale: thin colored shooting-star threads, star-palette hued, shimmering per-star.
+  Magnified a bright thread: a clean thin periwinkle line (rgb 127,145,181), head-at-star, soft tail — exactly the spec.
+  Day/garden `normal`+snow intact, 0 console errors, suite 210/1/0.
+  **AWAITING navigator accept of THIS intensity, then commit + push to stage.** Prod still gated on product-owner AC-2.
+  Uncommitted files: `js/starfield.js`, NEW `test/starfield-twinkle.test.mjs`.
 - **2026-07-10 — trail fade DERIVED from a deposit budget: wake may not outlive its build (app, phase off, suite 205/1/0). UNCOMMITTED.**
   Navigator: "collect the garbage faster, I need the accumulation not to exist beyond as much time as it took to build."
   That is a SYMMETRY SPEC, not a taste knob — so it is now an invariant, and the fade is derived from it.
