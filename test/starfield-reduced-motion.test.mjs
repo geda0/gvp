@@ -23,8 +23,10 @@ test('firefly count: default vs reduced-motion floor', () => {
 })
 
 test('full star count matches reference 1080p @ 4 cores', () => {
+  // Reference == baseStars at exactly 1080p @ 4 cores (area factor 1, cores factor 1).
   const full = calculateFullStarCount(1920, 1080, 4)
-  assert.equal(full, 717)
+  assert.equal(full, STARFIELD_DEFAULT_EXPERIENCE.baseStars)
+  assert.equal(full, 1500)
 })
 
 test('reduced-motion star count scales and caps', () => {

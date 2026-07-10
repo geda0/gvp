@@ -6,7 +6,9 @@
 export const STARFIELD_DEFAULT_EXPERIENCE = {
   snowCount: 200,
   spaceTrailAlpha: 0.59,
-  baseStars: 717,
+  // Density: the sky is lit by MANY quiet background stars (most are just points of
+  // light now — only fast ones shoot — so we can afford far more of them).
+  baseStars: 1500,
   fireflyCount: 22
 }
 

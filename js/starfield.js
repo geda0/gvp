@@ -92,13 +92,53 @@ export const DAY_BLEND_MODE = 'normal';
  * star carries its own random phase + speed, so no two shimmer in lockstep.
  */
 export const TWINKLE_MIN = 0.1;
+/** Background starlight breathes gently — a much higher floor than the wake sparkle. */
+export const STAR_TWINKLE_MIN = 0.62;
 export const TWINKLE_SPEED_MIN = 1.4;
 export const TWINKLE_SPEED_MAX = 5.4;
 
-/** Opacity multiplier in [TWINKLE_MIN, 1] for a star's wake at time `t` (seconds). */
-export function twinkle(phaseRad, speed, t) {
+/** Opacity multiplier in [min, 1] at time `t` (seconds). Wakes use the low default
+ *  floor (dramatic sparkle); the background star-points pass STAR_TWINKLE_MIN. */
+export function twinkle(phaseRad, speed, t, min = TWINKLE_MIN) {
   const s = 0.5 + 0.5 * Math.sin(t * speed + phaseRad); // 0..1
-  return TWINKLE_MIN + (1 - TWINKLE_MIN) * s;
+  return min + (1 - min) * s;
+}
+
+/**
+ * The night sky is two populations. Most stars just drift as calm light; a rare,
+ * RANDOMLY chosen few are "shooters" that move much faster and streak across as
+ * meteors. Designating shooters at random (rather than gating on who is fastest)
+ * makes the shooting genuinely occasional AND random, and keeps it controllable —
+ * SHOOTER_FRACTION is the rate, independent of the depth distribution.
+ */
+export const SHOOTER_FRACTION = 0.008;
+/** A shooter's per-frame motion is the background drift, boosted — a fast meteor. */
+export const SHOOTER_SPEED_BOOST = 3.4;
+/** Background drift factor: kept low so the light-giving majority stays calm. */
+export const BG_SPEED_FACTOR = 1.5;
+
+export function makeShooter() {
+  return Math.random() < SHOOTER_FRACTION;
+}
+
+/**
+ * Per-frame screen speed for a star at `depthRatio` = (width - z) / width in [0,1]
+ * (0 far, 1 closest). Background stars drift; shooters are the same, boosted.
+ */
+export function starFrameSpeed(depthRatio, isShooter, base = 0.08, speedScale = 1) {
+  const v = (base + depthRatio * BG_SPEED_FACTOR) * speedScale;
+  return isShooter ? v * SHOOTER_SPEED_BOOST : v;
+}
+
+/**
+ * Every star must light the sky. A far background star projects sub-pixel (~0.38px)
+ * and disappears — the original hid this behind the accumulation haze. With the haze
+ * gone, floor the point size so the dense field reads as many soft lights.
+ */
+export const STAR_MIN_RADIUS = 1.15;
+
+export function starPointRadius(rawRadius) {
+  return rawRadius < STAR_MIN_RADIUS ? STAR_MIN_RADIUS : rawRadius;
 }
 
 export function makeTwinklePhase() {
@@ -137,7 +177,7 @@ export function initStarfield(canvasId, options = {}) {
   const getTheme = options.getTheme || (() => 'space');
 
   const config = {
-    baseSpeed: 0.1,
+    baseSpeed: 0.08,
     baseStars: STARFIELD_DEFAULT_EXPERIENCE.baseStars
   }
 
@@ -232,10 +272,10 @@ export function initStarfield(canvasId, options = {}) {
   const STREAK_SPRITE_W = 64;
   const STREAK_SPRITE_H = 4;
   const STREAK_THICKNESS = 1.5;
-  const STREAK_MAX_DIST = 260;
+  const STREAK_MAX_DIST = 420;
   // The wake reads as a legible thread, not a one-frame nub: draw it this many
   // frames of motion long (thin — length only, never width).
-  const STREAK_LENGTH_MULT = 4;
+  const STREAK_LENGTH_MULT = 26;
 
   const starSprites = [];
   const streakSprites = [];
@@ -279,13 +319,15 @@ export function initStarfield(canvasId, options = {}) {
     // Each star shimmers on its own clock — "random like fairies being".
     this.twinklePhase = makeTwinklePhase();
     this.twinkleSpeed = makeTwinkleSpeed();
+    // A rare few are randomly designated shooters — they streak across as meteors.
+    this.isShooter = makeShooter();
     this.px = null;
     this.py = null;
 
     this.move = function () {
-      var speed =
-        (config.baseSpeed + (canvas.width - this.z) / canvas.width * 4) *
-        starSpeedScale;
+      const speed = starFrameSpeed(
+        (canvas.width - this.z) / canvas.width, this.isShooter, config.baseSpeed, starSpeedScale
+      );
       this.z = this.z - speed;
 
       if (this.z <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
@@ -295,6 +337,7 @@ export function initStarfield(canvasId, options = {}) {
         this.colorIndex = paletteColorIndex();
         this.twinklePhase = makeTwinklePhase();
         this.twinkleSpeed = makeTwinkleSpeed();
+        this.isShooter = makeShooter();
         this.px = null;
         this.py = null;
       }
@@ -311,46 +354,53 @@ export function initStarfield(canvasId, options = {}) {
       s = this.size * (fl / this.z);
 
       this.glow = (canvas.width - this.z) / canvas.width * 15;
-
-      // Motion streaks: default only (reduced-motion users get stars without streaks).
-      // The baked strip carries the same transparent->colour fade the per-frame
-      // linear gradient did, drawn along px->x. One drawImage, zero allocation.
-      if (
-        !prefersReducedMotion &&
-        this.px !== null &&
-        this.py !== null
-      ) {
-        const dx = x - this.px;
-        const dy = y - this.py;
-        const dist = Math.hypot(dx, dy);
-        if (dist > 0) {
-          // The wake is a THIN thread, but a longer one than a single frame's motion,
-          // so the gravitational line is legible: drawn from `len` behind the star,
-          // head-at-star, tapering transparent at the tail. Length only — never width
-          // (that was the "mantis ray"). Shimmered on this star's own clock so the
-          // threads flicker "random like fairies".
-          const len = Math.min(dist * STREAK_LENGTH_MULT, STREAK_MAX_DIST);
-          const ux = dx / dist;
-          const uy = dy / dist;
-          c.save();
-          c.globalAlpha = twinkle(this.twinklePhase, this.twinkleSpeed, nowSeconds);
-          c.translate(x - ux * len, y - uy * len);
-          c.rotate(Math.atan2(dy, dx));
-          c.drawImage(
-            streakSprites[this.colorIndex],
-            0, -STREAK_THICKNESS / 2, len, STREAK_THICKNESS
-          );
-          c.restore();
-        }
-      }
-
-      // Draw the star: the baked radial sprite, scaled to the original radius.
       const radius = s * (1.5 + this.glow / 10);
-      if (radius > 0) {
+
+      // Cleanup anything not visible: a star that projects off-screen (close stars
+      // fling wide) costs a drawImage for nothing — skip it. Still update px/py so
+      // its wake stays continuous if it swings back in.
+      const margin = radius + STREAK_MAX_DIST;
+      const onScreen =
+        x > -margin && x < canvas.width + margin &&
+        y > -margin && y < canvas.height + margin;
+
+      if (onScreen && radius > 0) {
+        // The wake: ONLY for the randomly-designated shooters. The calm majority are
+        // just lights and skip this entirely (cheaper, and the scene stays quiet). A
+        // shooter earns the long thin star-coloured thread, drawn from `len` behind it,
+        // head-at-star, tapering at the tail — length only, never width (width was the
+        // "mantis ray"), shimmered on its own clock ("random like fairies").
+        if (!prefersReducedMotion && this.isShooter && this.px !== null && this.py !== null) {
+          const dx = x - this.px;
+          const dy = y - this.py;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 0) {
+            const len = Math.min(dist * STREAK_LENGTH_MULT, STREAK_MAX_DIST);
+            const ux = dx / dist;
+            const uy = dy / dist;
+            c.save();
+            c.globalAlpha = twinkle(this.twinklePhase, this.twinkleSpeed, nowSeconds);
+            c.translate(x - ux * len, y - uy * len);
+            c.rotate(Math.atan2(dy, dx));
+            c.drawImage(
+              streakSprites[this.colorIndex],
+              0, -STREAK_THICKNESS / 2, len, STREAK_THICKNESS
+            );
+            c.restore();
+          }
+        }
+
+        // The star as light: a point that breathes gently on its own clock, so the
+        // dense field feels alive and lights the sky. Floored to a visible size so a
+        // sub-pixel background star still shows (the "way more stars" lighting).
+        const pr = starPointRadius(radius);
+        c.save();
+        c.globalAlpha = twinkle(this.twinklePhase, this.twinkleSpeed, nowSeconds, STAR_TWINKLE_MIN);
         c.drawImage(
           starSprites[this.colorIndex],
-          x - radius, y - radius, radius * 2, radius * 2
+          x - pr, y - pr, pr * 2, pr * 2
         );
+        c.restore();
       }
 
       // Update previous position for next frame

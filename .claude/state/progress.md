@@ -3,6 +3,37 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-07-10 — starfield scene reconception: two populations (light + occasional shooters), lit + calm (app, phase off, suite 216/1/0). UNCOMMITTED — awaiting navigator on the SHOOTING character.**
+  Navigator vs original: original sky felt LIT (many background stars) + CALM (not fast); wanted "stars there for light,
+  occasionally shooting randomly", + perf cleanup to afford more stars.
+  DIAGNOSIS (measured): the original's lit feel was partly the ACCUMULATION HAZE (now removed) smearing sub-pixel stars
+  into visibility. A far background star projects ~0.38px radius = invisible. And the shimmer build streaked EVERY star
+  (busy/fast feel). Speed far 0.073 / near 3.76 px/frame (perspective already makes close stars fast).
+  BUILT (all TDD, pure seams in `test/starfield-scene.test.mjs`): (1) **isShooting(frameDist)** gate — only stars whose
+  per-frame motion >= SHOOT_SPEED_THRESHOLD(1.35) get the coloured wake; the calm majority are just points (cheaper +
+  quieter). (2) **starPointRadius()** — floors every star to STAR_MIN_RADIUS(1.15px) so the dense field is VISIBLE
+  ("way more stars lighting the sky"); this was the key lever — litPct 0.062 -> **0.22** (3.5x). (3) **star-point twinkle**
+  — twinkle() gained a floor param; background stars breathe gently at STAR_TWINKLE_MIN(0.62) vs the wake's 0.1 sparkle.
+  (4) **off-screen cull** — a star projecting past the edge (+margin) skips its drawImage. TUNED (refactor): baseStars
+  717->1500 (updated the 1 prefs reference test), perspective speed factor 4->2.2, baseSpeed 0.1->0.08.
+  MEASURED: 1472 stars, ~1058 drawn/frame (rest culled), **0 gradient allocs/frame**, 6.4% shooting at once (~68 short
+  tails). Reads calm + densely lit; day/garden + snow intact; 0 console errors.
+  **SHOOTING REDESIGNED per navigator ("rare + dramatic meteors"):** the speed-threshold gate could never give "a few" —
+  fast stars are the close ones and there are always many (raising the threshold + speed gave ~73 shooters, WORSE). And
+  "shooting RANDOMLY" is not what a deterministic speed gate does. Replaced with **random designation**: `makeShooter()`
+  flags SHOOTER_FRACTION(0.008) of stars at spawn/respawn; a shooter's drift is boosted SHOOTER_SPEED_BOOST(3.4x) via the
+  new pure seam `starFrameSpeed(depthRatio, isShooter, base, scale)`; ONLY shooters draw the wake. Background drift stays
+  calm (BG_SPEED_FACTOR 1.5; closest bg star ~1.45px/frame). `isShooting`/SHOOT_SPEED_THRESHOLD removed with their tests;
+  `test/starfield-scene.test.mjs` now pins: shooters random + rare (statistical, N=20k), boosted vs background at equal
+  depth, background calm (<2px/frame), speedScale honoured. Node-stub measurement: ~1040 stars drawn/frame, **~8 meteors
+  on screen avg (min 6 max 11)** at desktop viewport; tails STREAK_LENGTH_MULT=26 (clamped 420px) so each reads as a meteor.
+  **TOOLING GOTCHA (cost an hour): the Browser pane keeps the tab `visibilityState:hidden`, so rAF NEVER fires — the
+  canvas reads litPct 0 and screenshots show an empty sky while the code is fine (node stub draws 1040/frame).**
+  Workaround for verification: `Object.defineProperty(document,'visibilityState',{value:'visible'})` + shim
+  `requestAnimationFrame` to setTimeout + dispatch `visibilitychange`; then the field renders and screenshots work.
+  Verified after shim: night opaque+screen, lit calm field; day normal+transparent+snow (0.288); round-trip clean; 0
+  console errors. Suite 218/1/0. UNCOMMITTED — navigator should eyeball the meteor character (ideally on stage at full
+  viewport; the pane viewport is 800x450 = only ~370 stars). Prod still gated on PO AC-2.
 - **2026-07-10 — p75 + "true form" of the wake: shimmering colored threads (app, phase off, suite 210/1/0). UNCOMMITTED — awaiting navigator intensity call.**
   The accepted accumulation-trail fix is COMMITTED (`e20446e`). On top of it, per the navigator: "try p75 with the true
   form — the dust is the result of interaction with the gravitational layers of spacetime; make it a line thin, magic
