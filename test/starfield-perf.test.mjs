@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { STAR_MAX_RADIUS } from '../js/starfield.js'
 
 // No jsdom in this repo — a counting canvas stub is enough to pin the two
 // invariants that make the starfield cheap and clean:
@@ -23,7 +24,16 @@ function makeCtx(counters) {
     fillRect() { counters.fillRect++ },
     // Record the args: "the frame clears" is only true if it clears the WHOLE canvas.
     clearRect(...a) { counters.clearRect++; counters.clearRectArgs.push(a) },
-    drawImage() { counters.drawImage++ },
+    // Record geometry + alpha: "no star renders as a ball" and "stars fade with
+    // depth" are properties of the DRAW, not of the pure helpers.
+    drawImage(_img, _dx, _dy, dw, dh) {
+      counters.drawImage++
+      if (typeof dh === 'number') {
+        if (dh > counters.maxDrawH) counters.maxDrawH = dh
+        if (dw > counters.maxDrawW) counters.maxDrawW = dw
+      }
+      counters.drawAlphas.push(ctx.globalAlpha)
+    },
     stroke() { counters.stroke++ },
     beginPath() {}, arc() {}, fill() {},
     moveTo() {}, lineTo() {}, quadraticCurveTo() {}, closePath() {},
@@ -52,6 +62,9 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
     createRadialGradient: 0, createLinearGradient: 0,
     fillRect: 0, clearRect: 0, drawImage: 0, stroke: 0, translate: 0,
     clearRectArgs: [],
+    maxDrawW: 0,
+    maxDrawH: 0,
+    drawAlphas: [],
     compositeOps: new Set()
   }
   const mainCanvas = makeCanvas(counters)
@@ -95,6 +108,9 @@ function reset(counters) {
   counters.stroke = 0
   counters.translate = 0
   counters.clearRectArgs = []
+  counters.maxDrawW = 0
+  counters.maxDrawH = 0
+  counters.drawAlphas = []
   counters.compositeOps = new Set()
 }
 
@@ -178,4 +194,48 @@ test('reduced motion sheds no stardust (its per-frame draws stay flat over time)
   const nLate = drawsOnNextFrame(normal)
   assert.ok(nLate > nEarly,
     `default motion must accumulate dust, so draws rise (early=${nEarly}, late=${nLate}) — otherwise the flat-count check above is vacuous`)
+})
+
+// The depth guards live in the DRAW, so pure-function tests cannot see them:
+// reverting the recycle to `z <= 0` or deleting the radius clamp leaves every
+// helper test green. These pin the wiring instead, through the rendered calls.
+
+test('no star ever renders as a ball, however close it gets', async () => {
+  const h = await bootStarfield({ reducedMotion: false })
+  for (let i = 0; i < 200; i++) h.pump() // long enough for stars to close on the camera
+
+  const cap = 2 * STAR_MAX_RADIUS // sprite is drawn at radius*2 a side
+  assert.ok(h.counters.maxDrawH > 0, 'stars must actually be drawn')
+  assert.ok(
+    h.counters.maxDrawH <= cap + 1e-6,
+    `a star was drawn ${h.counters.maxDrawH}px tall; the clamp caps it at ${cap}px (a ball flew at the viewer)`
+  )
+  assert.ok(h.counters.maxDrawW <= Math.max(cap, 150) + 1e-6, 'streak tails stay bounded too')
+})
+
+test('stars dissolve as they approach, and are recycled at the near plane', async () => {
+  // Reduced motion draws stars ONLY (no streaks, no dust), so every recorded
+  // drawImage/alpha belongs to a star — an unconfounded probe.
+  const h = await bootStarfield({ reducedMotion: true })
+  h.pump()
+  reset(h.counters)
+  h.pump()
+  const earlyDraws = h.counters.drawImage
+
+  for (let i = 0; i < 120; i++) h.pump()
+  reset(h.counters)
+  h.pump()
+  const lateDraws = h.counters.drawImage
+  const alphas = h.counters.drawAlphas
+
+  assert.ok(earlyDraws > 0 && lateDraws > 0, 'stars keep drawing')
+  assert.ok(
+    alphas.some((a) => a > 0 && a < 1),
+    'some star must be mid-fade — otherwise the depth fade is not wired and stars pop'
+  )
+  assert.ok(alphas.every((a) => a > 0), 'a fully-faded star should be skipped, not drawn at alpha 0')
+  assert.ok(
+    lateDraws >= earlyDraws * 0.95,
+    `draws collapsed ${earlyDraws} -> ${lateDraws}: stars are lingering invisible near the camera instead of being recycled at the near plane`
+  )
 })

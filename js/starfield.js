@@ -73,6 +73,47 @@ export const DUST_CULL_ALPHA = 0.02;
 export const STAR_GLOW_SCALE = 2.1;
 export const STREAK_ALPHA = 0.42;
 
+/**
+ * Depth guards. The projection is `size * (focalLength / z)`, so a star aimed near
+ * the centre of the screen grows without bound as z approaches the camera — at
+ * z = 0.01*W it projects to ~313px, a beach ball flying into the viewer's face.
+ * Three guards, bluntest last:
+ *   1. NEAR PLANE  — recycle the star before it can ever reach the camera.
+ *   2. DEPTH FADE  — dissolve it on the way in, so it never pops out of existence.
+ *   3. RADIUS CLAMP — a hard ceiling, so no arithmetic can produce a ball.
+ * Ratios are of the canvas width (z is seeded in [0, width) and focalLength = width).
+ */
+export const STAR_NEAR_PLANE_RATIO = 0.15;
+export const STAR_FADE_START_RATIO = 0.32;
+export const STAR_MAX_RADIUS = 9;
+
+export function starNearPlane(width) {
+  return width * STAR_NEAR_PLANE_RATIO;
+}
+
+export function starFadeStart(width) {
+  return width * STAR_FADE_START_RATIO;
+}
+
+/** 1 while far away, easing to 0 at the near plane. Never pops. */
+export function starDepthFade(z, width) {
+  const near = starNearPlane(width);
+  if (z <= near) return 0;
+  const start = starFadeStart(width);
+  if (z >= start) return 1;
+  return (z - near) / (start - near);
+}
+
+/** A star is retired at the near plane, or once it has drifted out of frame. */
+export function starShouldRecycle(z, x, y, width, height) {
+  return z <= starNearPlane(width) || x < 0 || x > width || y < 0 || y > height;
+}
+
+/** A star is a point of light, never a ball — whatever the projection returns. */
+export function clampStarRadius(radius) {
+  return Math.min(radius, STAR_MAX_RADIUS);
+}
+
 /** Tail length for a star that moved `frameDelta` px this frame. */
 export function streakLength(frameDelta, tailFrames = STREAK_TAIL_FRAMES) {
   return Math.min(frameDelta * tailFrames, STREAK_MAX_DIST);
@@ -400,7 +441,9 @@ export function initStarfield(canvasId, options = {}) {
     this.idx = index | 0;
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
-    this.z = Math.random() * canvas.width;
+    // Seed in front of the near plane, so a fresh star is never recycled on frame 1.
+    const near = starNearPlane(canvas.width);
+    this.z = near + Math.random() * (canvas.width - near);
     this.colorIndex = paletteColorIndex();
     this.size = Math.random() / 2;
     this.px = null;
@@ -412,7 +455,7 @@ export function initStarfield(canvasId, options = {}) {
         starSpeedScale;
       this.z = this.z - speed;
 
-      if (this.z <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+      if (starShouldRecycle(this.z, this.x, this.y, canvas.width, canvas.height)) {
         this.z = canvas.width;
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
@@ -434,8 +477,17 @@ export function initStarfield(canvasId, options = {}) {
 
       this.glow = (canvas.width - this.z) / canvas.width * 15;
 
+      // Dissolve the star as it closes on the camera, so it leaves the scene by the
+      // near plane instead of popping — and never as a ball, thanks to the clamp.
+      const fade = starDepthFade(this.z, canvas.width);
+      if (fade <= 0) return;
+
       // Glow radius drives the star sprite, the streak width, and the mote size.
-      const radius = s * (1.5 + this.glow / 10) * starGlowScale;
+      const radius = clampStarRadius(s * (1.5 + this.glow / 10) * starGlowScale);
+
+      // Everything this star draws this frame is scaled by its depth fade.
+      const layerAlpha = c.globalAlpha;
+      c.globalAlpha = layerAlpha * fade;
 
       // Shed a mote of stardust where the star is right now. It stays here and
       // fades out on its own — it does not travel with the star.
@@ -477,6 +529,8 @@ export function initStarfield(canvasId, options = {}) {
           x - radius, y - radius, radius * 2, radius * 2
         );
       }
+
+      c.globalAlpha = layerAlpha;
 
       // Update previous position for next frame
       this.px = x;

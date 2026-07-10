@@ -3,6 +3,27 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-07-10 — starfield depth guards: no more beach-ball stars (app, phase off, suite 224/1/0). UNCOMMITTED.**
+  Navigator on staging: "stars scale massively when they come close, looks like a big ball... best to avoid the stars
+  hitting the user in the face." **Root cause:** perspective is `size * (focalLength/z)` with `fl = canvas.width`, and
+  stars were recycled only at `z <= 0` — so a star aimed near screen centre kept closing on the camera and its radius
+  diverged. Measured table: at `z=0.32W` radius <= 8.3px; at `z=0.01W` radius = **313px**.
+  **Three guards (bluntest last), all in `js/starfield.js`:** (1) NEAR PLANE `STAR_NEAR_PLANE_RATIO=0.15` —
+  `starShouldRecycle()` retires a star before it can reach the camera; (2) DEPTH FADE `STAR_FADE_START_RATIO=0.32` —
+  `starDepthFade()` dissolves it on the way in so it never POPS (multiplies globalAlpha for that star's glow+streak);
+  (3) hard clamp `STAR_MAX_RADIUS=9` via `clampStarRadius()`. Star `z` is now seeded in front of the near plane.
+  **Verified in-browser:** biggest star on screen 3-8px diameter (mean 4.3) vs **70-104px before**.
+  **Fill-rate collapse (deterministic node stub, 30 frames after 200-frame warmup, same draw-call count ~6950/frame):**
+  max single drawImage height **37,129px -> 18px**; pixel area per frame **110,622,077 -> 108,418** (~1020x less
+  overdraw; the old frame was rasterising 45x the whole canvas). So this is a large PERF win as well as the visual fix.
+  **Could NOT get a trustworthy ms/frame this session** — the preview tab suspends rAF between tool calls (captured 2
+  frames); do not quote a ms number until re-measured on a visible tab. Prior committed build measured 5.06 ms/frame.
+  **TDD + break-checks:** NEW `test/starfield-depth.test.mjs` (7 pure-seam tests). CRUCIALLY the pure seams did NOT guard
+  the WIRING — reverting the recycle to `z<=0` or deleting the clamp left all 222 tests green. So the canvas stub now
+  records drawImage geometry + globalAlpha, and `test/starfield-perf.test.mjs` gained two wiring tests. Break-checked
+  each guard independently: delete clamp -> "no star renders as a ball" fails; delete fade -> "stars dissolve..." fails;
+  revert recycle to z<=0 -> "stars dissolve..." fails (draws collapse as stars linger invisible near the camera).
+  Day/garden snow path intact, 0 console errors. Not yet pushed; prod still gated on product-owner AC-2.
 - **2026-07-09 — starfield stardust: navigator-driven redesign of the trail (app, phase off, suite 215/1/0).**
   Navigator reviewed the previous build ON STAGING and rejected it: close stars showed a "lollipop" (thin stick under a
   fat round glow); after I widened the head to the glow DIAMETER it became a "mantis ray" (triangular wings). Their key
