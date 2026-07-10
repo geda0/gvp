@@ -3,6 +3,42 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-07-09 — starfield stardust: navigator-driven redesign of the trail (app, phase off, suite 215/1/0).**
+  Navigator reviewed the previous build ON STAGING and rejected it: close stars showed a "lollipop" (thin stick under a
+  fat round glow); after I widened the head to the glow DIAMETER it became a "mantis ray" (triangular wings). Their key
+  insight: the lingering glow must NOT be welded to the star — it should be dust deposited across the sky that fades out.
+  **Root realization:** the old uncleared canvas was doing TWO jobs at once — (a) a thin one-frame motion line per star,
+  (b) a sky-wide lingering glow. Stretching the streak to do (b) is why both artifacts appeared. Split them:
+  **STREAK** reverted to the ORIGINAL (`STREAK_TAIL_FRAMES=1`, thin, clamped by `STREAK_MAX_THICKNESS=3` via
+  `streakThickness()`). **STARDUST** = new bounded particle system: each star sheds a mote every `DUST_SPAWN_INTERVAL`
+  frames (staggered by star index); a mote is FROZEN at its spawn point (does not follow the star), keeps that star's
+  palette colour, and its alpha comes from `dustAlpha(age,life)=(1-age/life)^2` which is EXACTLY 0 at end of life.
+  Alpha is derived from age and NEVER read back off the canvas, so the 8-bit rounding that stranded the old
+  `destination-out` fade at ~2/255 (the permanent haze) is impossible by construction. `createDustPool` is a fixed-size
+  ring over typed arrays — spawning forever recycles, never grows. Small per-colour dust sprite baked once (navigator's
+  "alternating sprites" hint) instead of downscaling the 64px star glow ~5k times a frame.
+  **Navigator flipped the brightness knob:** `DUST_MIN_STAR_RADIUS 1 -> 0` (whole field sheds; brighter, denser sky).
+  `shedsDust(radius, threshold)` is parameterized so the SEAM stays pinned while the VALUE is free tuning.
+  **Measured (quiet machine, rAF-wrap, same method as baseline): 5.06 ms/frame, p95 5.4, busy 301 ms/s** vs the ORIGINAL
+  buggy build 6.57/7.2/391. Zero gradient allocations per frame (was 132k/sec). No accumulation, proven empirically:
+  fully-transparent pixel share holds 99.4-99.7% over 18s, residue band (alpha 1-4) flat at 0.03-0.08%.
+  NOTE: the dim-but-fastest build was 2.03 ms — dust is NOT free; ~3 ms/frame buys the sky the navigator wants.
+  **tdd-critic = PASS-WITH-NITS** (ref `starfield-dust`): verified the ring is provably safe (a slot is reused only after
+  `capacity` spawns, which takes >= `life` frames of aging, so it is already dead — no mote pops mid-fade), every alive
+  mote is aged 1:1 with frames, `dustAlpha` handles Infinity/NaN, per-resize pool realloc is churn not a leak. It judged
+  my two self-corrected tests HONEST (I had pinned falsified hypotheses: `STREAK_TAIL_FRAMES>1` and
+  `DUST_MIN_STAR_RADIUS>0` — both were taste/obsolete, re-pinned as behaviour against explicit params).
+  **All 3 nits FIXED before push:** (1) reduced-motion-sheds-no-dust was UNTESTED — added a count-independent guard
+  (dust makes per-frame drawImage RISE as the pool fills; no dust => flat), and my FIRST attempt at it was NOT red-capable
+  (it compared modes, but reduced motion also renders far fewer stars, masking leaked dust) — rewrote to compare a mode
+  against ITSELF over time, then BREAK-CHECKED it: removing the guard makes reduced-motion draws climb 210->966 and the
+  test fails. (2) day<->night crossover thawed stale mid-life motes at old positions (pool not aged while not drawn) —
+  added `resetDust(pool)` + a single `setDustEnabled()` edge-trigger that retires the pool on true->false, wired at all
+  4 call sites incl. the `sp.star <= 0.01` branch. (3) dropped a tautological `dustCapacity` assertion.
+  STILL OPEN (backlog, from the earlier critic pass): `streakAnchor()` seam (a sign flip at the streak draw leaves all
+  streak tests green), `streakColor()` (hsl->hsla string surgery fails SILENTLY on modern `hsl(210 40% 80%)` syntax),
+  and `drawSpace()` is DEAD (`js/theme.js:62` sets `data-time` unconditionally) making invariant #6's trail-alpha clause
+  vacuous while its test stays green.
 - **2026-07-08 — starfield: trail residue fixed + ~1.8× faster draw (app layer, phase off, suite 194/1/0).**
   Navigator: "front end is heavy, the stars trail never clears — clean the trail, perf should be better." Feature WIP
   parked in `stash@{0}` first (restructure + content-depth); ttics 0.67.1 kit update kept in tree.

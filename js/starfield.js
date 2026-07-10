@@ -25,25 +25,126 @@ import { sceneParamsAt } from './theme-time.js'
  * point STREAK_TAIL_FRAMES worth of motion behind the star. Same comet, drawn
  * fresh: no accumulation, no residue, still one drawImage per star.
  */
-export const STREAK_TAIL_FRAMES = 8;
+// The streak is the ORIGINAL motion line: roughly one frame of travel, thin. The
+// sky's brightness and its lingering trail come from stardust (below), never from
+// a fat streak — a hairline under a big glow reads as a LOLLIPOP, and a streak
+// scaled to the glow's diameter reads as a MANTIS RAY. Thin and bounded, always.
+export const STREAK_TAIL_FRAMES = 1;
 /** Longest tail we draw — a fast or respawned star must not smear across the screen. */
 export const STREAK_MAX_DIST = 150;
 /** Sub-pixel tails are invisible; skip the draw entirely. */
 export const STREAK_MIN_DIST = 1;
-export const STREAK_THICKNESS = 1.5;
+
+/** Streak width grows gently with the glow, then clamps — never a wing. */
+export const STREAK_HEAD_RATIO = 0.16;
+export const STREAK_MIN_THICKNESS = 1.2;
+export const STREAK_MAX_THICKNESS = 3;
+
 /**
- * Per-frame brightness. The old renderer got its brightness for free by letting
- * ~14 frames of glow pile up on an uncleared canvas. On a cleared canvas each
- * star is drawn exactly once, so the single pass has to carry the same weight:
- * a slightly wider glow and a stronger streak head restore the night sky's
- * density without ever accumulating.
+ * Stardust — the trail the old uncleared canvas used to give, done so it actually
+ * ends. Each star sheds a mote every DUST_SPAWN_INTERVAL frames. A mote is FROZEN
+ * where it was born (it does not follow the star), keeps that star's colour, and
+ * fades on its own age to EXACTLY zero at DUST_LIFE_FRAMES. Alpha is computed from
+ * age and never read back off the canvas, so the 8-bit rounding that stranded the
+ * old `destination-out` fade at ~2/255 (the permanent haze) cannot happen here.
  */
-export const STAR_GLOW_SCALE = 2.2;
-export const STREAK_ALPHA = 0.62;
+export const DUST_LIFE_FRAMES = 22;
+/** Shed often enough that the trail reads as a lit path, not a dotted line. */
+export const DUST_SPAWN_INTERVAL = 4;
+export const DUST_PEAK_ALPHA = 0.75;
+/**
+ * A mote is a soft speck, not a second star. The clamp matters twice over: a close
+ * star's glow radius is tens of pixels, so an unclamped mote is both a fat blob and
+ * — multiplied by thousands of motes a frame — a fill-rate sink.
+ */
+export const DUST_SIZE_RATIO = 0.8;
+export const DUST_MIN_SIZE = 0.9;
+export const DUST_MAX_SIZE = 3.2;
+/**
+ * Brightness/cost knob: the smallest star glow that sheds dust. Raise it and only
+ * close, visibly-streaking stars shed (cheaper, dimmer sky); at 0 the whole field
+ * sheds, which is the denser, brighter sky the navigator signed off on. Taste, not
+ * an invariant — `shedsDust` is pinned against an explicit threshold instead.
+ */
+export const DUST_MIN_STAR_RADIUS = 0;
+/** Below this the mote adds nothing a viewer can see — skip the draw, keep the frame cheap. */
+export const DUST_CULL_ALPHA = 0.02;
+
+export const STAR_GLOW_SCALE = 2.1;
+export const STREAK_ALPHA = 0.42;
 
 /** Tail length for a star that moved `frameDelta` px this frame. */
 export function streakLength(frameDelta, tailFrames = STREAK_TAIL_FRAMES) {
   return Math.min(frameDelta * tailFrames, STREAK_MAX_DIST);
+}
+
+/** Streak thickness for a star whose glow radius is `starRadius` — thin, clamped. */
+export function streakThickness(starRadius) {
+  const t = starRadius * STREAK_HEAD_RATIO;
+  if (t < STREAK_MIN_THICKNESS) return STREAK_MIN_THICKNESS;
+  return Math.min(t, STREAK_MAX_THICKNESS);
+}
+
+/** A mote's opacity from its own age. Hits exactly 0 at end of life — no residue. */
+export function dustAlpha(age, life = DUST_LIFE_FRAMES) {
+  if (!(age < life)) return 0; // also catches Infinity (an unspawned slot)
+  if (age <= 0) return 1;
+  const t = 1 - age / life;
+  return t * t; // ease-out: bright when shed, gone when spent
+}
+
+/** Does a star of this glow radius shed dust at all? */
+export function shedsDust(starRadius, threshold = DUST_MIN_STAR_RADIUS) {
+  return starRadius >= threshold;
+}
+
+/** Speck radius for a mote shed by a star of glow radius `starRadius`. */
+export function dustSize(starRadius) {
+  const s = starRadius * DUST_SIZE_RATIO;
+  if (s < DUST_MIN_SIZE) return DUST_MIN_SIZE;
+  return Math.min(s, DUST_MAX_SIZE);
+}
+
+/** Most motes that can be alive at once: spawns-per-frame x lifetime. */
+export function dustCapacity(numStars, life = DUST_LIFE_FRAMES, interval = DUST_SPAWN_INTERVAL) {
+  return Math.ceil(numStars / interval) * life;
+}
+
+/** Fixed-size ring. Spawning past the end recycles the oldest slot — never grows. */
+export function createDustPool(capacity) {
+  return {
+    capacity,
+    head: 0,
+    x: new Float64Array(capacity),
+    y: new Float64Array(capacity),
+    size: new Float64Array(capacity),
+    color: new Int32Array(capacity),
+    age: new Float64Array(capacity).fill(Infinity) // Infinity == dead slot
+  };
+}
+
+export function spawnDust(pool, x, y, colorIndex, size) {
+  const i = pool.head;
+  pool.x[i] = x;
+  pool.y[i] = y;
+  pool.color[i] = colorIndex;
+  pool.size[i] = size;
+  pool.age[i] = 0;
+  pool.head = (i + 1) % pool.capacity;
+  return i;
+}
+
+export function dustIsAlive(pool, i, life = DUST_LIFE_FRAMES) {
+  return pool.age[i] < life;
+}
+
+/**
+ * Retire every mote. Called when dust stops being drawn (daylight, reduced motion):
+ * the pool also stops being AGED then, so without this, mid-life motes would thaw at
+ * their stale positions when night returns — a puff of old dust in the wrong place.
+ */
+export function resetDust(pool) {
+  pool.age.fill(Infinity);
 }
 
 /**
@@ -155,10 +256,50 @@ export function initStarfield(canvasId, options = {}) {
   let starGlowScale = 1;
   let starTailFrames = 1;
 
+  /** Stardust: a bounded ring of motes shed by the stars. Sized in resizeCanvas. */
+  let dustPool = null;
+  let dustEnabled = false;
+  let frameCount = 0;
+
   /** Called by each draw path before the star loop. */
   function setTrailCompensation(compensate) {
     starGlowScale = compensate ? STAR_GLOW_SCALE : 1;
     starTailFrames = compensate ? STREAK_TAIL_FRAMES : 1;
+  }
+
+  /**
+   * Single place every draw path toggles dust. On the true->false edge the pool is
+   * retired, because a pool that is not drawn is also not aged — leaving it live
+   * would thaw stale motes at old positions when dust switches back on.
+   */
+  function setDustEnabled(enabled) {
+    if (dustEnabled && !enabled && dustPool) resetDust(dustPool);
+    dustEnabled = enabled;
+  }
+
+  /**
+   * Draw + age the stardust the stars have shed. Motes sit where they were born,
+   * fade on their own age, and stop drawing at exactly zero — the canvas is cleared
+   * every frame, so nothing can accumulate.
+   */
+  function drawDust(weight) {
+    if (!dustPool) return;
+    c.save();
+    for (let i = 0; i < dustPool.capacity; i++) {
+      const age = dustPool.age[i];
+      if (!(age < DUST_LIFE_FRAMES)) continue; // dead / never spawned
+      const a = dustAlpha(age, DUST_LIFE_FRAMES) * DUST_PEAK_ALPHA * weight;
+      if (a > DUST_CULL_ALPHA) {
+        const sz = dustPool.size[i];
+        c.globalAlpha = a;
+        c.drawImage(
+          dustSprites[dustPool.color[i]],
+          dustPool.x[i] - sz, dustPool.y[i] - sz, sz * 2, sz * 2
+        );
+      }
+      dustPool.age[i] = age + 1;
+    }
+    c.restore();
   }
 
   // Precomputed color palette: stars pick from this instead of building an
@@ -180,12 +321,35 @@ export function initStarfield(canvasId, options = {}) {
   // one streak strip per palette colour once, then drawImage them.
   const STAR_SPRITE_RADIUS = 32;
   const STREAK_SPRITE_W = 64;
-  const STREAK_SPRITE_H = 4;
+  // Tall enough to render the teardrop taper smoothly; scaled down per-draw.
+  const STREAK_SPRITE_H = 32;
+
+  // A mote is only a couple of pixels on screen. Downscaling the 64px star glow
+  // for each of ~5k motes a frame is pure waste — bake a small speck instead.
+  const DUST_SPRITE_RADIUS = 6;
 
   const starSprites = [];
   const streakSprites = [];
+  const dustSprites = [];
   for (let i = 0; i < STAR_PALETTE_SIZE; i++) {
     const color = starPalette[i];
+
+    const dustSprite = document.createElement('canvas');
+    dustSprite.width = DUST_SPRITE_RADIUS * 2;
+    dustSprite.height = DUST_SPRITE_RADIUS * 2;
+    const dc = dustSprite.getContext('2d');
+    const dg = dc.createRadialGradient(
+      DUST_SPRITE_RADIUS, DUST_SPRITE_RADIUS, 0,
+      DUST_SPRITE_RADIUS, DUST_SPRITE_RADIUS, DUST_SPRITE_RADIUS
+    );
+    dg.addColorStop(0, color);
+    dg.addColorStop(0.35, color);
+    dg.addColorStop(1, 'transparent');
+    dc.fillStyle = dg;
+    dc.beginPath();
+    dc.arc(DUST_SPRITE_RADIUS, DUST_SPRITE_RADIUS, DUST_SPRITE_RADIUS, 0, Math.PI * 2);
+    dc.fill();
+    dustSprites.push(dustSprite);
 
     // Radial glow, colour at the core fading to transparent (identical stops to
     // the per-frame gradient it replaces).
@@ -208,8 +372,10 @@ export function initStarfield(canvasId, options = {}) {
     gc.fill();
     starSprites.push(glowSprite);
 
-    // Streak strip: transparent at the tail (x=0), star colour at the head (x=W).
-    // Drawn rotated/scaled onto the px→x segment, so the tail fade is preserved.
+    // Comet sprite: a teardrop that tapers from a point at the tail (x=0) to full
+    // width at the head (x=W), with the colour fading transparent→STREAK_ALPHA
+    // along its length. Drawn rotated/scaled so the head lands on the star and the
+    // round glow drawn on top hides the join — a comet, not a stick with a ball.
     const streakSprite = document.createElement('canvas');
     streakSprite.width = STREAK_SPRITE_W;
     streakSprite.height = STREAK_SPRITE_H;
@@ -218,11 +384,20 @@ export function initStarfield(canvasId, options = {}) {
     lg.addColorStop(0, 'transparent');
     lg.addColorStop(1, color.replace('hsl(', 'hsla(').replace(')', `, ${STREAK_ALPHA})`));
     sc2.fillStyle = lg;
-    sc2.fillRect(0, 0, STREAK_SPRITE_W, STREAK_SPRITE_H);
+    const midY = STREAK_SPRITE_H / 2;
+    sc2.beginPath();
+    sc2.moveTo(0, midY);                                   // tail point
+    sc2.lineTo(STREAK_SPRITE_W * 0.55, 0);                 // widen toward the head
+    sc2.quadraticCurveTo(STREAK_SPRITE_W, 0, STREAK_SPRITE_W, midY);  // rounded head top
+    sc2.quadraticCurveTo(STREAK_SPRITE_W, STREAK_SPRITE_H, STREAK_SPRITE_W * 0.55, STREAK_SPRITE_H);
+    sc2.closePath();
+    sc2.fill();
     streakSprites.push(streakSprite);
   }
 
-  function Star() {
+  function Star(index) {
+    // Staggers dust shedding across frames so motes appear steadily, not in bursts.
+    this.idx = index | 0;
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
     this.z = Math.random() * canvas.width;
@@ -259,8 +434,17 @@ export function initStarfield(canvasId, options = {}) {
 
       this.glow = (canvas.width - this.z) / canvas.width * 15;
 
+      // Glow radius drives the star sprite, the streak width, and the mote size.
+      const radius = s * (1.5 + this.glow / 10) * starGlowScale;
+
+      // Shed a mote of stardust where the star is right now. It stays here and
+      // fades out on its own — it does not travel with the star.
+      if (dustEnabled && shedsDust(radius) && (frameCount + this.idx) % DUST_SPAWN_INTERVAL === 0) {
+        spawnDust(dustPool, x, y, this.colorIndex, dustSize(radius));
+      }
+
       // Motion streaks: default only (reduced-motion users get stars without streaks).
-      // The baked strip sprite carries the tail→head fade, so no gradient per frame.
+      // The baked teardrop sprite carries the tail→head fade, so no gradient per frame.
       if (
         !prefersReducedMotion &&
         this.px !== null &&
@@ -272,20 +456,21 @@ export function initStarfield(canvasId, options = {}) {
         const tail = streakLength(dist, starTailFrames);
         if (tail >= STREAK_MIN_DIST) {
           // Draw the whole comet each frame, tail-end `tail` px behind the star,
-          // so the sprite's transparent→colour fade lands head-on at (x, y).
+          // so the sprite's transparent→colour fade lands head-on at (x, y). The
+          // head is as wide as the glow, tapering to a point at the tail.
+          const thick = streakThickness(radius);
           c.save();
           c.translate(x - (dx / dist) * tail, y - (dy / dist) * tail);
           c.rotate(Math.atan2(dy, dx));
           c.drawImage(
             streakSprites[this.colorIndex],
-            0, -STREAK_THICKNESS / 2, tail, STREAK_THICKNESS
+            0, -thick / 2, tail, thick
           );
           c.restore();
         }
       }
 
       // Draw the star: scale the baked glow sprite to this star's radius.
-      const radius = s * (1.5 + this.glow / 10) * starGlowScale;
       if (radius > 0) {
         c.drawImage(
           starSprites[this.colorIndex],
@@ -338,8 +523,10 @@ export function initStarfield(canvasId, options = {}) {
   function initStars(count) {
     stars = [];
     for (var i = 0; i < count; i++) {
-      stars[i] = new Star();
+      stars[i] = new Star(i);
     }
+    // Bounded by construction: spawns-per-frame x mote lifetime. Never grows.
+    dustPool = createDustPool(Math.max(1, dustCapacity(count)));
   }
 
   function initSnow() {
@@ -420,6 +607,7 @@ export function initStarfield(canvasId, options = {}) {
     c.fillRect(0, 0, canvas.width, canvas.height);
     // This path still accumulates via its own wash — it owes no compensation.
     setTrailCompensation(false);
+    setDustEnabled(false); // this path still accumulates via its own wash
     starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
     for (var i = 0; i < numStars; i++) {
       stars[i].show();
@@ -494,6 +682,7 @@ export function initStarfield(canvasId, options = {}) {
       if (sp.star > 0.01) {
         // Already cleared every frame before this change — nothing to repay.
         setTrailCompensation(compensateForClearedTrail(prefersReducedMotion, dayScene));
+        setDustEnabled(false); // daylight sheds no stardust
         starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
         c.save();
         c.globalAlpha = sp.star;
@@ -516,15 +705,19 @@ export function initStarfield(canvasId, options = {}) {
     // Night: FULL clear every frame (same as the daytime path). A partial
     // `destination-out` erase never actually finished — multiplying 8-bit alpha
     // by 0.78 leaves pixels stuck at alpha 1 forever, so old streaks accumulated
-    // into permanent ghost trails. Motion is already conveyed by each star's
-    // per-frame streak sprite, so nothing is lost and the canvas stays
-    // transparent for the interpolated sky behind it.
+    // into permanent ghost trails. The lingering glow that erase used to give is
+    // now stardust: motes shed at the stars' past positions, fading on their own
+    // age to exactly zero. Nothing is read back off the canvas, so nothing sticks.
     c.clearRect(0, 0, w, h);
     if (sp.star > 0.01) {
       // Default motion lost ~14 frames of accumulated glow here — and only here.
       // Reduced motion already erased at alpha 1 (a full clear), so it owes nothing.
-      setTrailCompensation(compensateForClearedTrail(prefersReducedMotion, dayScene));
+      const compensate = compensateForClearedTrail(prefersReducedMotion, dayScene);
+      setTrailCompensation(compensate);
+      setDustEnabled(compensate);
       starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
+      // Dust sits behind the stars, and lags a frame (it is shed during show()).
+      if (dustEnabled) drawDust(sp.star);
       c.save();
       c.globalAlpha = sp.star;
       for (var j = 0; j < numStars; j++) {
@@ -532,6 +725,10 @@ export function initStarfield(canvasId, options = {}) {
         stars[j].move();
       }
       c.restore();
+    } else {
+      // Stars faded out entirely: dust is neither drawn nor aged, so retire it
+      // rather than let it thaw at stale positions when the stars return.
+      setDustEnabled(false);
     }
     if (sp.firefly > 0.01 && fireflies.length) {
       drawFireflies(sp.firefly);
@@ -539,6 +736,7 @@ export function initStarfield(canvasId, options = {}) {
   }
 
   function draw() {
+    frameCount++;
     if (isTimeMode()) {
       drawTime();
       return;

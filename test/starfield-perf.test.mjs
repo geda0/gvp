@@ -26,7 +26,7 @@ function makeCtx(counters) {
     drawImage() { counters.drawImage++ },
     stroke() { counters.stroke++ },
     beginPath() {}, arc() {}, fill() {},
-    moveTo() {}, lineTo() {},
+    moveTo() {}, lineTo() {}, quadraticCurveTo() {}, closePath() {},
     save() {}, restore() {},
     // Only the streak draw translates — a cheap, exact probe for "was a streak drawn".
     translate() { counters.translate++ },
@@ -142,4 +142,40 @@ test('reduced motion draws stars but no motion streaks (invariant #6, live claus
   reset(normal.counters)
   normal.pump(); normal.pump(); normal.pump()
   assert.ok(normal.counters.translate > 0, 'default motion should draw streaks (guards against a vacuous assertion above)')
+})
+
+// `translate === 0` above proves no STREAKS, but dust never calls translate, so it
+// says nothing about dust. Comparing draw COUNTS across the two modes is also no
+// good: reduced motion renders far fewer stars, which masks leaked dust.
+//
+// Count-independent signature instead: a filling dust pool makes each successive
+// frame issue MORE drawImage calls, until it saturates. No dust => flat. Compare a
+// mode against ITSELF over time, so the star count cancels out.
+function drawsOnNextFrame(h) {
+  reset(h.counters)
+  h.pump()
+  return h.counters.drawImage
+}
+
+test('reduced motion sheds no stardust (its per-frame draws stay flat over time)', async () => {
+  const FRAMES = 30 // > DUST_LIFE_FRAMES, so a live pool would be saturating
+
+  const rm = await bootStarfield({ reducedMotion: true })
+  rm.pump() // prime (px/py set)
+  const rmEarly = drawsOnNextFrame(rm)
+  for (let i = 0; i < FRAMES; i++) rm.pump()
+  const rmLate = drawsOnNextFrame(rm)
+
+  assert.ok(rmEarly > 0, 'reduced motion still draws its stars')
+  assert.equal(rmLate, rmEarly,
+    `reduced motion must draw the same count every frame — a rising count means dust leaked past the guard (early=${rmEarly}, late=${rmLate})`)
+
+  // The probe must be able to SEE dust, or the assertion above proves nothing.
+  const normal = await bootStarfield({ reducedMotion: false })
+  normal.pump()
+  const nEarly = drawsOnNextFrame(normal)
+  for (let i = 0; i < FRAMES; i++) normal.pump()
+  const nLate = drawsOnNextFrame(normal)
+  assert.ok(nLate > nEarly,
+    `default motion must accumulate dust, so draws rise (early=${nEarly}, late=${nLate}) — otherwise the flat-count check above is vacuous`)
 })
