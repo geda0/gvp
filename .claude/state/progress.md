@@ -3,6 +3,79 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-07-10 — trail fade DERIVED from a deposit budget: wake may not outlive its build (app, phase off, suite 205/1/0). UNCOMMITTED.**
+  Navigator: "collect the garbage faster, I need the accumulation not to exist beyond as much time as it took to build."
+  That is a SYMMETRY SPEC, not a taste knob — so it is now an invariant, and the fade is derived from it.
+  **Measured the deposit** (how long a star's glow paints one pixel = 2*glowRadius / screen-speed) by replicating the real
+  projection over ~10k sampled visible stars: **p25 1.5, median 3.1, p75 6.6, p90 13.1 frames**.
+  **The accumulation, quantified:** at the original 0.22 the wake took **18 frames** to clear against a **~3-frame deposit**
+  — glow piled up ~6x faster than it drained. THAT is the buildup.
+  NEW seams: `DEPOSIT_FRAMES = 3` (the median), `fadeAlphaForClearFrames(frames)` = the GENTLEST fade meeting the budget
+  (searching for the minimum keeps the longest smear the rule allows, instead of over-fading), and
+  `TRAIL_FADE_ALPHA = fadeAlphaForClearFrames(DEPOSIT_FRAMES)` = **0.834**, clearing in exactly **3 frames** (keeps 16.6%/frame).
+  Tests pin the RULE, not the number: "the trail never outlives the deposit that made it", "the fade is DERIVED, not
+  hand-tuned", "the derived fade is the gentlest that meets the budget", plus monotonicity. Break-checked BOTH directions:
+  a slower fade (0.45) fails the outlives-deposit guard; a harsher one (0.95) fails the derived-not-hand-tuned guard.
+  **Verified in-browser:** pure-black pixels hold FLAT at **99.9%** (zero growth — accumulation eliminated); mean canvas
+  luminance **0.345 (orig) -> 0.081 (0.45) -> 0.020 (now)**. Day/garden `normal`+transparent, night `screen`+opaque,
+  round-trip clean, 0 console errors.
+  **HONEST TRADEOFF — the navigator must judge:** enforcing clear<=3 frames REMOVES the visible radial smear. What remains
+  is a clean starfield + the 1-frame streak line. The smear the navigator called "the professionalized original design"
+  IS the accumulation; the rule and the look are in direct tension.
+  **The single lever is `DEPOSIT_FRAMES`** (the deposit is a DISTRIBUTION, and p50 was a choice):
+    p50=3 -> fade 0.834, clears 3f (now; no smear) | p75=6 -> fade 0.578, clears 6f (some smear, still <= most stars' deposit)
+    p90=13 -> fade 0.308, clears 13f (near-original smear) | original 0.22 -> 18f (violates the rule)
+  Not pushed. Prod still gated on product-owner AC-2.
+- **2026-07-10 — trail fade doubled: `TRAIL_FADE_ALPHA` 0.22 -> 0.45 (app, phase off, suite 201/1/0). UNCOMMITTED.**
+  Navigator: "clean the dust faster, so it is less intense in the build up, a lot faster." ("dust" = the trail smear;
+  the particle system is already gone.) The knob is how much of the trail is erased per frame.
+  NEW pure seam `trailFramesToClear(fadeAlpha, start=255)` models the canvas exactly (colour channel TRUNCATES, so it
+  always terminates — unlike alpha, which rounds up and stalls at 2). Model validated against the browser: predicts 18
+  frames at 0.22, browser measured colour reaching 0 at frame 19 (off-by-one from the initial fill).
+  **0.22 -> 0.45 halves the trail: 18 frames-to-black -> 9.**
+  Measured in-browser at steady state: pure-black pixels **80% -> 95%**, mean canvas luminance **0.345 -> ~0.08**
+  (~4x less residual glow). Rays still read as the original's continuous radial smear, just fainter/shorter.
+  **Test honesty:** the old test pinned `TRAIL_FADE_ALPHA === 0.22` and called the look dependent on it — the navigator
+  falsified that. Re-pinned the BEHAVIOUR instead (a bigger fade clears in strictly fewer frames; every fade in (0,1]
+  reaches pure black; the drawn fillStyle follows the exported knob), leaving the value free to tune. `ORIGINAL_TRAIL_FADE_ALPHA`
+  is kept purely as the reference the guard compares against. Break-checked: reverting the knob to 0.22 fails
+  "the trail clears a lot faster than the original 0.22 curve".
+  Day/garden + reduced-motion untouched (the fade only governs the night trail). 0 console errors. NOT pushed.
+- **2026-07-10 — starfield REVERTED to the original look; residue killed at the root (app, phase off, suite 198/1/0). UNCOMMITTED.**
+  Navigator, side-by-side vs prod: "looks like fireworks compared to the professionalized original design."
+  **They were right, and the diagnosis was mine to own:** the original trail is a CONTINUOUS motion-blur smear (the star's
+  glow convolved along its path by the accumulation buffer). Dust motes are a SAMPLED approximation of that smear, and
+  sampling it every 4 frames gives speckle = fireworks. Worse, the earlier "beach ball" was ALSO self-inflicted — I added
+  `STAR_GLOW_SCALE=2.1` + a solid glow core to replace the brightness the accumulation used to supply, which turned a soft
+  bloom into a hard ball; the depth guards then "fixed" damage I had caused. (Probe: the ORIGINAL draws stars with arc
+  radius up to 26,043px and looks fine.)
+  **THE ROOT CAUSE OF THE RESIDUE — browser-verified, and it is NOT what I claimed for three rounds:** the fade
+  `destination-out` + rgba(0,0,0,0.22) multiplies the **ALPHA** channel by 0.78, and 8-bit alpha ROUNDS UP at the bottom
+  (2*0.78=1.56 -> 2), so alpha stalls at 2 forever. The IDENTICAL 0.78 fade applied to a **COLOUR** channel TRUNCATES and
+  reaches exactly 0 (frame 19). Measured live on the original: pixels stuck at alpha 2 grew 39% -> 58% in 24s.
+  **FIX:** paint the night canvas opaque black, fade the trail on COLOUR with the same 0.22 curve, and set
+  `canvas.style.mixBlendMode = 'screen'` (black is the identity under screen, so the CSS sky shows through). Day/garden
+  flips back to `normal` (screen would blow out the snow). `ensureOpaqueBackdrop()` repaints the base only on entry to
+  night + after resize — never per frame, or it would erase the trail it exists to hold.
+  New: pure seams `trailFadeAlpha()`, `blendModeForScene()`, `TRAIL_FADE_ALPHA=0.22`, `NIGHT_BLEND_MODE='screen'`.
+  **VERIFIED:** trail decays to pure black (pureBlackPct 48->82%, meanLum 1.06->0.345 FALLING; the original grew instead).
+  night->day->night round-trip repaints the backdrop correctly. Garden/snow unchanged. 0 console errors.
+  **PERF (the original brief) — kept, via faithful sprite caching (identical gradient stops):**
+  radial gradients/sec 67,920 -> **0**; linear gradients/sec 63,536 -> **0**; strokes/sec 63,536 -> **0**.
+  **ALSO FIXED the latent silent bug:** `streakColor()` now PARSES the hsl components and throws on an unknown form,
+  instead of `hsl(`->`hsla(` string surgery that fails silently (canvas ignores an invalid fillStyle) the day
+  `randomColor()` emits modern `hsl(210 40% 80%)` syntax.
+  **REMOVED (reverted subsystems + their tests):** stardust particle pool, depth guards (near plane / depth fade /
+  radius clamp), comet streak, glow-scale + solid-core brightness compensation. Deleted `test/starfield-{dust,depth,streak}.test.mjs`
+  — the behaviour they pinned no longer exists. NEW `test/starfield-trail.test.mjs`; `test/starfield-perf.test.mjs` rewritten
+  to pin: zero gradients/frame, fade is source-over on colour + never `destination-out`, night=screen/day=normal,
+  opaque base painted ONCE not per frame, reduced motion = stars but zero streaks. All four break-checked (each guard
+  fails when its mechanism is reverted).
+  **A CORRECTION I OWE THE RECORD:** the earlier "110M px/frame, ~1020x overdraw" claim was WRONG — canvas clips draws to
+  the canvas bounds, so a 37k-px sprite does not rasterise 37k^2 px. I measured requested area, not rasterised area. The
+  real cost was always the ~131k gradient allocations/sec. Also do not quote ms/frame from this session: the preview tab
+  suspends rAF between tool calls.
+  NOT pushed. Prod still gated on product-owner AC-2.
 - **2026-07-10 — starfield depth guards: no more beach-ball stars (app, phase off, suite 224/1/0). UNCOMMITTED.**
   Navigator on staging: "stars scale massively when they come close, looks like a big ball... best to avoid the stars
   hitting the user in the face." **Root cause:** perspective is `size * (focalLength/z)` with `fl = canvas.width`, and

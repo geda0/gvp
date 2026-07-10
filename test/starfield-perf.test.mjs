@@ -1,11 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { STAR_MAX_RADIUS } from '../js/starfield.js'
+import { NIGHT_BLEND_MODE, DAY_BLEND_MODE, TRAIL_FADE_ALPHA } from '../js/starfield.js'
 
-// No jsdom in this repo — a counting canvas stub is enough to pin the two
-// invariants that make the starfield cheap and clean:
-//   1. a frame allocates ZERO gradients (sprites are built once, at init)
-//   2. the night frame FULLY clears (no `destination-out` residue trail)
+// No jsdom here — a counting canvas stub pins the render's load-bearing properties:
+//   1. a frame allocates ZERO gradients (sprites are baked once, at init)
+//   2. the night trail fades on COLOUR (source-over), never `destination-out`,
+//      which is what stranded alpha at 2 and grew a permanent veil
+//   3. night screen-blends an opaque canvas; day composites normally
+//   4. reduced motion draws stars but no streaks (project invariant #6, live clause)
 
 function makeGradient() {
   return { addColorStop() {} }
@@ -21,24 +23,14 @@ function makeCtx(counters) {
     lineCap: 'butt',
     createRadialGradient() { counters.createRadialGradient++; return makeGradient() },
     createLinearGradient() { counters.createLinearGradient++; return makeGradient() },
-    fillRect() { counters.fillRect++ },
-    // Record the args: "the frame clears" is only true if it clears the WHOLE canvas.
+    fillRect(...a) { counters.fillRect++; counters.fillRectCalls.push({ args: a, fillStyle: ctx.fillStyle, composite: ctx._composite }) },
     clearRect(...a) { counters.clearRect++; counters.clearRectArgs.push(a) },
-    // Record geometry + alpha: "no star renders as a ball" and "stars fade with
-    // depth" are properties of the DRAW, not of the pure helpers.
-    drawImage(_img, _dx, _dy, dw, dh) {
-      counters.drawImage++
-      if (typeof dh === 'number') {
-        if (dh > counters.maxDrawH) counters.maxDrawH = dh
-        if (dw > counters.maxDrawW) counters.maxDrawW = dw
-      }
-      counters.drawAlphas.push(ctx.globalAlpha)
-    },
+    drawImage() { counters.drawImage++ },
     stroke() { counters.stroke++ },
     beginPath() {}, arc() {}, fill() {},
     moveTo() {}, lineTo() {}, quadraticCurveTo() {}, closePath() {},
     save() {}, restore() {},
-    // Only the streak draw translates — a cheap, exact probe for "was a streak drawn".
+    // Only the streak draw translates — an exact probe for "was a streak drawn".
     translate() { counters.translate++ },
     rotate() {}, scale() {}, setTransform() {}
   }
@@ -49,25 +41,31 @@ function makeCtx(counters) {
   return ctx
 }
 
-function makeCanvas(counters) {
-  const ctx = makeCtx(counters)
-  return { width: 0, height: 0, getContext: () => ctx }
-}
-
 const VIEWPORT = { width: 1200, height: 800 }
+
+function makeCanvas(counters, main = false) {
+  const ctx = makeCtx(counters)
+  const style = {}
+  const el = { width: 0, height: 0, style, getContext: () => ctx }
+  if (main) {
+    Object.defineProperty(style, 'mixBlendMode', {
+      get() { return style._m },
+      set(v) { style._m = v; counters.blendModes.push(v) },
+      configurable: true
+    })
+  }
+  return el
+}
 
 /** Boot starfield in time mode and hand back a frame() we can pump. */
 async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   const counters = {
     createRadialGradient: 0, createLinearGradient: 0,
     fillRect: 0, clearRect: 0, drawImage: 0, stroke: 0, translate: 0,
-    clearRectArgs: [],
-    maxDrawW: 0,
-    maxDrawH: 0,
-    drawAlphas: [],
+    fillRectCalls: [], clearRectArgs: [], blendModes: [],
     compositeOps: new Set()
   }
-  const mainCanvas = makeCanvas(counters)
+  const mainCanvas = makeCanvas(counters, true)
   let frameCb = null
 
   globalThis.document = {
@@ -76,7 +74,7 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
     addEventListener() {},
     visibilityState: 'visible',
     documentElement: {
-      hasAttribute: (a) => a === 'data-time', // living time-of-day mode ON
+      hasAttribute: (a) => a === 'data-time',
       dataset: { timeHours: hours }
     }
   }
@@ -97,8 +95,6 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   return { counters, pump: () => frameCb() }
 }
 
-const bootNightStarfield = bootStarfield
-
 function reset(counters) {
   counters.createRadialGradient = 0
   counters.createLinearGradient = 0
@@ -107,16 +103,15 @@ function reset(counters) {
   counters.drawImage = 0
   counters.stroke = 0
   counters.translate = 0
+  counters.fillRectCalls = []
   counters.clearRectArgs = []
-  counters.maxDrawW = 0
-  counters.maxDrawH = 0
-  counters.drawAlphas = []
+  counters.blendModes = []
   counters.compositeOps = new Set()
 }
 
-test('drawing frames allocates zero gradients (star sprites are built once, at init)', async () => {
-  const { counters, pump } = await bootNightStarfield()
-  reset(counters) // gradients built during init/sprite-bake are fine — frames must allocate none
+test('drawing frames allocates zero gradients (sprites are baked once, at init)', async () => {
+  const { counters, pump } = await bootStarfield()
+  reset(counters) // gradients built during the sprite bake are fine; frames must allocate none
 
   pump(); pump(); pump() // 2nd+ frames have a previous position, so streaks draw too
 
@@ -125,26 +120,50 @@ test('drawing frames allocates zero gradients (star sprites are built once, at i
   assert.equal(counters.createLinearGradient, 0,
     `motion streaks must not build a linear gradient per star per frame (saw ${counters.createLinearGradient})`)
   assert.ok(counters.drawImage > 0, 'stars should still be drawn (via sprite drawImage)')
+  assert.equal(counters.stroke, 0, 'the streak is a sprite now, not a stroked gradient line')
 })
 
-test('the night frame fully clears — no destination-out residue trail', async () => {
-  const { counters, pump } = await bootNightStarfield()
+test('the night trail fades on colour, never with destination-out', async () => {
+  const { counters, pump } = await bootStarfield({ hours: '22' })
   reset(counters)
-
   pump()
 
-  assert.ok(counters.clearRect >= 1, 'night frame must clear the canvas each frame')
-  // "Clears" is only honest if it clears the WHOLE canvas — a clearRect(0,0,1,1) must not pass.
-  assert.deepEqual(counters.clearRectArgs[0], [0, 0, VIEWPORT.width, VIEWPORT.height],
-    'the night frame must clear the entire canvas, not a sub-rect')
-  assert.equal(counters.fillRect, 0,
-    'a full-canvas fillRect on a night frame means a partial erase (the residue bug) is back')
   assert.ok(!counters.compositeOps.has('destination-out'),
-    'the partial destination-out erase leaves permanently-stuck pixels (8-bit alpha rounding) — clear instead')
+    'destination-out fades ALPHA, which rounds up and strands pixels at alpha 2 forever — fade colour instead')
+
+  // the opaque base is also a source-over fillRect ('#000'); the FADE is the translucent one
+  const fade = counters.fillRectCalls.find((f) => f.composite === 'source-over' && f.fillStyle.startsWith('rgba('))
+  assert.ok(fade, 'the night frame must fade with a translucent source-over fillRect')
+  assert.deepEqual(fade.args, [0, 0, VIEWPORT.width, VIEWPORT.height], 'the fade must cover the whole canvas')
+  assert.equal(fade.fillStyle, `rgba(0, 0, 0, ${TRAIL_FADE_ALPHA})`,
+    'the fade must keep the original 0.22 decay curve — the look depends on it')
 })
 
-// Project invariant #6 (reduced motion), live-render clause: the ONLY reduced-motion
-// behaviour in the shipped night path is that streaks are suppressed. Nothing pinned it.
+test('night screen-blends the canvas; day composites normally', async () => {
+  const night = await bootStarfield({ hours: '22' })
+  night.pump()
+  assert.equal(night.counters.blendModes.at(-1), NIGHT_BLEND_MODE,
+    'an opaque black night canvas only reads as transparent under screen blending')
+
+  const day = await bootStarfield({ hours: '12' })
+  day.pump()
+  assert.equal(day.counters.blendModes.at(-1), DAY_BLEND_MODE,
+    'snow must alpha-composite over the garden, not screen onto a bright sky')
+})
+
+test('the night canvas gets an opaque base, but only once — not every frame', async () => {
+  const { counters, pump } = await bootStarfield({ hours: '22' })
+  reset(counters)
+  pump()
+  const opaqueBase = (cs) => cs.fillRectCalls.filter((f) => f.fillStyle === '#000').length
+  assert.equal(opaqueBase(counters), 1, 'first night frame paints the opaque base')
+
+  reset(counters)
+  pump(); pump(); pump()
+  assert.equal(opaqueBase(counters), 0,
+    're-painting the opaque base every frame would erase the trail it exists to hold')
+})
+
 test('reduced motion draws stars but no motion streaks (invariant #6, live clause)', async () => {
   const rm = await bootStarfield({ reducedMotion: true })
   reset(rm.counters)
@@ -152,90 +171,10 @@ test('reduced motion draws stars but no motion streaks (invariant #6, live claus
 
   assert.ok(rm.counters.drawImage > 0, 'reduced-motion users must still see stars')
   assert.equal(rm.counters.translate, 0, 'reduced motion must draw zero motion streaks')
-  assert.ok(rm.counters.clearRect >= 1, 'reduced-motion night must still clear each frame')
 
   const normal = await bootStarfield({ reducedMotion: false })
   reset(normal.counters)
   normal.pump(); normal.pump(); normal.pump()
-  assert.ok(normal.counters.translate > 0, 'default motion should draw streaks (guards against a vacuous assertion above)')
-})
-
-// `translate === 0` above proves no STREAKS, but dust never calls translate, so it
-// says nothing about dust. Comparing draw COUNTS across the two modes is also no
-// good: reduced motion renders far fewer stars, which masks leaked dust.
-//
-// Count-independent signature instead: a filling dust pool makes each successive
-// frame issue MORE drawImage calls, until it saturates. No dust => flat. Compare a
-// mode against ITSELF over time, so the star count cancels out.
-function drawsOnNextFrame(h) {
-  reset(h.counters)
-  h.pump()
-  return h.counters.drawImage
-}
-
-test('reduced motion sheds no stardust (its per-frame draws stay flat over time)', async () => {
-  const FRAMES = 30 // > DUST_LIFE_FRAMES, so a live pool would be saturating
-
-  const rm = await bootStarfield({ reducedMotion: true })
-  rm.pump() // prime (px/py set)
-  const rmEarly = drawsOnNextFrame(rm)
-  for (let i = 0; i < FRAMES; i++) rm.pump()
-  const rmLate = drawsOnNextFrame(rm)
-
-  assert.ok(rmEarly > 0, 'reduced motion still draws its stars')
-  assert.equal(rmLate, rmEarly,
-    `reduced motion must draw the same count every frame — a rising count means dust leaked past the guard (early=${rmEarly}, late=${rmLate})`)
-
-  // The probe must be able to SEE dust, or the assertion above proves nothing.
-  const normal = await bootStarfield({ reducedMotion: false })
-  normal.pump()
-  const nEarly = drawsOnNextFrame(normal)
-  for (let i = 0; i < FRAMES; i++) normal.pump()
-  const nLate = drawsOnNextFrame(normal)
-  assert.ok(nLate > nEarly,
-    `default motion must accumulate dust, so draws rise (early=${nEarly}, late=${nLate}) — otherwise the flat-count check above is vacuous`)
-})
-
-// The depth guards live in the DRAW, so pure-function tests cannot see them:
-// reverting the recycle to `z <= 0` or deleting the radius clamp leaves every
-// helper test green. These pin the wiring instead, through the rendered calls.
-
-test('no star ever renders as a ball, however close it gets', async () => {
-  const h = await bootStarfield({ reducedMotion: false })
-  for (let i = 0; i < 200; i++) h.pump() // long enough for stars to close on the camera
-
-  const cap = 2 * STAR_MAX_RADIUS // sprite is drawn at radius*2 a side
-  assert.ok(h.counters.maxDrawH > 0, 'stars must actually be drawn')
-  assert.ok(
-    h.counters.maxDrawH <= cap + 1e-6,
-    `a star was drawn ${h.counters.maxDrawH}px tall; the clamp caps it at ${cap}px (a ball flew at the viewer)`
-  )
-  assert.ok(h.counters.maxDrawW <= Math.max(cap, 150) + 1e-6, 'streak tails stay bounded too')
-})
-
-test('stars dissolve as they approach, and are recycled at the near plane', async () => {
-  // Reduced motion draws stars ONLY (no streaks, no dust), so every recorded
-  // drawImage/alpha belongs to a star — an unconfounded probe.
-  const h = await bootStarfield({ reducedMotion: true })
-  h.pump()
-  reset(h.counters)
-  h.pump()
-  const earlyDraws = h.counters.drawImage
-
-  for (let i = 0; i < 120; i++) h.pump()
-  reset(h.counters)
-  h.pump()
-  const lateDraws = h.counters.drawImage
-  const alphas = h.counters.drawAlphas
-
-  assert.ok(earlyDraws > 0 && lateDraws > 0, 'stars keep drawing')
-  assert.ok(
-    alphas.some((a) => a > 0 && a < 1),
-    'some star must be mid-fade — otherwise the depth fade is not wired and stars pop'
-  )
-  assert.ok(alphas.every((a) => a > 0), 'a fully-faded star should be skipped, not drawn at alpha 0')
-  assert.ok(
-    lateDraws >= earlyDraws * 0.95,
-    `draws collapsed ${earlyDraws} -> ${lateDraws}: stars are lingering invisible near the camera instead of being recycled at the near plane`
-  )
+  assert.ok(normal.counters.translate > 0,
+    'default motion should draw streaks (guards against a vacuous assertion above)')
 })
