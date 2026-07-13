@@ -13,151 +13,6 @@ import {
 } from './starfield-prefs.js'
 import { sceneParamsAt } from './theme-time.js'
 
-/**
- * The night trail, and why it lives in the colour channels.
- *
- * The original faded the canvas with `destination-out` + rgba(0,0,0,0.22), which
- * multiplies the ALPHA channel by 0.78 every frame. In 8-bit that rounds UP at the
- * bottom (2 * 0.78 = 1.56 -> 2), so alpha stalls at 2 and every pixel a star ever
- * crossed keeps a permanent veil. Measured on the live original: pixels stuck at
- * alpha 2 grew from 39% to 58% of the canvas in 24 seconds.
- *
- * Browser-verified: the SAME 0.78 fade applied to a COLOUR channel truncates and
- * reaches exactly 0 (frame 19). So the night canvas is painted opaque black, the
- * trail fades on colour with the identical 0.22 curve, and the canvas is composited
- * with `screen` — under which black is the identity, so the CSS sky behind shows
- * through untouched. Same decay curve, same look, and it actually ends.
- *
- * Daytime keeps `normal` blending: snow must alpha-composite over the garden scene,
- * not screen onto it (screen against a bright sky would blow the flakes out to white).
- */
-/** What the original faded per frame. Kept only as the reference the budget is measured against. */
-export const ORIGINAL_TRAIL_FADE_ALPHA = 0.22;
-
-/**
- * How long a star's glow paints a single pixel — its "deposit". Measured from the
- * real projection over ~10k sampled stars (2 * glowRadius / screen-speed): p25 1.5,
- * median 3.1, p75 6.6 frames.
- *
- * THE RULE: the wake must not outlive the deposit that made it. At the original
- * 0.22 the trail took 18 frames to clear against a ~3-frame deposit, so glow piled
- * up roughly 6x faster than it drained — that is the accumulation.
- *
- * Budget = the p75 deposit (6): a longer wake that still clears within the deposit
- * of the top quartile of stars, chosen to keep more of the shimmering thread visible.
- */
-export const DEPOSIT_FRAMES = 6;
-
-/**
- * Frames for a full-brightness pixel to fall to pure black under this fade.
- * Models the canvas exactly: the colour channel TRUNCATES (unlike alpha, which
- * rounds up and stalls at 2 — the residue bug), so this always terminates.
- */
-export function trailFramesToClear(fadeAlpha, start = 255) {
-  const keep = 1 - fadeAlpha;
-  let v = start;
-  let frames = 0;
-  while (v > 0) {
-    const next = Math.floor(v * keep);
-    if (next === v) return Infinity; // would stall — cannot happen for fadeAlpha > 0
-    v = next;
-    frames++;
-  }
-  return frames;
-}
-
-/**
- * The GENTLEST fade that still clears within `frames` — i.e. the longest smear the
- * budget allows. Searching for the minimum keeps as much of the original's soft
- * trail as the rule permits, instead of over-fading it away.
- */
-export function fadeAlphaForClearFrames(frames) {
-  for (let a = 0.001; a <= 1; a += 0.001) {
-    const alpha = Math.round(a * 1000) / 1000;
-    if (trailFramesToClear(alpha) <= frames) return alpha;
-  }
-  return 1;
-}
-
-/** Derived, never hand-tuned: the softest trail that cannot outlive its deposit. */
-export const TRAIL_FADE_ALPHA = fadeAlphaForClearFrames(DEPOSIT_FRAMES);
-
-export const NIGHT_BLEND_MODE = 'screen';
-export const DAY_BLEND_MODE = 'normal';
-
-/**
- * The wake is a star's interaction with the gravitational layers of spacetime, not
- * particulate dust: a thin, star-coloured thread that SHIMMERS "random like fairies".
- * `twinkle` modulates the wake's opacity per star as it is laid into the trail. Each
- * star carries its own random phase + speed, so no two shimmer in lockstep.
- */
-export const TWINKLE_MIN = 0.1;
-/** Background starlight breathes gently — a much higher floor than the wake sparkle. */
-export const STAR_TWINKLE_MIN = 0.62;
-export const TWINKLE_SPEED_MIN = 1.4;
-export const TWINKLE_SPEED_MAX = 5.4;
-
-/** Opacity multiplier in [min, 1] at time `t` (seconds). Wakes use the low default
- *  floor (dramatic sparkle); the background star-points pass STAR_TWINKLE_MIN. */
-export function twinkle(phaseRad, speed, t, min = TWINKLE_MIN) {
-  const s = 0.5 + 0.5 * Math.sin(t * speed + phaseRad); // 0..1
-  return min + (1 - min) * s;
-}
-
-/**
- * The night sky is two populations. Most stars just drift as calm light; a rare,
- * RANDOMLY chosen few are "shooters" that move much faster and streak across as
- * meteors. Designating shooters at random (rather than gating on who is fastest)
- * makes the shooting genuinely occasional AND random, and keeps it controllable —
- * SHOOTER_FRACTION is the rate, independent of the depth distribution.
- */
-export const SHOOTER_FRACTION = 0.008;
-/** A shooter's per-frame motion is the background drift, boosted — a fast meteor. */
-export const SHOOTER_SPEED_BOOST = 3.4;
-/** Background drift factor: kept low so the light-giving majority stays calm. */
-export const BG_SPEED_FACTOR = 1.5;
-
-export function makeShooter() {
-  return Math.random() < SHOOTER_FRACTION;
-}
-
-/**
- * Per-frame screen speed for a star at `depthRatio` = (width - z) / width in [0,1]
- * (0 far, 1 closest). Background stars drift; shooters are the same, boosted.
- */
-export function starFrameSpeed(depthRatio, isShooter, base = 0.08, speedScale = 1) {
-  const v = (base + depthRatio * BG_SPEED_FACTOR) * speedScale;
-  return isShooter ? v * SHOOTER_SPEED_BOOST : v;
-}
-
-/**
- * Every star must light the sky. A far background star projects sub-pixel (~0.38px)
- * and disappears — the original hid this behind the accumulation haze. With the haze
- * gone, floor the point size so the dense field reads as many soft lights.
- */
-export const STAR_MIN_RADIUS = 1.15;
-
-export function starPointRadius(rawRadius) {
-  return rawRadius < STAR_MIN_RADIUS ? STAR_MIN_RADIUS : rawRadius;
-}
-
-export function makeTwinklePhase() {
-  return Math.random() * Math.PI * 2;
-}
-
-export function makeTwinkleSpeed() {
-  return TWINKLE_SPEED_MIN + Math.random() * (TWINKLE_SPEED_MAX - TWINKLE_SPEED_MIN);
-}
-
-/** Reduced motion erases the frame outright — those users get stars, never a trail. */
-export function trailFadeAlpha(prefersReducedMotion) {
-  return prefersReducedMotion ? 1 : TRAIL_FADE_ALPHA;
-}
-
-export function blendModeForScene({ dayScene }) {
-  return dayScene ? DAY_BLEND_MODE : NIGHT_BLEND_MODE;
-}
-
 /** Living time-of-day mode is active when theme.js has marked the root. */
 function isTimeMode() {
   return typeof document !== 'undefined' && document.documentElement.hasAttribute('data-time')
@@ -177,7 +32,7 @@ export function initStarfield(canvasId, options = {}) {
   const getTheme = options.getTheme || (() => 'space');
 
   const config = {
-    baseSpeed: 0.08,
+    baseSpeed: 0.1,
     baseStars: STARFIELD_DEFAULT_EXPERIENCE.baseStars
   }
 
@@ -247,9 +102,6 @@ export function initStarfield(canvasId, options = {}) {
   /** Set in drawSpace each frame; Star.move multiplies depth speed by this. */
   let starSpeedScale = 1;
 
-  /** Wall-clock seconds, set once per frame; drives the per-star wake shimmer. */
-  let nowSeconds = 0;
-
   // Precomputed color palette: stars pick from this instead of building an
   // hsl() string on every spawn/respawn. Visually equivalent to randomColor().
   const STAR_PALETTE_SIZE = 64;
@@ -258,86 +110,30 @@ export function initStarfield(canvasId, options = {}) {
     starPalette.push(randomColor());
   }
 
-  function paletteColorIndex() {
-    return (Math.random() * STAR_PALETTE_SIZE) | 0;
-  }
-
-  // Star + streak sprites, baked once per palette colour. The original built a
-  // fresh createRadialGradient PER STAR PER FRAME and a createLinearGradient per
-  // streak — measured 67,920 + 65,546 gradient objects per second at ~1130 stars.
-  // The gradient STOPS below are identical to the originals, so the sprites are a
-  // faithful cache: same picture, no allocation. (Same trick this file already used
-  // for snowflakes.)
-  const STAR_SPRITE_RADIUS = 64;
-  const STREAK_SPRITE_W = 64;
-  const STREAK_SPRITE_H = 4;
-  const STREAK_THICKNESS = 1.5;
-  const STREAK_MAX_DIST = 420;
-  // The wake reads as a legible thread, not a one-frame nub: draw it this many
-  // frames of motion long (thin — length only, never width).
-  const STREAK_LENGTH_MULT = 26;
-
-  const starSprites = [];
-  const streakSprites = [];
-  for (let i = 0; i < STAR_PALETTE_SIZE; i++) {
-    const color = starPalette[i];
-
-    const glowSprite = document.createElement('canvas');
-    glowSprite.width = STAR_SPRITE_RADIUS * 2;
-    glowSprite.height = STAR_SPRITE_RADIUS * 2;
-    const gc = glowSprite.getContext('2d');
-    const rg = gc.createRadialGradient(
-      STAR_SPRITE_RADIUS, STAR_SPRITE_RADIUS, 0,
-      STAR_SPRITE_RADIUS, STAR_SPRITE_RADIUS, STAR_SPRITE_RADIUS
-    );
-    rg.addColorStop(0, color);
-    rg.addColorStop(1, 'transparent');
-    gc.fillStyle = rg;
-    gc.beginPath();
-    gc.arc(STAR_SPRITE_RADIUS, STAR_SPRITE_RADIUS, STAR_SPRITE_RADIUS, 0, Math.PI * 2);
-    gc.fill();
-    starSprites.push(glowSprite);
-
-    const streakSprite = document.createElement('canvas');
-    streakSprite.width = STREAK_SPRITE_W;
-    streakSprite.height = STREAK_SPRITE_H;
-    const sc2 = streakSprite.getContext('2d');
-    const lg = sc2.createLinearGradient(0, 0, STREAK_SPRITE_W, 0);
-    lg.addColorStop(0, 'transparent');
-    lg.addColorStop(1, streakColor(color));
-    sc2.fillStyle = lg;
-    sc2.fillRect(0, 0, STREAK_SPRITE_W, STREAK_SPRITE_H);
-    streakSprites.push(streakSprite);
+  function paletteColor() {
+    return starPalette[(Math.random() * STAR_PALETTE_SIZE) | 0];
   }
 
   function Star() {
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
     this.z = Math.random() * canvas.width;
-    this.colorIndex = paletteColorIndex();
+    this.color = paletteColor();
     this.size = Math.random() / 2;
-    // Each star shimmers on its own clock — "random like fairies being".
-    this.twinklePhase = makeTwinklePhase();
-    this.twinkleSpeed = makeTwinkleSpeed();
-    // A rare few are randomly designated shooters — they streak across as meteors.
-    this.isShooter = makeShooter();
     this.px = null;
     this.py = null;
 
     this.move = function () {
-      const speed = starFrameSpeed(
-        (canvas.width - this.z) / canvas.width, this.isShooter, config.baseSpeed, starSpeedScale
-      );
+      var speed =
+        (config.baseSpeed + (canvas.width - this.z) / canvas.width * 4) *
+        starSpeedScale;
       this.z = this.z - speed;
 
       if (this.z <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
         this.z = canvas.width;
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
-        this.colorIndex = paletteColorIndex();
-        this.twinklePhase = makeTwinklePhase();
-        this.twinkleSpeed = makeTwinkleSpeed();
-        this.isShooter = makeShooter();
+        this.color = paletteColor();
         this.px = null;
         this.py = null;
       }
@@ -354,54 +150,44 @@ export function initStarfield(canvasId, options = {}) {
       s = this.size * (fl / this.z);
 
       this.glow = (canvas.width - this.z) / canvas.width * 15;
-      const radius = s * (1.5 + this.glow / 10);
 
-      // Cleanup anything not visible: a star that projects off-screen (close stars
-      // fling wide) costs a drawImage for nothing — skip it. Still update px/py so
-      // its wake stays continuous if it swings back in.
-      const margin = radius + STREAK_MAX_DIST;
-      const onScreen =
-        x > -margin && x < canvas.width + margin &&
-        y > -margin && y < canvas.height + margin;
+      // Motion streaks: default only (reduced-motion users get stars without streaks)
+      if (
+        !prefersReducedMotion &&
+        this.px !== null &&
+        this.py !== null
+      ) {
+        const dist = Math.hypot(x - this.px, y - this.py);
+        if (dist < 150) {
+          // Create linear gradient along the streak: transparent at tail, star color at head
+          const streakGradient = c.createLinearGradient(this.px, this.py, x, y);
+          // Convert HSL color to HSLA with opacity (hsl(360, 100%, 50%) -> hsla(360, 100%, 50%, 0.5))
+          // Lower opacity than before — streaks should suggest motion, not draw the eye.
+          const colorWithOpacity = this.color.replace('hsl(', 'hsla(').replace(')', ', 0.38)');
+          streakGradient.addColorStop(0, 'transparent');
+          streakGradient.addColorStop(1, colorWithOpacity);
 
-      if (onScreen && radius > 0) {
-        // The wake: ONLY for the randomly-designated shooters. The calm majority are
-        // just lights and skip this entirely (cheaper, and the scene stays quiet). A
-        // shooter earns the long thin star-coloured thread, drawn from `len` behind it,
-        // head-at-star, tapering at the tail — length only, never width (width was the
-        // "mantis ray"), shimmered on its own clock ("random like fairies").
-        if (!prefersReducedMotion && this.isShooter && this.px !== null && this.py !== null) {
-          const dx = x - this.px;
-          const dy = y - this.py;
-          const dist = Math.hypot(dx, dy);
-          if (dist > 0) {
-            const len = Math.min(dist * STREAK_LENGTH_MULT, STREAK_MAX_DIST);
-            const ux = dx / dist;
-            const uy = dy / dist;
-            c.save();
-            c.globalAlpha = twinkle(this.twinklePhase, this.twinkleSpeed, nowSeconds);
-            c.translate(x - ux * len, y - uy * len);
-            c.rotate(Math.atan2(dy, dx));
-            c.drawImage(
-              streakSprites[this.colorIndex],
-              0, -STREAK_THICKNESS / 2, len, STREAK_THICKNESS
-            );
-            c.restore();
-          }
+          c.save();
+          c.strokeStyle = streakGradient;
+          c.lineWidth = 1.5;
+          c.lineCap = 'round';
+          c.beginPath();
+          c.moveTo(this.px, this.py);
+          c.lineTo(x, y);
+          c.stroke();
+          c.restore();
         }
-
-        // The star as light: a point that breathes gently on its own clock, so the
-        // dense field feels alive and lights the sky. Floored to a visible size so a
-        // sub-pixel background star still shows (the "way more stars" lighting).
-        const pr = starPointRadius(radius);
-        c.save();
-        c.globalAlpha = twinkle(this.twinklePhase, this.twinkleSpeed, nowSeconds, STAR_TWINKLE_MIN);
-        c.drawImage(
-          starSprites[this.colorIndex],
-          x - pr, y - pr, pr * 2, pr * 2
-        );
-        c.restore();
       }
+
+      // Draw the star
+      var gradient = c.createRadialGradient(x, y, 0, x, y, s * (1.5 + this.glow / 10));
+      gradient.addColorStop(0, this.color);
+      gradient.addColorStop(1, 'transparent');
+
+      c.beginPath();
+      c.fillStyle = gradient;
+      c.arc(x, y, s * (1.5 + this.glow / 10), 0, Math.PI * 2);
+      c.fill();
 
       // Update previous position for next frame
       this.px = x;
@@ -428,22 +214,6 @@ export function initStarfield(canvasId, options = {}) {
     const s = Math.random() * 22 + 32;   // 32–54% (was 88–100%)
     const l = Math.random() * 14 + 74;   // 74–88% (slightly brighter to stay visible)
     return `hsl(${h}, ${s}%, ${l}%)`;
-  }
-
-  /**
-   * The wake's colour. Stars are kept desaturated (distant suns), but the
-   * gravitational thread is "magic colorful like the stars glowing" — so its hue is
-   * pushed vivid and its opacity up, and `screen` blending makes overlaps bloom.
-   * Deriving it by rewriting `hsl(` -> `hsla(` on the formatted string fails SILENTLY
-   * the day randomColor() emits the modern space-separated form (`hsl(210 40% 80%)`)
-   * — canvas ignores an invalid fillStyle rather than throwing, so the wake would
-   * just vanish. Parse the components instead, and refuse to guess.
-   */
-  function streakColor(hsl, alpha = 0.95) {
-    const m = /hsl\(\s*([\d.]+)\s*(?:,\s*|\s+)([\d.]+)%\s*(?:,\s*|\s+)([\d.]+)%\s*\)/.exec(hsl);
-    if (!m) throw new Error(`starfield: cannot derive streak colour from "${hsl}"`);
-    const sat = Math.min(100, parseFloat(m[2]) * 2.8); // muted star -> vivid wake
-    return `hsla(${m[1]}, ${sat}%, ${m[3]}%, ${alpha})`;
   }
 
   function calculateNumStars(width, height, coresCount) {
@@ -505,8 +275,6 @@ export function initStarfield(canvasId, options = {}) {
     const h = window.innerHeight;
     canvas.width = w;
     canvas.height = h;
-    // A resize clears the canvas, so the night trail's opaque base is gone.
-    backdropDirty = true;
     centerX = w / 2;
     centerY = h / 2;
     fl = w;
@@ -590,34 +358,6 @@ export function initStarfield(canvasId, options = {}) {
     c.clearRect(0, 0, canvas.width, canvas.height);
   }
 
-  /** Current CSS blend mode on the canvas element; only touched when it changes. */
-  let blendMode = null;
-  /** True when the canvas needs its opaque black base repainted (night only). */
-  let backdropDirty = true;
-
-  function applyBlendMode(mode) {
-    if (blendMode === mode) return;
-    blendMode = mode;
-    canvas.style.mixBlendMode = mode;
-    // Leaving night (or entering it) invalidates the opaque base.
-    backdropDirty = true;
-  }
-
-  /**
-   * The night trail needs an opaque base so the fade works on colour, not alpha.
-   * Repainted only on entry to night and after a resize — never per frame, or the
-   * trail would be erased every frame.
-   */
-  function ensureOpaqueBackdrop() {
-    if (!backdropDirty) return;
-    backdropDirty = false;
-    const prev = c.globalCompositeOperation;
-    c.globalCompositeOperation = 'source-over';
-    c.fillStyle = '#000';
-    c.fillRect(0, 0, canvas.width, canvas.height);
-    c.globalCompositeOperation = prev;
-  }
-
   function drawFireflies(weight) {
     const t = Date.now() * 0.001;
     const moving = !prefersReducedMotion;
@@ -639,9 +379,6 @@ export function initStarfield(canvasId, options = {}) {
     const h = canvas.height;
     const sp = sceneParamsAt(currentTimeHours());
     const dayScene = sp.sun >= sp.star; // daytime (garden) vs night (space)
-
-    nowSeconds = Date.now() * 0.001;
-    applyBlendMode(blendModeForScene({ dayScene }));
 
     if (dayScene) {
       // Daytime: FULL clear every frame so snow renders as soft, soothing
@@ -668,15 +405,13 @@ export function initStarfield(canvasId, options = {}) {
       return;
     }
 
-    // Night: the star trail, faded on the COLOUR channels of an opaque black
-    // canvas. `destination-out` faded ALPHA, which rounds up at the bottom and
-    // strands every touched pixel at alpha 2 forever (the growing veil). Colour
-    // truncates, so the identical 0.22 curve now actually reaches black — and the
-    // canvas is `screen`-blended, under which black is the identity, so the
-    // interpolated sky shows through exactly as before. Fireflies at dusk; no snow.
-    ensureOpaqueBackdrop();
-    c.fillStyle = `rgba(0, 0, 0, ${trailFadeAlpha(prefersReducedMotion)})`;
+    // Night: star motion-streak trails via a partial erase (keeps the canvas
+    // transparent so the interpolated sky shows through) + fireflies at dusk.
+    // No snow at night.
+    c.globalCompositeOperation = 'destination-out';
+    c.fillStyle = `rgba(0, 0, 0, ${prefersReducedMotion ? 1 : 0.22})`;
     c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'source-over';
     if (sp.star > 0.01) {
       starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
       c.save();
@@ -697,8 +432,6 @@ export function initStarfield(canvasId, options = {}) {
       drawTime();
       return;
     }
-    // Legacy (non-time) themes composite normally; only the night trail needs screen.
-    applyBlendMode(DAY_BLEND_MODE);
     const theme = getTheme();
     if (theme === 'garden') {
       drawSnow();
