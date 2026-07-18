@@ -13,45 +13,6 @@ import {
 } from './starfield-prefs.js'
 import { sceneParamsAt } from './theme-time.js'
 
-// WHY: a night star-trail must FINISH fading once its star has left the frame.
-// Prod fades the ALPHA channel (destination-out + rgba black 0.22). 8-bit alpha
-// ROUNDS at the bottom, so 2 * 0.78 = 1.56 rounds back up to 2 — the trail stalls
-// at alpha 2 forever and every crossed pixel keeps a permanent veil. The fix
-// decays the COLOUR channels of an opaque-black canvas (source-over rgba black
-// 0.22): 8-bit colour TRUNCATES (Math.floor), so 1.56 floors to 1, then to 0 —
-// the trail reaches exactly 0 and dies, oldest tail pixels first. CSS
-// mix-blend-mode:screen makes that black identity so the sky shows through at
-// night; day stays 'normal' (snow must alpha-composite over the garden). The
-// prod curve (0.22) is unchanged — only the channel it decays in changes.
-
-export const TRAIL_FADE_ALPHA = 0.22;
-export const NIGHT_BLEND_MODE = 'screen';
-export const DAY_BLEND_MODE = 'normal';
-
-/** Reduced motion erases the frame outright — no trail. */
-export function trailFadeAlpha(prefersReducedMotion) {
-  return prefersReducedMotion ? 1 : TRAIL_FADE_ALPHA;
-}
-
-/** Night screens the opaque-black trail over the sky; day composites normally. */
-export function blendModeForScene({ dayScene }) {
-  return dayScene ? DAY_BLEND_MODE : NIGHT_BLEND_MODE;
-}
-
-/** Models the canvas colour math exactly: 8-bit truncation, floor each frame. */
-export function trailFramesToClear(fadeAlpha, start = 255) {
-  const keep = 1 - fadeAlpha;
-  let v = start;
-  let frames = 0;
-  while (v > 0) {
-    const next = Math.floor(v * keep);
-    if (next === v) return Infinity; // would stall — cannot happen for fadeAlpha > 0
-    v = next;
-    frames++;
-  }
-  return frames;
-}
-
 /** Living time-of-day mode is active when theme.js has marked the root. */
 function isTimeMode() {
   return typeof document !== 'undefined' && document.documentElement.hasAttribute('data-time')
@@ -140,31 +101,6 @@ export function initStarfield(canvasId, options = {}) {
 
   /** Set in drawSpace each frame; Star.move multiplies depth speed by this. */
   let starSpeedScale = 1;
-
-  /** Current CSS blend mode on the canvas element; only touched when it changes. */
-  let blendMode = null;
-  /** True when the canvas needs its opaque black base repainted (night only). */
-  let backdropDirty = true;
-
-  function applyBlendMode(mode) {
-    if (blendMode === mode) return;
-    blendMode = mode;
-    canvas.style.mixBlendMode = mode;
-    // Entering or leaving night invalidates the opaque base.
-    backdropDirty = true;
-  }
-
-  /**
-   * The night trail needs an opaque base so the fade works on colour, not alpha.
-   * Repainted only on entry to night and after a resize — never per frame, or the
-   * trail would be erased every frame.
-   */
-  function ensureOpaqueBackdrop() {
-    if (!backdropDirty) return;
-    backdropDirty = false;
-    c.fillStyle = '#000';
-    c.fillRect(0, 0, canvas.width, canvas.height);
-  }
 
   // Precomputed color palette: stars pick from this instead of building an
   // hsl() string on every spawn/respawn. Visually equivalent to randomColor().
@@ -339,8 +275,6 @@ export function initStarfield(canvasId, options = {}) {
     const h = window.innerHeight;
     canvas.width = w;
     canvas.height = h;
-    // A resize clears the canvas, so the night trail's opaque base is gone.
-    backdropDirty = true;
     centerX = w / 2;
     centerY = h / 2;
     fl = w;
@@ -445,7 +379,6 @@ export function initStarfield(canvasId, options = {}) {
     const h = canvas.height;
     const sp = sceneParamsAt(currentTimeHours());
     const dayScene = sp.sun >= sp.star; // daytime (garden) vs night (space)
-    applyBlendMode(blendModeForScene({ dayScene }));
 
     if (dayScene) {
       // Daytime: FULL clear every frame so snow renders as soft, soothing
@@ -472,14 +405,13 @@ export function initStarfield(canvasId, options = {}) {
       return;
     }
 
-    // Night: star motion-streak trails fade on the COLOUR channels of an opaque
-    // black canvas (alpha rounds up at the bottom and stalls at 2 — the growing
-    // veil; colour truncates so the identical 0.22 curve actually reaches black),
-    // and the canvas is screen-blended so the interpolated CSS sky shows through
-    // exactly as before. + fireflies at dusk. No snow at night.
-    ensureOpaqueBackdrop();
-    c.fillStyle = `rgba(0, 0, 0, ${trailFadeAlpha(prefersReducedMotion)})`;
+    // Night: star motion-streak trails via a partial erase (keeps the canvas
+    // transparent so the interpolated sky shows through) + fireflies at dusk.
+    // No snow at night.
+    c.globalCompositeOperation = 'destination-out';
+    c.fillStyle = `rgba(0, 0, 0, ${prefersReducedMotion ? 1 : 0.22})`;
     c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'source-over';
     if (sp.star > 0.01) {
       starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
       c.save();
@@ -500,8 +432,6 @@ export function initStarfield(canvasId, options = {}) {
       drawTime();
       return;
     }
-    // Legacy (non-time) themes composite normally; only the night trail needs screen.
-    applyBlendMode(DAY_BLEND_MODE);
     const theme = getTheme();
     if (theme === 'garden') {
       drawSnow();
