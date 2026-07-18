@@ -3,7 +3,23 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
-- **2026-07-10 — starfield scene reconception: two populations (light + occasional shooters), lit + calm (app, phase off, suite 216/1/0). UNCOMMITTED — awaiting navigator on the SHOOTING character.**
+- **2026-07-13 — night-trail fade fix on top of the prod-restored starfield (app, suite 194/0/1). UNCOMMITTED.**
+  Navigator: "once the star is out of the view and gone, the trails should fade... preferably back to front."
+  MEASURED on the restored prod build: `destination-out` rgba(0,0,0,0.22) fades ALPHA, which rounds at the bottom
+  (2×0.78=1.56→2) — every touched pixel stalls at alpha 2 forever; stalled veil grew 37%→43% of the canvas in 10s.
+  Back-to-front comes FREE from the exponential fade (oldest deposits faded most); only the stall is the bug.
+  FIX (cherry-picked the e20446e architecture, NOT its faster fade — prod's 0.22 curve is preserved exactly):
+  night canvas opaque black, fade on COLOUR (truncates → reaches exactly 0) via source-over, canvas
+  `mix-blend-mode: screen` at night (black=identity, CSS sky shows through); day/legacy `normal`.
+  3 TDD cycles: (1) pure contract `test/starfield-trail.test.mjs` (TRAIL_FADE_ALPHA===0.22, trailFramesToClear
+  terminates, blend modes); (2) stub-DOM wiring `test/starfield-night-wiring.test.mjs` (no destination-out, base
+  painted once not per frame, per-frame 0.22 colour fade, screen at night); (3) characterization pin: day restores
+  normal+clearRect, re-entering night re-primes base once. Browser-verified: residue 12.1→16.1→**0.1%** (transient,
+  not stalled — broken build grew monotonically), blend screen/normal per scene, dusk fireflies + day snow intact.
+- **2026-07-13 (earlier) — starfield RESTORED to prod (`2d079aa` on agent): js/starfield.js + starfield-prefs.js
+  byte-identical to main; agent-only tests removed; experiments preserved on `wip/starfield-seasons` (92065a0) +
+  `feat/daylight-glints` (d7510d2) + agent history (e20446e..fe9fcfa). index.html left on staging hosts.**
+- 2026-07-10 — starfield scene reconception: two populations (light + occasional shooters), lit + calm (app, phase off, suite 216/1/0). SUPERSEDED — reverted by 2d079aa; kept for the record.
   Navigator vs original: original sky felt LIT (many background stars) + CALM (not fast); wanted "stars there for light,
   occasionally shooting randomly", + perf cleanup to afford more stars.
   DIAGNOSIS (measured): the original's lit feel was partly the ACCUMULATION HAZE (now removed) smearing sub-pixel stars
