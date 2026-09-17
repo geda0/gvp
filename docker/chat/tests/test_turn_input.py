@@ -68,6 +68,32 @@ def test_entry_over_the_json_budget_keeps_its_identity_and_drops_the_bulk() -> N
     assert 'response' not in entry
 
 
+def test_tool_name_is_normalized_or_the_entry_is_dropped() -> None:
+    # Arrange: four entries whose `name` is the field the admin rollup turns into
+    # a storage/display key (aws/src/contact-admin.js:373
+    # `String(call?.name || '').trim() || 'unknown'`, rendered per key by
+    # js/admin.js:550-559). One carries a real name behind padding; the other
+    # three carry no usable identity at all. The list name is the live hole —
+    # downstream `String([...])` joins it into a 200-char caller-authored key,
+    # which the 60-char bound never sees because it only fires on `str`.
+    batch = [
+        {'id': 'call-1', 'name': '  search_resume  '},
+        {'id': 'call-2', 'name': ['a' * 100, 'b' * 100]},
+        {'id': 'call-3', 'name': '   '},
+        {'id': 'call-4', 'args': {'query': 'who is marwan'}},
+    ]
+
+    # Act
+    kept = sanitize_tool_calls(batch)
+
+    # Assert: the one usable name survives as a normalized string, and every
+    # entry left without one is gone. `name` is an identity, not a telemetry
+    # value — invariant 17's "clamp values, reject identities" — so an unusable
+    # one may not be rewritten into a phantom tool the owner's histogram then
+    # counts as an invocation that never happened.
+    assert kept == [{'id': 'call-1', 'name': 'search_resume'}]
+
+
 def test_caller_invented_transport_is_clamped_to_a_known_value() -> None:
     # Arrange: what the server actually mints today (app/main.py:1110
     # `liveVoiceTransport = "direct_google"`, pinned by test_live_session.py) next

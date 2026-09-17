@@ -33,15 +33,25 @@ def clamp_transport(value: object) -> str:
 
 
 def sanitize_tool_calls(value: list[dict]) -> list[dict]:
-    return [_bound_entry(entry) for entry in value[:_MAX_TOOL_CALLS]]
+    bounded = (_bound_entry(entry) for entry in value[:_MAX_TOOL_CALLS])
+    return [entry for entry in bounded if entry is not None]
 
 
-def _bound_entry(entry: dict) -> dict:
+def _bound_entry(entry: dict) -> dict | None:
     bounded = {key: val for key, val in entry.items() if key in _KNOWN_TOOL_CALL_KEYS}
 
     name = bounded.get('name')
-    if isinstance(name, str):
-        bounded['name'] = name[:_MAX_NAME_LENGTH]
+    if not isinstance(name, str):
+        # `name` is an identity — it's the admin toolHistogram key
+        # (contact-admin.js:373), not a telemetry value. A non-string name
+        # has no truthful string form, so coercing it (e.g. `str(name)`)
+        # would mint a permanent dashboard row for a tool that never ran.
+        # Drop the whole entry instead of coercing.
+        return None
+    name = name.strip()
+    if not name:
+        return None
+    bounded['name'] = name[:_MAX_NAME_LENGTH]
 
     if len(json.dumps(bounded)) > _MAX_ENTRY_JSON_LENGTH:
         for key in _BULK_KEYS:
