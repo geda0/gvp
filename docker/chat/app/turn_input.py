@@ -14,13 +14,11 @@ _MAX_TOOL_CALLS = 10
 _MAX_NAME_LENGTH = 60
 _MAX_ENTRY_JSON_LENGTH = 2000
 _KNOWN_TOOL_CALL_KEYS = frozenset({'name', 'args', 'id', 'response'})
-# Shrink order when an entry is over the JSON budget: `response` first (voice
-# turns only), then `args`. `name` is never touched here — it's the only key
-# the admin rollup reads (aws/src/contact-admin.js tool histogram; js/admin.js
-# turn meta line), so it must survive intact even when the diagnostic payload
-# doesn't. Don't "simplify" this into truncating the serialized blob or
-# dropping the entry — that would cost the rollup its tool name for no reason.
-_SHRINKABLE_KEYS = ('response', 'args')
+# When an entry is over the JSON budget, drop the bulk keys (`args`,
+# `response`) outright and keep only the identity: `{id, name}`. A shrunken
+# stand-in would sit in the store looking like a real (if mangled) tool
+# response, so the budget is enforced by dropping, never truncating.
+_BULK_KEYS = ('args', 'response')
 
 # `direct_google` is the only value the server mints today (main.py:1110); `live`
 # is the existing default (main.py:1214); `relay` is a retired value kept in the
@@ -45,22 +43,8 @@ def _bound_entry(entry: dict) -> dict:
     if isinstance(name, str):
         bounded['name'] = name[:_MAX_NAME_LENGTH]
 
-    for key in _SHRINKABLE_KEYS:
-        if key not in bounded or len(json.dumps(bounded)) <= _MAX_ENTRY_JSON_LENGTH:
-            continue
-        bounded[key] = _shrink(bounded, key)
+    if len(json.dumps(bounded)) > _MAX_ENTRY_JSON_LENGTH:
+        for key in _BULK_KEYS:
+            bounded.pop(key, None)
 
     return bounded
-
-
-def _shrink(bounded: dict, key: str) -> str:
-    """Shrink `bounded[key]` (as a string) until the entry fits the budget.
-
-    `response`/`args` are caller-controlled diagnostic payloads that nothing
-    downstream reads, so a truncated string stand-in is an acceptable lossy
-    result here — unlike `name`, which `_bound_entry` keeps intact.
-    """
-    text = json.dumps(bounded[key])
-    while text and len(json.dumps({**bounded, key: text})) > _MAX_ENTRY_JSON_LENGTH:
-        text = text[: len(text) // 2]
-    return text

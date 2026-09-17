@@ -46,6 +46,28 @@ def test_single_hostile_entry_is_bounded_in_name_size_and_keys() -> None:
     assert set(entry) <= KNOWN_TOOL_CALL_KEYS
 
 
+def test_entry_over_the_json_budget_keeps_its_identity_and_drops_the_bulk() -> None:
+    # Arrange: one entry whose diagnostic payload blows the 2000-char serialized
+    # budget on its own, carrying the identifying keys `{id, name}` alongside it.
+    oversized = {
+        'id': 'call-42',
+        'name': 'lookupResume',
+        'args': {'query': 'q' * 50_000},
+        'response': {'text': 'r' * 50_000},
+    }
+
+    # Act
+    entry, = sanitize_tool_calls([oversized])
+
+    # Assert: the identity survives and the bulk is gone outright. A shrunken
+    # stand-in is not an acceptable weaker fact — it would sit in the store
+    # looking like a real tool response while being a mangled fragment.
+    assert entry['id'] == 'call-42'
+    assert entry['name'] == 'lookupResume'
+    assert 'args' not in entry
+    assert 'response' not in entry
+
+
 def test_caller_invented_transport_is_clamped_to_a_known_value() -> None:
     # Arrange: what the server actually mints today (app/main.py:1110
     # `liveVoiceTransport = "direct_google"`, pinned by test_live_session.py) next
