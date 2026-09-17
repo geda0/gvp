@@ -573,6 +573,15 @@ knew about snowflakes.
   sandbox's turn-3 setup item is **done**. Do not redo it.
 - **ADR numbers 0015–0021 are reserved** and map 1:1 to M2/M3/M4/M5/M6/M7/M8, deliberately reusing the
   transcript's numbering so the two records stay traceable. Do not renumber for tidiness.
+  **⚠ COLLISION, live as of 2026-09-17:** the repo's ADRs stop at **0014**, but an architect has
+  already written **`docs/decisions/ADR-0020-public-chat-surface-bounded-sinks.md`** for **M0** — and
+  the plan reserves **0020 for M7 (prioritised alerts)**. M0 was never assigned a number in the plan
+  (it is a ~1-slice hotfix). Two ADRs cannot share 0020, and silently renumbering M7 to 0022 breaks
+  the transcript traceability that is the *entire* reason for reusing 0015–0021. **Navigator/architect
+  call, needed before M7 starts (not urgent, but do not let it rot):** either renumber M0's ADR to
+  **0015** and shift M2–M8 to **0016–0022**, or give M0 **0022** and leave 0015–0021 as planned.
+  **PO preference: the second** — it keeps every planned milestone on its transcript number and costs
+  one file rename today.
 - **Suite-size projections are sandbox counts, not targets.** The plan's "app 189 → ~310, pytest 114 →
   ~158" came from a different repo with a different baseline; **this repo's measured baseline is app
   203 tests / 202 pass / 0 fail / 1 skip, chat 114 pass** (verified 2026-09-17 — the plan's "203/202"

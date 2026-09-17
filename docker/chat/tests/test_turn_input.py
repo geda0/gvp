@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from app import turn_input
 from app.turn_input import sanitize_tool_calls
 
 # The only keys a tool-call entry may carry into DynamoDB. Derived from the
@@ -43,3 +44,24 @@ def test_single_hostile_entry_is_bounded_in_name_size_and_keys() -> None:
     assert len(entry['name']) <= 60
     assert len(json.dumps(entry)) <= 2000
     assert set(entry) <= KNOWN_TOOL_CALL_KEYS
+
+
+def test_caller_invented_transport_is_clamped_to_a_known_value() -> None:
+    # Arrange: what the server actually mints today (app/main.py:1110
+    # `liveVoiceTransport = "direct_google"`, pinned by test_live_session.py) next
+    # to a label an unauthenticated caller can invent. Every distinct string the
+    # sink persists becomes a permanent histogram key downstream —
+    # aws/src/contact-admin.js:336-337 counts by the persisted value and
+    # js/admin.js:566,768 renders that object — so the key space must be the
+    # sink's to decide, not the caller's.
+    minted = 'direct_google'
+    invented = 'live"><img src=x onerror=alert(1)>'
+
+    # Act
+    kept = turn_input.clamp_transport(minted)
+    clamped = turn_input.clamp_transport(invented)
+
+    # Assert: the real value survives intact; anything else collapses onto a
+    # known key rather than minting a new one.
+    assert kept == 'direct_google'
+    assert clamped == 'live'

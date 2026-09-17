@@ -22,6 +22,17 @@ _KNOWN_TOOL_CALL_KEYS = frozenset({'name', 'args', 'id', 'response'})
 # dropping the entry — that would cost the rollup its tool name for no reason.
 _SHRINKABLE_KEYS = ('response', 'args')
 
+# `direct_google` is the only value the server mints today (main.py:1110); `live`
+# is the existing default (main.py:1214); `relay` is a retired value kept in the
+# allowlist for historical rows and older browser clients (js/chat-live.js:888) —
+# not because anything still emits it.
+_KNOWN_TRANSPORTS = frozenset({'live', 'relay', 'direct_google'})
+
+
+def clamp_transport(value: object) -> str:
+    """Clamp caller-supplied `transport` to a known value; total, never raises."""
+    return value if isinstance(value, str) and value in _KNOWN_TRANSPORTS else 'live'
+
 
 def sanitize_tool_calls(value: list[dict]) -> list[dict]:
     return [_bound_entry(entry) for entry in value[:_MAX_TOOL_CALLS]]
