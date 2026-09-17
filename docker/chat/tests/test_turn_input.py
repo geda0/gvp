@@ -68,6 +68,35 @@ def test_entry_over_the_json_budget_keeps_its_identity_and_drops_the_bulk() -> N
     assert 'response' not in entry
 
 
+def test_entry_identity_fields_cannot_defeat_the_json_budget() -> None:
+    """The 2000-char budget is total: bulk hidden in `id` is bounded too.
+
+    Verified path for why this is a real loss, not a tidiness complaint:
+    `main.py:1216` sanitizes, `main.py:1230` puts the result in the turn, and
+    `transcript_store.py:79-111` `list_append`s every turn into ONE DynamoDB
+    item keyed by session id — which caps at 400 KB. One unauthenticated
+    beacon can push a session's item over that cap; each later `persist_turn`
+    for that id then raises, is swallowed at `transcript_store.py:140-144`
+    (counted in `writes_failed`, logged, no propagation), and the owner loses
+    every subsequent turn of that conversation with no visible symptom.
+    """
+    # Arrange: an entry whose bulk sits in the identity keys rather than in
+    # `args`/`response`. Nothing here is droppable bulk, so the budget has to
+    # be enforced on the identity itself or not at all.
+    identity_heavy = {'id': 'x' * 50_000, 'name': 'lookupResume'}
+
+    # Act
+    entry, = sanitize_tool_calls([identity_heavy])
+
+    # Assert: the entry still fits the per-entry budget, and the one truthful
+    # fact it carries — that `lookupResume` ran — survives intact. `id` is a
+    # correlation value no consumer reads (the admin rollup keys only on
+    # `name`: contact-admin.js:373, admin.js:820), so invariant 17's "clamp
+    # values, reject identities" makes this a clamp, not a dropped entry.
+    assert len(json.dumps(entry)) <= 2000
+    assert entry['name'] == 'lookupResume'
+
+
 def test_tool_name_is_normalized_or_the_entry_is_dropped() -> None:
     # Arrange: four entries whose `name` is the field the admin rollup turns into
     # a storage/display key (aws/src/contact-admin.js:373
