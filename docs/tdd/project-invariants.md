@@ -401,6 +401,46 @@ proves it comes FIRST.
       scoped per environment"*, and *"reportEmailEnabled is false for the staging stack"*;
       handler wiring pinned in `test/daily-report-wiring.test.mjs`. Run: `node --test`.
 
+17. **Anything persisted from an unauthenticated endpoint is bounded in count, size, and
+    key space before it is written.** `[chat]` Public sinks may not hand caller-controlled
+    structure to storage. `POST /api/live/transcript` takes **no credential of any kind**,
+    so before `persist_turn` it clamps `transport` to the known set
+    `{'live','relay','direct_google'}` — anything else (unknown, empty, wrong type) becomes
+    `'live'` — and sanitizes `toolCalls` to **≤10 entries**, **known keys only**
+    (`id`/`name`/`args`/`response` — the union of what the text path and the voice client
+    actually produce), `name` coerced/stripped/truncated to **≤60 chars** (empty ⇒ entry
+    dropped), and **≤2000 chars of serialized JSON per entry** (over ⇒ keep `{id,name}`,
+    drop the bulk — never a truncated JSON fragment). Unbounded values here are not merely
+    an item-size problem: `aws/src/contact-admin.js:337,371-374` builds the admin rollup's
+    `transports` / `toolHistogram` keyed **by the persisted value**, so without this bound an
+    anonymous caller owns the key space of the owner's dashboard, plus DynamoDB item bloat
+    and the retention/read cost that follows it. Two properties are load-bearing and must
+    not be "simplified" away: the sanitizers are **total** (any input returns a bounded
+    result and never raises — a throwing sanitizer turns a hostile payload into a 500 on a
+    public endpoint), and they **clamp rather than reject** (the turn still persists,
+    because the caller is a fire-and-forget `keepalive` beacon that never reads the
+    response, `js/chat-live.js:671-700`).
+    - Implemented by: `docker/chat/app/turn_input.py` — a pure leaf module (no FastAPI, no
+      boto3, no I/O) exporting `clamp_transport` / `sanitize_tool_calls` plus the bounds as
+      constants. `docker/chat/app/main.py` is on `SECURITY_GLOB`, so it only imports and
+      calls them at `main.py:1214-1215`; keeping the logic in the ungated leaf is deliberate
+      and is what keeps the reviewed security-surface diff to an import plus a call site.
+      Recorded in `docs/decisions/ADR-0020-public-chat-surface-bounded-sinks.md`, which is
+      also the architect clearance for that `main.py` edit.
+    - Proven by: `docker/chat/tests/test_turn_input.py` — the caps (>10 entries truncates to
+      10; an oversized entry keeps `{id,name}` and drops `args`/`response`; a >60-char
+      `name` truncates; an empty/whitespace `name` drops the entry), the key allowlist (an
+      unknown key is stripped; a real `{id,name,args,response}` entry survives **intact** —
+      the "existing voice telemetry unaffected" bar), the transport clamp (each known value
+      round-trips; unknown/empty/non-string ⇒ `'live'`), and totality (`None`, a string, a
+      list of nulls, and a non-serializable value each return a bounded result, never raise).
+      Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+    - Scope note: the bound stated here is the transcript sink. Rate/cost limiting on
+      `POST /api/live/session` (one paid ~3-min Live token per anonymous call, with no
+      infrastructure throttle in front of the ECS Express host), transcript retention TTL,
+      and the admin read/write key split are **deferred to M8** and are not claimed by this
+      invariant — see ADR-0020 §"What this ADR does NOT cover".
+
 ## Out of scope / explicitly allowed
 
 - **"Single origin" is not literal in production.** The shipped meta tags point chat
