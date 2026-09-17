@@ -268,6 +268,98 @@ async def test_streaming_timeout_persists_one_timeout_row(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_public_transcript_post_persists_a_bounded_turn(client) -> None:
+    """Invariant #17: the PUBLIC, unauthenticated /api/live/transcript sink bounds
+    what reaches persistence. Asserted on the row the store actually receives —
+    not on which helper the route called."""
+    # Arrange: the route takes no credential, so post what a hostile caller can:
+    # a flood of tool calls and a transport label nobody mints. The transport key
+    # space is load-bearing downstream — aws/src/contact-admin.js:337 counts the
+    # admin rollup's `transports` BY the persisted value.
+    store_before = app.state.transcript_store
+    stub = StubStore()
+    app.state.transcript_store = stub
+
+    try:
+        # Act: one fire-and-forget beacon, exactly as js/chat-live.js sends it.
+        await client.post(
+            "/api/live/transcript",
+            json={
+                "sessionId": "hostile-probe",
+                "userText": "hi",
+                "assistantText": "hello",
+                "transport": "attacker-minted",
+                "toolCalls": [{"name": f"tool-{i}"} for i in range(500)],
+            },
+        )
+    finally:
+        app.state.transcript_store = store_before
+
+    # Assert: the turn still persists (clamp, don't reject — the beacon never
+    # reads the response), but bounded in count and key space.
+    assert len(stub.calls) == 1
+    turn = stub.calls[0]["turn"]
+    assert len(turn["toolCalls"]) <= 10
+    assert turn["transport"] in {"live", "relay", "direct_google"}
+
+
+@pytest.mark.asyncio
+async def test_well_formed_voice_turn_persists_its_telemetry_untouched(client) -> None:
+    """The regression guard for bounding the sink: clamping a HOSTILE payload must
+    not cost a LEGITIMATE voice turn any of its telemetry. Characterization —
+    green on arrival, and its whole value is that it stays green across the
+    wiring change."""
+    # Arrange: one well-formed voice beacon. Values are chosen to fail loudly under
+    # a coercion or swapped-assignment bug: a non-zero duration, audio counts that
+    # differ from each other and from the duration, `interrupted` TRUE (a False
+    # would survive a drop-the-field bug unnoticed), and a non-default intent.
+    tool_call = {
+        "id": "call-1",
+        "name": "navigate_to_section",
+        "args": {"section": "experience"},
+        "response": {"ok": True},
+    }
+    store_before = app.state.transcript_store
+    stub = StubStore()
+    app.state.transcript_store = stub
+
+    try:
+        # Act
+        await client.post(
+            "/api/live/transcript",
+            json={
+                "sessionId": "voice-telemetry",
+                "userText": "show me your experience",
+                "assistantText": "Taking you there now.",
+                "transport": "direct_google",
+                "intent": "warm",
+                "turnDurationMs": 7321,
+                "audioInBytes": 48_000,
+                "audioOutBytes": 96_512,
+                "interrupted": True,
+                "toolCalls": [tool_call],
+            },
+        )
+    finally:
+        app.state.transcript_store = store_before
+
+    # Assert: every telemetry field reaches persistence with its posted value.
+    assert len(stub.calls) == 1
+    turn = stub.calls[0]["turn"]
+    assert turn["intent"] == "warm"
+    assert turn["turnDurationMs"] == 7321
+    assert turn["audioInBytes"] == 48_000
+    assert turn["audioOutBytes"] == 96_512
+    assert "interrupted" in turn
+    assert turn["interrupted"] is True
+    # And the well-formed tool call survives intact — every key it was sent with,
+    # `response` and `args` included. This is the "existing voice telemetry
+    # unaffected" bar: sanitizing the hostile case may not shave the honest one.
+    entry, = turn["toolCalls"]
+    assert entry == tool_call
+
+
+@pytest.mark.asyncio
 async def test_non_stream_success_persists_one_ok_row(client) -> None:
     # Arrange: leave the real mock chain in place so the non-streaming ainvoke
     # path succeeds (mirrors test_transcript_store's non-error setup), and swap in

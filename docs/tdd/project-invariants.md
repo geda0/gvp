@@ -420,13 +420,26 @@ proves it comes FIRST.
     public endpoint), and they **clamp rather than reject** (the turn still persists,
     because the caller is a fire-and-forget `keepalive` beacon that never reads the
     response, `js/chat-live.js:671-700`).
+    The rule the seam runs on is **clamp values, reject identities**: a clamped telemetry
+    value is still a truthful, weaker fact, but a field that becomes a **storage key** must
+    never be silently rewritten — truncating it makes every caller sharing that prefix
+    collide into one partition key, silently merging distinct sessions into one row. So the
+    identity field is bounded by **rejection**: `sessionId` carries `max_length=128` on all
+    three request models that own one — `ChatRequest` (`main.py:162`), `LiveSessionRequest`
+    and `LiveTranscriptTurn` — because it lands as the DynamoDB partition key `id`
+    (`transcript_store.py:123`). All three are unauthenticated, so all three are capped; an
+    over-long id is a **400** `validation_error`, not a 422, via this app's own
+    `RequestValidationError` handler (`main.py:1265-1281`). Real ids are 32–36 chars
+    (`js/chat.js:185-190`), so no legitimate client can trip it.
     - Implemented by: `docker/chat/app/turn_input.py` — a pure leaf module (no FastAPI, no
       boto3, no I/O) exporting `clamp_transport` / `sanitize_tool_calls` plus the bounds as
-      constants. `docker/chat/app/main.py` is on `SECURITY_GLOB`, so it only imports and
-      calls them at `main.py:1214-1215`; keeping the logic in the ungated leaf is deliberate
-      and is what keeps the reviewed security-surface diff to an import plus a call site.
-      Recorded in `docs/decisions/ADR-0020-public-chat-surface-bounded-sinks.md`, which is
-      also the architect clearance for that `main.py` edit.
+      constants — and the `max_length=128` on the three `sessionId` fields.
+      `docker/chat/app/main.py` is on `SECURITY_GLOB`, so it only imports and calls the
+      sanitizers at `main.py:1214-1215` (plus the one-token `Field` bound at `main.py:162`);
+      keeping the logic in the ungated leaf is deliberate and is what keeps the reviewed
+      security-surface diff to an import plus a call site. Recorded in
+      `docs/decisions/ADR-0020-public-chat-surface-bounded-sinks.md`, which is also the
+      architect clearance for that `main.py` edit.
     - Proven by: `docker/chat/tests/test_turn_input.py` — the caps (>10 entries truncates to
       10; an oversized entry keeps `{id,name}` and drops `args`/`response`; a >60-char
       `name` truncates; an empty/whitespace `name` drops the entry), the key allowlist (an
@@ -434,12 +447,19 @@ proves it comes FIRST.
       the "existing voice telemetry unaffected" bar), the transport clamp (each known value
       round-trips; unknown/empty/non-string ⇒ `'live'`), and totality (`None`, a string, a
       list of nulls, and a non-serializable value each return a bounded result, never raise).
-      Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
-    - Scope note: the bound stated here is the transcript sink. Rate/cost limiting on
-      `POST /api/live/session` (one paid ~3-min Live token per anonymous call, with no
-      infrastructure throttle in front of the ECS Express host), transcript retention TTL,
-      and the admin read/write key split are **deferred to M8** and are not claimed by this
-      invariant — see ADR-0020 §"What this ADR does NOT cover".
+      The reject-the-identity half is API-level, so it is pinned alongside the other request
+      -validation cases (`docker/chat/tests/test_api.py`): an over-long `sessionId` on
+      `POST /api/chat` answers **400** and persists nothing. Run:
+      `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+    - Scope note: this invariant bounds **payload shape and key space**, not **volume**. Rate
+      and cost limiting is NOT claimed here and does not exist yet: the shipped ECS Express
+      chat host has no API-Gateway throttle in front of it (the throttles in
+      `aws/chat-template.yaml` cover only the Lambda-container fallback), so M8's
+      `app/rate_guard.py` will be the *first* limit on `POST /api/chat` and the paid
+      `POST /api/live/session`, not a second layer. Transcript retention TTL, the admin
+      read/write key split, and read-side bucketing of unknown tool names in
+      `aws/src/contact-admin.js:371-374` (still caller-influenced across requests) are
+      likewise **deferred to M8** — see ADR-0020 §"What this ADR does NOT cover".
 
 ## Out of scope / explicitly allowed
 

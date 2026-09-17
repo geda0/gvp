@@ -65,7 +65,14 @@ histogram keys); `transport` is a free string.
 - Green: cap `toolCalls` to 10 entries, name ≤ 60 chars, per-entry JSON ≤ 2000 chars, known
   keys only; clamp `transport` to the known set.
 - Acceptance: oversized/hostile payload persists a bounded, shaped item; existing voice
-  telemetry unaffected. Ships alone, independent of everything below.
+  telemetry unaffected — and that second half needs a real before/after assertion on a captured
+  payload, because **no test in the suite posts to `/api/live/transcript` today** and none
+  touches `audioInBytes` / `turnDurationMs` / `interrupted` at all.
+- **F1b, found during the review and folded in:** `ChatRequest.sessionId` (`main.py:162`) is
+  `str | None` with **no `max_length`**, while its two siblings are capped at 128 — and it
+  becomes the DynamoDB partition key (`transcript_store.py:123`). Same defect class, same
+  unauthenticated path; fixing its siblings and not it would be arbitrary.
+- Ships alone, independent of everything below.
 
 ### M1 — Starfield: settle the trail fix + the pixel-identical perf pass  ·  ~6 slices  ·  `app`
 
@@ -88,6 +95,11 @@ Depends on: the decision in §0. Assumes "keep `agent`'s look".
    (no per-star closures).
 6. Re-measure the dust-GC readback with the star pass ~50 % cheaper; decide whether
    `DUST_SWEEP_ROWS` can shrink.
+
+0. **First slice, previously unbudgeted:** build the pixel-identity harness here — deterministic
+   starfield-isolated `Math.random`, stop after exactly N frames, diff `getImageData`
+   (premultiplied) old vs new. The sandbox's "0 differing pixels" was proven in *that* repo; it
+   has to be re-established in this one, and every later slice in M1 leans on it.
 
 **Sandbox evidence to reuse:** the perf pass was verified **pixel-identical** — deterministic
 `Math.random`, N frames, `getImageData` diff of old vs new at hours 2/7/12/19/23 and
@@ -138,8 +150,11 @@ voice session* that had just promised the action.
 
 ### M3 — Daytime precipitation by season  ·  ~4 slices  ·  `app`  ·  ADR-0016
 
-Independent of M2 — **can run in parallel.** Today the daytime theme only has snow, but snow
-is a winter thing.
+Parallel with M2 and M4, but **strictly after M1** — the original "independent" call was wrong:
+M1 and M3 both rewrite `js/starfield.js` and `js/starfield-prefs.js`, the hottest files in the
+repo. Sequence them, or section those two files to one owner.
+
+Today the daytime theme only has snow, but snow is a winter thing.
 
 - `js/precipitation.js`: `seasonFor`, `isHailDay` (deterministic 1-in-9 shoulder-season days),
   `precipitationFor` (winter → snow, spring/autumn → hail-or-rain, summer → rain,
@@ -173,10 +188,12 @@ Depends on M2.
   `selection_assistant_offer|chip`, `chat_launcher_resume`.
 - Adds `scripts/qa/admin-dashboard-preview.py` (screenshot checks of the dashboard).
 
-### M5 — Component split, FE + BE  ·  ~4 slices  ·  both layers  ·  ADR-0018
+### M5 — Component addresses + boundary fences  ·  ~3 slices  ·  both layers  ·  ADR-0018
 
-Depends on M2–M4 (it relocates their files). Mirrors ttics' own libs → components → harness
-shape:
+**Runs BEFORE M2, not after.** Under the address-first decision M5 relocates nothing — it
+*fences the addresses M2/M4/M6 are about to write into*. Landing the two boundary tests first
+makes address-first enforceable; landing them last makes M5 a retrofit of whatever happened.
+Mirrors ttics' own libs → components → harness shape:
 
 ```
 js/lib/          physics (projection/cull + kinematics), rain (engine, prefs)
@@ -192,9 +209,8 @@ Enforced by `test/component-boundaries.test.mjs` + `docker/chat/tests/test_compo
 (lib → lib only; components never import each other except at declared seams; `app/models`
 never imports assistant/voice/main; admin stands alone).
 
-> **Sequencing option:** because we are re-implementing rather than replaying, M2/M4 could
-> create their files directly at their M5 addresses, turning M5 into docs + boundary tests.
-> Cheaper, but it front-loads a layout decision before the modules exist. See decisions.
+Execution order is therefore: **M0 → M1 → M5 → M2 → (M3 ∥ M4) → M6 → M7 → M8**, with M6
+gated on its staging spike below.
 
 ### M6 — Chat host scale-to-zero + activation  ·  ~5 slices  ·  `app` + infra  ·  ADR-0019
 
@@ -217,6 +233,10 @@ Independent of M2–M5 — **can run in parallel.** The ECS Express chat host ru
   Express's own autoscaler can scale an *active* low-CPU conversation back to 0 → activation
   **must pin `MinCapacity=1`**; cold start ≈ 60–90 s.
 - **Ships opt-in** (`CHAT_SCALE_TO_ZERO=1`); rollback = redeploy without the flag.
+- **Run the staging spike BEFORE building.** Gate G2 is a go/no-go, not a polish gate: if ECS
+  Express refuses `MinTaskCount=0`, or `RegisterScalableTarget` on its scalable target is
+  denied, ~5 slices are sunk *and* M7 loses its `chat_cold_wait` trigger. A short spike answers
+  both questions for the cost of one deploy.
 
 ### M7 — Prioritised alerts  ·  ~4 slices  ·  `app` + `chat`  ·  ADR-0020
 
@@ -239,7 +259,12 @@ asked for in the source session — two different priorities, not one silent rec
 1. **H3/S1 — Gemini key via SSM SecureString `Secrets`** on the ECS task instead of a readable
    env literal; scoped execution-role read; default on, `CHAT_GEMINI_KEY_VIA_SSM=0` to opt out
    while validating on stage.
-2. **H2/S3 — cost guard** (`app/rate_guard.py`): **global** sliding-window caps only by default
+2. **H2/S3 — cost guard** (`app/rate_guard.py`). **It is the FIRST rate limit on `/api/chat`
+   and the paid `/api/live/session`, not a second layer** — the shipped host is ECS Express
+   (`aws/chat-express-template.yaml`), a public managed HTTPS URL with no API-Gateway throttle;
+   the `ThrottlingBurstLimit` pairs in the repo are on the Lambda-container *fallback*
+   (`aws/chat-template.yaml:68-69`) and on the *contact* API. Size it as a sole defence.
+   **global** sliding-window caps only by default
    (120 chat/min, 30 paid mints/10 min) → `429 + Retry-After` + a P2 alert when engaged; stats
    in `/ready`. **Per-IP limits exist but default 0 (OFF)** and are tested to never touch a NAT
    neighbour or an empty IP — the shared-NAT / ALB lockout concern from the source session is
@@ -265,6 +290,10 @@ asked for in the source session — two different priorities, not one silent rec
 ## Cross-cutting
 
 - **ADRs:** reuse 0015–0021 as numbered above; invariants #17–#26 land with their milestones.
+  **Numbering, settled:** in the source session ADR-0020 *is* the security & privacy review and
+  it covers both the F1 sink fix and the alert prioritisation — so **M0 and M7 share ADR-0020**
+  (`ADR-0020-public-chat-surface-bounded-sinks.md`, written for M0; M7 extends it rather than
+  taking a number), and M8 keeps **ADR-0021**. No renumbering.
 - **Docs:** `docs/architecture.md` (stage, site-awareness, precipitation, alerts, perf note),
   `docs/components.md` (M5), `docs/review-2026-08.md` + `docs/security-review-2026-08.md`
   (port as records), runbook sections for scale-to-zero and the new env knobs, and
@@ -282,6 +311,15 @@ asked for in the source session — two different priorities, not one silent rec
 - **ECS Express with `MinTaskCount=0`** — that desired-count 0 is accepted and that
   `RegisterScalableTarget` on its scalable target is permitted. Gates M6 to prod.
 - **The `Secrets` reference on an Express service** + real cold-start UX timing. Gates M8.1.
+
+## Open for the navigator
+
+- **The Work-showcase milestone is still marked ACTIVE** in `.claude/state/backlog.md`, and its
+  Track C (agent navigation parity + guided tour) touches the same navigation tool surface as
+  M2 and M4. Built in opposite orders, one reworks the other. Decide which owns that surface
+  before M2 starts.
+- **`POST /api/events` is the contact HttpApi's ingress**, not a chat-host endpoint — it is
+  already bounded at 64 KiB with a 40/20 route throttle. M7 routes alerts through it.
 
 ## Accepted residuals (from the source session, still true here)
 
