@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
+from app.turn_input import clamp_transport, sanitize_tool_calls
 from app.knowledge_context import (
     build_context,
     build_live_system_instruction,
@@ -159,7 +160,7 @@ class ChatMessageIn(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessageIn] = Field(default_factory=list)
     stream: bool = False
-    sessionId: str | None = None
+    sessionId: str | None = Field(default=None, max_length=128)
 
 
 class LiveSessionRequest(BaseModel):
@@ -1211,8 +1212,8 @@ async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
 
     now_iso = datetime.now(timezone.utc).isoformat()
     captured_at = (payload.capturedAt or now_iso).strip() or now_iso
-    transport = (payload.transport or "live").strip() or "live"
-    tool_calls = payload.toolCalls or []
+    transport = clamp_transport(payload.transport)
+    tool_calls = sanitize_tool_calls(payload.toolCalls or [])
     intent = (payload.intent or "").strip().lower() or None
     if intent not in (None, "cold", "warm"):
         intent = None
