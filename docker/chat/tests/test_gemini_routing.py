@@ -200,6 +200,72 @@ async def test_astream_first_chunk_503_unavailable_falls_back(
 
 
 @pytest.mark.asyncio
+async def test_a_503_does_not_demote_the_primary_for_the_day_but_a_429_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stickiness is 429-ONLY — the retry decision and the quota bookkeeping are
+    SEPARATE, and that separation is the invariant (ADR-0023 §4.3, invariant #9).
+    `note_primary_rate_limited()` flips `_prefer_fallback` for the rest of the UTC
+    DAY (in-process, resets only at midnight, no admin surface, no way to clear it
+    but a restart) and bumps `primary_rate_limit_hits_today()` — the counter an
+    operator reads to judge quota pressure. A 503 is a statement about Google's
+    capacity in that instant and it FAILS FAST, so re-discovering it next turn is
+    cheap: it must retry the turn and leave BOTH untouched. One transient 503
+    otherwise silently demotes the primary for every visitor for up to 24 hours
+    and inflates the quota counter with a non-quota event.
+
+    The 429 half is in this same test on purpose: without it a blanket "never
+    flip" satisfies the 503 half while silently deleting the quota cooldown
+    invariant #9 has always had. Both halves are driven through a real `astream`
+    turn, never by calling the bookkeeping function directly — the contract is
+    about what the ROUTING does.
+    """
+    from app import gemini_limit_state
+
+    # A clean day, asserted: it pins the attempt order to [primary, fallback] (a
+    # leaked flip would serve the fallback first and pass vacuously) and makes
+    # "untouched" below a real observation rather than a pre-existing value.
+    gemini_limit_state.reset_for_tests()
+    assert gemini_limit_state.prefer_fallback_first() is False
+    chain = GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=1.0,
+    )
+
+    unavailable = {"m-primary": _UnavailableFirstChunk(), "m-fallback": _OkStream()}
+    monkeypatch.setattr(
+        GeminiRoutingChain,
+        "_build_chain",
+        lambda self, model_id: unavailable[model_id],
+    )
+    after_503 = [c async for c in chain.astream({"messages": []})]
+
+    # The 503 turn really did take the retryable branch — the branch the quota
+    # bookkeeping sits in — and still left the day's routing state alone.
+    assert "".join(c.text for c in after_503) == "from-fallback"
+    assert gemini_limit_state.prefer_fallback_first() is False
+    assert gemini_limit_state.primary_rate_limit_hits_today() == 0
+
+    ratelimited = {"m-primary": _RateLimitFirstChunk(), "m-fallback": _OkStream()}
+    monkeypatch.setattr(
+        GeminiRoutingChain,
+        "_build_chain",
+        lambda self, model_id: ratelimited[model_id],
+    )
+    after_429 = [c async for c in chain.astream({"messages": []})]
+
+    # A real quota signal on the same chain still earns the daily demotion, and
+    # the counter reads exactly one hit — the 503 contributed nothing to it.
+    assert "".join(c.text for c in after_429) == "from-fallback"
+    assert gemini_limit_state.prefer_fallback_first() is True
+    assert gemini_limit_state.primary_rate_limit_hits_today() == 1
+
+
+@pytest.mark.asyncio
 async def test_astream_committed_midstream_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
