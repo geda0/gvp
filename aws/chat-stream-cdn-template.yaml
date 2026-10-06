@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  ADR-0022 gate: CloudFront + Origin Access Control (origin type `lambda`) in front of the
+  RESPONSE_STREAM chat Function URL. Exists because AuthType NONE is blocked account-wide
+  (ADR-0022 §23.1) — OAC SigV4 signing is the only browser-reachable streaming shape on this
+  account. No secrets. Side-by-side: touches no other stack. Fully deletable.
+
+Parameters:
+  StreamFunctionName:
+    Type: String
+    Description: Name of the RESPONSE_STREAM Lambda behind the Function URL (gvp-chat-lambda-stream-stage output ChatStreamFunctionName).
+  StreamFunctionUrlDomain:
+    Type: String
+    Description: >
+      Host only (no scheme, no path) of the Function URL, e.g.
+      3q5iiykogefubs7j7ufa7ymv2i0hkwkn.lambda-url.us-east-2.on.aws
+  DefaultOriginDomainName:
+    Type: String
+    Default: ''
+    Description: >
+      Optional second origin for the DEFAULT cache behavior — the chat HttpApi host from
+      aws/chat-template.yaml (e.g. abc123.execute-api.us-east-2.amazonaws.com), so every
+      non-streaming route (notably POST /api/live/session) keeps API Gateway's 5 rps / burst 10
+      throttle. When EMPTY the default behavior also targets the Function URL origin (gate mode).
+  DefaultOriginPath:
+    Type: String
+    Default: ''
+    Description: Optional origin path for the default origin (e.g. /Prod for a non-$default HttpApi stage). Empty for $default.
+
+Conditions:
+  HasDefaultOrigin: !Not [!Equals [!Ref DefaultOriginDomainName, '']]
+  HasDefaultOriginPath: !Not [!Equals [!Ref DefaultOriginPath, '']]
+
+Resources:
+  # SigningBehavior `always` + origin type `lambda` => CloudFront SigV4-signs each request to the
+  # Function URL with service `lambda`. The viewer is therefore unsigned, which is the point:
+  # a browser cannot sign.
+  StreamOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-lambda-oac'
+        Description: OAC for the chat RESPONSE_STREAM Function URL (ADR-0022 gate)
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Observability only: each behavior stamps which one matched, so cache-behavior precedence
+  # (exact /api/chat vs default) is verifiable from the client without a second real origin.
+  BehaviorTagApiChat:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${AWS::StackName}-tag-apichat'
+        CustomHeadersConfig:
+          Items:
+            - Header: x-cf-behavior
+              Value: apichat-exact
+              Override: true
+
+  BehaviorTagDefault:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${AWS::StackName}-tag-default'
+        CustomHeadersConfig:
+          Items:
+            - Header: x-cf-behavior
+              Value: default
+              Override: true
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${AWS::StackName} — ADR-0022 chat stream OAC gate'
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: stream-function-url
+            DomainName: !Ref StreamFunctionUrlDomain
+            OriginAccessControlId: !GetAtt StreamOac.Id
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              # 60 s, not the 30 s default: the ADR-0022 deep probe runs 25 s and a cold
+              # start can precede it. The default would sever the stream mid-flight.
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+          - !If
+            - HasDefaultOrigin
+            - Id: chat-httpapi
+              DomainName: !Ref DefaultOriginDomainName
+              OriginPath: !If [HasDefaultOriginPath, !Ref DefaultOriginPath, !Ref 'AWS::NoValue']
+              CustomOriginConfig:
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols: [TLSv1.2]
+                OriginReadTimeout: 60
+                OriginKeepaliveTimeout: 60
+            - !Ref 'AWS::NoValue'
+        CacheBehaviors:
+          # EXACT path, not /api/chat* — the glob form would also swallow /api/chat/smoke and
+          # /api/chat/host-status, which are request/response and belong on the default origin.
+          - PathPattern: /api/chat
+            TargetOriginId: stream-function-url
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            # CachingDisabled — a cached SSE response is a contradiction.
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            # AllViewerExceptHostHeader — Host MUST NOT be forwarded: SigV4 is computed over
+            # the ORIGIN host, so a forwarded viewer Host breaks the signature.
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            ResponseHeadersPolicyId: !GetAtt BehaviorTagApiChat.Id
+            # gzip buffering is a classic SSE killer.
+            Compress: false
+        DefaultCacheBehavior:
+          TargetOriginId: !If [HasDefaultOrigin, chat-httpapi, stream-function-url]
+          ViewerProtocolPolicy: https-only
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          ResponseHeadersPolicyId: !GetAtt BehaviorTagDefault.Id
+          Compress: false
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+  # Scoped to THIS distribution only — the Function URL stays non-public (AuthType AWS_IAM).
+  StreamInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref StreamFunctionName
+      Action: lambda:InvokeFunctionUrl
+      Principal: cloudfront.amazonaws.com
+      FunctionUrlAuthType: AWS_IAM
+      SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+Outputs:
+  DistributionDomainName:
+    Value: !GetAtt Distribution.DomainName
+    Description: Unsigned browser-reachable host. GET /health, POST /api/chat.
+  DistributionId:
+    Value: !Ref Distribution
+  StreamOacId:
+    Value: !GetAtt StreamOac.Id
+  DefaultBehaviorOrigin:
+    Value: !If [HasDefaultOrigin, !Ref DefaultOriginDomainName, !Ref StreamFunctionUrlDomain]
+    Description: Where the DEFAULT behavior points (gate mode = the Function URL itself).
