@@ -41,6 +41,20 @@ proves it comes FIRST.
 > Line numbers are from the state of the repo at adoption and may drift; treat the cited
 > function/symbol as the anchor.
 >
+> **#9 HAS AN OPEN CLAUSE AGAIN (2026-10-06, ADR-0023):** its old wording — *"Non-rate-limit
+> errors are not retried"* — was itself the defect. A Gemini `503 UNAVAILABLE` re-raised instead
+> of reaching the healthy fallback, on ~1 request in 3 against the prod host. The amended trigger
+> (an enumerated **retryable set**) is **decided and not yet implemented**; #9's
+> commit-on-first-chunk half remains proven. Read #9's own CONFORMANCE paragraph before citing it.
+>
+> **Added since, and counted separately (2026-10-06):** **#17** (ADR-0020) and **#18** (ADR-0022
+> §24.7) each carry their **own conformance paragraph**, because neither is fully proven — the
+> "all sixteen" sentence above is scoped to **#1–#16** and must not be read as covering them.
+> **#18 is the first invariant admitted with no test at all**, deliberately: the regression it
+> names (a streaming route silently falling through a CDN onto a buffered origin) is live in
+> infrastructure now, and recording the rule ahead of its pin is cheaper than discovering it in
+> production. Its three candidate pins, and which one the architect prefers, are in the invariant.
+>
 > **Considered but NOT promoted (2026-06-25):** the voice-résumé safety net
 > (`js/voice-resume-button.js`) and the empty-reply derivation (`js/chat-reply-text.js`) are pure,
 > well-tested helpers (`test/voice-resume-button.test.mjs`, `test/chat-reply-text.test.mjs`), but a
@@ -192,15 +206,53 @@ proves it comes FIRST.
      caps but does not floor). No open clause remains.
      Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
-9. **On a first-chunk rate limit the chat chain transparently falls back to the
-   secondary model; once any chunk has flushed it is committed.** `GeminiRoutingChain`
-   tries the primary model first; if the FIRST attempt fails with an upstream rate-limit
-   it retries on the fallback; once a chunk has been yielded, mid-stream errors propagate
-   rather than restart. Non-rate-limit errors are not retried. Primary and fallback model
+9. **On a RETRYABLE upstream failure of the first attempt the chat chain transparently falls
+   back to the secondary model; once any chunk has flushed it is committed.**
+   **AMENDED 2026-10-06 by ADR-0023** — the trigger was "a first-chunk **rate limit**" and this
+   invariant used to state *"Non-rate-limit errors are not retried."* **That sentence was the bug:**
+   a Gemini `503 UNAVAILABLE` re-raised on the first attempt and the healthy fallback was never
+   tried, on roughly **1 request in 3** against the prod host. The trigger is now an **enumerated
+   retryable set**, of which the rate limit is a subset. `GeminiRoutingChain` tries the primary
+   model first; if the FIRST attempt fails **retryably** it retries on the fallback; once a chunk
+   has been yielded, mid-stream errors propagate rather than restart. Primary and fallback model
    ids must differ.
-   - Implemented by: `docker/chat/app/gemini_routing.py:99-144` (`astream`: fall back
-     only when the first `__anext__` raises a rate-limit; commit after first yield),
-     `:71-97` (`ainvoke` analogue); distinct-model guard
+   **RETRYABLE — the exact set (ADR-0023 §4.1), keyed on the status carried by the UPSTREAM
+   exception:** `429`/`RESOURCE_EXHAUSTED`, `503`/`UNAVAILABLE`, `500`/`INTERNAL`,
+   `504`/`DEADLINE_EXCEEDED`, `502`.
+   **NOT RETRYABLE, and never tried on the second model (ADR-0023 §4.2):**
+   `401`/`403`/`UNAUTHENTICATED`/`PERMISSION_DENIED` (**both models share one API key, so the
+   retry cannot succeed** — the clause a naive widening breaks), `400`/`INVALID_ARGUMENT`, `413`,
+   `422`, any other 4xx, `404`/`NOT_FOUND` (a bad model id must stay loud, not hide behind a
+   silent fallback), and **anything with no extractable status — unknown is not transient,
+   default deny.**
+   **The retry decision and the quota bookkeeping are SEPARATE, and that separation is the
+   invariant** (ADR-0023 §3, §4.3): retryability is asked of `is_upstream_retryable`, while
+   `note_primary_rate_limited()` — which flips `prefer_fallback_first` for the **rest of the UTC
+   day** — is called for a **`429` only**. A 503 retries the turn and leaves the routing
+   preference untouched: it is a statement about Google's capacity in that instant, not about our
+   quota, and it **fails fast**, so re-discovering it next turn is cheap. The rule generalises —
+   **stickiness is earned by the cost of RE-DISCOVERY, not by the severity of the error**, which
+   is why #13's 12-second stall is sticky and this is not.
+   **Three outcomes, three event types** (ADR-0023 §5, applying ADR-0020 §5.13's *one type = one
+   priority*): a retried 503 whose turn then **succeeds** fires **`chat_primary_unavailable`
+   (P2)** — firing the P1-shaped `chat_model_error` on a turn that succeeded would be a false
+   alarm, and silence would hide a real degradation; a retryable failure on the **last** model
+   fires the existing **`chat_upstream_unavailable` (P1)**; and **`chat_model_error` (P1)** keeps
+   its exact meaning — a **non-retryable** error that ended the turn — so its blast radius
+   shrinks, which is the point.
+   **CONFORMANCE:** the **commit-on-first-chunk half holds today and is proven** (see *Proven
+   by*). The **retryable-set half is NOT yet implemented** — at this commit
+   `gemini_routing.py:303-304` and `:385-391` still read
+   `if not is_upstream_rate_limit(e): … raise`, so only `429` is retried. Decided in ADR-0023;
+   **this invariant may not be read as claiming the 503 path until that slice is green.**
+   - Implemented by: `docker/chat/app/gemini_routing.py:330-417` (`astream`: fall back only when
+     the first `__anext__` fails; commit after first yield), `:259-328` (`ainvoke` analogue),
+     `docker/chat/app/upstream_errors.py:94-98` (`is_upstream_rate_limit` — **bookkeeping only**
+     once ADR-0023 lands; the retry predicate is to be a **separate**
+     `is_upstream_retryable`, a **superset** of it, which must key on the upstream exception's
+     status and **never** on the status `upstream_error_body` returns, because that function maps
+     auth `401/403` → **502**); daily routing state
+     `docker/chat/app/gemini_limit_state.py:35-69`; distinct-model guard
      `docker/chat/app/providers.py:200-201`.
    - Proven by: `docker/chat/tests/test_gemini_routing.py` — all four clauses, asserting the
      routed-output / propagation contract (not call counts): first-chunk rate-limit → fallback
@@ -652,6 +704,94 @@ proves it comes FIRST.
          `"function toString() { [native code] }11"`, compounding through the merge at
          `:697-699`; `__proto__` silently drops the bucket. Not prototype pollution. Decision
          **A7b**: `Object.create(null)` at `:327`, `:328`, `:612`, `:613`.
+
+18. **The streaming chat route is reachable by exactly one spelling, and every spelling the
+    frontend can emit lands on a streaming behavior — a silent fall-through to a buffered origin
+    is a regression, not a variant.** `[chat]` When a CDN sits in front of the chat host
+    (ADR-0022 §17, §23.1 — CloudFront + OAC is the only browser-reachable shape for the
+    `RESPONSE_STREAM` Function URL on this account), the shipped frontend emits the chat endpoint
+    as **exactly `<base>/api/chat`** — no trailing slash, no doubled separator — and **every**
+    spelling it can emit matches a cache behavior whose target origin is the **streaming** origin
+    and whose policies do not buffer (`CachingDisabled`, `AllViewerExceptHostHeader`,
+    `Compress: false`). A spelling that misses those behaviors falls through the **default**
+    behavior, and when the default behavior points at the buffered API Gateway origin — the shape
+    ADR-0022 intends to ship, so non-streaming routes keep the 5 rps / burst 10 throttle — the
+    reply is still **200**, still `text/event-stream`, still the correct text, delivered **all at
+    once**. That is the exact defect this seam exists to remove (`docs/architecture.md:98`), and it
+    fails **with no error anywhere**: `readSseChat` parses a complete SSE body happily.
+    **Why the trailing slash is the hole, mechanically** (derived from config + code, not measured;
+    one `curl -i -X POST <dist>/api/chat/` and a glance at `Location` confirms it): the **exact**
+    pattern `/api/chat` (`aws/chat-stream-cdn-template.yaml:106`) is **correct and must stay
+    exact** — the glob `/api/chat*` would also swallow `/api/chat/smoke` and
+    `/api/chat/host-status`, which are request/response routes belonging on the buffered origin.
+    But `/api/chat/` does not match it. It reaches the default origin's `/{proxy+}` ANY route
+    (`aws/chat-template.yaml:104-109`), where Starlette's `redirect_slashes` answers **307** with
+    an **absolute** `Location` built from the `Host` header — and under
+    `AllViewerExceptHostHeader` that Host is the **origin's**, so the browser is redirected to the
+    raw `*.execute-api.*.amazonaws.com` host. `fetch` follows a 307 with method and body intact, so
+    the browser ends up **off the distribution entirely**, on a host named in **no `<meta>` tag**
+    (invariant 2), buffered by API Gateway, inside its 29–30 s integration timeout.
+    **AND THE DEEPER RULE, which adding a behavior does NOT satisfy** (found by dev-ops
+    2026-10-06 while implementing the trailing-slash behavior): **under OAC the origin must never
+    emit an absolute, self-referential redirect**, because **the browser cannot sign**. Route
+    `/api/chat/` to a second exact behavior on the **streaming** origin and the same
+    `redirect_slashes` now answers 307 with a `Location` naming the **private Function URL host**
+    (`*.lambda-url.*.on.aws`, `AuthType: AWS_IAM`) — and the unsigned follow gets **403**. So the
+    trailing slash has **two** failure modes, chosen by which origin the fall-through lands on:
+    **(a)** default behavior → buffered API Gateway origin → a **silently buffered 200**;
+    **(b)** a second behavior → Function URL origin → a **403 dead end**. A second cache behavior
+    is therefore **necessary but not sufficient**: the spelling must be normalised **before** the
+    origin sees it (a CloudFront viewer-request URI rewrite — in flight), or never emitted
+    (pin 1), or the app must stop redirecting at all (`FastAPI(redirect_slashes=False)`, which
+    turns the whole silent class into a loud 404 on every route — the loop's call, with that
+    trade stated). This is also the general form: **any** `30x` the chat app builds from the `Host`
+    header is unfollowable under OAC, because `AllViewerExceptHostHeader` means that header is the
+    *origin's* name, not ours.
+    **CONFORMANCE, stated plainly: this invariant is NOT proven, and nothing in the suite catches
+    its violation today** — it is recorded now, ahead of its test, because the hole is live in
+    infrastructure that is about to carry production traffic (ADR-0022 §24.7). What is true at this
+    commit: the frontend is **already** a one-spelling emitter, but **incidentally, not by
+    contract** — `js/site-config.js:9` strips trailing slashes from the meta content
+    (`raw.replace(/\/+$/, '')`), `js/chat.js:338` uses the result verbatim as the POST endpoint
+    (`:1149`), and `js/chat-live.js:247` / `js/admin.js:26` re-strip before deriving their own
+    paths. So `POST /api/chat/` is **not** reachable from `js/chat.js` as written — it is reachable
+    from curl, from the docs, from the deploy scripts, and from the next edit that joins a base to
+    a path. The practically reachable spelling set is therefore **`/api/chat`** and
+    **`/api/chat/`**; query strings do not participate in CloudFront path matching, and
+    `//api/chat`, case variants and percent-encoded forms are emitted by nothing in `js/`.
+    - Implemented by: `aws/chat-stream-cdn-template.yaml:103-127` — the exact `/api/chat` behavior
+      targets `stream-function-url` with `CachePolicyId 4135ea2d…` (CachingDisabled),
+      `OriginRequestPolicyId b689b0a8…` (AllViewerExceptHostHeader) and `Compress: false`; the
+      default behavior carries the same policies but the **other** origin, which is why the
+      fall-through is silent rather than broken. Frontend side: the single-spelling derivation at
+      `js/site-config.js:5-15` + `js/chat.js:338`. **A second exact behavior for `/api/chat/` is in
+      flight** (ADR-0022 §24.7).
+    - Proven by: **nothing yet.** Three pins, in the order the architect recommends them — full
+      reasoning in ADR-0022 §24.7:
+      1. **Frontend guarantee — PREFERRED, and the one to insist on.** A `node:test`
+         characterization that the shipped frontend can only ever emit `<base>/api/chat`:
+         `resolveApiUrl` strips trailing slashes (feed it `…/api/chat/`, `…/api/chat///`), the POST
+         endpoint is the unmodified `chatApiUrl`, and no module concatenates a `/` onto it. It pins
+         the side that actually **changes** (the CDN template is 151 lines edited rarely; `js/` and
+         the committed meta are edited weekly), it runs **offline, in CI, on every commit** with no
+         AWS credentials, it is the same shape as `test/frontend-api-config.test.mjs` and
+         `test/frontend-api-url-env-guard.test.mjs` which already guard this seam, and it costs one
+         test because the property is already true — the test converts an accident into a contract.
+      2. **Template assertion — second, and cheap.** Parse `aws/chat-stream-cdn-template.yaml`;
+         assert the streaming behaviors cover exactly the reachable spelling set, that each targets
+         the streaming origin, and that each carries CachingDisabled +
+         AllViewerExceptHostHeader + `Compress: false`. On its own it pins a *list*, and a list
+         drifts from its emitter — but paired with pin 1 it catches the one failure pin 1 cannot:
+         the right pattern pointed at the **wrong origin**, or with a policy that buffers.
+      3. **Journey — a release gate, not a suite pin.** For one real streaming POST through the
+         distribution, assert **`x-cf-behavior: apichat-exact`**
+         (`aws/chat-stream-cdn-template.yaml:50-59,116` stamps it — keep that header; it makes
+         "which behavior matched" client-visible without timing anything),
+         `content-type: text/event-stream`, and ≥ 2 body reads ≥ 40 ms apart (measured spacing was
+         38–216 ms). It needs a deployed distribution, credentials and a live model call, so it
+         belongs in ADR-0022 §18's acceptance list and the admin smoke rather than `node --test` —
+         but it is the only check that catches the actual user-visible symptom, a correct-looking
+         configuration that still buffers.
 
 ## Out of scope / explicitly allowed
 

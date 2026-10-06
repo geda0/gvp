@@ -1,6 +1,20 @@
 # ADR-0022 — The chat hosting seam: is ECS Express load-bearing, or can SSE run on Lambda response streaming?
 
-- **Status:** **MEASURED 2026-10-06 — conditional GO to a side-by-side stage deploy. NO deletion.**
+- **Status:** **GATE PASSED 2026-10-06 — GO to finish the stage acceptance list. NO deletion.**
+  **Read §24 first; it retires this ADR's critical path.** The one question the migration hung on
+  — *can a browser reach a `RESPONSE_STREAM` Function URL on this account, unbuffered?* — is
+  **answered yes, measured through CloudFront + OAC with an unsigned client** (§24.1): 200,
+  `text/event-stream`, response headers **11.6 s** ahead of the first body byte, tokens in separate
+  socket reads **38–216 ms** apart. **M-6's buffering clause PASSES; §23.1.2's NO-GO risk is
+  RETIRED** (§24.2). The cause of the block was **none of §19's four hypotheses** — AWS's OAC
+  documentation requires **two** grants (`lambda:InvokeFunctionUrl` **and**
+  `lambda:InvokeFunction`) and the template had one (§24.3). What is left is ordinary: **B1** (the
+  A/B, blocked only because `gvp-chat-express-stage` sits at `desiredCount: 0`), **D2** (the human
+  voice pass), **E1/M-7** (the Lambda concurrency quota), the §23.3 template deltas, and the
+  **first real frontend change this migration needs** — `x-amz-content-sha256` on every chat POST
+  (§24.6). Cost case corrected to September actuals: **$39.50 of a $46.51 bill, 85%** (§24.4).
+  Earlier status, kept because the reasoning is the record:
+  **MEASURED 2026-10-06 — conditional GO to a side-by-side stage deploy. NO deletion.**
   M-1 (SSE through LWA response streaming) and M-2 (container-image cold start) were measured on a
   throwaway Function URL and **both PASS with margin** (§13). M-3 (voice) and M-4 (cost ceiling) are
   still OPEN, and the spike surfaced a **new hard blocker — M-5**, an unexplained `403` on the
@@ -31,6 +45,11 @@
 ## 1. Context — the trigger is cost, not capability
 
 The owner's AWS bill is **$49–92/mo**. Of that, the chat host is the largest discretionary slice:
+
+**These two figures are SUPERSEDED by §24.4** (September actuals from Cost Explorer: ELB $16.20 +
+VPC $14.41 + ECS $8.89 = **$39.50** of a **$46.51** bill). They derived from a July memory; the ALB
+half was close (~$30.61 actual vs ~$29), the Fargate half was **2× too high** because only one task
+is running — stage sits at `desiredCount: 0`. Kept in place because §10's argument was built on them.
 
 | Item | ~Monthly |
 |------|----------|
@@ -226,11 +245,13 @@ cost-amplification path that the current fixed-price host does not have.
 
 | # | Measurement | Threshold | Status (2026-10-06) |
 |---|-------------|-----------|---------------------|
-| M-1 | SSE TTFT through LWA streaming vs ECS; chunk count > 1 | ≤ ECS median + 150 ms; p95 ≤ +400 ms; incremental or fail | **PASS on the transport half** — 42 chunks, first 222 ms, spread 1012 ms. **The A/B vs stage Express is still owed** (§18.B1). |
+| M-1 | SSE TTFT through LWA streaming vs ECS; chunk count > 1 | ≤ ECS median + 150 ms; p95 ≤ +400 ms; incremental or fail | **PASS on the transport half, now over public HTTPS** — §24.1: 200 `text/event-stream` through CloudFront, token events 38–216 ms apart, headers 11.6 s before the first body byte. **The A/B vs stage Express is still owed and is BLOCKED** — stage Express is at `desiredCount: 0` (§24.5). The absolute 14 s TTFT is model latency, not transport. |
 | M-2 | Cold-start TTFT, container-image Lambda, ≥15 min idle | ≤ 3 s median / 5 s worst (5–10 s conditional) | **PASS** — 1542 ms first chunk cold. Predicted to fail; did not (§13.2, §14.2). |
 | M-3 | Browser-direct voice against a Lambda-hosted mint | ≥ 9/10 `setupComplete`, no host-attributable 1011 | **OPEN** — §18.D |
 | M-4 | Monthly cost + enforced worst-case ceiling | < $10 expected **and** reserved concurrency + billing alarm | **OPEN** — thresholds now concrete in §15.3 |
-| M-5 | **NEW.** Function URL returns `403` with `AuthType: NONE` and an apparently correct resource policy | root cause known and fixed; ≥1 successful browser-origin HTTPS call | **ROOT CAUSE FOUND — an AWS-side account guardrail blocks public Function URLs outright (§19, evidence in §23.1). Design changed in response; the "≥1 browser-origin call" half is still owed, now through CloudFront + OAC.** |
+| M-5 | **The ANONYMOUS front door.** Function URL returns `403` with `AuthType: NONE` and an apparently correct resource policy | root cause known; the design does not depend on `AuthType: NONE` | **RESOLVED.** Cause: an AWS-side account guardrail on anonymous Function URLs (§23.1). It governs `AuthType: NONE` **only** and does **not** extend to signed service principals (§24.2). The browser half was never M-5's to answer — it is M-8's; the two 403s had **different causes** and this table previously conflated them. One cheap open re-test is filed in §24.2, gating nothing. |
+| M-6 | **CloudFront must not buffer the SSE stream** (§17.2) | no buffering; TTFT within +150 ms of direct; same chunk count | **PASS on the buffering clause** — §24.1, decisively (headers 11.6 s early, one token per socket read). **The parity clause is NOT measured** and merges into B1, which is blocked (§24.5). |
+| M-8 | **The SIGNED path — §23.1.2's critical-path question, promoted to a numbered gate so it stops living inside M-5.** Does CloudFront OAC signing work for `POST` with a body under `InvokeMode: RESPONSE_STREAM`? | ≥1 unsigned-client HTTPS call returns a streamed 200 | **RESOLVED — PASS.** Cause of the 403 was a **documented prerequisite omitted**: OAC needs **both** `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` (§24.3). None of §19's four hypotheses named it. **§23.1.2's NO-GO risk is retired** (§24.2). Also measured: `UNSIGNED-PAYLOAD` → 403, so `x-amz-content-sha256` is mandatory (§24.6). |
 | M-7 | **NEW.** An enforceable per-function concurrency cap exists | `ReservedConcurrentExecutions` settable at ≥ 1 | **BLOCKED by an account quota** — `ConcurrentExecutions=10` with minimum unreserved 10, so every reservation is rejected (§23.2). Needs a Service Quotas increase. |
 
 The cheapest way to run all four is **one throwaway stage deploy** of the LWA variant alongside
@@ -318,6 +339,21 @@ ALB is not a resource in this stack at all** — ECS creates and owns it
 shared, **deleting one Express service does not remove it**. The $29 only disappears when the
 **last** Express service across both environments is gone. A partial migration (stage only)
 saves the stage Fargate task (~$9) and **none** of the ALB cost.
+
+---
+
+### 7.7 `x-amz-content-sha256` — the one frontend code change the migration requires (added §24.6)
+
+With CloudFront + OAC in front of the Function URL, **every `POST` the browser sends must carry
+`x-amz-content-sha256: hex(SHA-256(body))`** — a documented AWS requirement ("Lambda doesn't
+support unsigned payloads"), measured here as `UNSIGNED-PAYLOAD` → **403
+`InvalidSignatureException`** (§24.1 probe B). So the blast radius is **not** confined to the meta
+tag of §7.1: `js/chat.js:1147-1163` must serialize the body once, hash that exact string, and send
+that same string. It also hits **`POST /api/live/session`** whenever the distribution's default
+behavior targets the Function URL origin. **This narrows §13.1/§21's "the application needed no code
+change" to the server only.** CORS needs no change — `main.py:436-443` already sets
+`allow_headers=['*']` (verified). Full detail, including the secure-context consequence for local
+development, in §24.6.
 
 ---
 
@@ -776,9 +812,11 @@ additional gate that comes later (it needs the distribution, which stage deliber
 Measurements that can be taken two ways must be taken over **public HTTPS**, not the SDK — §13.1's
 numbers do not count toward acceptance.
 
-**F0 — precondition.** **M-5 (§19) is closed and its root cause written into this ADR.** Until the
-Function URL answers over HTTPS, no item in A or B can be measured at all, so acceptance stalls
-regardless of how good §13's numbers are. Build the stack while M-5 is open; do not accept it.
+**F0 — precondition. CLOSED 2026-10-06 (§24.2, §24.3).** **M-5 (§19) is closed and its root cause
+written into this ADR.** Until the Function URL answers over HTTPS, no item in A or B can be
+measured at all, so acceptance stalls regardless of how good §13's numbers are. Build the stack
+while M-5 is open; do not accept it. — *The endpoint has now answered real browser-shaped HTTPS
+requests through CloudFront + OAC; the per-item status of everything below is tabulated in §24.5.*
 
 ### A. Transport
 - **A1** `POST /api/chat` with `stream: true` over the public Function URL returns
@@ -790,6 +828,12 @@ regardless of how good §13's numbers are. Build the stack while M-5 is open; do
 - **A3** `stream: false` still returns the legacy JSON body, `content-type: application/json`, 200.
 - **A4** Preflight `OPTIONS /api/chat` with `Origin: https://chat.marwanelgendy.link` returns
   **exactly one** `Access-Control-Allow-Origin` header. (Pins §15.2: no Function URL `Cors` block.)
+- **A5 — added §24.6, and it is a hard requirement, not a note.** Through the distribution,
+  `POST /api/chat` **with** `x-amz-content-sha256: hex(SHA-256(body))` returns 200
+  `text/event-stream` (**measured** — §24.1 A) and **without** it returns 403
+  `InvalidSignatureException` (**measured** — §24.1 B). The hash must be over the exact bytes sent.
+  Satisfied for curl; **A2 is where it must be satisfied for the browser**, so A2 is gated on the
+  `js/chat.js` change (§24.9 item 11).
 
 ### B. Latency — apples-to-apples
 - **B1** One machine, one network position, **interleaved** A/B (alternate requests between hosts),
@@ -797,7 +841,10 @@ regardless of how good §13's numbers are. Build the stack while M-5 is open; do
   `https://gv-d7fa1a51ec09445caf0d435348131479.ecs.us-east-2.on.aws/api/chat`. Report median + p95
   TTFT for both. **GO:** stream median ≤ Express median **+ 150 ms** and p95 ≤ Express p95
   **+ 400 ms**. Interleaving is not optional — sequential batches measure the network's mood, not
-  the hosts.
+  the hosts. **BLOCKED 2026-10-06: `gvp-chat-express-stage` is at `desiredCount: 0` and returns
+  503**, so the baseline host does not answer. Three options and a recommendation (scale stage to 1
+  for the duration — well under $1/day) are in §24.5; **it is the owner's call, and a waiver must
+  be recorded as a decision, not left as a gap.**
 - **B2** **≥ 5 cold samples** over HTTPS after ≥ 15 min idle (or forced by a config update that
   recycles the environment). **GO:** ≤ 3 s median, ≤ 5 s worst. Expected to pass on §13.2.
 - **B3** The ~11 s first-invoke-after-deploy is covered by a post-deploy warm-up invocation in the
@@ -870,6 +917,14 @@ path dies silently on the new host:
   which is why it appears there).
 
 ## 19. M-5 — the unexplained `403`. **RESOLVED: hypothesis 3. Evidence and design change in §23.1.**
+
+> **§24.3 CORRECTS THE FRAME OF THIS WHOLE SECTION.** The list of four below reads as exhaustive
+> and is not. The cause of the 403 on the **CloudFront** path was a **fifth** one: AWS's OAC
+> documentation requires **two** grants — `lambda:InvokeFunctionUrl` **and**
+> `lambda:InvokeFunction` — and the template had only the first. Hypothesis 1 below posed those two
+> actions as **alternatives**, which made "both" unreachable from inside this list no matter how
+> many probes were run. The two 403s (anonymous → §23.1; signed/CloudFront → §24.3) are **distinct
+> failures with distinct causes** and must not be read as one finding.
 
 *(Kept as written, because the ranking was wrong in an instructive way: the cause was the hypothesis
 listed third, and the "escape hatch" named in the last paragraph turned out to be the design.)*
@@ -1035,6 +1090,12 @@ anything in §13.** Recorded here because they change Decisions 1 and 3, not mer
 
 ### 23.1 **M-5 answered: a public Function URL is blocked account-wide. This is an AWS-side guardrail, not a template defect.**
 
+> **SCOPE CORRECTED BY §24.2:** this finding governs the **anonymous** front door
+> (`AuthType: NONE`, `Principal: '*'`) **only**. It does **not** extend to a SigV4-signed request
+> from `cloudfront.amazonaws.com`, which is **measured working** (§24.1). Consequently §23.1.2's
+> NO-GO risk — the critical path this ADR carried — is **RETIRED**. One open re-test of the
+> guardrail's existence is filed in §24.2; it gates nothing.
+
 Measured on account **`429844072978`**, 2026-10-06, per `aws/chat-stream-template.yaml:47-63`:
 
 - A one-resource probe — trivial function, `AuthType: NONE`, resource policy with
@@ -1141,3 +1202,376 @@ template arrives gated rather than being added to the gate later.
     chat abuse can starve the contact form — and it exists **today**, independently of this ADR,
     because `aws/chat-template.yaml` sets no reserved concurrency either. Worth an invariant once the
     quota is raised and reservations are set, and worth a sentence in `docs/architecture.md` now.
+
+---
+
+# THIRD AMENDMENT — 2026-10-06: the gate PASSED, and the cause was a fifth one nobody listed
+
+## 24. The OAC gate result — measured through CloudFront, with an unsigned browser-shaped client
+
+### 24.1 What was measured
+
+Method: an **unsigned** client (no viewer credentials — the browser's position) against the
+CloudFront distribution of `aws/chat-stream-cdn-template.yaml`, with a **temporary,
+distribution-scoped `lambda:InvokeFunction` grant** added by hand. The grant was **removed
+afterwards**, so the design is proven but **not currently wired** — the template fix is dev-ops's,
+in flight.
+
+| Probe | Request | Result |
+|---|---|---|
+| **A** | `POST /api/chat` + `x-amz-content-sha256: sha256(body)` | **200**, `content-type: text/event-stream; charset=utf-8`; `ms_to_headers` **2 423**, `ms_to_first_byte` **14 034**; token events at 14 034, 14 148, 14 186, 14 402, 14 449, 14 540, 14 649, 14 719, 14 846, 14 989, 15 060 … — **one `token` event per socket read** |
+| **B** | same, body hash replaced by `UNSIGNED-PAYLOAD` | **403 `InvalidSignatureException`** |
+| **C/D/E** | `GET /health` | **200** through the default behavior |
+
+**Derived from those numbers, and the derivations are the finding:**
+
+- **Headers preceded the first body byte by 11 611 ms** (14 034 − 2 423). A proxy that buffered
+  the body could not have emitted response headers 11.6 s before it.
+- **Inter-token deltas: 114, 38, 216, 47, 91, 109, 70, 127, 143, 71 ms** — i.e. **38–216 ms**,
+  each arriving in its own read. ("40–200 ms" is a fair summary; the recorded extremes are 38
+  and 216.)
+- **M-6's buffering clause: PASS.** CloudFront does not buffer the event stream. This is not a
+  marginal number that a re-run could reverse.
+- **M-6's parity clause — `+150 ms` of direct and the same chunk count — is NOT measured.** There
+  was no interleaved direct baseline in this run. It merges into **B1**, which is blocked (§24.5).
+  §23.1.1 said M-6 was no longer separable from M-1; that remains true, and the inseparable half
+  is the part still owed.
+- **§18.A1: PASS, over public HTTPS** — `text/event-stream`, ≥ 11 strictly-increasing `token`
+  events, last−first spread ≥ 1 026 ms against a ≥ 200 ms floor. This is the first acceptance item
+  §18 can count (§13.1's SDK numbers explicitly do not count).
+- **§18.B4 is still owed.** The timeline is truncated (`…`), so the HTTPS chunk count was never
+  put beside the SDK's 42. One line of the harness closes it; record the integer.
+- **The 14 s TTFT is model latency, not transport, and must not be read as an M-1 number.** M-1 is
+  a *relative* threshold by construction (§4), and this run is exactly why: an absolute TTFT on
+  this prompt tells you about Gemini, not about the host. It makes B1's **interleaved** A/B
+  unwaivable rather than optional.
+
+### 24.2 §23.1's guardrail does NOT extend to signed service principals. The NO-GO is retired.
+
+**Said unambiguously, because this ADR has carried it as the critical path for two amendments:**
+
+§23.1.2 made one question the gate the whole migration hung on — *does CloudFront OAC signing work
+for `POST` with a request body under `InvokeMode: RESPONSE_STREAM`?* — and said that if the answer
+were no, **this ADR was NO-GO and ECS Express stayed.** The answer is **yes**: 200, with an
+unbuffered `text/event-stream` body, to an unsigned client (§24.1).
+
+Therefore:
+
+1. **The account guardrail measured in §23.1 governs the ANONYMOUS front door only** —
+   `AuthType: NONE` with `Principal: '*'`. It does **not** apply to a SigV4-signed request from
+   the service principal `cloudfront.amazonaws.com`. §23.1's own second data point already said
+   as much (`AWS_IAM` + a signed request → 200); what is new is that the *browser* path, through
+   CloudFront, is also unaffected.
+2. **§23.1.2's NO-GO risk is retired.** No item remaining in this ADR can make the Lambda host
+   unreachable from a browser on this account. The critical path is now a short list of ordinary
+   measurements (§24.5), not an existential question.
+3. **§23.1.3's "silver lining" stands and is now the shipped shape**, not an aspiration: the
+   Function URL is never publicly invocable, which removes the "unthrottled public endpoint" half
+   of M-4's exposure for free.
+
+**One open scope question, filed and deliberately NOT gating** (the architect's own addition):
+§23.1's anonymous probe granted only `lambda:InvokeFunctionUrl` — **the same omission that caused
+the CloudFront 403** (§24.3). So there is now a competing explanation for the anonymous 403 too,
+and one read-only probe settles it: `AuthType: NONE` with **both** grants present. It is cheap, it
+is on nobody's critical path (the design no longer wants `NONE`), and it changes no decision — but
+**this ADR must not carry "`AuthType: NONE` is blocked account-wide" as a settled fact until that
+probe is run.** If it returns 200, §23.1's conclusion was the fifth cause wearing a guardrail's
+clothes, and the lesson of §24.3 applies to it twice.
+
+### 24.3 The cause — a documented prerequisite, omitted. The four-cause list was not exhaustive.
+
+AWS's page **"Restrict access to an AWS Lambda function URL origin"** requires **two** grants for
+OAC: **`lambda:InvokeFunctionUrl`** *and* **`lambda:InvokeFunction`**, both with
+`Principal: cloudfront.amazonaws.com` and `--source-arn` the distribution.
+`aws/chat-stream-cdn-template.yaml` granted **only the first**. That is the whole of it.
+
+- **§19's ranked list of four was exhaustive-looking and wrong, and §23.1 inherited the error.**
+  Worse than an omission: §19's hypothesis 1 posed the two actions as **alternatives** —
+  "`lambda:InvokeFunctionUrl`, *not* `lambda:InvokeFunction`" — when the documented requirement
+  for this integration shape is a **conjunction**. Probe 1 of §23.1 then eliminated hypothesis 1
+  **empirically** and correctly, which *hardened* the frame: a list of mutually exclusive
+  candidates cannot contain "both", so no amount of further probing inside that list could reach
+  the cause. A documented-prerequisite omission was never a candidate.
+- **The lesson, stated so it transfers: read the service's own required-policy example before
+  theorising about a denial.** A 403 from an AWS front door is an authorization *fact*, and the
+  documentation for the exact integration shape states the required policy verbatim. The architect
+  made the same error from the other end — the frame offered was "signing or buffering", and it was
+  **neither**. Hypothesis ranking is a poor substitute for the vendor's worked example; here it
+  cost this ADR its critical path for a full amendment cycle, and it produced a published NO-GO
+  risk that never existed.
+- **An asymmetry in the fix, worth recording because it is a security consequence, not a detail:**
+  Lambda's `AddPermission` **rejects `FunctionUrlAuthType` for `lambda:InvokeFunction`** (it is
+  accepted only for `lambda:InvokeFunctionUrl`), so the second statement carries **no auth-type
+  condition**. It is therefore strictly broader than the first, and **`AWS:SourceArn` is its
+  entire access control** — without it, principal `cloudfront.amazonaws.com` means *any*
+  CloudFront distribution in *any* AWS account, the textbook confused deputy. Consequences:
+  the two grants must live and die in the **same stack as the distribution** (they do), the
+  `SourceArn` is not hygiene but the fence, and this statement must never be hand-added outside
+  that stack — which is also the sharpest argument for §24.8's governance item.
+
+### 24.4 Cost, corrected to September actuals
+
+Verified from Cost Explorer. **September: ELB $16.20 + VPC $14.41 + ECS $8.89 = $39.50 of a
+$46.51 total bill — 85%.** Amplify and WAF are now **$0**.
+
+**§1's table is superseded** (`~$29` ALB + `~$18` Fargate ≈ `~$47`): it derived from a July memory.
+The ALB half was close — $16.20 + $14.41 = **$30.61** vs `~$29`. The Fargate half was **2× too
+high**, and the reason matters more than the arithmetic:
+
+- **Only one task is running.** `gvp-chat-express-stage` sits at **`desiredCount: 0`** and returns
+  **503**. One 256 CPU / 512 MiB task in `us-east-2` is
+  `0.25 × $0.04048 + 0.5 × $0.004445 = $0.01234/h ≈ $9.01/mo` — the $8.89 actual, to within a
+  partial month. Derived from the published price, not from a per-resource itemisation.
+- The **$14.41 VPC line is consistent with four charged public IPv4 addresses**
+  (`4 × 730 h × $0.005 = $14.60`): the ALB's three plus the one running task's ENI. Also derived —
+  treat it as the working explanation, not a measurement.
+- **The correction that survives from the earlier draft:** the ALB releases only after the **last**
+  Express service across **both** environments is gone (§7.6), so **partial deletion saves $0 of
+  the ALB**. Unchanged and still the sharpest fact in the cost case.
+
+**Two consequences, both sharper than the correction itself:**
+
+1. **The cheap half of the saving has already been taken, and it saved nothing.** Stage's Fargate
+   is already $0 — and the ALB is **still billing $30.61/mo** with stage at `desiredCount: 0`.
+   That is **M6 / ADR-0019's economics measured rather than predicted**: scaling an Express service
+   to zero does **not** release the ECS-managed ALB, because the ALB belongs to the Express gateway
+   (the service resource), not to the task. §10 argued this from the template; stage has now run
+   the experiment by accident. Whatever remains of the $39.50 therefore hinges on deleting **prod**
+   Express — the host serving users — which is an all-or-nothing decision, not a staged one.
+2. **§15.3's arithmetic gets stronger, not weaker.** One pinned Lambda execution at 1536 MB and
+   100% duty is $64.80/mo — now **1.6× the entire ECS bill it would replace** (was 1.4× against the
+   stale $47). The claim "reserved concurrency is the cost ceiling" remains false; and against the
+   account's limit of 10, the unbounded worst case is still ≈ **10 × $64.80 ≈ $648/mo** (§23.2).
+   M-4's "< $2 expected" gate and E5's from-data computation stand, measured against **$39.50**.
+
+### 24.5 Acceptance — what now has real numbers, and what remains
+
+**§18.F0 is CLOSED.** M-5 is resolved (§23.1, and see §24.2's scope note), the signed-path 403 is
+resolved (§24.3), and the endpoint has answered real browser-shaped HTTPS requests. §18 is now a
+list of ordinary work.
+
+| §18 item | Status |
+|---|---|
+| **F0** precondition | **CLOSED** — §24.2, §24.3 |
+| **A1** SSE over public HTTPS, not coalesced | **PASS** — §24.1 |
+| **A5** `x-amz-content-sha256` (**new**, §24.6) | **PASS for curl / OWED for the browser** — `js/chat.js` does not send it |
+| **A2** token-by-token in a real browser, no FE change | **OWED, and now gated on A5** — the FE change is real (§24.6) |
+| **A3 · A4** | owed |
+| **B1** interleaved A/B vs stage Express | **BLOCKED TWICE** — stage Express at `desiredCount: 0` (see below) **and** the samples are contaminated by a chat-layer defect (§24.10). The only remaining measurement that can falsify the swap on latency |
+| **B2** cold over HTTPS, ≥5 samples | owed (§13.2's 1 542 ms predicts a pass, but it was an SDK number) |
+| **B3** post-deploy warm-up | owed — needs §20.5 in the deploy script |
+| **B4** HTTPS chunk count vs 42 | owed — §24.1 |
+| **C1–C4** persistence + admin | owed |
+| **D1** mint ≥10/10 | owed |
+| **D2** **human voice pass** | **OWED and unsubstitutable** — the last item that can falsify §4/M-3's premise; no probe replaces a human hearing audio |
+| **D3 · D4** timeouts + deep probe | owed; D3 is also §23.3 delta 1 — the template still says `Timeout: 60` (`aws/chat-stream-template.yaml:127`) |
+| **E1** reserved concurrency | **BLOCKED by M-7** (§23.2) — the **Lambda concurrency quota increase is a gate on the prod roll** |
+| **E2 · E3 · E4 · E5** alarms, budgets, kill switch, cost | owed; §23.3 delta 3 (no alarms, no SNS topic) is unapplied, and this is still the set most likely to be quietly deferred |
+| **F1 · F2** premise re-check | re-check at roll time |
+| **G1–G4** env parity | owed — §23.3 delta 2 unapplied |
+| **new** | the §24.7 / invariant 18 pin must exist before the prod roll |
+
+**B1's blocker, recorded as a blocker on the comparison and not on the ADR:**
+`gvp-chat-express-stage` is at **`desiredCount: 0` and returns 503**, so there is **no stage
+Express baseline to interleave against**. Three options, and this is the **owner's call**:
+
+- **(a) Scale stage Express to 1 for the duration of the A/B**, take the measurement, scale back.
+  Cost: well under $1/day (≈$9/mo Fargate prorated, plus ~$3.65/mo of task IPv4).
+- **(b) Run B1 against prod Express** and accept §14.1's mixed-variable defect, recorded on the
+  number itself as a known weakness.
+- **(c) Waive B1.**
+
+**Recommendation: (a).** §24.1 shows TTFT on this workload is model-dominated, so the only
+informative form of M-1 is relative and interleaved; (b) reintroduces exactly the confound §14.1
+corrected in place; and (c) would leave the migration's latency claim resting on §13.1's SDK
+numbers, which §13.1 itself disqualifies. A sub-$1 measurement against a $39.50/mo decision is not
+a close call. **If the owner chooses (c), that waiver belongs in this ADR as a decision, not as a
+gap** — a superseding note saying the latency claim is unmeasured on the browser path.
+
+**The honest short list of what is left:** **B1** (blocked on stage Express at zero), **D2** (the
+human voice pass), **E1/M-7** (the Lambda concurrency quota), plus the mechanical §23.3 deltas and
+the §18 items above. **None of them is a NO-GO risk of the §23.1.2 kind.**
+
+### 24.6 `x-amz-content-sha256` is a documented requirement — and the first real frontend change this migration needs
+
+**Promoted from a note to a hard requirement, in §7's blast radius (as §7.7) and §18's acceptance
+list (as A5).**
+
+The AWS documentation states it verbatim: for `PUT`/`POST` through CloudFront OAC to a Lambda
+function URL the client must compute the **SHA-256 of the request body** and send it in
+**`x-amz-content-sha256`**, because **"Lambda doesn't support unsigned payloads."** It is a
+documented prerequisite, **not an empirical quirk of this account** — and §24.1 probe B measured
+the consequence: `UNSIGNED-PAYLOAD` → **403 `InvalidSignatureException`**.
+
+**This narrows a claim this ADR has repeated twice.** §13.1 and §21 say "the application needed no
+code change." That is true of the **server** and **false of the browser**: with CloudFront + OAC in
+front, the browser must hash every chat body before sending it. Any future citation of "no code
+change" must carry that qualifier (filed as §24.9 item 13).
+
+What it means concretely, so the loop designs it rather than discovers it:
+
+- `js/chat.js:1147-1163` (`postChatOnce`) serializes the body **inline** inside the `fetch`
+  options. The hash must be over the **exact bytes sent**, so the body must be serialized **once**
+  into a string, hashed with `crypto.subtle.digest('SHA-256', …)`, and **that same string** passed
+  as `body` — hashing an object and re-serializing inside `fetch` is a silent 403.
+- `crypto.subtle` requires a **secure context**. Fine on HTTPS (chat already needs it for voice),
+  but it means the `localhost`-over-http fallback of `js/site-config.js:9-11` cannot talk to a
+  distribution. Local development keeps talking to a local app or the raw origin.
+- **Scope:** every `POST` routed to the OAC origin. Today that is `/api/chat`. It also covers
+  **`POST /api/live/session`** *if* the default behavior ever targets the Function URL origin —
+  which is exactly what happens in the template's "gate mode" (`DefaultOriginDomainName` empty,
+  `aws/chat-stream-cdn-template.yaml:17-24`). Decide the default origin before shipping the FE
+  change, or the FE must hash both routes.
+- **CORS needs no change — verified.** `docker/chat/app/main.py:436-443` sets
+  `allow_headers=['*']`, so the non-safelisted `x-amz-content-sha256` is already permitted on the
+  preflight that `Content-Type: application/json` already forces. §15.2's "one owner for CORS, and
+  it stays the app" holds unchanged, and §18.A4's single-`Access-Control-Allow-Origin` assertion is
+  unaffected.
+
+**New acceptance item A5:** `POST /api/chat` through the distribution **with** a correct
+`x-amz-content-sha256` returns 200 `text/event-stream` (measured, §24.1 A) and **without** it
+returns 403 `InvalidSignatureException` (measured, §24.1 B). A5 is satisfied for curl. **A2 is
+where it must be satisfied for the browser**, and A2 is now gated on the `js/chat.js` change —
+whose failing test is "the chat POST carries a correct `x-amz-content-sha256` for its exact body".
+
+### 24.7 The new invariant — #18, and how it should be pinned
+
+Written into `docs/tdd/project-invariants.md` as **invariant 18**: *the streaming chat route is
+reachable by exactly one spelling, and every spelling the frontend can emit lands on a streaming
+behavior; a silent fall-through to a buffered origin is a regression, not a variant.*
+
+**The hole, precisely.** The **exact** pattern `/api/chat`
+(`aws/chat-stream-cdn-template.yaml:106`) is **right and must stay exact** — `/api/chat*` would
+also swallow `/api/chat/smoke` and `/api/chat/host-status`, which are request/response routes that
+belong on the buffered origin. `POST /api/chat/` simply does not match it, and falls through the
+**default** behavior. dev-ops is adding a second exact behavior for the trailing slash.
+
+**What the fall-through actually does — worse than "loses streaming"** (derived from config and
+code, not measured; one `curl -i -X POST <dist>/api/chat/` and a glance at `Location` confirms it):
+the default origin's `/{proxy+}` ANY route (`aws/chat-template.yaml:104-109`) reaches FastAPI,
+whose `redirect_slashes` answers **307** with an **absolute** `Location` built from the `Host`
+header — and under `AllViewerExceptHostHeader` that Host is the **origin's**, so the browser is
+redirected to the raw `*.execute-api.*.amazonaws.com` host. `fetch` follows a 307 with method and
+body intact. So the browser ends up **off the distribution entirely**, on a host named in **no
+`<meta>` tag** (invariant 2), buffered by API Gateway, inside its 29–30 s integration timeout
+(§15.1, §22.6) — and the response is still **200**, still `text/event-stream`, still the correct
+text, delivered all at once. `readSseChat` parses it happily. **Nothing anywhere reports an error.**
+
+**A second cache behavior is necessary but NOT sufficient — and this is the strongest argument for
+pin 1 below.** Found by dev-ops (tic 1249) while implementing it: route `/api/chat/` to a second
+exact behavior on the **streaming** origin and `redirect_slashes` still fires, now answering 307
+with an absolute `Location` naming the **private Function URL host** (`AuthType: AWS_IAM`) — and
+**the browser cannot sign**, so the unsigned follow gets **403**. The trailing slash therefore has
+**two** failure modes depending on which origin it lands on: **silently buffered 200** (default /
+API Gateway origin) or **403 dead end** (Function URL origin). **The general rule, which outlives
+this spelling: under OAC the origin must never emit an absolute self-referential redirect**, because
+`AllViewerExceptHostHeader` makes the `Host` the *origin's* name — so every `30x` the app builds
+from it points at a host no browser can reach. Three places to fix it, and they are not
+equivalent: normalise the URI at the **edge** (viewer-request rewrite — dev-ops, in flight), never
+**emit** the spelling (pin 1 — removes both failure modes at the source), or stop the app
+redirecting at all (`FastAPI(redirect_slashes=False)`, which converts the silent class into a loud
+404 across every route — the loop's call, and the trade must be stated).
+
+**One correction to the premise as handed over.** "Every spelling the frontend can emit" implies the
+frontend can emit the trailing slash. **At this commit it cannot.** `js/site-config.js:9` strips
+trailing slashes from the meta content (`raw.replace(/\/+$/, '')`), `js/chat.js:338` uses the result
+verbatim, and `js/chat-live.js:247` / `js/admin.js:26` re-strip before deriving their own paths. The
+hole is real at the CDN layer and reachable from curl, from docs, from scripts and from the next
+edit that joins a base to a path — but **the shipped frontend is already a one-spelling emitter,
+incidentally rather than by contract.** That is the single most useful fact for choosing the pin.
+The practically reachable spelling set is **`/api/chat`** and **`/api/chat/`** (query strings do not
+participate in path matching; `//api/chat`, case variants and percent-encoded forms are not
+emitted by anything in `js/`).
+
+**How it should be pinned — all three have a role, and the order is a preference, not a menu:**
+
+1. **The frontend guarantee, pinned by a node:test characterization — PREFERRED, and the one to
+   insist on.** Assert that the shipped frontend can only ever emit `<base>/api/chat`:
+   `resolveApiUrl` strips trailing slashes (feed it `…/api/chat/`, `…/api/chat///`), the POST
+   endpoint is the unmodified `chatApiUrl`, and no module concatenates a `/` onto it.
+   **Why first:** it pins the side that actually changes — the CDN template is 151 lines edited
+   rarely and (once §24.8 lands) under review, while `js/`, `js/site-config.js` and the committed
+   meta are edited every week; it runs **offline, in CI, on every commit**, with no AWS
+   credentials, in the same shape as the two tests that already guard this seam
+   (`test/frontend-api-config.test.mjs`, `test/frontend-api-url-env-guard.test.mjs`); and it costs
+   one test, because the property is **already true** — the test converts an accident into a
+   contract. It also makes the seam *statable* in one line — "the frontend emits exactly
+   `<base>/api/chat`" — which is what lets the CDN side be built and reviewed independently.
+2. **A template assertion — second, and cheap.** Parse `aws/chat-stream-cdn-template.yaml`; assert
+   the streaming behaviors cover exactly the reachable set, that each targets the streaming origin,
+   and that each carries CachingDisabled + AllViewerExceptHostHeader + `Compress: false`.
+   **Why not first:** on its own it pins a *list*, and a list drifts from its emitter — it cannot
+   know "every spelling the frontend can emit" without importing the frontend's knowledge, which is
+   precisely the coupling pin 1 removes. Paired with pin 1 the list becomes checkable, and it
+   catches the one failure pin 1 cannot: **the right pattern pointed at the wrong origin, or with a
+   policy that buffers.** It is a new test shape for this repo (there is no template-assertion test
+   in `test/` today), which is the only reason it ranks second.
+3. **A journey — a release gate, not a suite pin.** For one real streaming POST through the
+   distribution, assert **`x-cf-behavior: apichat-exact`**, `content-type: text/event-stream`, and
+   ≥ 2 body reads ≥ 40 ms apart (§24.1 measured 38–216 ms, so the margin is wide).
+   **Why not the pin:** it needs a deployed distribution, credentials and a live model call; it is
+   flaky by construction and on a personal portfolio it gets run by hand or not at all. **Why it
+   must exist anyway:** it is the only check that catches the actual user-visible symptom — a
+   correct-looking configuration that still buffers — i.e. the only one that would have caught this
+   class end-to-end. It belongs in §18's acceptance list and the admin smoke.
+   **And it is nearly free, because the template already stamps the answer:**
+   `aws/chat-stream-cdn-template.yaml:50-70,116,126` sets `x-cf-behavior: apichat-exact` / `default`
+   per behavior, so "which behavior matched" is **client-visible without timing anything**. That
+   header is the best thing in that template; keep it, and make asserting it part of every
+   streaming check.
+
+### 24.8 Governance — unresolved, and the owner's
+
+**Three** chat templates now sit outside `SECURITY_GLOB` (`.claude/tdd.config:63`, which matches
+only `(^|/)aws/(template|chat-template)\.yaml`):
+
+- `aws/chat-stream-template.yaml` — `GeminiApiKey` (NoEcho); defines the function and its URL.
+- `aws/chat-stream-cdn-template.yaml` — **new with the gate**; defines the **public front door**
+  and **both invoke grants**, one of which (§24.3) carries no auth-type condition and is fenced
+  only by `AWS:SourceArn`. This is the most review-worthy file of the three and the newest.
+- `aws/chat-express-template.yaml` — the pre-existing hole, with **three** NoEcho secrets (§22.1).
+
+§16's proposed widening to **`(^|/)aws/[^/]*template\.yaml`** covers all three and can only ever
+add gating. **It remains the owner's decision; the architect has not edited `.claude/tdd.config`
+and will not.** Filed, not fixed. What the gap means concretely today: the statement that makes the
+chat function invocable has a wildcard-shaped principal and a single ARN condition standing between
+it and any CloudFront distribution in any AWS account — exactly the edit a sensitive-surface gate
+exists to force a human to look at.
+
+### 24.9 Additional drift, for the loop (continues §22 / §23.5 at 11)
+
+11. **`js/chat.js` sends no `x-amz-content-sha256`** (`:1147-1163`), so the browser cannot reach
+    the distribution at all (§24.6). **Blocks §18.A2** and is the highest-value item on this list.
+    Note the design constraint: serialize the body once, hash that string, send that string.
+12. **`aws/chat-stream-template.yaml` still carries all four §23.3 deltas** — verified unapplied at
+    this commit: `Timeout: 60` (`:127`), the env-parity set (§18.G1), no alarms / no SNS topic, and
+    `FunctionUrlAuthType` `Default: NONE` (`:49`). Delta 4 is now doubly wrong: `AWS_IAM` is not
+    merely the value that deploys, it is the value the **measured, working** design uses.
+13. **"The application needed no code change" is narrower than it reads** (§13.1, §21): true of the
+    server, false of the browser (§24.6). Correct it wherever it is cited.
+14. **ADR-0007's `~100 s cold start` is still uncorrected** (§22.2). Unchanged and still the
+    highest-value documentation fix in this ADR's whole list.
+15. **`gvp-chat-express-stage` at `desiredCount: 0` returning 503 is documented nowhere** — not in
+    `docs/architecture.md`, not in the deploy script's output, not in §8's table. Anyone following
+    §14.1's instruction to baseline against the stage host meets a 503 with no way to know it is
+    intentional. Worth one line in `docs/architecture.md`. **And it is evidence, not just drift:**
+    scaling an Express service to zero does **not** release the ECS-managed ALB (§24.4), which is
+    M6 / ADR-0019's central economic assumption, now measured.
+
+### 24.10 The M-1 samples are contaminated by a chat-layer defect — re-measure, do not reuse
+
+Found while this amendment was being written, and it is a **second, independent blocker on
+§18.B1**: `is_upstream_rate_limit` (`docker/chat/app/upstream_errors.py:94-98`) is true for **429
+only**, so `gemini_routing.py:303-304` / `:385-391` **re-raise a Gemini `503 UNAVAILABLE` instead
+of falling back** to the healthy `gemma-4-26b-a4b-it`. Observed at **roughly 1 request in 3**
+across two independent measurement sessions, on the ECS host serving prod.
+
+**Consequence for this ADR:** every latency sample taken before the fix mixes host behaviour with
+a self-inflicted ~30% error rate, and the failed turns are precisely the ones that return
+**fastest** — so a TTFT median is biased **downwards** and the distribution is bimodal, not merely
+noisy. **All A/B numbers taken before the fix are contaminated and must be RE-MEASURED, not
+reused.** This applies to any Express-vs-stream comparison on either side.
+
+The fix is decided in **ADR-0023** (retryable upstream set; a 503 reaches the fallback and does
+**not** demote the primary) and amends invariant #9. It is the cheaper of B1's two blockers and
+should land first — scaling stage Express up to take a contaminated measurement would waste both.
