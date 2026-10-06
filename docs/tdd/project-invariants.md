@@ -11,10 +11,12 @@ proves it comes FIRST.
 > (contact durability — landed via the ADR-0006 injectable-core seam) and **#6** (reduced
 > motion) are proven by `node --test`; **#7** (every chat turn persisted with its terminal
 > `status`) is proven by `docker/chat/tests/test_turn_persistence.py` (all six
-> {ok,error,timeout}×{stream,non-stream} cells); **#9** (first-chunk rate-limit → fallback;
-> committed after first chunk) is proven by `docker/chat/tests/test_gemini_routing.py` (all
-> four clauses — rate-limit→fallback on `astream` + `ainvoke`, committed-midstream propagation,
-> non-rate-limit not retried, distinct-model guard); **#10** (Live voice timbre pinned to the
+> {ok,error,timeout}×{stream,non-stream} cells); **#9** (first-chunk **retryable** failure →
+> fallback; committed after first chunk) is **partly** proven by
+> `docker/chat/tests/test_gemini_routing.py` — `429` and `503` → fallback on `astream` + `ainvoke`,
+> the 429-only stickiness split on both, committed-midstream propagation, non-rate-limit not
+> retried (`astream` only), distinct-model guard — **with five clauses still unpinned; see the
+> #9 note below and #9's own CONFORMANCE paragraph**; **#10** (Live voice timbre pinned to the
 > deep/slow male `Charon` preset + cadence directive) is now proven by
 > `docker/chat/tests/test_live_voice_timbre.py` (all four clauses — default → `Charon`,
 > deliberate override honored verbatim, prebuilt voice on the connect config's `speech_config`,
@@ -26,9 +28,13 @@ proves it comes FIRST.
 > own environment's API bases — `main`=prod, `agent`=staging, diverging only on the
 > `gvp:*-api-url` metas) is proven by `test/frontend-api-url-env-guard.test.mjs`, born from the
 > 2026-06-04 staging-on-prod fast-forward incident (hotfixed in `843e648`).
-> **Proven set: ALL SIXTEEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16.**
-> Every CHAT-layer invariant (#7, #8, #9, #10, #13, #14, #15) and every `[app]` invariant (#1–#6,
-> #11, #12) now holds; there are no open invariant clauses. **#12–#15 are the 2026-06-25 pass** over
+> **Proven set as of 2026-06-25: SIXTEEN — #1–#16** — but that sentence has since expired twice and
+> is kept with its correction attached rather than rewritten, because "all N proven" is the exact
+> shape of claim that goes stale silently: **#9 was re-opened on 2026-10-06 by ADR-0023 and is now
+> only PARTLY proven** (five named unpinned clauses in its own CONFORMANCE paragraph), and #17/#18
+> were added with their own conformance paragraphs. The honest read today: **#1–#8, #10–#16 proven;
+> #9 partly; #17 partly; #18 not at all.** Every CHAT-layer invariant (#7, #8, #9, #10, #13, #14,
+> #15) and every `[app]` invariant (#1–#6, #11, #12) has at least one real pin. **#12–#15 are the 2026-06-25 pass** over
 > load-bearing behavior shipped since 2026-06-04: **#12** (the living theme is a pure, bounded,
 > continuous function of local time) is proven by `test/theme-time.test.mjs`; **#13** (chat falls
 > back on a primary first-chunk TIMEOUT, not only a rate-limit — the stall sibling of #9) is proven
@@ -41,11 +47,17 @@ proves it comes FIRST.
 > Line numbers are from the state of the repo at adoption and may drift; treat the cited
 > function/symbol as the anchor.
 >
-> **#9 HAS AN OPEN CLAUSE AGAIN (2026-10-06, ADR-0023):** its old wording — *"Non-rate-limit
+> **#9 HAS OPEN CLAUSES (2026-10-06, ADR-0023):** its old wording — *"Non-rate-limit
 > errors are not retried"* — was itself the defect. A Gemini `503 UNAVAILABLE` re-raised instead
-> of reaching the healthy fallback, on ~1 request in 3 against the prod host. The amended trigger
-> (an enumerated **retryable set**) is **decided and not yet implemented**; #9's
-> commit-on-first-chunk half remains proven. Read #9's own CONFORMANCE paragraph before citing it.
+> of reaching the healthy fallback, on ~1 request in 3 against the prod host. **The `503` half
+> now SHIPPED and is pinned on both paths** (`f1a214d`, `0227545`, `fff8bc9`, `3daf8d7`; suite
+> 138), together with the 429-only stickiness split — an earlier version of this note and of #9's
+> conformance paragraph said it was unimplemented, which is **no longer true**. But the amended
+> trigger is **not fully pinned**: only `429` and `503` are exercised, the predicates' superset
+> clause is unasserted, `ainvoke`'s non-retryable side is unfenced, and the §5/§6 event types and
+> counters do not exist at all — so a retried 503 still fires a **mislabelled**
+> `chat_primary_rate_limit`. **Five named unpinned clauses live in #9's own CONFORMANCE paragraph;
+> read it before citing #9, and do not infer coverage from "the 503 fix shipped."**
 >
 > **Added since, and counted separately (2026-10-06):** **#17** (ADR-0020) and **#18** (ADR-0022
 > §24.7) each carry their **own conformance paragraph**, because neither is fully proven — the
@@ -234,32 +246,96 @@ proves it comes FIRST.
    **stickiness is earned by the cost of RE-DISCOVERY, not by the severity of the error**, which
    is why #13's 12-second stall is sticky and this is not.
    **Three outcomes, three event types** (ADR-0023 §5, applying ADR-0020 §5.13's *one type = one
-   priority*): a retried 503 whose turn then **succeeds** fires **`chat_primary_unavailable`
-   (P2)** — firing the P1-shaped `chat_model_error` on a turn that succeeded would be a false
+   priority*) — **NONE of this is implemented; see CONFORMANCE clause 4, and do not cite this
+   paragraph as describing current behavior**: a retried 503 whose turn then **succeeds** fires
+   **`chat_primary_unavailable` (P2)** — firing the P1-shaped `chat_model_error` on a turn that succeeded would be a false
    alarm, and silence would hide a real degradation; a retryable failure on the **last** model
    fires the existing **`chat_upstream_unavailable` (P1)**; and **`chat_model_error` (P1)** keeps
    its exact meaning — a **non-retryable** error that ended the turn — so its blast radius
    shrinks, which is the point.
-   **CONFORMANCE:** the **commit-on-first-chunk half holds today and is proven** (see *Proven
-   by*). The **retryable-set half is NOT yet implemented** — at this commit
-   `gemini_routing.py:303-304` and `:385-391` still read
-   `if not is_upstream_rate_limit(e): … raise`, so only `429` is retried. Decided in ADR-0023;
-   **this invariant may not be read as claiming the 503 path until that slice is green.**
-   - Implemented by: `docker/chat/app/gemini_routing.py:330-417` (`astream`: fall back only when
-     the first `__anext__` fails; commit after first yield), `:259-328` (`ainvoke` analogue),
-     `docker/chat/app/upstream_errors.py:94-98` (`is_upstream_rate_limit` — **bookkeeping only**
-     once ADR-0023 lands; the retry predicate is to be a **separate**
-     `is_upstream_retryable`, a **superset** of it, which must key on the upstream exception's
-     status and **never** on the status `upstream_error_body` returns, because that function maps
-     auth `401/403` → **502**); daily routing state
+   **CONFORMANCE (rewritten 2026-10-06 after the slices landed; the paragraph it replaces said
+   the retryable-set half was unimplemented, which is now false on both paths).** What holds and
+   is pinned: the **commit-on-first-chunk** half; the **503 → fallback** retry on **both**
+   `astream` and `ainvoke`; and the **429-only stickiness** split on both. `is_upstream_retryable`
+   exists (`upstream_errors.py:111-125`) and is the retry predicate at
+   `gemini_routing.py:306` (`ainvoke`) and `:394` (`astream`); the quota bookkeeping is a separate
+   guarded call at `:313-314` and `:401-402` (`and is_upstream_rate_limit(e)`). Landed in
+   `f1a214d` (astream predicate + bookkeeping split), `0227545` (ainvoke), `fff8bc9` and `3daf8d7`
+   (the two stickiness pins). Baseline **138 passed**.
+   **What is NOT pinned, listed so the gap is visible rather than inferred — this invariant may
+   not be read as claiming any of the five below, and the conformance paragraph may not be widened
+   until the matching slice is green.** Each was re-verified by mutation on 2026-10-06 against
+   baseline 138:
+   1. **The retryable SET is only exercised at `429` and `503`.** `500`, `502` and `504` — and
+      the status names `INTERNAL` and `DEADLINE_EXCEEDED` — are in the enumerated set above and
+      **unfenced on both paths**. Mutation: shrinking `_RETRYABLE_UPSTREAM_CODES` to `{429, 503}`
+      and the status-name set to `{RESOURCE_EXHAUSTED, UNAVAILABLE}` leaves the suite **138
+      green** — three of the five codes and two of the four status names can be deleted in one
+      edit with nothing going red. (By contrast the two covered corners are real: dropping
+      `429`/`RESOURCE_EXHAUSTED` fails 4 tests, and dropping `503`/`UNAVAILABLE` fails the other
+      4.)
+   2. **The superset clause is unasserted.** ADR-0023 §3 requires
+      `is_upstream_retryable` ⊇ `is_upstream_rate_limit` — *"a contract clause worth its own test,
+      because it is what stops the two predicates drifting."* **No test asserts the containment.**
+      It happens to hold today, and its `429` corner is incidentally covered by clause 1's
+      mutation, but the two predicates can still drift apart on every other code in one edit.
+      There is also **no direct unit test of `is_upstream_retryable` at all** —
+      `tests/test_upstream_errors.py` covers only `is_upstream_rate_limit` and
+      `upstream_error_body`; the new predicate is reached exclusively through routing tests.
+   3. **The non-retryable side of `ainvoke` is entirely unfenced.** There is no `ainvoke`
+      analogue of `test_astream_non_ratelimit_error_not_retried`, so on the **non-streaming**
+      path nothing pins `401`/`403`, `404`/`NOT_FOUND`, or the **default-deny-on-no-extractable-
+      status** rule — the three clauses of §4.2 that a naive widening breaks. The streaming path
+      has exactly **one** test standing between the shared API key and a doubled-latency auth
+      retry.
+   4. **The three event types of §5 are NOT implemented — and the current alerting is
+      factually wrong for a 503.** Both retry paths still log `gemini rate_limited` /
+      `gemini stream rate_limited` (`gemini_routing.py:315-318`, `:403-406`) and fire
+      **`chat_primary_rate_limit`** (`:326-329`, `:414-417`) on a 503 that was never a rate
+      limit. **`chat_primary_unavailable` (P2) does not exist** — it appears nowhere in
+      `docker/chat/app/`, only in ADR-0023 and this document. So a retried 503 is observable only as a mislabelled
+      rate-limit alert, and §6's countability consequence is unmet.
+   5. **§6's countability debt is unpaid, so a retried 503 leaves no durable record at all.**
+      `note_primary_unavailable()` / `primary_unavailable_hits_today()` do not exist in
+      `gemini_limit_state.py`, and the recommended `upstream_unavailable` body code
+      (`{500,502,503,504}` → a distinct `errorCode`, §6) does not exist in `upstream_errors.py`.
+      ADR-0023 accepted the trade **"observability instead of state"**; the state half is gone
+      (correctly — clause 4's stickiness split is pinned) and the observability half was never
+      built. Today a 503 is counted nowhere and named wrongly. **Nothing here may be read as
+      claiming that a degraded primary is visible to an operator.**
+   - Implemented by: `docker/chat/app/gemini_routing.py:333-427` (`astream`: fall back only when
+     the first `__anext__` fails; commit after first yield), `:259-331` (`ainvoke` analogue);
+     the retry decision `:394` / `:306` (`if not is_upstream_retryable(e): fire_alert(
+     'chat_model_error', …); raise`) and the **separately guarded** quota bookkeeping `:401-402` /
+     `:313-314` (`if model_id == self.primary_id and is_upstream_rate_limit(e):
+     note_primary_rate_limited()`); `docker/chat/app/upstream_errors.py:111-125`
+     (`is_upstream_retryable` — keyed on `genai_errors.APIError.code`/`.status` then
+     `_extract_status_code_from_chain`, **never** on the status `upstream_error_body` returns,
+     because that function maps auth `401/403` → **502**; default deny when no status is
+     extractable), `:105-108` (`_RETRYABLE_UPSTREAM_CODES = {429, 500, 502, 503, 504}` and
+     `_RETRYABLE_UPSTREAM_STATUS_NAMES = {RESOURCE_EXHAUSTED, UNAVAILABLE, INTERNAL,
+     DEADLINE_EXCEEDED}` — **three fifths of this set is unfenced, see CONFORMANCE clause 1**),
+     `:94-98` (`is_upstream_rate_limit` — now **bookkeeping only**); daily routing state
      `docker/chat/app/gemini_limit_state.py:35-69`; distinct-model guard
      `docker/chat/app/providers.py:200-201`.
-   - Proven by: `docker/chat/tests/test_gemini_routing.py` — all four clauses, asserting the
+   - Proven by: `docker/chat/tests/test_gemini_routing.py` — asserting the
      routed-output / propagation contract (not call counts): first-chunk rate-limit → fallback
      on **streaming** (*test_astream_first_chunk_ratelimit_falls_back*: primary `astream` raises
      `UpstreamError(429)` before any yield → joined content `== "from-fallback"`) and
      **non-streaming** (*test_ainvoke_ratelimit_falls_back*: `ainvoke` 429 → `result.content ==
-     "from-fallback"`); committed-after-first-chunk propagation
+     "from-fallback"`); the **503 sibling on both paths**
+     (*test_astream_first_chunk_503_unavailable_falls_back* and
+     *test_ainvoke_503_unavailable_falls_back*: `UpstreamError(503)` before any yield →
+     `"from-fallback"`; the 503 is carried **on the exception**, deliberately not only via
+     `upstream_error_body`, which maps it to a 502/`model_error` body — so a predicate reading
+     the MAPPED status is not reading the upstream one); the **429-only stickiness split** on
+     both paths (*test_a_503_does_not_demote_the_primary_for_the_day_but_a_429_does* and
+     *test_a_non_streaming_503_does_not_demote_the_primary_for_the_day_but_a_429_does*: after a
+     503 turn, `prefer_fallback_first() is False` and `primary_rate_limit_hits_today() == 0`;
+     after a 429 turn on the same chain, `True` and `== 1` — both halves driven through a real
+     turn, never by calling the bookkeeping function directly, and each test calls
+     `reset_for_tests()` and asserts the clean day so a leaked flip cannot make it pass
+     vacuously); committed-after-first-chunk propagation
      (*test_astream_committed_midstream_error_propagates*: yields `"from-primary"` then raises →
      `RuntimeError` propagates, `"from-primary"` seen, `"from-fallback"` NOT seen — no fallback
      restart); non-rate-limit first-chunk error not retried
@@ -267,6 +343,20 @@ proves it comes FIRST.
      propagates, `"from-fallback"` NOT seen); and the distinct-model guard
      (*test_distinct_model_guard_rejects_identical_ids*: `build_llm_runnable` rejects identical
      `GEMINI_MODEL`/`GEMINI_FALLBACK_MODEL`, builds a `GeminiRoutingChain` for distinct ids).
+     **Mutation record (2026-10-06, baseline 138 passed; each run alone and reverted):** the
+     `astream` predicate reverted to `is_upstream_rate_limit` fails *only*
+     *test_astream_first_chunk_503_unavailable_falls_back*; the `ainvoke` predicate reverted fails
+     *only* *test_ainvoke_503_unavailable_falls_back*; the bookkeeping guard reverted at `:401`
+     fails the `astream` stickiness pin and at `:313` the `ainvoke` one — **before those two pins
+     existed BOTH guard reverts survived at 137 green**, which is why they are the part of this
+     invariant most worth re-reading. A predicate written against the **mapped** status (the
+     ADR-0023 §3 auth trap: `upstream_error_body` maps `401/403` → `502`, and `502` is in the
+     retryable set) fails **exactly one** test —
+     *test_astream_non_ratelimit_error_not_retried* — and it catches the trap only
+     **transitively**, because a plain `RuntimeError` also maps to `502`. **No test in the suite
+     uses a real `401`/`403` on a routing path**, and `ainvoke` has no analogue at all
+     (CONFORMANCE clause 3). So §3's trap is fenced on the stream path by a single incidental
+     test, not by two and not on purpose.
      Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 10. **The Gemini Live voice timbre is pinned to a deep, slow male preset.** Every minted

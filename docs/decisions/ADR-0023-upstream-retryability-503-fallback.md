@@ -208,3 +208,63 @@ blockers must clear before B1 counts, and the fix in this ADR is the cheaper of 
 - **No circuit breaker.** §4.3 fences it explicitly.
 - **No voice-path change.** `live_gemini.py` mints a token and the browser talks to Google
   directly (ADR-0007 Phase 1); there is no routing chain in that path to fall back within.
+
+---
+
+## 9. Conformance addendum — 2026-10-06, after the first two slices (no decision changed)
+
+**This section records what shipped against the contract above and what did not. It amends no
+decision; §§1–8 stand as written.** It exists because the failure mode this project keeps paying
+for is a *document that outlives its facts* — ADR-0007's stale ~100 s cold-start figure survived
+long enough to produce a wrong hosting conclusion, and invariant #9's own conformance paragraph had
+to be rewritten within hours of being written.
+
+**Shipped and pinned.** §2's amended trigger and §3's two-predicate shape, exactly as specified:
+`is_upstream_retryable` in `upstream_errors.py:111-125`, used at `gemini_routing.py:394`
+(`astream`, `f1a214d`) and `:306` (`ainvoke`, `0227545`); §4.3's separation — the quota call guarded
+by `and is_upstream_rate_limit(e)` at `:401-402` / `:313-314` — pinned on both paths by `fff8bc9`
+and `3daf8d7`. Suite **138 passed**. Mutation-verified clause by clause; the record lives in
+invariant #9's *Proven by*, not here.
+
+**NOT shipped, and the detail matters because the shipped half reads as if the whole ADR landed:**
+
+- **§4.1's set is only exercised at `429` and `503`.** `500`/`502`/`504`/`INTERNAL`/
+  `DEADLINE_EXCEEDED` are in the code and held by no test — the set can be shrunk to `{429, 503}`
+  with the suite green.
+- **§3's superset clause — the one this ADR called "a contract clause worth its own test, because
+  it is what stops the two predicates drifting" — has no test.** It is the clause most at risk
+  precisely because it is the one about drift.
+- **§4.2 is unfenced on `ainvoke`** (no analogue of `test_astream_non_ratelimit_error_not_retried`).
+- **§5 is entirely unimplemented and §6's counters do not exist.** Both retry paths still log
+  `gemini rate_limited` and fire `chat_primary_rate_limit` on a 503 — a **mislabelled** alert on a
+  non-quota event. `chat_primary_unavailable` (P2), `note_primary_unavailable()` and
+  `primary_unavailable_hits_today()` appear nowhere in `docker/chat/app/`. The trade §6 accepted —
+  *"observability instead of state"* — currently has **neither**: a retried 503 is counted nowhere
+  and named wrongly.
+
+**One finding that makes §3 *better* than it assumed, recorded because §3 named this the clause
+most worth a test.** The auth trap (`upstream_error_body` maps `401/403` → `502`, and `502` is
+retryable, so a predicate keyed on the *mapped* status would retry an auth failure on the same
+shared key) **is** caught on the stream path today: implementing the predicate as
+`upstream_error_body(exc)[0] in _RETRYABLE_UPSTREAM_CODES` fails the suite. But it is caught by
+**exactly one** test, *test_astream_non_ratelimit_error_not_retried*, and only **transitively** — a
+plain `RuntimeError` also maps to `502`, so the test that trips is about plain errors, not about
+auth. `test_astream_first_chunk_ratelimit_falls_back` **passes** under that mutant (a 429 maps to
+429, which is retryable either way), so the trap's fence is one incidental test, not two and not
+deliberate. **No test anywhere in the suite uses a real `401`/`403` on a routing path, and
+`ainvoke` has no fence at all.** §3's warning was right; the coverage behind it is thinner than
+"the stream path already had one" suggests.
+
+**Stale prose left by this ADR's own slices, filed for the loop, not fixed here:** the module
+docstring of `gemini_routing.py` (`:14-17`), `astream`'s docstring (`:338-341`), and two places in
+`tests/test_gemini_routing.py` (the module docstring and the comment at `:318-319`) all still say
+the fallback happens *only* on a rate limit. Recorded as **ADR-0022 §24.9 item 16** — the project's
+drift ledger for the loop — alongside item 17 (`main.py:1` and `docker/chat/README.md:1` still
+advertising LangChain). Both are the same class of defect as the conformance paragraph this section
+exists to correct.
+
+**A second production defect, out of scope here, decided separately:** the fallback can be reached,
+return **zero tokens**, and report `event: done` with `"reply": ""` after ~19.6 s — a *silent empty
+success*, measured twice. It is not an error on any path in this ADR, so nothing in §5 would ever
+fire for it. Recorded as **ADR-0024**, not as an addendum here: §§1–8 are all keyed on an
+**exception carrying an upstream status**, and this failure raises nothing.

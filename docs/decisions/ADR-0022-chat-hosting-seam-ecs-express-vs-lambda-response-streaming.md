@@ -1558,6 +1558,31 @@ exists to force a human to look at.
     scaling an Express service to zero does **not** release the ECS-managed ALB (§24.4), which is
     M6 / ADR-0019's central economic assumption, now measured.
 
+16. **`gemini_routing.py`'s own prose now contradicts its own code** — filed 2026-10-06, the same
+    class of defect as item 14 and found while fixing invariant #9's conformance paragraph for the
+    identical reason. Four surfaces still assert the pre-ADR-0023 trigger: the **module docstring**
+    (`:14-17`) — *"fall back to the secondary model only if the FIRST chunk raises an upstream rate
+    limit"*; **`astream`'s docstring** (`:338-341`) — *"fall back … if the FIRST chunk
+    rate-limits"*; the **test file's module docstring** (`tests/test_gemini_routing.py:1-3`), which
+    scopes the whole file to *"when the primary's stream rate-limits"*; and an **inline comment**
+    at `tests/test_gemini_routing.py:318-319` — *"the fallback is only tried on an upstream rate
+    limit"*, which is now the opposite of what the predicate three lines above it does. The trigger
+    has been `is_upstream_retryable` ({429, 500, 502, 503, 504} + `RESOURCE_EXHAUSTED`,
+    `UNAVAILABLE`, `INTERNAL`, `DEADLINE_EXCEEDED`) on **both** paths since `f1a214d` / `0227545`.
+    **Prose-only; no behavior change, and the test comment must be corrected in the same edit as
+    the code docstrings** — a comment asserting the old rule next to a test that enforces the new
+    one is how the next reader concludes the widening never landed.
+17. **`main.py:1` and `docker/chat/README.md:1` still advertise LangChain** — filed 2026-10-06.
+    `main.py`'s first line reads *"FastAPI chat API: portfolio-grounded LangChain backends."* and
+    the chat README is titled *"Portfolio chat API (FastAPI + LangChain)"*, while §14.2 / §22.2
+    establish LangChain is **gone** (`app/messages.py:1`: *"replaces `langchain_core.messages`"*).
+    **This is item 14's root cause, not a cousin of it:** ADR-0007's `~100 s` cold-start figure
+    survived long enough to drive a wrong hosting conclusion partly because nothing in the tree
+    contradicted the LangChain-era story — these two lines still corroborate it to anyone who
+    greps. Fix them with item 14, in one edit. The vestigial `_to_lc_messages` / `lc_messages`
+    identifiers (`main.py:186`, `:739`) are **cosmetic** and explicitly NOT part of this item: a
+    name is not a claim, a docstring is.
+
 ### 24.10 The M-1 samples are contaminated by a chat-layer defect — re-measure, do not reuse
 
 Found while this amendment was being written, and it is a **second, independent blocker on
