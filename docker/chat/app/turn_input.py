@@ -81,6 +81,15 @@ def _bound_entry(entry: dict) -> dict | None:
         return None
     bounded['name'] = name[:_MAX_NAME_LENGTH]
 
+    # ADR-0020 §5.14 (A4b): an `id` that is PRESENT and not a `str` drops the
+    # entry. It is a value with no truthful clamp — truncation is undefined
+    # for it, `str()` would mint a fake correlation id, and dropping the key
+    # alone would contradict the already-pinned outcome that such an entry is
+    # dropped. Decided on type, so it must run before the first `json.dumps`
+    # below (which is recursive); an entry with no `id` at all is legitimate.
+    if 'id' in bounded and not isinstance(bounded['id'], str):
+        return None
+
     # `id` is a correlation value, not a storage key — the DynamoDB
     # partition key is the *session* id, bounded separately by rejection at
     # main.py:163 — and no consumer reads it (contact-admin.js:371-376 keys

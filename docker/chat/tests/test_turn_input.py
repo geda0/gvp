@@ -338,6 +338,77 @@ def test_args_deeper_than_pythons_recursion_limit_is_bounded_without_raising() -
     assert kept == {'id': 'call-1', 'name': 'probe'}
 
 
+def test_a_non_string_tool_call_id_costs_the_entry_at_any_depth() -> None:
+    """A non-`str` `id` drops the ENTRY, decided on TYPE and before any
+    serialization (ADR-0020 §5.14, decision A4b).
+
+    A4 bounds shape for `_BULK_KEYS` only (`turn_input.py:105`), while
+    `_bound_entry` keeps `id` whatever its type — it is on the allowlist and is
+    only touched under `isinstance(entry_id, str)` (`:95-97`) — so a non-`str`
+    `id` reaches the first `json.dumps` (`:109`) with its shape intact.
+    Measured through the real route: a 40-level `id` in a **153-byte** request
+    answers 204 and persists an item **44** levels deep, which DynamoDB then
+    refuses and `transcript_store.py:140-144` swallows; a 500-level `id` in a
+    **1 074-byte** request raises `RecursionError` out of `main.py:1218`, which
+    sits OUTSIDE the route's `try` (`:1246`) — **a 500 on an unauthenticated
+    endpoint**, the precise hole invariant #17's *Totality* bullet denies. Every
+    one of those depths in `args` answers 204 at item depth 4 with the bulk
+    dropped: A4 working as designed, one key over.
+
+    A4b chooses no new behaviour — it makes an already-chosen one
+    unconditional. `test_an_entry_still_over_budget_after_the_bulk_drop_is_dropped_outright`
+    already pins `[]` for a dict-valued `id`, so a non-`str` `id` already costs
+    the entry *whenever `json.dumps` survives long enough to measure it*.
+    Deleting the condition cannot regress a case.
+
+    The reason is NOT "an identity that cannot be clamped is refused": this ADR
+    classifies `id` as a **value**, not an identity (`turn_input.py:84-94`), and
+    that classification is the entire justification for truncating it. The rule
+    is that a non-`str` `id` is a value with **no truthful clamp** — truncation
+    is undefined for it, `str()` would mint a fake correlation id, and dropping
+    the key alone would contradict the outcome already pinned above. The
+    symmetry that makes it obvious: `name` is already total on type and so has
+    no such hole (`{'name': <3000 nested lists>}` returns `[]`); `id` is the
+    only allowlisted key that keeps a non-conforming type.
+
+    BOTH fixtures are load-bearing and neither suffices alone. The deep one is
+    the hole, but on its own it passes under the fix A4b rules out — extending
+    the depth walk to `id` — which defers the decision rather than making it
+    (there is no bulk key to pop from an `id`) and would still persist a
+    depth-6 non-`str` `id` as a shape no reader expects. The shallow one is
+    what rejects that implementation: it carries no bulk keys and is nowhere
+    near the 2000-char budget, so only a decision on TYPE can refuse it — and
+    it is the gap the existing 50 KB case cannot close, since that case cannot
+    distinguish decided-on-type from decided-on-size.
+    """
+    # Arrange: the same non-conforming TYPE at both ends of the scale. The deep
+    # fixture is built in a loop because a literal cannot express a value past
+    # the recursion limit, and its depth is derived from
+    # `sys.getrecursionlimit()` so it stays past the limit on any interpreter
+    # rather than hardcoding a depth a raised limit would quietly make shallow
+    # enough to pass. The shallow fixture is a two-key literal with no bulk at
+    # all and a payload of four characters.
+    deep = 'leaf'
+    for _ in range(sys.getrecursionlimit() * 3):
+        deep = [deep]
+    past_the_recursion_limit = {'id': deep, 'name': 'probe'}
+    nowhere_near_the_budget = {'id': {'a': 1}, 'name': 'probe'}
+
+    # Act: both calls must RETURN. `sanitize_tool_calls` is declared total over
+    # its type (invariant #17 "Totality"), and the finding is that it is not —
+    # the second call raises `RecursionError` on the shipped code, which is the
+    # 500 measured above, not a defect in this test.
+    shallow = sanitize_tool_calls([nowhere_near_the_budget])
+    deeply_nested = sanitize_tool_calls([past_the_recursion_limit])
+
+    # Assert: the entry is gone in both cases. Dropped, not clamped — there is
+    # no truthful way to shrink or restate a non-`str` correlation id, so the
+    # one fact that would survive (that `probe` ran) is not worth a row whose
+    # `id` the sink would have had to invent.
+    assert shallow == []
+    assert deeply_nested == []
+
+
 def test_response_nested_too_deep_costs_the_entry_its_bulk_as_well() -> None:
     """`response` is bulk too, not just `args` (ADR-0020 §5 A4).
 
