@@ -171,7 +171,6 @@ class LiveTranscriptTurn(BaseModel):
     sessionId: str | None = Field(default=None, max_length=128)
     userText: str = Field(default="", max_length=8000)
     assistantText: str = Field(default="", max_length=16000)
-    capturedAt: str | None = Field(default=None, max_length=64)
     transport: str | None = Field(default=None, max_length=32)
     toolCalls: list[dict[str, Any]] | None = Field(default=None)
     # Voice telemetry (Phase 6 — admin dashboard): every field is optional so
@@ -1211,7 +1210,10 @@ async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
         return JSONResponse(status_code=204, content=None)
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    captured_at = (payload.capturedAt or now_iso).strip() or now_iso
+    # Server-stamped, not caller-chosen (ADR-0020 A1): capturedAt is a
+    # fire-and-forget beacon field the caller could set to any sortable
+    # string, which would let it pin itself atop the byCreatedAt GSI.
+    captured_at = now_iso
     transport = clamp_transport(payload.transport)
     tool_calls = sanitize_tool_calls(payload.toolCalls or [])
     intent = (payload.intent or "").strip().lower() or None

@@ -4,6 +4,7 @@ tagged with the right status (project invariant #7)."""
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import pytest
 
@@ -366,6 +367,59 @@ async def test_well_formed_tool_call_survives_the_sanitizer_intact(
     # looser form. This is the "existing voice telemetry unaffected" bar.
     entry, = turn["toolCalls"]
     assert entry == WELL_FORMED_TOOL_CALL
+
+
+@pytest.mark.asyncio
+async def test_caller_cannot_choose_the_timestamp_the_turn_is_stored_under(
+    client, stub_store
+) -> None:
+    """Invariant #17's last clause — *no caller-supplied value becomes a storage
+    key* — applied to the one field M0 never touched (ADR-0020 §5 A1). The
+    persisted timestamp is the server's receive time, not the caller's: what
+    arrives on the wire is ignored. `createdAt` is the RANGE key of the
+    `byCreatedAt` GSI (`aws/template.yaml:161-166`) that the admin list queries
+    `ScanIndexForward: false` (`aws/src/contact-admin.js:481`), and it is written
+    `if_not_exists` (`transcript_store.py:83`), so one anonymous POST that owns
+    it pins itself to page 1 of the owner's transcript list permanently."""
+    # Arrange: a value no clock can produce, chosen because 'z' sorts above every
+    # digit — it outranks every real ISO-8601 instant lexicographically. (Strict
+    # ISO-8601 validation would NOT close this: '9999-12-31T23:59:59Z' is valid
+    # and sorts first too.) Bracket the request with the test's own clock so
+    # "the server's time" is pinned as a real window, with no clock seam.
+    hostile_captured_at = "zzzzzzzzzzzzzzzz"
+    before = datetime.now(timezone.utc)
+
+    # Act: one fire-and-forget beacon, exactly as js/chat-live.js:671-702 sends
+    # it, carrying the hostile sort key.
+    response = await client.post(
+        "/api/live/transcript",
+        json={
+            "sessionId": "sort-key-probe",
+            "userText": "hi",
+            "assistantText": "hello",
+            "capturedAt": hostile_captured_at,
+        },
+    )
+    after = datetime.now(timezone.utc)
+
+    # Assert: the turn still persists — the field is IGNORED, not rejected. The
+    # beacon never reads the response, so a 400 would silently lose a real turn,
+    # and ignoring the field is what lets this ship with no frontend deploy.
+    assert response.status_code == 204
+    assert len(stub_store.calls) == 1
+    stored_under = stub_store.calls[0]["created_at"]
+    rendered_at = stub_store.calls[0]["turn"]["capturedAt"]
+
+    # ...and the timestamps it persists are the server's own. Not merely
+    # "different from the hostile string": a sink that mapped junk to some other
+    # fixed value would still hand the caller its rank, so both the GSI sort key
+    # and the value the admin panel renders (`js/admin.js:649`, and the day
+    # bucket in `aws/src/common/daily-report.js:68`) are pinned to a parseable
+    # ISO-8601 instant inside the window the request actually happened in.
+    assert stored_under != hostile_captured_at
+    assert before <= datetime.fromisoformat(stored_under) <= after
+    assert rendered_at != hostile_captured_at
+    assert before <= datetime.fromisoformat(rendered_at) <= after
 
 
 @pytest.mark.asyncio
