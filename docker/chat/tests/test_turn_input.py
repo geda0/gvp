@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 from app import turn_input
 from app.turn_input import sanitize_tool_calls
@@ -234,3 +235,133 @@ def test_the_tool_call_id_bounds_at_exactly_one_hundred_characters() -> None:
     # having lost exactly its overflow.
     assert kept == at_cap
     assert clamped['id'] == 'i' * 100
+
+
+def test_args_deeper_than_six_levels_keeps_its_identity_and_loses_the_bulk() -> None:
+    """`args` SHAPE is bounded at the sink, at its boundary (ADR-0020 §5 A4).
+
+    `toolCalls: list[dict[str, Any]]` (main.py:176) constrains the outer two
+    levels and nothing below, and the sanitizer leaves `args` byte-identical —
+    so depth is the one dimension of an entry that no bound touches today.
+    Verified through the route: a **127-byte** request carrying 29 nested
+    levels inside `args` answers 204 and persists a turn 34 levels deep,
+    against DynamoDB's documented 32. boto3 has no client-side depth check,
+    and its own `TypeSerializer` raises `RecursionError` at ~330 levels with
+    no AWS call made at all. Both failures land in `_persist_sync` inside
+    `asyncio.to_thread` and both are swallowed (`transcript_store.py:140-144`),
+    which leaves three silent bands: <=33 writes fine, 34-~329 is refused by
+    the service, >=~330 never reaches it. Every one of them loses the turn.
+
+    Depth is a shape property of a VALUE, so this CLAMPS: the bulk keys go and
+    the entry survives as its identity `{id, name}` — the same treatment an
+    over-budget entry gets. The entry is not dropped and the request is not
+    rejected (the caller is a fire-and-forget beacon that never reads the
+    response, js/chat-live.js:671-700).
+
+    6 is written here as a LITERAL. `_MAX_ARG_DEPTH` is module-private and is
+    deliberately NOT imported, for the reason the budget and `id` caps are not:
+    a test that reads the constant it pins passes for every value of it, which
+    is exactly how those two came to be movable with the suite green (A6).
+
+    Depth counts NESTED CONTAINERS IN THE VALUE, not in the entry: `{'a': 1}`
+    is depth 1, so the conforming fixture below is depth 6 and its sibling is
+    depth 7. The fixtures are literals so the level count is countable by eye.
+    """
+    # Arrange: two entries differing only by one level of nesting inside
+    # `args`. Both are tiny in bytes — that is the point of the finding: the
+    # 2000-char budget cannot see depth, so neither fixture is anywhere near
+    # it and only a depth bound can tell them apart.
+    at_depth = {
+        'id': 'call-1',
+        'name': 'probe',
+        'args': {'a': {'b': {'c': {'d': {'e': {'f': 'leaf'}}}}}},
+    }
+    one_level_deeper = {
+        'id': 'call-1',
+        'name': 'probe',
+        'args': {'a': {'b': {'c': {'d': {'e': {'f': {'g': 'leaf'}}}}}}},
+    }
+
+    # Act
+    kept, = sanitize_tool_calls([at_depth])
+    bounded, = sanitize_tool_calls([one_level_deeper])
+
+    # Assert: an entry AT the bound is persisted whole — key for key, nesting
+    # included (a bound that shaved a conforming entry would be silent data
+    # loss for every honest voice turn) — and one single level past the bound
+    # loses its bulk and keeps only its identity.
+    assert kept == at_depth
+    assert bounded == {'id': 'call-1', 'name': 'probe'}
+
+
+def test_args_deeper_than_pythons_recursion_limit_is_bounded_without_raising() -> None:
+    """The depth bound must be ITERATIVE and run BEFORE the first `json.dumps`
+    (ADR-0020 §5 A4, both implementation constraints — part of the decision).
+
+    `json.dumps` is itself recursive, so a depth check placed after
+    `turn_input.py:72` can be skipped by the very payload it exists to stop:
+    the serialization raises `RecursionError` before the check it was supposed
+    to feed ever runs. A recursive depth helper has the same defect one level
+    up — it blows the stack measuring the payload. And a walk that descends
+    only `dict`s measures this value as depth 1, keeps the bulk, and then hands
+    it to line 72 anyway.
+
+    All three failure modes are invisible to the six-level boundary case above
+    (every fixture there is shallow enough for any implementation to survive),
+    and all three land the same way in production: inside `_persist_sync` in
+    `asyncio.to_thread`, swallowed at `transcript_store.py:140-144`, turn lost
+    with no symptom. That is the ≥~330-level band of the finding — the one
+    where boto3's own `TypeSerializer` raises before any AWS call is made.
+
+    This case also pins CLAMP-not-drop at extreme depth: the unpack below
+    requires that an entry survives, however deep its payload was.
+    """
+    # Arrange: nested LISTS — the shape the 127-byte probe used — built deeper
+    # than this interpreter's recursion limit, so no recursive step can survive
+    # the value. A loop in Arrange is the only honest way to construct a
+    # payload past the recursion limit; a literal cannot express it, and
+    # deriving the depth from `sys.getrecursionlimit()` keeps the fixture past
+    # the limit on any interpreter rather than hardcoding a depth that a
+    # raised limit would quietly make shallow enough to pass.
+    deep = 'leaf'
+    for _ in range(sys.getrecursionlimit() * 3):
+        deep = [deep]
+    hostile = {'id': 'call-1', 'name': 'probe', 'args': deep}
+
+    # Act: this call must RETURN. `sanitize_tool_calls` is declared total over
+    # its type (invariant #17 "Totality"), and A4 may not make it less so.
+    kept, = sanitize_tool_calls([hostile])
+
+    # Assert: the entry survived as its identity, and the unbounded shape is
+    # gone — the same clamp the six-level boundary gets, at a depth that would
+    # otherwise never reach DynamoDB at all.
+    assert kept == {'id': 'call-1', 'name': 'probe'}
+
+
+def test_response_nested_too_deep_costs_the_entry_its_bulk_as_well() -> None:
+    """`response` is bulk too, not just `args` (ADR-0020 §5 A4).
+
+    The voice client sends `response` alongside `args` (js/chat-live.js), both
+    are caller-controlled, and both reach the store byte-identical today — so a
+    depth check wired to `args` alone leaves exactly half the shape class open
+    while every other case in this file passes.
+    """
+    # Arrange: the deep nesting sits in `response`, and `args` is deliberately
+    # shallow and conforming, so a check that only ever looks at `args` finds
+    # nothing to bound.
+    hostile = {
+        'id': 'call-1',
+        'name': 'probe',
+        'args': {'q': 'shallow and conforming'},
+        'response': {'a': {'b': {'c': {'d': {'e': {'f': {'g': 'leaf'}}}}}}},
+    }
+
+    # Act
+    kept, = sanitize_tool_calls([hostile])
+
+    # Assert: identity only. The conforming shallow `args` goes too, and that
+    # is deliberate — A4 says a too-deep entry "gets the same treatment as an
+    # over-budget entry", and that path drops the whole bulk pair
+    # (`_BULK_KEYS`) rather than reasoning about which half was oversized.
+    # Retaining `args` here would be a different decision, not a test detail.
+    assert kept == {'id': 'call-1', 'name': 'probe'}

@@ -20,6 +20,9 @@ _KNOWN_TOOL_CALL_KEYS = frozenset({'name', 'args', 'id', 'response'})
 # stand-in would sit in the store looking like a real (if mangled) tool
 # response, so the budget is enforced by dropping, never truncating.
 _BULK_KEYS = ('args', 'response')
+# ADR-0020 §5 A4: nesting depth of `args` / `response`, counted as containers
+# IN THE VALUE (`{'a': 1}` is depth 1). The byte budget cannot see shape.
+_MAX_ARG_DEPTH = 6
 
 # `direct_google` is the only value the server mints today (main.py:1110); `live`
 # is the existing default (main.py:1214); `relay` is a retired value kept in the
@@ -36,6 +39,30 @@ def clamp_transport(value: object) -> str:
 def sanitize_tool_calls(value: list[dict]) -> list[dict]:
     bounded = (_bound_entry(entry) for entry in value[:_MAX_TOOL_CALLS])
     return [entry for entry in bounded if entry is not None]
+
+
+def _nests_deeper_than(value: object, limit: int) -> bool:
+    """True when `value` holds more than `limit` levels of nested dict/list.
+
+    Iterative on purpose (ADR-0020 §5 A4): a recursive walk would raise
+    `RecursionError` on the very payloads this exists to stop, which would make
+    `sanitize_tool_calls` less total than it is. Stops at the first level past
+    the limit, so a hostile value is never walked to its full depth.
+    """
+    stack = [(value, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, dict):
+            children = node.values()
+        elif isinstance(node, list):
+            children = node
+        else:
+            continue
+        depth += 1
+        if depth > limit:
+            return True
+        stack.extend((child, depth) for child in children)
+    return False
 
 
 def _bound_entry(entry: dict) -> dict | None:
@@ -68,6 +95,16 @@ def _bound_entry(entry: dict) -> dict | None:
     entry_id = bounded.get('id')
     if isinstance(entry_id, str):
         bounded['id'] = entry_id[:_MAX_ID_LENGTH]
+
+    # ORDER IS LOAD-BEARING (ADR-0020 §5 A4): this depth check must run before
+    # the first `json.dumps` below. `json.dumps` is itself recursive, so a payload
+    # nested past the interpreter's recursion limit raises `RecursionError` from
+    # the serialization before any check placed after it could run. Do not move
+    # it down for tidiness. A too-deep entry is clamped, not dropped: the same
+    # bulk-key drop as an over-budget entry, leaving `{id, name}`.
+    if any(_nests_deeper_than(bounded.get(key), _MAX_ARG_DEPTH) for key in _BULK_KEYS):
+        for key in _BULK_KEYS:
+            bounded.pop(key, None)
 
     if len(json.dumps(bounded)) > _MAX_ENTRY_JSON_LENGTH:
         for key in _BULK_KEYS:
