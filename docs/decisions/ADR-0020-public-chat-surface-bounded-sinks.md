@@ -1,6 +1,7 @@
 # ADR-0020 — The public chat surface: every unauthenticated sink bounds what it persists
 
-- Status: Accepted
+- Status: Accepted; **extended by its own §5 addendum (2026-10-05), which refutes the headline
+  of D1 and adds decisions A1-A8**. Read §5 before relying on §1-§4.
 - Date: 2026-09-17
 - Supersedes: none. **Extends** ADR-0007 (browser-direct voice — this ADR fences the public
   surface that posture created), ADR-0008 (IP-pepper HMAC + consent gate — same
@@ -161,7 +162,9 @@ Real clients are nowhere near the bound: `createSessionId()` (`js/chat.js:185-19
 > 3-value `transport` key space, and an admin histogram whose transport keys can no longer
 > be attacker-chosen. **Worst case, recomputed against the shipped sanitizer (2026-10-05):**
 > ten maximal entries (`id` 100 chars, `name` 60 chars, `args` filling the rest of each
-> entry's budget) serialize to **19 930 chars ≈ 20 KB** — the ≈20 KB figure holds, and the
+> entry's budget) serialize to **19 930 chars ≈ 20 KB** — **ERRATUM: 19 930 is wrong and is a
+> measurement, not a bound; the checkable ceiling is `10 × 2 000 = 20 000` chars. See §5 A8** —
+> the ≈20 KB figure holds, and the
 > 100-char `id` cap does not lower it because `args`/`response` fill whatever identity
 > leaves. Note the bound is **per turn**: `transcript_store.py:79-111` `list_append`s turns
 > into one 400 KB DynamoDB item keyed by session id, so repeated worst-case turns on a
@@ -450,7 +453,10 @@ imprecise, understated, or wrong about the tests.
      gap.
    A security invariant that cites a test which does not exist is worse than no invariant:
    the next reader trusts it and stops checking.
-6. **The ≈20 KB worst case holds.** Recomputed against the shipped sanitizer: ten maximal
+6. **The ≈20 KB worst case holds.** **ERRATUM (§5 A8): the arithmetic below is wrong — 19 930
+   is one hostile payload that fell 7 chars short on each of ten entries. The bound is
+   `_MAX_TOOL_CALLS × _MAX_ENTRY_JSON_LENGTH` = 20 000 chars.** Recomputed against the shipped
+   sanitizer: ten maximal
    entries serialize to **19 930 chars**. The `id` cap does not lower it (`args`/`response`
    fill whatever identity leaves). What the original figure left unsaid is that the bound is
    **per turn**, while `transcript_store.py:79-111` `list_append`s turns into one 400 KB
@@ -488,3 +494,406 @@ imprecise, understated, or wrong about the tests.
 - The shipped ECS Express host has **no** API-Gateway throttle; the throttles in
   `aws/chat-template.yaml` cover only the Lambda-container fallback. M8's rate guard is
   therefore the *first* rate limit on `/api/chat` and `/api/live/session`, not a second one.
+
+---
+
+## 5. Addendum — 2026-10-05: the central claim was false, and what replaces it
+
+- Status of the addendum: **Accepted**. Decisions **A1–A8** below are additive to §"Decision";
+  none reverses D1 / D1b / D2 / D3. Where a number or a claim in §1–§4 is now known wrong it is
+  flagged inline with a pointer here rather than rewritten, so the original is still auditable.
+- Trigger: a six-lens adversarial review of M0 refuted the headline of D1 — *"everything
+  persisted from an unauthenticated endpoint is bounded in count, size and key space at the
+  sink"*. It is bounded in **count** and in **serialized size per tool-call entry**. It is not
+  bounded in **byte** size, in **shape**, in **turns per item**, or in key **cardinality**, and
+  one caller-supplied field is a **storage sort key** that M0 never touched.
+- **Every finding below was re-verified here before it was built on.** Three did not survive as
+  stated; what replaced them is in §5.9. Method: the chat suite was copied to a scratch mirror
+  (`docker/chat` + symlinked `data/`, `docs/`, `resume/`), baseline **124 passed**, and each
+  claim exercised by mutation or by a probe through the real route with the `stub_store`
+  fixture. The project tree was not modified by any probe.
+
+### A1 — `capturedAt` is retired from the wire; the sink stamps the server's receive time
+
+**Verified.** `POST /api/live/transcript` with `capturedAt: 'zzzzzzzzzzzzzzzz'` answers **204**
+and persists that string verbatim, both as the turn's `capturedAt` and — via
+`main.py:1249` `created_at=captured_at` — as the item's **`createdAt`**, which is the RANGE
+key of the `byCreatedAt` GSI (`aws/template.yaml:161-166`) that the admin list queries
+`ScanIndexForward: false` (`aws/src/contact-admin.js:481`). `max_length=64` (`main.py:174`)
+bounds length and nothing else. `createdAt` is written `if_not_exists`
+(`transcript_store.py:83`), so the first write per session id fixes it **permanently**;
+`updatedAt` (`:84`, no `if_not_exists`) is re-stamped with the same caller value on every
+later write.
+
+> **Decision: `capturedAt` leaves the request model. The sink uses `datetime.now(timezone.utc)`
+> and ignores any caller value.**
+
+Why not the other two live options:
+
+- **"Validate strict ISO-8601, fall back to server time" does not close the hole.**
+  `9999-12-31T23:59:59Z` is valid ISO-8601 and sorts above every real timestamp
+  lexicographically, so a format check leaves the caller in control of their own rank on
+  page 1. A format check buys nothing a sort key cares about.
+- **"Reject with 400" loses real turns.** The caller is
+  `js/chat-live.js:671-702` — `fetch(..., { keepalive: true }).catch(() => {})`, response
+  never read. A 400 is invisible to it. (This endpoint already rejects on the text fields:
+  `userText` of 8 001 code points answers `400 validation_error` today, verified — an existing
+  inconsistency with D1's "clamp, persist, move on", recorded under A2.)
+
+**What the field is FOR: nothing that the server's receive time does not already supply.**
+Every consumer was enumerated and each one only ever needs *when the turn happened, in
+ISO-8601*: `js/admin.js:649` and `:823` render it; `aws/src/contact-admin.js:362` copies it
+into `recentTurnErrors`; `contact-admin.js:755-759` sorts `recentFailures` by it
+(*"lexicographic ISO-8601 works"*); `aws/src/common/daily-report.js:68` buckets a turn into an
+owner-local day by it. The producer side settles it: the only client value is
+`new Date().toISOString()` at send time (`js/chat-live.js:681`) — already an approximation of
+receive time, differing by flight time plus an unbounded, unverifiable client clock skew — and
+the **text** path has always used the server clock for the same field (`main.py:771-773`
+`'capturedAt': now_iso`). A1 makes voice match text. **Nothing needs the client's capture
+time; the field is retired.**
+
+Three consequences worth naming, because each is a second blast radius of the same field:
+`contact-admin.js:721-724` buckets the 30-day activity sparkline on
+`String(item.updatedAt || item.createdAt).slice(0, 10)`, so junk mints a junk day bucket;
+`daily-report.js:68-69` silently *excludes* a turn whose `capturedAt` does not resolve to the
+report day, so a caller could make their own turns invisible to the daily digest; and an
+attacker can mint unlimited new session ids, each pinning page 1, which pushes **every real
+session** off the owner's first page rather than adding one junk row.
+
+**Dependency for M8 (ADR-0021).** The retention TTL must be computed from the server clock.
+Deriving `ttl` from a persisted `capturedAt` would reopen this hole one field over — a caller
+who chooses the timestamp chooses the expiry.
+
+### A2 — the free-text fields are bounded in BYTES at the sink, by clamping
+
+**Verified.** `userText` / `assistantText` carry `max_length=8000` / `16000`
+(`main.py:172-173`), which Pydantic counts in **code points**; DynamoDB charges **UTF-8
+bytes**. Probed through the route: 8 000 astral-plane code points persist **32 000 bytes**.
+
+> **Decision: `turn_input.py` gains `clamp_text(value: object, max_bytes: int) -> str` — a
+> total function that truncates on a UTF-8 byte budget at a code-point boundary (never
+> splitting a character) — and the sink applies it to both fields. Budgets: `userText`
+> **8 000 bytes**, `assistantText` **16 000 bytes**. The existing Pydantic `max_length`
+> code-point bounds stay exactly as they are, as a cheap outer guard.**
+
+Clamping, not rejecting: these are telemetry **values**, so D1's rule applies — a truncated
+transcript is a truthful weaker fact; a lost turn is not. Keeping the Pydantic numbers
+unchanged means **no new 400 for any caller** and no wire-contract change at all.
+
+Budget sizing, stated so it can be argued with: a real spoken turn is tens to hundreds of
+characters, so 8 000 / 16 000 bytes is >10× headroom even for a 3-bytes-per-character script
+(~2 600 characters), and the per-turn worst case falls from ~116 KB to ~44 KB. The regression,
+honestly: a single voice turn carrying more than ~2 600 characters of CJK is truncated where
+today it is stored whole.
+
+**A2 is necessary and not sufficient.** At ~44 KB worst case, nine turns still exceed one
+400 KB item. A3 is the part that actually closes the wedge.
+
+### A3 — the wedge: make the refusal loud (A3.1), then make the item provably bounded (A3.2)
+
+**Verified, with one correction.** `transcript_store.py:79-94` appends every turn with
+`list_append` under **no `ConditionExpression`** and increments `turnCount` with no cap, and
+`:140-144` swallows every exception into `writes_failed` + `last_error`, which surface only on
+`/ready` (`main.py:519`) and the `ADMIN_API_KEY`-gated `/api/chat/host-status`. `fire_alert` is
+wired **only** in `gemini_routing.py` — no persist failure has ever fired an alert. The route's
+own 500 branch (`main.py:1256-1261`) is **dead code for the real store**, because
+`persist_turn` never raises; the caller gets 204 either way.
+
+The correction is the count. Measured against DynamoDB's own documented size accounting, one
+maximal turn is **116 008 bytes** (`userText` 32 000 + `assistantText` 64 000 + `toolCalls`
+19 723 + scaffolding), so: 3 turns = 348 421 bytes = **85 % of 409 600**, still writable;
+the **4th** write is the one DynamoDB refuses. Either phrasing is true and the second is the
+one to use — *three successful requests leave a session that can never accept another bounded
+turn* — but "three requests exceed the limit" is arithmetically wrong, and the review's own
+figure (116 318 bytes × 3 = 348 954) contradicted its own conclusion.
+
+Severity, because it changes the priority order: the victim of a wedged session is mostly the
+wedger. Session ids are `crypto.randomUUID()` (`js/chat.js:185-190`), so wedging a *stranger's*
+session needs a leaked id; wedging your own at scale is a volume attack, which is M8's rate
+guard, not a bounds defect. The non-adversarial case — a long or verbose legitimate voice
+session losing every turn past the limit with no symptom — is the real motivation, and it is a
+tail risk. So A3 ranks below A1.
+
+> **Decision A3.1 (the part that must land): every persist failure fires an alert.**
+> `transcript_store.py:140-144` calls `alerts.fire_alert` with a new event type
+> `chat_transcript_write_failed` (P1 under M7's split), distinguishing
+> `ConditionalCheckFailedException` ("session full" — expected, P2) from everything else
+> ("writes are broken" — P1). `alerts.py`'s existing per-type cooldown
+> (`CHAT_ALERT_COOLDOWN_SECONDS`, default 3600 s) makes this storm-proof, it ships dark unless
+> configured (invariant #14), and `fire_alert` is safe here — it needs a running loop and
+> `persist_turn`'s `except` is inside the coroutine. **This is the observability precondition
+> for every other decision in this addendum**: A3.2's and A4's refusals are otherwise exactly
+> as silent as the bug they replace.
+
+> **Decision A3.2: the item is bounded by a byte budget held in the item, not by a turn count.**
+> `_persist_sync` adds `bytesStored = if_not_exists(bytesStored, :zero) + :turnBytes` with
+> `ConditionExpression: 'attribute_not_exists(bytesStored) OR bytesStored < :budget'`,
+> `:budget` = **380 KiB**, `:turnBytes` = the serialized size of the turn being appended.
+> DynamoDB evaluates `UpdateItem` atomically, so a refused write appends nothing and
+> increments nothing — the item stays valid and the session simply stops accepting turns,
+> loudly (A3.1).
+
+A **count** cap was rejected as the primary bound: it cannot be both generous to real sessions
+and sufficient against worst-case turns (at 44 KB/turn the count would have to be 8, which is
+absurd for a conversation; at a generous 100 the size is unbounded again). A byte budget
+auto-trades the two — a thrifty session gets ~150 turns, a maximal one gets ~8 — and the whole
+change is inside `transcript_store.py`, which is **not** on `SECURITY_GLOB`. `bytesStored` is
+an additive non-key attribute: no `AttributeDefinition`, no template change, and every existing
+reader ignores it.
+
+> **Deferred to ADR-0021 (M8): one DynamoDB item per turn.** The one-item-per-session design is
+> what couples per-turn bounds to session length. Splitting it removes the coupling for good,
+> but it changes the read contract (`normalizeChatItem`, the admin detail view,
+> `daily-report.js`) in a gated file, so it belongs with the rest of the read-side work and not
+> in a hotfix. A3.2 makes the invariant true without it.
+
+### A4 — shape: `args` / `response` nesting depth is bounded at the sink
+
+**Verified, three ways.** `toolCalls: list[dict[str, Any]]` (`main.py:176`) constrains the
+outer two levels and nothing below, and the sanitizer leaves `args` byte-identical. Probed
+through the route: a **127-byte** request carrying 29 nested levels inside `args` answers
+**204** and produces a persisted turn of depth 33 — depth **34** counted from the item's
+`turns` attribute, against DynamoDB's documented **32**-level limit. boto3 has **no
+client-side depth check** (it serialized 320 levels without complaint) and its own
+`TypeSerializer` raises **`RecursionError` at depth 330** with no AWS call made. Both land in
+`_persist_sync` inside `asyncio.to_thread`, and both are swallowed at `:140-144`. So there are
+three silent bands: ≤33 writes; 34–~329 is refused by the service; ≥~330 never reaches it.
+
+> **Decision: `turn_input.py` gains `_MAX_ARG_DEPTH = 6`. An entry whose `args` or `response`
+> nests deeper than 6 levels gets the same treatment as an over-budget entry — the bulk keys
+> are dropped and the entry is kept as its identity `{id, name}`. Depth is a shape property of
+> a value, so clamp; do not drop the entry and do not reject the request.**
+
+Two implementation constraints that are part of the decision, not details:
+
+1. **The depth check runs FIRST in `_bound_entry`, before the existing
+   `len(json.dumps(bounded))` at `turn_input.py:72`.** `json.dumps` is itself recursive, so a
+   check placed after it can be skipped by the very payload it exists to stop.
+2. **The walk is iterative (an explicit stack), not recursive**, so the depth bound cannot
+   itself raise `RecursionError`. This is what keeps `sanitize_tool_calls` no *less* total than
+   D2 records it to be.
+
+**What survived here, recorded because it is good news:** D2's claim that no reachable public
+request reaches a `raise` **holds**. Probing 29 → 20 000 levels through the route never produced
+a 500 — body parsing starts refusing at ~940 levels, with
+`400 {"detail":"There was an error parsing the body"}` (Starlette's own shape, not this app's
+`{error, code}` envelope — a cosmetic nit, not a decision). But the margin is incidental: which
+recursive step hits `sys.getrecursionlimit()` first depends on stack depth at call time, and a
+`json.dumps` `RecursionError` *was* reproducible from a deeper call stack. A4 removes the
+dependence on that ordering.
+
+### A5 — `LiveTranscriptTurn.sessionId`'s bound gets a test (test-only)
+
+**Verified by mutation:** deleting `max_length=128` from `main.py:171` leaves the suite at
+**124 passed**. Deleting it from `LiveSessionRequest` (`:167`) or `ChatRequest` (`:163`) each
+fail one test. So of the three bounds #17 claims, the one on the **public transcript sink** is
+the unpinned one.
+
+> **Decision: add one API-level case to `docker/chat/tests/test_api.py` — a 200-char
+> `sessionId` on `POST /api/live/transcript` answers 400 `validation_error` and the recording
+> store sees zero writes — the exact sibling of
+> `test_over_long_session_id_is_rejected_and_persists_nothing`. No source change.**
+
+**Did not survive as stated:** the finding called `/api/chat` "the authenticated-ish chat
+path". It is not. `POST /api/chat` takes **no credential of any kind** (§1), which is precisely
+why #17 caps all three models. The gap is test coverage of the transcript model, not a
+misplaced bound.
+
+### A6 — the final re-check and the two loose constants get boundary tests (test-only)
+
+**Verified by mutation**, with exact ceilings so the next reader can check them without
+re-running anything:
+
+| Mutation | Suite |
+|---|---|
+| delete the final re-check (`turn_input.py:82-83`) | **124 passed** |
+| `_MAX_ENTRY_JSON_LENGTH` 2 000 → 100 000 | **124 passed** (fails at 100 200) |
+| `_MAX_ID_LENGTH` 100 → 1 966 | **124 passed** (fails at 1 970) |
+| `_MAX_NAME_LENGTH` 60 → 600 | 2 failed |
+| `_MAX_TOOL_CALLS` 10 → 100 | 2 failed |
+| `_KNOWN_TRANSPORTS` → accept-anything | 2 failed |
+
+The cause is one choice: the hostile fixtures use **50 000-character** blobs — 25× the budget —
+so they trip any budget below ~100 100, and the `id` ceiling is just the arithmetic of the
+assertion (`{"id": "` + 1 966 + `", "name": "lookupResume"}` = exactly 2 000 chars). The two
+loose constants are the two that D1 publishes a worst case from.
+
+> **Decision: boundary cases, not magnitude cases. Three tests, all in
+> `docker/chat/tests/test_turn_input.py`: (a) an entry constructed to serialize at exactly
+> `2 000` chars is kept whole and one at `2 001` loses its bulk keys; (b) a 100-char `id`
+> survives intact and a 101-char `id` comes back at 100; (c) the final re-check — an entry
+> whose `id` is a non-`str` carrying bulk (so the 100-char truncation cannot reach it) and
+> which is still over budget after `args`/`response` are gone — is **dropped**, returning an
+> empty list. No source change.**
+
+(c) is the one that matters most: it is the line that makes D1's worst case a **ceiling**
+rather than an estimate, which is exactly what A8 now derives the published number from.
+
+### A7 — key space: the cardinality half stays in ADR-0021 by construction; the collision is its own fix
+
+**Verified.** Ten distinct 60-char tool names survive per request, and the read side re-bounds
+nothing: `contact-admin.js:374` builds the per-session histogram and `:697-699` merges every
+session's into `summary.voice.toolHistogram` with no cardinality cap.
+
+> **Decision A7a: cardinality stays with ADR-0021 / M8, and the reason is structural, not
+> scheduling.** Cardinality is a property *across* requests; the sink sees one request and
+> cannot know the known-tool set (it is defined by the chat host's tool registry, and
+> historical rows already hold free-form names). Bucketing at write time would also destroy the
+> signal for a genuinely new tool. Only a reader can bound cardinality, so it belongs on the
+> read side — `contact-admin.js:371-376`, bucket anything outside the known set to `'other'` —
+> exactly where §"What this ADR does NOT cover" already put it. **#17's "key space" claim is
+> narrowed accordingly** (A8 / §5.8): bounded in key **length**, **shape** and **count per
+> request**; **not** in cardinality across requests.
+
+> **Decision A7b: the two caller-keyed histograms are built on `Object.create(null)`.**
+> Measured in node, reproducing `contact-admin.js:374` exactly: a tool `name` of `toString`
+> (or `constructor`, `valueOf`, `hasOwnProperty`, …) makes the count the **string**
+> `"function toString() { [native code] }11"`, and that garbage then **compounds** through the
+> summary merge at `:697-699`; a name of `__proto__` **silently drops the bucket** instead.
+> Two different wrong behaviours, both in a response the dashboard renders as a number.
+
+**Did not survive as stated:** this is **not** prototype pollution. `Object.prototype` is
+untouched (assigning a string to `__proto__` is a no-op), and nothing leaks between requests.
+It is a key-collision bug with a wrong *value* type, scoped to the response being built.
+
+Scope: `aws/src/contact-admin.js` is gated, so the clearance is in §5.10 — change only the four
+initializers (`:327`, `:328`, `:612`, `:613`). `errorsByCode` (`:325`) and `transports`
+(`:327`) are not caller-driven today (`transport` is clamped by D1; `errorCode` is
+server-minted), but fixing all four is cheaper than maintaining the argument about which.
+
+### A8 — the worst case: the later lens is right, and the number is now derived, not measured
+
+Recomputed. **The earlier "19 930 chars, so the ≈20 KB worst case is CORRECT" pass is the
+mistaken one; the docs-vs-code lens that called it arithmetically wrong is right.** 19 930 is
+a measurement of one hostile payload that happened to fall 7 chars short of the budget on each
+of ten entries (10 × 7 = the missing 70). It is not the bound, and publishing a measurement as
+a bound is how the figure drifted in the first place.
+
+> **Decision: the document states the bound as the arithmetic of the constants, not as a
+> measurement.** For every entry the sanitizer keeps,
+> `len(json.dumps(entry)) <= _MAX_ENTRY_JSON_LENGTH` — guaranteed by the final re-check at
+> `turn_input.py:82-83` (pinned by A6c), not assumed. Therefore:
+>
+> **`toolCalls` per turn ≤ `_MAX_TOOL_CALLS × _MAX_ENTRY_JSON_LENGTH` = 10 × 2 000 =
+> 20 000 characters**, and because `json.dumps` defaults to `ensure_ascii=True`, those
+> characters are ASCII — so the same number is a **byte** ceiling. It is also a **DynamoDB**
+> byte ceiling, because for every JSON type DynamoDB's documented accounting is ≤ its
+> `json.dumps` character count: a string's UTF-8 bytes ≤ its escaped length (`\uXXXX` is 6
+> chars for ≤3 bytes, a surrogate pair is 12 chars for 4 bytes); a map costs
+> `3 + Σ(len(k) + 1 + v)` against JSON's `2 + Σ(len(k) + 4 + v)`; a list costs `3 + Σ(v + 1)`
+> against JSON's `2 + Σ(v + 2)`; and `true` / `null` / any number literal each cost ≤ their
+> printed length.
+>
+> **A reader checks that by multiplying two constants and reading three lines of
+> `turn_input.py`. No measurement, and nothing left to drift.**
+
+Corroboration, for the record only: a maximal payload measures 20 000 chars / **19 723**
+DynamoDB bytes (≤ the ceiling, as derived), and four attempts to make nesting shape amplify
+bytes past the character budget (flat lists of empty lists, of zeros, of empty maps) all came
+out at **×0.99** — the derivation is tight, not lucky.
+
+### 5.9 — What did not survive verification
+
+1. **"Three requests wedge a session"** → **four**. One maximal turn is 116 008 bytes; three
+   fit at 85 % of 409 600 and the fourth write is the one refused. The defect is unchanged;
+   state it as *three successful writes leave a session that can never take another turn*.
+2. **"`capturedAt` is permanent because `updatedAt` is rewritten with no `if_not_exists`"** →
+   the mechanism is backwards. Permanence comes from `createdAt = if_not_exists(createdAt, …)`
+   (`transcript_store.py:83`): the **first** write fixes the GSI sort key forever. `updatedAt`
+   (`:84`) is the one re-stamped on every write. Same conclusion, and both matter — the sort
+   key is permanent *and* the displayed timestamp is re-poisoned.
+3. **"`ChatRequest.sessionId` is the authenticated-ish chat path"** → `POST /api/chat` is fully
+   public (§1). The finding's conclusion (the transcript model's bound is the unpinned one)
+   verified exactly; its premise did not.
+4. **"A tool `name` of `__proto__` corrupts the histogram"** → `__proto__` silently **drops**
+   the bucket; `toString` / `constructor` / `valueOf` / `hasOwnProperty` are the ones that
+   corrupt it, with a string where a number belongs, compounding through the summary merge.
+   No prototype pollution anywhere.
+5. **"29 levels in a 145-BYTE payload"** → reproduced at **127 bytes** with nested lists (219
+   bytes with nested maps). The magnitude claim holds; the exact figure depends on the shape.
+6. **"boto3's `TypeSerializer` raises `RecursionError` at roughly 330 levels with no AWS call"**
+   → reproduced exactly (clean at 320, raises at 330, default `recursionlimit` 1000, no
+   client-side depth check). **Survived.**
+7. **D2's "no reachable public request reaches a raise today"** → **survived** (probed 29 →
+   20 000 levels; body parsing refuses from ~940 before the sanitizer can recurse). A4 is
+   taken anyway, because that ordering is incidental rather than designed.
+
+### 5.10 — Clearance scope
+
+The ungated work needs no clearance: **`docker/chat/app/turn_input.py`**,
+**`docker/chat/app/transcript_store.py`**, **`docker/chat/app/alerts.py`**, every file under
+`docker/chat/tests/`, and `js/chat-live.js`. Note that A3.1, A3.2 and A4 — the whole of
+blocker 2 and the depth major — land **entirely ungated**.
+
+**This addendum is the deliberate security review for the two gated files below.** The
+implementer is cleared to edit them under `SECURITY_REVIEW=1` to *exactly* these changes and
+nothing beyond them.
+
+**`docker/chat/app/main.py`** (matches `SECURITY_GLOB`):
+
+1. **A1** — **delete line 174** (`capturedAt: str | None = Field(default=None, max_length=64)`)
+   and **replace line 1214** (`captured_at = (payload.capturedAt or now_iso).strip() or now_iso`)
+   with `captured_at = now_iso`. Lines **1222** (`"capturedAt": captured_at`) and **1249**
+   (`created_at=captured_at`) keep their current text.
+2. **A2** — **lines 1208-1209 only**: wrap the two existing `.strip()` expressions in
+   `clamp_text(...)` from `turn_input.py`, and extend the existing sanitizer import at
+   **line 25**. Nothing else on either line.
+
+Explicitly **not** cleared, and each needing its own review: the `max_length` values at
+**171-173**, **175-176**; the route's `try` / `except` at **1246-1261**; the
+`RequestValidationError` handler at **1266-1283**; the text path at **738-800**.
+
+**`aws/src/contact-admin.js`** (matches `SECURITY_GLOB`):
+
+3. **A7b** — four initializers, `{}` → `Object.create(null)`: **line 327** (`transports`),
+   **line 328** (`toolHistogram`), **line 612** (`summary.voice.toolHistogram`), **line 613**
+   (`summary.voice.transports`). **No logic change** at `:337`, `:374` or `:697-701` — the
+   `(x || 0) + 1` increments are correct once the backing object has no inherited keys.
+
+Explicitly **not** cleared here: the read-side cardinality bucketing at **371-376** (A7a — it
+is ADR-0021's), the GSI query at **460-500**, and the `recentFailures` sort at **755-759**.
+
+**`aws/template.yaml`** (gated): **no edit needed.** `bytesStored` is a non-key attribute, so
+it needs no `AttributeDefinition`.
+
+### 5.11 — Wire contract and stored rows
+
+| Change | Breaks for the existing frontend | Old stored rows |
+|---|---|---|
+| **A1** retire `capturedAt` | **Nothing.** `LiveTranscriptTurn` does not forbid extra fields (verified: an unknown key answers 204), so `js/chat-live.js:681` keeps sending it and the server ignores it. No coordinated deploy, no version gate. Removing line 681 is an optional, ungated tidy-up afterwards. | No backfill needed for correctness. Any already-poisoned row keeps its junk `createdAt` and stays on page 1 until deleted — a one-time admin cleanup (delete rows whose `createdAt` does not parse as ISO-8601) is the owner's call, not a migration. |
+| **A2** byte-bound the texts | **Nothing new rejects.** The Pydantic code-point `max_length` values are untouched, so every request that is accepted today is still accepted. A turn longer than the byte budget is stored truncated instead of whole. | Untouched. Rows already hold texts above the new byte budget; they stay as they are and still read fine. |
+| **A3.2** `bytesStored` + condition | **Nothing.** Additive non-key attribute; no reader looks for it. | Pre-A3.2 rows have no `bytesStored`, which is why the condition is `attribute_not_exists(bytesStored) OR bytesStored < :budget` — an existing row's first post-deploy write seeds the counter from that write alone, so a row already near 400 KB can take one more turn before the budget engages. Accepted: the write is still atomic, so the worst case is one refused write that A3.1 reports. |
+| **A4** depth bound | **Nothing.** No real producer nests `args` beyond 2 levels (`main.py:270-282`, `js/chat-live.js:986`). | Untouched. Rows holding deep `args` are readable; `aws/src/contact-admin.js` only reads `call.name`. |
+| **A3.1** alerts | None (server-side). | None. |
+| **A7b** `Object.create(null)` | **Nothing.** `JSON.stringify` of a null-prototype object is byte-identical for every well-formed name. | None — it changes how the rollup is *computed*, not what is stored. |
+
+**No ADR-0020 decision is reversed and no migration is required.** The one breaking-ish change
+is A1, and it breaks nothing because the field was never read from the caller by anything that
+needed it.
+
+### 5.12 — Priority order for implementation
+
+Ranked by (exploitability × blast radius) ÷ cost, not by which finding was labelled a blocker.
+
+1. **A1 — `capturedAt` → server clock.** Remote, one 204 request, no auth, permanent, and it
+   hits the owner's primary admin view, the GSI ordering, the activity sparkline and the daily
+   digest at once. Smallest diff in the whole addendum (two lines of gated `main.py`).
+2. **A3.1 — alert on persist failure.** Ungated, tiny, and the **precondition** for the rest:
+   without it, A3.2's and A4's refusals are as silent as the bug they replace. It also
+   retroactively surfaces the depth and size failures already happening.
+3. **A5 + A6 — the four missing tests.** Test-only, ungated, no behaviour change, and A6c is
+   what makes A8's published number a ceiling rather than a hope. Cheap, so do it before the
+   constants are leaned on further.
+4. **A4 — depth bound.** Closes the whole shape class, entirely inside `turn_input.py`, and it
+   should precede A3.2: A3.2 measures a turn's serialized size with `json.dumps`, which
+   recurses on exactly the payloads A4 removes.
+5. **A2 — byte-bounded text clamp.** Shrinks the worst-case turn from ~116 KB to ~44 KB, which
+   is what makes A3.2's budget generous in practice.
+6. **A3.2 — the `bytesStored` condition.** The decision that finally makes "bounded" true per
+   item. Last of the bound work because it depends on 4 and is most useful after 5.
+7. **A7b — the histogram collision.** Gated, but low exploitability (it needs a tool literally
+   named `toString`) and a contained blast radius.
+8. **A7a — read-side cardinality bucketing.** No change now; carried by ADR-0021 / M8.
+
+Until item 6 lands, **#17 does not claim the item is bounded** — see the pending list in the
+invariant. The claim and the code move together, or the invariant lies again.

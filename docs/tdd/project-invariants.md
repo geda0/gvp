@@ -401,9 +401,22 @@ proves it comes FIRST.
       scoped per environment"*, and *"reportEmailEnabled is false for the staging stack"*;
       handler wiring pinned in `test/daily-report-wiring.test.mjs`. Run: `node --test`.
 
-17. **Anything persisted from an unauthenticated endpoint is bounded in count, size, and
-    key space before it is written.** `[chat]` Public sinks may not hand caller-controlled
-    structure to storage. `POST /api/live/transcript` takes **no credential of any kind**,
+17. **THE RULE: anything persisted from an unauthenticated endpoint is bounded at the sink,
+    before the write — in count, in size (bytes, not code points), in shape (depth) and in key
+    space — and no caller-supplied value becomes a storage key.** `[chat]` Public sinks may not
+    hand caller-controlled structure to storage.
+    **CONFORMANCE, stated second and kept honest, because an earlier wording asserted the rule
+    as if it were already fact** (refuted by the six-lens review of 2026-10-05, recorded as
+    ADR-0020 §5): the rule is **met today** for **entry count** (≤10), **serialized JSON size
+    per tool-call entry** (≤2 000 chars, re-checked), the **`transport` key space** (a 3-value
+    set) and the **`sessionId` partition key** (`max_length=128`, rejected not clamped).
+    It is **NOT met** for the **byte** size of the free-text fields, for **nesting depth**, for
+    **turns / bytes per DynamoDB item**, for the **`capturedAt` sort key** — which is a
+    caller-chosen GSI RANGE key today, the sharpest violation of the rule's last clause — or for
+    tool-name **cardinality across requests**. All five are decided in ADR-0020 §5 A1-A8 and
+    listed as *Pending* below with their verification. **Nothing here may be read as claiming
+    them until the matching slice is green.**
+    `POST /api/live/transcript` takes **no credential of any kind**,
     so before `persist_turn` it clamps `transport` to the known set
     `{'live','relay','direct_google'}` — anything else (unknown, empty, wrong type) becomes
     `'live'` — and sanitizes `toolCalls` to **≤10 entries** (taken from the front, order
@@ -421,14 +434,28 @@ proves it comes FIRST.
     dropped and the entry is kept as its identity `{id, name}` — never a truncated,
     unparseable JSON fragment — and then the budget is **re-checked**: an entry still over
     2000 chars (only reachable via a non-`str` `id`, which the 100-char truncation cannot
-    reach) is dropped outright rather than persisted over budget. Worst case per turn is
-    therefore `10 × ≤2000` ≈ **20 KB** of `toolCalls` (measured: 19 930 chars for ten
-    maximal entries).
+    reach) is dropped outright rather than persisted over budget.
+    **Worst case per turn, derived rather than measured** (ADR-0020 §5 A8 — the earlier
+    "19 930 chars" was a measurement of one payload, not a bound, and was wrong): every kept
+    entry satisfies `len(json.dumps(entry)) <= _MAX_ENTRY_JSON_LENGTH` *by the final re-check*,
+    so `toolCalls` per turn is at most
+    `_MAX_TOOL_CALLS × _MAX_ENTRY_JSON_LENGTH` = **10 × 2000 = 20 000 characters**. Those are
+    ASCII characters (`json.dumps` defaults to `ensure_ascii=True`), so the same number bounds
+    **bytes**; and it bounds **DynamoDB** bytes too, because for every JSON type DynamoDB's
+    documented accounting is ≤ its `json.dumps` character count (a string's UTF-8 bytes ≤ its
+    escaped length; a map costs `3 + Σ(len(k)+1+v)` vs JSON's `2 + Σ(len(k)+4+v)`; a list costs
+    `3 + Σ(v+1)` vs JSON's `2 + Σ(v+2)`; `true`/`null`/number literals cost ≤ their printed
+    length). Check it by multiplying two constants — do not re-measure it.
     Unbounded values here are not merely an item-size problem:
     `aws/src/contact-admin.js:337,371-375` builds the admin rollup's `transports` /
     `toolHistogram` keyed **by the persisted value**, so without this bound an anonymous
     caller owns the key space of the owner's dashboard, plus DynamoDB item bloat and the
-    retention/read cost that follows it.
+    retention/read cost that follows it. **Precisely how far that is closed:** key **length**
+    (60 chars), key **shape** (a usable `str` or the entry is dropped) and key **count per
+    request** (10) are bounded; tool-name **cardinality across requests** is not, and cannot be
+    at this sink — cardinality is a cross-request property the sink cannot see, so it is
+    read-side work by construction (ADR-0020 §5 A7a, carried by ADR-0021). `transport`
+    cardinality *is* closed, because its key space is a fixed 3-value set.
     The sink **clamps rather than rejects** (the turn still persists, because the caller is
     a fire-and-forget `keepalive` beacon that never reads the response,
     `js/chat-live.js:671-700`).
@@ -497,10 +524,28 @@ proves it comes FIRST.
       `clamp_transport` handles `''`/`None`/non-`str`, nor that `'live'` and `'relay'`
       round-trip. If a second caller is ever added for `sanitize_tool_calls`, it must
       either carry the same Pydantic bound or the function must be made total first.
-    - Scope note: this invariant bounds **payload shape and key space**, not **volume**. The
-      ≈20 KB figure is **per turn**, not per item: `transcript_store.py:79-111`
-      `list_append`s every turn into one DynamoDB item keyed by session id, and that item
-      caps at 400 KB, so repeated worst-case turns on one `sessionId` can still fill it.
+    - **Unpinned bounds — verified by mutation on 2026-10-05, baseline 124 passed**
+      (ADR-0020 §5 A5, A6). Three of the numbers above are claimed here but not held by any
+      test, so they can be moved in one edit: (a) deleting `max_length=128` from
+      **`LiveTranscriptTurn.sessionId`** (`main.py:171`) leaves the suite **green** — the bound
+      on the public transcript sink is the one of the three that nothing pins (deleting it from
+      `LiveSessionRequest` or `ChatRequest` each fail one test); (b) deleting the **final
+      re-check** (`turn_input.py:82-83`) — the line that makes the worst case a ceiling rather
+      than an estimate — leaves the suite **green**; (c) `_MAX_ENTRY_JSON_LENGTH` can be raised
+      from 2 000 to **100 000** and `_MAX_ID_LENGTH` from 100 to **1 966** with the suite green,
+      because the hostile fixtures use 50 000-char blobs (25× the budget) and so trip any budget
+      below ~100 100. Closing these needs **boundary** cases (just-under / just-over the
+      documented number), not bigger payloads; test-only, no source change.
+    - Scope note: this invariant bounds **per-entry payload shape and key space**, not
+      **volume** and not the **item**. The 20 000-char figure is **per turn**, not per item:
+      `transcript_store.py:79-111` `list_append`s every turn into one DynamoDB item keyed by
+      session id under **no `ConditionExpression`** and with **no cap on turns**, and that item
+      caps at 400 KB. Measured (ADR-0020 §5 A3): one maximal turn is **116 008 bytes**, so three
+      successful public writes leave a session at 85 % of 409 600 and **the fourth write — and
+      every turn after it, forever — is refused**, with the caller still getting 204 and the
+      error swallowed into `writes_failed` (`transcript_store.py:140-144`), a counter visible
+      only on `/ready` and the gated `/api/chat/host-status`. **No alert fires on a persist
+      failure anywhere in the chat host today.**
       Rate and cost limiting is NOT claimed here and does not exist yet: the shipped ECS
       Express chat host has no API-Gateway throttle in front of it (the throttles in
       `aws/chat-template.yaml` cover only the Lambda-container fallback), so M8's
@@ -508,7 +553,41 @@ proves it comes FIRST.
       `POST /api/live/session`, not a second layer. Transcript retention TTL, the admin
       read/write key split, and read-side bucketing of unknown tool names in
       `aws/src/contact-admin.js:371-375` (still caller-influenced across requests) are
-      likewise **deferred to M8** — see ADR-0020 §"What this ADR does NOT cover".
+      likewise **deferred to M8** — see ADR-0020 §"What this ADR does NOT cover". The retention
+      TTL must be computed from the **server** clock: deriving it from a persisted `capturedAt`
+      would hand the expiry to the caller, which is the hole in *Pending (1)* one field over.
+    - **Pending — decided, not yet implemented** (ADR-0020 §5, in priority order). Each line is
+      an open hole in THE RULE above, and the conformance paragraph may not be widened until
+      the matching slice is green:
+      1. **`capturedAt` is a caller-chosen sort key.** `main.py:1214` takes it verbatim
+         (`max_length=64`, no format check) and `:1249` writes it as the item's `createdAt`, the
+         RANGE key of the `byCreatedAt` GSI (`aws/template.yaml:161-166`) that the admin list
+         reads `ScanIndexForward: false` (`aws/src/contact-admin.js:481`). Verified:
+         `capturedAt: 'zzzzzzzzzzzzzzzz'` answers **204** and pins that session to page 1
+         permanently (`createdAt` is written `if_not_exists`). It also poisons the 30-day
+         activity sparkline (`contact-admin.js:721-724`) and silently drops the turn from the
+         daily digest (`aws/src/common/daily-report.js:68-69`). Decision **A1**: the field
+         leaves the request model; the sink uses the server clock, as the text path already does
+         (`main.py:771-773`). This is the direct contradiction of the *clamp values, reject
+         identities* rule stated above — a sort key is an identity, and M0 never touched it.
+      2. **Persist failures are silent.** Decision **A3.1**: `fire_alert` on every persist
+         failure, distinguishing "session full" from "writes are broken".
+      3. **The three unpinned bounds** above. Decisions **A5**, **A6**.
+      4. **Nesting depth is unbounded.** Verified: a **127-byte** request with 29 levels inside
+         `args` answers 204 and yields an item 34 levels deep against DynamoDB's documented 32;
+         boto3 has no client-side depth check and its `TypeSerializer` raises `RecursionError`
+         at depth ~330 with no AWS call. Decision **A4**: `_MAX_ARG_DEPTH = 6`, checked by an
+         **iterative** walk placed **before** the first `json.dumps` in `_bound_entry`.
+      5. **The text fields are bounded in code points, charged in bytes.** Verified: 8 000
+         astral-plane code points persist 32 000 bytes. Decision **A2**: `clamp_text` on a UTF-8
+         byte budget (8 000 / 16 000 bytes), clamping not rejecting.
+      6. **The item has no size bound.** Decision **A3.2**: a `bytesStored` counter in the item
+         plus `ConditionExpression`, budget 380 KiB.
+      7. **The admin tool histogram collides on `Object.prototype` keys.** Verified in node:
+         `contact-admin.js:374` on a plain `{}` turns a tool named `toString` into the string
+         `"function toString() { [native code] }11"`, compounding through the merge at
+         `:697-699`; `__proto__` silently drops the bucket. Not prototype pollution. Decision
+         **A7b**: `Object.create(null)` at `:327`, `:328`, `:612`, `:613`.
 
 ## Out of scope / explicitly allowed
 
