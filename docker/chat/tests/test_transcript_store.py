@@ -35,20 +35,6 @@ class RaisingTable:
         raise self._error
 
 
-class ConditionalCheckFailedException(Exception):
-    """Stands in for boto3's error-factory exception when DynamoDB refuses a
-    conditional write — the "this session is full" case. Carries BOTH the real
-    class name and the real error code so the store may recognise it either
-    way."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            'An error occurred (ConditionalCheckFailedException) when calling '
-            'the UpdateItem operation: The conditional request failed'
-        )
-        self.response = {'Error': {'Code': 'ConditionalCheckFailedException'}}
-
-
 @pytest.mark.asyncio
 async def test_chat_persists_transcript_turn(client) -> None:
     chain_before = app.state.chain
@@ -177,51 +163,55 @@ async def test_persist_turn_disabled_counts_as_failure_not_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_persist_failure_fires_alert_whose_priority_names_the_failure(
+async def test_broken_write_fires_an_actionable_alert(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failed transcript write is announced, and its priority says WHICH
-    failure (ADR-0020 A3.1). Today the error is swallowed into a `writes_failed`
-    counter visible only on /ready and the gated host-status, so a broken table
-    — or a session that can never accept another turn — has no symptom the owner
-    would ever see. `[P1]` = writes are broken; `[P2]` = session full, expected.
+    """A persist failure announces itself as `chat_transcript_write_failed`
+    (ADR-0020 A3.1'), carrying what the owner needs to act: the exception class
+    and the session id the write was for. Today the error is swallowed into a
+    `writes_failed` counter visible only on /ready and the gated host-status, so
+    a broken table has no symptom anyone would ever see.
+
+    Priority is a static property OF the type (P1 here), not of the call site,
+    so nothing about priority is pinned here. The P2 `chat_transcript_session_full`
+    type arrives with A3.2, when a ConditionExpression makes that branch
+    reachable — and ITS test must pass at the DEFAULT 3600s cooldown. Needing
+    `CHAT_ALERT_COOLDOWN_SECONDS='0'` to see both fires would mean the two types
+    have been collapsed back into one shared throttle bucket, which is the
+    masking bug this amendment exists to prevent.
     """
     # Alerts ship dark: configure with throwaway values and capture at the send
-    # seam, so nothing is actually delivered. Zero cooldown so both fires land.
+    # seam, so nothing is delivered. No cooldown override — one fire after a
+    # reset must get through at the production default.
     monkeypatch.setenv('CHAT_ALERT_EMAIL', 'owner@example.com')
     monkeypatch.setenv('CHAT_ALERT_FROM_EMAIL', 'alerts@example.com')
     monkeypatch.setenv('RESEND_API_KEY', 'k-test')
-    monkeypatch.setenv('CHAT_ALERT_COOLDOWN_SECONDS', '0')
     alerts.reset_for_tests()
-    fired: list[tuple[str, str]] = []
+    fired: list[tuple[str, str, str]] = []
 
     async def _capture(event_type: str, summary: str, detail: str) -> None:
-        fired.append((event_type, summary))
+        fired.append((event_type, summary, detail))
 
     monkeypatch.setattr(alerts, '_send', _capture)
 
-    broken = TranscriptStore('ChatTranscripts')
-    broken._table = RaisingTable(RuntimeError('ProvisionedThroughputExceeded'))
-    session_full = TranscriptStore('ChatTranscripts')
-    session_full._table = RaisingTable(ConditionalCheckFailedException())
+    store = TranscriptStore('ChatTranscripts')
+    store._table = RaisingTable(RuntimeError('ProvisionedThroughputExceeded'))
 
-    # Both calls must return normally — a persist failure may never break the
-    # fire-and-forget turn that triggered it.
-    await broken.persist_turn(
+    # Must return normally: a persist failure may never break the fire-and-forget
+    # turn that triggered it.
+    await store.persist_turn(
         session_id='s-broken', created_at='2026-01-01T00:00:00+00:00',
         prompt_version='v1', provider='mock', model='m',
         turn={'reply': 'a'}, flags={},
     )
-    await session_full.persist_turn(
-        session_id='s-full', created_at='2026-01-01T00:00:00+00:00',
-        prompt_version='v1', provider='mock', model='m',
-        turn={'reply': 'b'}, flags={},
-    )
-    await asyncio.sleep(0)  # let the detached alert tasks run
+    await asyncio.sleep(0)  # let the detached alert task run
 
-    assert [event_type for event_type, _ in fired] == [
-        'chat_transcript_write_failed',
-        'chat_transcript_write_failed',
+    assert [event_type for event_type, _, _ in fired] == [
+        'chat_transcript_write_failed'
     ]
-    assert '[P1]' in fired[0][1], 'writes are broken is P1'
-    assert '[P2]' in fired[1][1], 'session full is expected, so P2'
+    detail = fired[0][2]
+    assert 'RuntimeError' in detail, 'the alert must name what broke'
+    assert 's-broken' in detail, 'the alert must name the session it lost'
+    # The counter still moves: the alert is additional to the swallow, not a
+    # replacement for it.
+    assert store.stats()['writes_failed'] == 1

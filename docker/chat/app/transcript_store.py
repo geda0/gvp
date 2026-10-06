@@ -142,6 +142,13 @@ class TranscriptStore:
             # Truncate so a giant DynamoDB error doesn't bloat /ready output.
             self.last_error = f'{type(exc).__name__}: {str(exc)[:240]}'
             logger.exception("Failed to persist chat transcript id=%s", resolved_id)
+            from app.alerts import fire_alert
+
+            fire_alert(
+                'chat_transcript_write_failed',
+                f'transcript persist failed for session {resolved_id}',
+                f'{type(exc).__name__}: {str(exc)[:240]} (session_id={resolved_id})',
+            )
 
 
 def build_transcript_store() -> TranscriptStore | None:
