@@ -28,6 +28,11 @@ currently unbounded, and clears the minimal edit that closes it.
 
 ### 1. The public surface contract (verified against code, 2026-09-17)
 
+> **Read as a snapshot, not as current state.** This table and §2/§3 record the surface **as
+> it stood before M0**, which is what this ADR reviewed. The two gaps it names as
+> "Unbounded" — `toolCalls` / `transport` (F1) and `ChatRequest.sessionId` (F1b) — are
+> **closed**; line numbers have since drifted by one to three lines. See §4.
+
 Everything below is on `docker/chat/app/main.py` unless noted. "Public" = **no credential of
 any kind** is checked; the only gate is CORS (`CHAT_CORS_ORIGINS`, never `*`), which restricts
 *browsers*, not `curl`.
@@ -123,28 +128,54 @@ Real clients are nowhere near the bound: `createSessionId()` (`js/chat.js:185-19
 >   (`js/chat-live.js:671-700`); dropping a real turn to punish a bad field is the wrong
 >   trade. Clamp, persist, move on.
 > - **`toolCalls`** is capped at **10 entries** (excess dropped, order preserved from the
->   front); a non-list becomes `[]`; non-dict entries are dropped.
+>   front). Shape is enforced *upstream of the sanitizer*, by Pydantic: the field is
+>   `list[dict[str, Any]] | None`, so a non-list, or a list holding a non-dict, is a **400**
+>   `validation_error` before the route body runs. The sanitizer therefore does not defend
+>   against those shapes itself — see §4.3.
 > - Each surviving entry keeps **known keys only** — `id`, `name`, `args`, `response` — and
 >   nothing else. This allowlist is the **union of both real producers**: the text path writes
 >   `{name, args, id}` (`main.py:270-282`) and the voice client writes
 >   `{id, name, args, response}` (`js/chat-live.js:986`). Dropping `response` would be a
 >   silent telemetry regression, so it is in the set.
-> - Entry **`name`** is coerced to `str`, stripped, truncated to **60 chars**; an entry whose
->   `name` is empty after stripping is dropped (it carries no signal and would land in the
->   admin histogram as `'unknown'`).
+> - Entry **`name`** is **never coerced**. It is the admin tool histogram's key
+>   (`contact-admin.js:373`), i.e. an *identity*, so the same "reject identities" rule as
+>   D1b applies one level down: a `name` that is **missing, not a `str`, or empty after
+>   stripping drops the whole entry**. Coercing it — `str(['a'*100,'b'*100])` — would mint a
+>   permanent dashboard row for a tool that never ran, which is precisely the harm F1 is
+>   about. A usable `name` is stripped and truncated to **60 chars**. *(This is stronger
+>   than the "coerce to `str`" wording this ADR originally carried; see §4.1.)*
+> - Entry **`id`** is a correlation *value* — no consumer reads it (`contact-admin.js:371-375`
+>   keys the histogram on `name` alone; `js/admin.js:820` reads only `name`) — so it is
+>   **truncated to 100 chars**, not dropped. The cap sits well above real provider tool-call
+>   ids (<64 chars) and guarantees the identity pair `{id, name}` fits the JSON budget by
+>   construction. *(Added during implementation; see §4.2.)*
 > - Each entry's **serialized JSON is ≤ 2000 chars**. If an entry exceeds it, the bulky
 >   members (`args`, `response`) are dropped and the entry is kept as its identity
 >   (`{id, name}`) — never a truncated, unparseable JSON fragment. The tool *happened*; that
->   fact is the signal the dashboard needs, and it survives.
+>   fact is the signal the dashboard needs, and it survives. The budget is then
+>   **re-checked**, not assumed: an entry still over 2000 chars after the bulk is gone (only
+>   reachable through a non-`str` `id`, which the 100-char truncation cannot touch) is
+>   **dropped outright** rather than persisted over budget.
 >
-> The result is a bounded, shaped item: ≤10 entries × ≤2000 chars ≈ 20 KB worst case for
-> `toolCalls`, a 3-value `transport` key space, and an admin histogram whose transport keys
-> can no longer be attacker-chosen.
+> The result is a bounded, shaped item: ≤10 entries × ≤2000 chars of serialized JSON, a
+> 3-value `transport` key space, and an admin histogram whose transport keys can no longer
+> be attacker-chosen. **Worst case, recomputed against the shipped sanitizer (2026-10-05):**
+> ten maximal entries (`id` 100 chars, `name` 60 chars, `args` filling the rest of each
+> entry's budget) serialize to **19 930 chars ≈ 20 KB** — the ≈20 KB figure holds, and the
+> 100-char `id` cap does not lower it because `args`/`response` fill whatever identity
+> leaves. Note the bound is **per turn**: `transcript_store.py:79-111` `list_append`s turns
+> into one 400 KB DynamoDB item keyed by session id, so repeated worst-case turns on a
+> single `sessionId` can still fill that item. Bounding the payload is not bounding the
+> volume (M8).
 
 **Rejected: reject the request (4xx) on an out-of-bounds payload.** It matches the
 `too_many_messages` precedent on `/api/chat`, but this caller is a fire-and-forget beacon that
 ignores the response; a 4xx would lose the legitimate half of the turn and tell the attacker
 exactly where the boundary is. Sanitize-and-persist keeps the telemetry *and* the bound.
+(This is about out-of-bounds **values**. A payload whose *types* do not match the model — a
+non-list `toolCalls`, a non-dict entry — is still a 400, because Pydantic refuses it before
+the route body runs; that pre-existing behaviour is unchanged and is what the sanitizer's
+narrow signature leans on, §4.3.)
 
 **Rejected: sanitize on the read side (`contact-admin.js`).** It would leave the table
 bloated, leave every other reader exposed, and require editing a **gated** file for a problem
@@ -199,35 +230,58 @@ it is blocked in every phase unless `SECURITY_REVIEW=1` is set after a deliberat
 > sitting alongside `alerts.py` / `transcript_store.py` / `upstream_errors.py` as leaf infra.
 > `main.py` gains **one import and one call site** and nothing else.
 
-The shape both sides build to (the two lines at `main.py:1214-1215` become the two calls; the
-constants are exported so tests pin the numbers, not magic literals):
+The shape both sides build to (the two lines at `main.py:1214-1215` — `:1215-1216` as shipped
+— become the two calls). The ADR originally proposed *exporting* the constants so tests could
+import them; what shipped keeps them module-private and has the tests assert each number from
+the outside as behaviour, which is strictly better — a bound and the test that pins it can no
+longer be changed in a single edit (§4.4):
 
 ```python
 # docker/chat/app/turn_input.py — pure; no FastAPI, no boto3, no I/O
-KNOWN_TRANSPORTS   = frozenset({'live', 'relay', 'direct_google'})
-DEFAULT_TRANSPORT  = 'live'
-MAX_TOOL_CALLS     = 10
-MAX_TOOL_NAME_LEN  = 60
-MAX_TOOL_CALL_JSON = 2000
-TOOL_CALL_KEYS     = ('id', 'name', 'args', 'response')
+# AS SHIPPED. The bounds are module-PRIVATE constants, deliberately: the tests
+# assert the numbers from the outside, as behaviour, so a bound and its test
+# cannot be moved in one edit. (This ADR originally sketched them as exported
+# names for tests to import — see §4.4.)
+_KNOWN_TRANSPORTS        = frozenset({'live', 'relay', 'direct_google'})
+_MAX_TOOL_CALLS          = 10
+_MAX_NAME_LENGTH         = 60
+_MAX_ID_LENGTH           = 100      # not in the original sketch; see §4.2
+_MAX_ENTRY_JSON_LENGTH   = 2000
+_KNOWN_TOOL_CALL_KEYS    = frozenset({'name', 'args', 'id', 'response'})
 
 def clamp_transport(value: object) -> str: ...
-def sanitize_tool_calls(value: object) -> list[dict[str, Any]]: ...
+def sanitize_tool_calls(value: list[dict]) -> list[dict]: ...
 ```
 
-Both functions are **total**: any input — `None`, a string, a deeply nested dict, a list of
-nulls, a value that will not serialize — returns a valid, bounded result and never raises. A
-sanitizer that can throw would turn a hostile payload into a 500 on a public endpoint, which
-is a worse hole than the one being closed.
+**Totality — stated precisely, because the original wording here overclaimed it (§4.3).** A
+sanitizer that throws would turn a hostile payload into a 500 on a public endpoint, which is
+a worse hole than the one being closed, so the requirement is real — but only one of the two
+functions meets it unconditionally:
+
+- `clamp_transport(value: object)` **is total.** Any input whatsoever returns a member of the
+  known set; `None`, `''`, and a non-`str` all yield `'live'`.
+- `sanitize_tool_calls(value: list[dict])` is **total only over its declared type.** It
+  raises on `None`, on a bare `str`, on a list containing `None`, and on a value that will
+  not JSON-serialize. The **typed signature is the honest statement of that contract**, and
+  the gap is closed by the layer above rather than inside the function:
+  `LiveTranscriptTurn.toolCalls` is `list[dict[str, Any]] | None`, so Pydantic answers a
+  **400** `validation_error` on every one of those shapes before the route body runs, and the
+  one call site passes `payload.toolCalls or []`, so `None` never arrives. **This is
+  defence-in-depth missing, not a live hole** — no reachable public request reaches a raise
+  today. The standing conditions: (a) this function must keep exactly one caller, behind that
+  Pydantic bound — a second caller must either carry the same bound or the function must be
+  made total first; (b) the 500-on-hostile-payload risk is borne by Pydantic here, so the
+  `RequestValidationError` handler (`main.py:1266-1283`) is load-bearing for F1, not only for
+  F1b.
 
 **This ADR is the deliberate security review for the `main.py` edit.** The implementer is
 cleared to edit `docker/chat/app/main.py` under `SECURITY_REVIEW=1` to *exactly* these three
 changes, and to **nothing beyond them**:
 
 1. Add `from app.turn_input import clamp_transport, sanitize_tool_calls`.
-2. Replace the `transport = …` / `tool_calls = …` assignments at **`main.py:1214-1215`** with
-   calls to those two functions (**F1**, D1).
-3. Change **`main.py:162`** from `sessionId: str | None = None` to
+2. Replace the `transport = …` / `tool_calls = …` assignments at **`main.py:1214-1215`**
+   (**`:1215-1216`** as shipped) with calls to those two functions (**F1**, D1).
+3. Change **`main.py:162`** (**`:163`** as shipped) from `sessionId: str | None = None` to
    `sessionId: str | None = Field(default=None, max_length=128)` (**F1b**, D1b) — the same
    expression already on `LiveSessionRequest.sessionId` and `LiveTranscriptTurn.sessionId`.
    `Field` is already imported (`main.py:21`); no other import is needed, and no clamp
@@ -265,8 +319,14 @@ review surface. Any change to `main.py` beyond these three needs its own review.
 - **`main.py`'s diff stays reviewable:** one import + two call sites, all logic in an ungated,
   directly unit-testable leaf. Future bounds (below) land in the same module with **no**
   further `main.py` edit and therefore **no** further security review.
-- One new invariant (**#17**, wording below) enters `docs/tdd/project-invariants.md`, pinned by
-  `docker/chat/tests/test_turn_input.py`. No prior invariant is edited.
+- One new invariant (**#17**) enters `docs/tdd/project-invariants.md`, pinned by
+  `docker/chat/tests/test_turn_input.py` (six helper-level cases), by
+  `docker/chat/tests/test_turn_persistence.py` (`test_public_transcript_post_persists_a_bounded_turn`
+  — the sanitizers are actually wired into the route — and
+  `test_well_formed_voice_turn_persists_its_telemetry_untouched` — the "legitimate telemetry
+  unaffected" bar), and by `docker/chat/tests/test_api.py::test_over_long_session_id_is_rejected_and_persists_nothing`
+  for the F1b rejection. No prior invariant is edited. The exact proven-by list, including the
+  cases that do **not** exist, lives with the invariant — §4.5.
 
 ### What this ADR does NOT cover
 
@@ -304,46 +364,103 @@ Named so later work **extends** this ADR instead of contradicting it:
   refines the gated rows in §1's table. `SMOKE_PROBE_KEY` staying a **distinct** secret is
   settled here and must survive that change.
 - **The tool-name histogram stays attacker-*influenced* on the READ side — M0 bounds it, it
-  does not close it.** `aws/src/contact-admin.js:371-374` builds `toolHistogram` keyed by the
+  does not close it.** `aws/src/contact-admin.js:371-375` builds `toolHistogram` keyed by the
   persisted tool-call `name`, which arrives from the unauthenticated transcript endpoint. M0
-  bounds each `name` to **60 chars** and each turn to **10 entries**, so no single request can
-  flood the histogram and no key can be huge — but across many requests the key *space* is
-  still caller-chosen, so the owner's dashboard can be made to render a long tail of junk tool
-  names. Closing it properly means bucketing anything outside the known tool set to `'other'`
-  on the read side, and `contact-admin.js` is a **gated** file — so it is deferred to M8.
+  bounds each `name` to **60 chars** and each turn to **10 entries**, and drops any entry
+  whose `name` is not a usable string (so the histogram's `'unknown'` bucket can no longer be
+  driven from this sink at all) — but across many requests the key *space* of *usable* names
+  is still caller-chosen, so the owner's dashboard can be made to render a long tail of junk
+  tool names. Closing it properly means bucketing anything outside the known tool set to
+  `'other'` on the read side, and `contact-admin.js` is a **gated** file — so it is deferred
+  to M8.
   Recorded here explicitly so nobody reads "F1 is fixed" as "the histogram is clean."
 
-### Exact new invariant wording (appended to `docs/tdd/project-invariants.md` as #17)
+### The new invariant: `docs/tdd/project-invariants.md` #17 is canonical
 
-> **Anything persisted from an unauthenticated endpoint is bounded in count, size, and key
-> space before it is written.** `[chat]` Public sinks may not hand caller-controlled structure
-> to storage: `POST /api/live/transcript` (no credential of any kind) clamps `transport` to
-> `{'live','relay','direct_google'}` — unknown ⇒ `'live'` — and sanitizes `toolCalls` to ≤10
-> entries, known keys only (`id`/`name`/`args`/`response`), `name` ≤60 chars (empty ⇒ entry
-> dropped), and ≤2000 chars of serialized JSON per entry (over ⇒ keep `{id,name}`, drop the
-> bulk) before `persist_turn`. Unbounded values are not merely an item-size problem:
-> `aws/src/contact-admin.js:337,371-374` builds `transports` / `toolHistogram` keyed **by the
-> persisted value**, so an anonymous caller would otherwise own the key space of the owner's
-> admin rollup. The sanitizers are **total** — any input returns a bounded result, never an
-> exception (a throwing sanitizer turns a hostile payload into a 500 on a public endpoint) —
-> and they **clamp rather than reject**: the turn still persists, because the caller is a
-> fire-and-forget `keepalive` beacon that never reads the response (`js/chat-live.js:671-700`).
-> The rule the seam runs on is **clamp values, reject identities**: a clamped telemetry value
-> is still a truthful, weaker fact, but a field that becomes a **storage key** must never be
-> silently rewritten — truncating it makes every caller sharing that prefix collide into one
-> partition key, silently merging distinct sessions into one row. So the identity field is
-> bounded by **rejection**: `sessionId` carries `max_length=128` on all three request models
-> that own one — `ChatRequest` (`main.py:162`), `LiveSessionRequest` and
-> `LiveTranscriptTurn` — because it lands as the DynamoDB partition key `id`
-> (`transcript_store.py:123`). All three are unauthenticated, so all three are capped; an
-> over-long id is a **400** `validation_error`, not a 422, via this app's own
-> `RequestValidationError` handler (`main.py:1265-1281`). Real ids are 32–36 chars
-> (`js/chat.js:185-190`), so no legitimate client can trip it.
+Invariant **#17** is appended to `docs/tdd/project-invariants.md`. **That file holds the
+canonical wording; this ADR does not restate it.** An earlier revision of this section
+carried a full copy of the proposed text, which then drifted from both the code and the
+invariant in three ways now corrected in #17 and recorded in §4: it said `name` is
+"coerced", it called both sanitizers "total", and its *Proven by* list named tests that were
+never written. A second copy of a security invariant is a second thing to drift, so the copy
+is gone.
 
-(The appended invariant also carries the standard *Implemented by* / *Proven by* / *Scope
-note* sub-bullets; the scope note restates plainly that this bounds **payload shape and key
-space, not volume**, and that M8's rate guard will be the *first* limit on `/api/chat` and
-`/api/live/session`, not a second layer.)
+The headline of #17, for readers of this ADR: *anything persisted from an unauthenticated
+endpoint is bounded in count, size, and key space before it is written* — `transport`
+clamped to a 3-value set, `toolCalls` ≤10 entries / known keys / `name` ≤60 chars or the
+entry is dropped / `id` ≤100 chars / ≤2000 chars of serialized JSON per entry with a
+re-check, and `sessionId` bounded by **rejection** (`max_length=128`, 400 `validation_error`)
+on all three request models, because it becomes the DynamoDB partition key. #17 also carries
+the *Implemented by* / *Proven by* / *Totality* / *Scope note* sub-bullets, where the scope
+note states plainly that this bounds **payload shape and key space, not volume**, and that
+M8's rate guard will be the *first* limit on `/api/chat` and `/api/live/session`.
+
+## 4. Post-implementation reconciliation (2026-10-05)
+
+M0 shipped over seven red/green cycles. Where the code and the decision text above disagree,
+**the code is right and the text has been corrected in place**, each change pointed at from
+the bullet it affects. Nothing here reverses a decision; it records where the decision was
+imprecise, understated, or wrong about the tests.
+
+1. **`name` is dropped, not coerced** (D1). The decision said "coerced to `str`, stripped,
+   truncated"; the implementation drops any entry whose `name` is missing, non-`str`, or
+   empty after stripping. This is the *stronger* behaviour and it is the right one for the
+   same reason D1b rejects `sessionId`: `name` is the admin histogram's **key**, so coercing
+   `['a'*100,'b'*100]` into `"['aaa…', 'bbb…']"` mints a 200-char dashboard row for a tool
+   that never ran. "Clamp values, reject identities" applies at both levels of the payload.
+2. **A 100-char `id` bound was added** (D1, D2). Not in the original sketch. `id` is a
+   correlation value no consumer reads, so unlike `name` it is truncated rather than dropped
+   — and the cap is what makes the identity pair `{id, name}` fit the 2000-char budget by
+   construction, so the bulk-key drop never has to run just to make room for identity. The
+   final re-check (drop an entry still over budget) exists because a **non-`str`** `id` —
+   e.g. a large dict — is not reachable by a `str` truncation.
+3. **Only `clamp_transport` is total** (D2). The original "both functions are total: any
+   input … never raises" was false: `sanitize_tool_calls` raises on `None`, a bare `str`, a
+   list containing `None`, and a non-JSON-serializable value. It is not a live hole —
+   Pydantic's `list[dict[str, Any]] | None` answers 400 on all of those before the route body
+   runs, and the call site passes `payload.toolCalls or []` — and the typed signature
+   `(value: list[dict])` states that narrow contract honestly. D2 now says what is total,
+   what is not, and the two conditions under which the gap stays acceptable.
+4. **The bounds shipped as module-private constants** (D2), not as exported names for tests
+   to import. Tests assert the numbers from the outside, as behaviour, so a bound and its
+   test cannot be changed in one edit. Intentional; the sketch is corrected to match.
+5. **The *Proven by* list was wrong, and that was the blocking defect.** Audited case by
+   case against `docker/chat/tests/` on 2026-10-05:
+   - **Real, but mis-cited.** The *behaviours* for the count cap, the oversized-entry
+     identity keep, the `name` truncation, the **empty/whitespace `name` drop**, the key
+     allowlist and the transport clamp all exist — the empty-name drop as one of four cases
+     inside `test_tool_name_is_normalized_or_the_entry_is_dropped`, not as a test of its own.
+     The list described behaviours in prose where it should have named functions, so a reader
+     could not check it. #17 now names all nine functions exactly; all nine were verified to
+     exist by `grep 'def <name>('`.
+   - **Claimed and absent.** The four "totality" cases (`None`, a string, a list of nulls, a
+     non-serializable value "each return a bounded result, never raise") did not exist — and
+     the behaviour they asserted is **false** (§4.3). Removed, not relocated.
+   - **Claimed in prose, now named.** "Pinned alongside the other request-validation cases
+     (`test_api.py`): an over-long `sessionId` … answers 400 and persists nothing" is real;
+     the test is
+     `test_api.py::test_over_long_session_id_is_rejected_and_persists_nothing`, now cited by
+     name.
+   - **Under-cited.** Two route-level cases that genuinely prove the wiring were missing from
+     the list entirely: `test_public_transcript_post_persists_a_bounded_turn` and
+     `test_well_formed_voice_turn_persists_its_telemetry_untouched`. Added.
+   - **Open gap, now recorded rather than claimed.** No test covers boundary refusal of a
+     non-list / `None`-bearing / non-serializable `toolCalls`, nor `clamp_transport` on `''`
+     / `None` / a non-`str`, nor the `'live'` and `'relay'` round-trips. #17 lists these as a
+     gap.
+   A security invariant that cites a test which does not exist is worse than no invariant:
+   the next reader trusts it and stops checking.
+6. **The ≈20 KB worst case holds.** Recomputed against the shipped sanitizer: ten maximal
+   entries serialize to **19 930 chars**. The `id` cap does not lower it (`args`/`response`
+   fill whatever identity leaves). What the original figure left unsaid is that the bound is
+   **per turn**, while `transcript_store.py:79-111` `list_append`s turns into one 400 KB
+   item — now stated in D1 and in #17's scope note.
+7. **Line numbers in §1–§3 are a snapshot of 2026-09-17** and `main.py` has since moved by
+   one to three lines. Anchor by symbol, not by number. The load-bearing current values:
+   the sanitizer import is `main.py:25`, the two call sites are `:1215-1216`, the three
+   `sessionId` bounds are `:163` / `:167` / `:171`, and the `RequestValidationError` handler
+   is `:1266-1283`. §1's table and §2/§3's findings are left as written — they are the
+   pre-M0 state this ADR was reviewing, and F1/F1b are now closed.
 
 ## Confirmations recorded
 

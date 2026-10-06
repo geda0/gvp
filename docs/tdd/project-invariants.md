@@ -406,59 +406,108 @@ proves it comes FIRST.
     structure to storage. `POST /api/live/transcript` takes **no credential of any kind**,
     so before `persist_turn` it clamps `transport` to the known set
     `{'live','relay','direct_google'}` — anything else (unknown, empty, wrong type) becomes
-    `'live'` — and sanitizes `toolCalls` to **≤10 entries**, **known keys only**
-    (`id`/`name`/`args`/`response` — the union of what the text path and the voice client
-    actually produce), `name` coerced/stripped/truncated to **≤60 chars** (empty ⇒ entry
-    dropped), and **≤2000 chars of serialized JSON per entry** (over ⇒ keep `{id,name}`,
-    drop the bulk — never a truncated JSON fragment). Unbounded values here are not merely
-    an item-size problem: `aws/src/contact-admin.js:337,371-374` builds the admin rollup's
-    `transports` / `toolHistogram` keyed **by the persisted value**, so without this bound an
-    anonymous caller owns the key space of the owner's dashboard, plus DynamoDB item bloat
-    and the retention/read cost that follows it. Two properties are load-bearing and must
-    not be "simplified" away: the sanitizers are **total** (any input returns a bounded
-    result and never raises — a throwing sanitizer turns a hostile payload into a 500 on a
-    public endpoint), and they **clamp rather than reject** (the turn still persists,
-    because the caller is a fire-and-forget `keepalive` beacon that never reads the
-    response, `js/chat-live.js:671-700`).
+    `'live'` — and sanitizes `toolCalls` to **≤10 entries** (taken from the front, order
+    preserved), **known keys only** (`id`/`name`/`args`/`response` — the union of what the
+    text path and the voice client actually produce), and **≤2000 chars of serialized JSON
+    per entry**. Two of those bounds behave differently on purpose, and the difference is
+    the invariant:
+    `name` is an **identity**, not a value — it is the admin tool histogram's key
+    (`aws/src/contact-admin.js:373`) — so it is **never coerced**: a `name` that is
+    missing, not a `str`, or empty after stripping **drops the whole entry**, because
+    coercing it (`str(['a','b'])`) would mint a permanent dashboard row for a tool that
+    never ran. A usable `name` is stripped and truncated to **60 chars**.
+    `id` is a correlation **value** no consumer reads, so it is truncated (**100 chars**)
+    rather than dropped. Over the JSON budget, the bulk keys (`args`, `response`) are
+    dropped and the entry is kept as its identity `{id, name}` — never a truncated,
+    unparseable JSON fragment — and then the budget is **re-checked**: an entry still over
+    2000 chars (only reachable via a non-`str` `id`, which the 100-char truncation cannot
+    reach) is dropped outright rather than persisted over budget. Worst case per turn is
+    therefore `10 × ≤2000` ≈ **20 KB** of `toolCalls` (measured: 19 930 chars for ten
+    maximal entries).
+    Unbounded values here are not merely an item-size problem:
+    `aws/src/contact-admin.js:337,371-375` builds the admin rollup's `transports` /
+    `toolHistogram` keyed **by the persisted value**, so without this bound an anonymous
+    caller owns the key space of the owner's dashboard, plus DynamoDB item bloat and the
+    retention/read cost that follows it.
+    The sink **clamps rather than rejects** (the turn still persists, because the caller is
+    a fire-and-forget `keepalive` beacon that never reads the response,
+    `js/chat-live.js:671-700`).
     The rule the seam runs on is **clamp values, reject identities**: a clamped telemetry
     value is still a truthful, weaker fact, but a field that becomes a **storage key** must
     never be silently rewritten — truncating it makes every caller sharing that prefix
     collide into one partition key, silently merging distinct sessions into one row. So the
     identity field is bounded by **rejection**: `sessionId` carries `max_length=128` on all
-    three request models that own one — `ChatRequest` (`main.py:162`), `LiveSessionRequest`
-    and `LiveTranscriptTurn` — because it lands as the DynamoDB partition key `id`
-    (`transcript_store.py:123`). All three are unauthenticated, so all three are capped; an
-    over-long id is a **400** `validation_error`, not a 422, via this app's own
-    `RequestValidationError` handler (`main.py:1265-1281`). Real ids are 32–36 chars
+    three request models that own one — `ChatRequest` (`main.py:163`), `LiveSessionRequest`
+    (`:167`) and `LiveTranscriptTurn` (`:171`) — because it lands as the DynamoDB partition
+    key `id` (`transcript_store.py:123`). All three are unauthenticated, so all three are
+    capped; an over-long id is a **400** `validation_error`, not a 422, via this app's own
+    `RequestValidationError` handler (`main.py:1266-1283`). Real ids are 32–36 chars
     (`js/chat.js:185-190`), so no legitimate client can trip it.
     - Implemented by: `docker/chat/app/turn_input.py` — a pure leaf module (no FastAPI, no
-      boto3, no I/O) exporting `clamp_transport` / `sanitize_tool_calls` plus the bounds as
-      constants — and the `max_length=128` on the three `sessionId` fields.
-      `docker/chat/app/main.py` is on `SECURITY_GLOB`, so it only imports and calls the
-      sanitizers at `main.py:1214-1215` (plus the one-token `Field` bound at `main.py:162`);
-      keeping the logic in the ungated leaf is deliberate and is what keeps the reviewed
+      boto3, no I/O) exporting `clamp_transport` / `sanitize_tool_calls`; the five bounds
+      live there as **module-private** constants (`_MAX_TOOL_CALLS`, `_MAX_NAME_LENGTH`,
+      `_MAX_ID_LENGTH`, `_MAX_ENTRY_JSON_LENGTH`, `_KNOWN_TRANSPORTS`) and the tests assert
+      the numeric bounds from the outside, as behaviour — they are not imported as
+      constants, so a bound and its test cannot be changed in one edit. Plus the
+      `max_length=128` on the three `sessionId` fields. `docker/chat/app/main.py` is on
+      `SECURITY_GLOB`, so it only imports (`main.py:25`) and calls the sanitizers
+      (`main.py:1215-1216`), plus the one-token `Field` bound at `main.py:163`; keeping the
+      logic in the ungated leaf is deliberate and is what keeps the reviewed
       security-surface diff to an import plus a call site. Recorded in
       `docs/decisions/ADR-0020-public-chat-surface-bounded-sinks.md`, which is also the
       architect clearance for that `main.py` edit.
-    - Proven by: `docker/chat/tests/test_turn_input.py` — the caps (>10 entries truncates to
-      10; an oversized entry keeps `{id,name}` and drops `args`/`response`; a >60-char
-      `name` truncates; an empty/whitespace `name` drops the entry), the key allowlist (an
-      unknown key is stripped; a real `{id,name,args,response}` entry survives **intact** —
-      the "existing voice telemetry unaffected" bar), the transport clamp (each known value
-      round-trips; unknown/empty/non-string ⇒ `'live'`), and totality (`None`, a string, a
-      list of nulls, and a non-serializable value each return a bounded result, never raise).
-      The reject-the-identity half is API-level, so it is pinned alongside the other request
-      -validation cases (`docker/chat/tests/test_api.py`): an over-long `sessionId` on
-      `POST /api/chat` answers **400** and persists nothing. Run:
-      `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
-    - Scope note: this invariant bounds **payload shape and key space**, not **volume**. Rate
-      and cost limiting is NOT claimed here and does not exist yet: the shipped ECS Express
-      chat host has no API-Gateway throttle in front of it (the throttles in
+    - Proven by (every case below exists today, by this name): six helper-level cases in
+      `docker/chat/tests/test_turn_input.py` —
+      *test_oversized_tool_calls_payload_is_capped_at_ten_entries* (the count cap);
+      *test_single_hostile_entry_is_bounded_in_name_size_and_keys* (the 60-char `name`, the
+      2000-char budget, and the key allowlist — a caller-invented key is stripped);
+      *test_entry_over_the_json_budget_keeps_its_identity_and_drops_the_bulk*;
+      *test_entry_identity_fields_cannot_defeat_the_json_budget* (the `id` bound — bulk
+      hidden in `id` is bounded too);
+      *test_tool_name_is_normalized_or_the_entry_is_dropped* (a padded name is stripped; a
+      **list** `name`, a whitespace-only `name` and a **missing** `name` each drop the entry
+      — the never-coerce rule); and
+      *test_caller_invented_transport_is_clamped_to_a_known_value* (`'direct_google'`
+      round-trips; an invented label becomes `'live'`).
+      Route level, `docker/chat/tests/test_turn_persistence.py` —
+      *test_public_transcript_post_persists_a_bounded_turn* (the sanitizers are actually
+      wired into `POST /api/live/transcript`: a flood is cut to 10 and an invented transport
+      lands inside the known set) and
+      *test_well_formed_voice_turn_persists_its_telemetry_untouched* (the "existing voice
+      telemetry unaffected" bar: a real `{id,name,args,response}` entry reaches the store
+      **intact**, key for key).
+      The reject-the-identity half is API-level, so it sits alongside the other
+      request-validation cases in `docker/chat/tests/test_api.py` —
+      *test_over_long_session_id_is_rejected_and_persists_nothing*: a 200-char `sessionId`
+      on `POST /api/chat` answers **400** `validation_error` and the recording store sees
+      zero writes. Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+    - Totality — what is and is **not** guaranteed: `clamp_transport(value: object)` is
+      **total**; it accepts anything and returns a member of the known set (`None`, `''`
+      and a non-string all yield `'live'`). `sanitize_tool_calls(value: list[dict])` is
+      **total only over its declared type** — it raises `TypeError`/`AttributeError` on
+      `None`, on a bare `str`, on a list containing `None`, and on a value that will not
+      JSON-serialize. That is **not** a live hole: the only caller is
+      `main.py:1216`, behind `LiveTranscriptTurn.toolCalls:
+      list[dict[str, Any]] | None`, so Pydantic answers **400** `validation_error` on every
+      one of those shapes before the route body runs, and `main.py:1216` passes
+      `payload.toolCalls or []` so `None` never arrives. The signature is honest about the
+      narrow contract rather than advertising a guarantee the body does not make. **Gap,
+      recorded not claimed:** there is no test that a non-list, a `None`-bearing list, or a
+      non-serializable value is refused at the boundary, and no test that
+      `clamp_transport` handles `''`/`None`/non-`str`, nor that `'live'` and `'relay'`
+      round-trip. If a second caller is ever added for `sanitize_tool_calls`, it must
+      either carry the same Pydantic bound or the function must be made total first.
+    - Scope note: this invariant bounds **payload shape and key space**, not **volume**. The
+      ≈20 KB figure is **per turn**, not per item: `transcript_store.py:79-111`
+      `list_append`s every turn into one DynamoDB item keyed by session id, and that item
+      caps at 400 KB, so repeated worst-case turns on one `sessionId` can still fill it.
+      Rate and cost limiting is NOT claimed here and does not exist yet: the shipped ECS
+      Express chat host has no API-Gateway throttle in front of it (the throttles in
       `aws/chat-template.yaml` cover only the Lambda-container fallback), so M8's
       `app/rate_guard.py` will be the *first* limit on `POST /api/chat` and the paid
       `POST /api/live/session`, not a second layer. Transcript retention TTL, the admin
       read/write key split, and read-side bucketing of unknown tool names in
-      `aws/src/contact-admin.js:371-374` (still caller-influenced across requests) are
+      `aws/src/contact-admin.js:371-375` (still caller-influenced across requests) are
       likewise **deferred to M8** — see ADR-0020 §"What this ADR does NOT cover".
 
 ## Out of scope / explicitly allowed
