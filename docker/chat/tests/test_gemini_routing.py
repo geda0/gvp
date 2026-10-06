@@ -33,6 +33,23 @@ class _RateLimitFirstChunk:
         return gen()
 
 
+class _UnavailableFirstChunk:
+    """Primary: its stream raises an upstream 503 UNAVAILABLE ("this model is
+    currently experiencing high demand") BEFORE yielding any chunk — the live
+    prod failure of 2026-10-06. The 503 is carried ON THE EXCEPTION (reachable by
+    _extract_status_code_from_chain, as a real google.genai APIError's code is),
+    deliberately NOT only via upstream_error_body — which maps this to a
+    502/`model_error` body, so a predicate reading the MAPPED status is not
+    reading the upstream one."""
+
+    def astream(self, _payload, config=None):
+        async def gen():
+            raise UpstreamError(503)
+            yield  # unreachable; makes gen an async generator
+
+        return gen()
+
+
 class _OkStream:
     """Fallback: its stream yields distinct, assertable content."""
 
@@ -130,6 +147,37 @@ async def test_astream_first_chunk_ratelimit_falls_back(
     fakes = {"m-primary": _RateLimitFirstChunk(), "m-fallback": _OkStream()}
     # __slots__ forbids per-instance attrs; patch the bound seam on the class
     # (monkeypatch auto-reverts, so no leak across tests).
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    chunks = [c async for c in chain.astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+
+
+@pytest.mark.asyncio
+async def test_astream_first_chunk_503_unavailable_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 503 UNAVAILABLE on the primary's FIRST chunk is retryable, so the turn
+    succeeds on the healthy secondary (invariant #9 as amended by ADR-0023 §4.1).
+    Live on prod ~1 turn in 3 the visitor instead got `event: error` /
+    `code: model_error` with zero tokens while the fallback sat unused."""
+    from app import gemini_limit_state
+
+    # Pin the attempt order to [primary, fallback]: without this a prior test's
+    # prefer_fallback flip would serve the fallback FIRST and pass vacuously.
+    gemini_limit_state.reset_for_tests()
+    chain = GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=1.0,
+    )
+    fakes = {"m-primary": _UnavailableFirstChunk(), "m-fallback": _OkStream()}
     monkeypatch.setattr(
         GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
     )
