@@ -117,6 +117,18 @@ class _RateLimitInvoke:
         raise UpstreamError(429)
 
 
+class _UnavailableInvoke:
+    """Primary (non-streaming): ainvoke raises an upstream 503 UNAVAILABLE — the
+    non-streaming sibling of _UnavailableFirstChunk. The 503 is carried ON THE
+    EXCEPTION (readable by _extract_status_code_from_chain, as a real
+    google.genai APIError's code is), deliberately NOT only via
+    upstream_error_body — which maps this to a 502/`model_error` body, so a
+    predicate reading the MAPPED status is not reading the upstream one."""
+
+    async def ainvoke(self, _payload, config=None):
+        raise UpstreamError(503)
+
+
 class _HangInvoke:
     """Primary (non-streaming): ainvoke hangs past the budget (too-slow model)."""
 
@@ -265,6 +277,38 @@ async def test_ainvoke_ratelimit_falls_back(
 
     # The primary's non-streaming call rate-limited (429), so the chain retried
     # the fallback and returned ITS output — the caller never sees the 429.
+    assert result.content == "from-fallback"
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_503_unavailable_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 503 UNAVAILABLE on the primary's non-streaming call is retryable, so the
+    turn succeeds on the healthy secondary (invariant #9 as amended by ADR-0023
+    §4.1). The sibling half of the live prod failure of 2026-10-06: the streaming
+    path now retries, but a non-streaming turn still fails outright with the
+    fallback sitting unused."""
+    from app import gemini_limit_state
+
+    # Pin the attempt order to [primary, fallback]: without this a prior test's
+    # prefer_fallback flip would serve the fallback FIRST and pass vacuously.
+    gemini_limit_state.reset_for_tests()
+    chain = GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=1.0,
+    )
+    fakes = {"m-primary": _UnavailableInvoke(), "m-fallback": _OkInvoke()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    result = await chain.ainvoke({"messages": []})
+
     assert result.content == "from-fallback"
 
 

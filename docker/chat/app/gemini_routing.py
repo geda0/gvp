@@ -262,7 +262,10 @@ class GeminiRoutingChain:
             note_primary_rate_limited,
             note_primary_timed_out,
         )
-        from app.upstream_errors import is_upstream_rate_limit
+        from app.upstream_errors import (
+            is_upstream_rate_limit,
+            is_upstream_retryable,
+        )
 
         order = self._model_order()
         last_exc: BaseException | None = None
@@ -300,14 +303,14 @@ class GeminiRoutingChain:
                 )
             except Exception as e:
                 last_exc = e
-                if not is_upstream_rate_limit(e):
+                if not is_upstream_retryable(e):
                     fire_alert(
                         'chat_model_error',
                         f'{model_id} errored: {type(e).__name__}',
                         detail=str(e)[:300],
                     )
                     raise
-                if model_id == self.primary_id:
+                if model_id == self.primary_id and is_upstream_rate_limit(e):
                     note_primary_rate_limited()
                 logger.warning(
                     'gemini rate_limited model=%s remaining_attempts=%s',
