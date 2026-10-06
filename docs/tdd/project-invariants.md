@@ -414,11 +414,15 @@ proves it comes FIRST.
     `capturedAt` is gone from `LiveTranscriptTurn` and `main.py:1216` is `captured_at = now_iso`,
     matching what the text path has always done (`:771-773`). A caller may still *send*
     `capturedAt`; it is ignored, which is what made that a no-coordinated-deploy change.
-    It is **NOT met** for the **byte** size of the free-text fields, for **nesting depth**, for
-    **turns / bytes per DynamoDB item**, or for tool-name **cardinality across requests**. Those
-    four are decided in ADR-0020 §5 A2, A3, A4 and A7, and listed as *Pending* below with their
-    verification. **Nothing here may be read as claiming them until the matching slice is
-    green.**
+    Since commit `bd84398` it is also met for the **nesting depth of `args` and `response`**
+    (`_MAX_ARG_DEPTH = 6`, clamped by dropping the bulk) — **but only those two keys.**
+    It is **NOT met** for the depth of a non-`str` **`id`**, which still reaches `json.dumps`
+    and can raise out of the route (A4b, *Pending (4)* — the sharpest item left), nor for the
+    **byte** size of the free-text fields, **turns / bytes per DynamoDB item**, or tool-name
+    **cardinality across requests**. Those are decided in ADR-0020 §5 A4b, A2, A3 and A7, and
+    listed as *Pending* below with their verification. **Nothing here may be read as claiming
+    them until the matching slice is green — in particular this invariant does NOT claim that
+    `sanitize_tool_calls` never raises.**
     `POST /api/live/transcript` takes **no credential of any kind**,
     so before `persist_turn` it clamps `transport` to the known set
     `{'live','relay','direct_google'}` — anything else (unknown, empty, wrong type) becomes
@@ -499,6 +503,22 @@ proves it comes FIRST.
       — the never-coerce rule); and
       *test_caller_invented_transport_is_clamped_to_a_known_value* (`'direct_google'`
       round-trips; an invented label becomes `'live'`).
+      **Nesting depth of `args` / `response`** (A4, commit `bd84398`) —
+      *test_args_deeper_than_six_levels_keeps_its_identity_and_loses_the_bulk* (the
+      `_MAX_ARG_DEPTH` boundary: the bulk goes, the entry stays as `{id, name}`);
+      *test_args_deeper_than_pythons_recursion_limit_is_bounded_without_raising* (a value nested
+      past `sys.getrecursionlimit()` **returns** a bounded entry — this pins that the walk never
+      descends past the limit and runs before the first serialization, and it is the case the
+      six-level boundary cannot see); and
+      *test_response_nested_too_deep_costs_the_entry_its_bulk_as_well* (the bound covers both
+      bulk keys, not just `args`). **These three cover `args` and `response` only.** They do
+      **not** establish that `sanitize_tool_calls` never raises — a non-`str` `id` nested deep
+      still does, which is *Pending (4)* / A4b.
+      **The boundary pins for the two formerly-loose constants** (A5/A6, commit `16eef30`) —
+      *test_the_per_entry_json_budget_bounds_at_exactly_two_thousand_characters* and
+      *test_the_tool_call_id_bounds_at_exactly_one_hundred_characters*, plus
+      *test_an_entry_still_over_budget_after_the_bulk_drop_is_dropped_outright* for the final
+      re-check.
       Route level, `docker/chat/tests/test_turn_persistence.py` —
       *test_public_transcript_post_persists_a_bounded_turn* (the sanitizers are actually
       wired into `POST /api/live/transcript`: a flood is cut to 10 and an invented transport
@@ -516,20 +536,36 @@ proves it comes FIRST.
       and a non-string all yield `'live'`). `sanitize_tool_calls(value: list[dict])` is
       **total only over its declared type** — it raises `TypeError`/`AttributeError` on
       `None`, on a bare `str`, on a list containing `None`, and on a value that will not
-      JSON-serialize. That is **not** a live hole: the only caller is
-      `main.py:1216`, behind `LiveTranscriptTurn.toolCalls:
+      JSON-serialize. Those four are **not** a live hole: the only caller is
+      `main.py:1218`, behind `LiveTranscriptTurn.toolCalls:
       list[dict[str, Any]] | None`, so Pydantic answers **400** `validation_error` on every
-      one of those shapes before the route body runs, and `main.py:1216` passes
+      one of those shapes before the route body runs, and that call site passes
       `payload.toolCalls or []` so `None` never arrives. The signature is honest about the
-      narrow contract rather than advertising a guarantee the body does not make. **Gap,
+      narrow contract rather than advertising a guarantee the body does not make.
+      **One raise IS live, and it is not on that list — corrected 2026-10-06 rather than left
+      to be discovered:** a **deep non-`str` `id`** is a perfectly well-typed
+      `list[dict[str, Any]]`, so Pydantic admits it and `json.dumps` (`turn_input.py:109`)
+      raises `RecursionError` from `main.py:1218`, which is **outside** the route's `try`
+      (`:1246`) — so it surfaces as a **500 on an unauthenticated endpoint**. Measured at a
+      500-level `id` in a 1 074-byte request; the band from ~28 levels up persists an
+      over-32-level item instead. A4b closes it (*Pending (4)*). Until it ships, **"no
+      reachable public request reaches a raise" is false**, and the depth tests above must not
+      be read as covering it. **Gap,
       recorded not claimed:** there is no test that a non-list, a `None`-bearing list, or a
       non-serializable value is refused at the boundary, and no test that
       `clamp_transport` handles `''`/`None`/non-`str`, nor that `'live'` and `'relay'`
       round-trip. If a second caller is ever added for `sanitize_tool_calls`, it must
       either carry the same Pydantic bound or the function must be made total first.
-    - **Unpinned bounds — verified by mutation on 2026-10-05, baseline 124 passed**
-      (ADR-0020 §5 A5, A6). Three of the numbers above are claimed here but not held by any
-      test, so they can be moved in one edit: (a) deleting `max_length=128` from
+    - **Unpinned bounds — CLOSED by A5/A6, commit `16eef30`.** Re-verified by mutation on
+      2026-10-06 against baseline **133 passed**: every one of the mutations below now **fails**
+      — `_MAX_ENTRY_JSON_LENGTH` → 100 000 (2 fail), `_MAX_ID_LENGTH` → 1 966 (1),
+      `_MAX_ARG_DEPTH` → 60 (2), the re-check deletion (1), and `max_length=128` deleted from
+      `LiveTranscriptTurn` (1). The constants are deliberately still not imported by the tests,
+      so a bound and its test cannot move in one edit. **The record of what was wrong, kept
+      because it is the reason the numbers are now pinned at their boundaries** (verified by
+      mutation on 2026-10-05, baseline 124 passed; ADR-0020 §5 A5, A6): three of the numbers
+      above were claimed here but held by no test, so they could be moved in one edit —
+      (a) deleting `max_length=128` from
       **`LiveTranscriptTurn.sessionId`** (`main.py:171`) leaves the suite **green** — the bound
       on the public transcript sink is the one of the three that nothing pins (deleting it from
       `LiveSessionRequest` or `ChatRequest` each fail one test); (b) deleting the **final
@@ -590,12 +626,22 @@ proves it comes FIRST.
          different event types.** Priority is a static property of the type (a `_PRIORITY` dict
          consulted when `alerts.py:111` builds the subject), never a per-fire argument and never
          part of the throttle key.
-      3. **The three unpinned bounds** above. Decisions **A5**, **A6**.
-      4. **Nesting depth is unbounded.** Verified: a **127-byte** request with 29 levels inside
-         `args` answers 204 and yields an item 34 levels deep against DynamoDB's documented 32;
-         boto3 has no client-side depth check and its `TypeSerializer` raises `RecursionError`
-         at depth ~330 with no AWS call. Decision **A4**: `_MAX_ARG_DEPTH = 6`, checked by an
-         **iterative** walk placed **before** the first `json.dumps` in `_bound_entry`.
+      3. ~~**The three unpinned bounds.**~~ **CLOSED by A5/A6** — see the bullet above.
+      4. ~~**Nesting depth is unbounded.**~~ **CLOSED by A4 for `args`/`response`, commit
+         `bd84398`** — see the *Proven by* additions above. **STILL OPEN on the identity key,
+         and it is the sharpest item left in this list.** A4 walks `_BULK_KEYS` only
+         (`turn_input.py:105`), while `_bound_entry` keeps `id` whatever its type and only
+         touches it under `isinstance(entry_id, str)` (`:95-97`) — so a non-`str` `id` reaches
+         the first `json.dumps` (`:109`) with its shape intact. Measured through the route:
+         a 40-level `id` in a **153-byte** request persists an item **44** levels deep (refused
+         by DynamoDB, swallowed), and a 500-level `id` in a **1 074-byte** request raises
+         `RecursionError` out of `main.py:1218`, which sits **outside** the route's `try`
+         (`:1246`) — **a 500 on an unauthenticated endpoint**, the precise hole the *Totality*
+         bullet exists to deny. Decision **A4b** (ADR-0020 §5.14): a non-`str` `id` **drops the
+         entry**, decided on type, before any serialization — making unconditional the outcome
+         `test_an_entry_still_over_budget_after_the_bulk_drop_is_dropped_outright` already pins
+         for the shallow case, and making `id` behave like `name`, which is already total on
+         type and therefore has no such hole.
       5. **The text fields are bounded in code points, charged in bytes.** Verified: 8 000
          astral-plane code points persist 32 000 bytes. Decision **A2**: `clamp_text` on a UTF-8
          byte budget (8 000 / 16 000 bytes), clamping not rejecting.

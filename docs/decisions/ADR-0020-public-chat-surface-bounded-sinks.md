@@ -660,6 +660,13 @@ reader ignores it.
 
 ### A4 — shape: `args` / `response` nesting depth is bounded at the sink
 
+> **SHIPPED 2026-10-05, commit `bd84398`, chat suite 133 green — and INCOMPLETE on the identity
+> key. A4 bounds `args` and `response` only, so the exact failure mode it exists to prevent is
+> still reachable through a non-string `id`. That is closed by A4b, §5.14 — read it with this
+> section.** Two wordings below are also reconciled with the shipped code there: constraint 1
+> ("runs FIRST") and constraint 2 ("iterative, not recursive"), the second of which was
+> over-specified by me.
+
 **Verified, three ways.** `toolCalls: list[dict[str, Any]]` (`main.py:176`) constrains the
 outer two levels and nothing below, and the sanitizer leaves `args` byte-identical. Probed
 through the route: a **127-byte** request carrying 29 nested levels inside `args` answers
@@ -677,23 +684,49 @@ three silent bands: ≤33 writes; 34–~329 is refused by the service; ≥~330 n
 
 Two implementation constraints that are part of the decision, not details:
 
-1. **The depth check runs FIRST in `_bound_entry`, before the existing
-   `len(json.dumps(bounded))` at `turn_input.py:72`.** `json.dumps` is itself recursive, so a
-   check placed after it can be skipped by the very payload it exists to stop.
-2. **The walk is iterative (an explicit stack), not recursive**, so the depth bound cannot
-   itself raise `RecursionError`. This is what keeps `sanitize_tool_calls` no *less* total than
-   D2 records it to be.
+1. **The depth check runs BEFORE THE FIRST SERIALIZATION in `_bound_entry`.**
+   *(Reconciled 2026-10-06: this originally said "runs FIRST in `_bound_entry`". As shipped it
+   sits at `turn_input.py:105`, after the cheap `name` and `id` normalization and before the
+   first `len(json.dumps(...))` at `:109`. Behaviour is identical — neither the `name` nor the
+   `id` handling descends into the bulk keys — and "before the first serialization" is the
+   constraint that is actually load-bearing, so the code is right and the wording is
+   corrected.)* `json.dumps` is itself recursive, so a check placed after it can be skipped by
+   the very payload it exists to stop.
+2. **The walk must never descend past the limit**, so the depth bound cannot itself raise
+   `RecursionError`. This is what keeps `sanitize_tool_calls` no *less* total than D2 records
+   it to be.
+   *(Reconciled 2026-10-06 — my own over-specification. This originally demanded an "iterative
+   (explicit stack), not recursive" walk. That is **one** way to satisfy the constraint, not the
+   constraint: a recursive walk that tests `depth > limit` **before** descending is bounded at
+   `limit` frames and is equally safe. Verified by mutation — replacing the shipped iterative
+   `_nests_deeper_than` with a depth-limited recursive one leaves the suite at **133 green**,
+   including the past-the-recursion-limit case, because it bails at level 7 and never walks the
+   payload. The shipped iterative version is fine and should stay; what the tests pin, correctly,
+   is the property (**returns, bounded, without raising**) and not the mechanism. The shipped
+   docstring at `turn_input.py:47-50` carries the same over-claim — "a recursive walk would
+   raise `RecursionError`" — immediately contradicted by its own next sentence ("stops at the
+   first level past the limit"). **Drift filed for the loop; it is source, so I have not touched
+   it.**)*
 
 **What survived here, recorded because it is good news:** D2's claim that no reachable public
-request reaches a `raise` **holds**. Probing 29 → 20 000 levels through the route never produced
-a 500 — body parsing starts refusing at ~940 levels, with
+request reaches a `raise` **holds for `args` and `response`**. Probing 29 → 20 000 levels
+through the route never produced a 500 — body parsing starts refusing at ~940 levels, with
 `400 {"detail":"There was an error parsing the body"}` (Starlette's own shape, not this app's
 `{error, code}` envelope — a cosmetic nit, not a decision). But the margin is incidental: which
 recursive step hits `sys.getrecursionlimit()` first depends on stack depth at call time, and a
 `json.dumps` `RecursionError` *was* reproducible from a deeper call stack. A4 removes the
-dependence on that ordering.
+dependence on that ordering **for the two keys it walks**. ~~D2's claim holds.~~ **It does not
+hold for `id` — see §5.14, where the 500 is now measured, not hypothesised.**
 
 ### A5 — `LiveTranscriptTurn.sessionId`'s bound gets a test (test-only)
+
+> **SHIPPED 2026-10-05, commit `16eef30`** (with A6). **Independently re-verified 2026-10-06:**
+> every mutation in the table under A6 now fails, including the two that previously survived —
+> `_MAX_ENTRY_JSON_LENGTH` → 100 000 now fails 2, `_MAX_ID_LENGTH` → 1 966 now fails 1, the
+> re-check deletion now fails 1, and deleting `max_length=128` from `LiveTranscriptTurn`
+> (`main.py:171`) now fails 1. `_MAX_ARG_DEPTH` → 60 fails 2 as well. **The 50× slack is
+> closed**, and the constants are deliberately not imported by the tests, so a bound and its
+> test still cannot move in one edit.
 
 **Verified by mutation:** deleting `max_length=128` from `main.py:171` leaves the suite at
 **124 passed**. Deleting it from `LiveSessionRequest` (`:167`) or `ChatRequest` (`:163`) each
@@ -711,6 +744,14 @@ why #17 caps all three models. The gap is test coverage of the transcript model,
 misplaced bound.
 
 ### A6 — the final re-check and the two loose constants get boundary tests (test-only)
+
+> **SHIPPED 2026-10-05, commit `16eef30`** (with A5), as
+> `test_the_per_entry_json_budget_bounds_at_exactly_two_thousand_characters`,
+> `test_the_tool_call_id_bounds_at_exactly_one_hundred_characters` and
+> `test_an_entry_still_over_budget_after_the_bulk_drop_is_dropped_outright`. The table below is
+> the **pre-fix** mutation result, kept as the record of what was wrong; see A5's note for the
+> post-fix re-verification. (Minor drift for the loop: the re-check test's docstring still cites
+> `turn_input.py:82-83`, which A4 moved to `:119-120`.)
 
 **Verified by mutation**, with exact ceilings so the next reader can check them without
 re-running anything:
@@ -914,12 +955,16 @@ Ranked by (exploitability × blast radius) ÷ cost, not by which finding was lab
    §5.13). Ungated, tiny, and the **precondition** for the rest: without it, A3.2's and A4's
    refusals are as silent as the bug they replace. It also retroactively surfaces the depth and
    size failures already happening. **In flight (red written).**
-3. **A5 + A6 — the four missing tests.** Test-only, ungated, no behaviour change, and A6c is
-   what makes A8's published number a ceiling rather than a hope. Cheap, so do it before the
-   constants are leaned on further.
-4. **A4 — depth bound.** Closes the whole shape class, entirely inside `turn_input.py`, and it
-   should precede A3.2: A3.2 measures a turn's serialized size with `json.dumps`, which
-   recurses on exactly the payloads A4 removes.
+3. ~~**A5 + A6 — the four missing tests.**~~ **SHIPPED, commit `16eef30`.** Test-only, ungated,
+   no behaviour change, and A6c is what makes A8's published number a ceiling rather than a
+   hope. All eight mutations re-verified failing on 2026-10-06.
+4. ~~**A4 — depth bound.**~~ **SHIPPED, commit `bd84398`** — for `args` and `response`.
+   Entirely inside `turn_input.py`, and it precedes A3.2 because A3.2 measures a turn's
+   serialized size with `json.dumps`, which recurses on exactly the payloads A4 removes.
+4b. **A4b — a non-`str` `id` drops the entry (§5.14). NEXT.** It jumps A2 and A3.2: it is the
+   only remaining item that is remotely triggerable with no credential and one sub-2 KB
+   request, and it is the one that currently yields a **500** on a public endpoint. Ungated,
+   one early return, cannot regress a test.
 5. **A2 — byte-bounded text clamp.** Shrinks the worst-case turn from ~116 KB to ~44 KB, which
    is what makes A3.2's budget generous in practice.
 6. **A3.2 — the `bytesStored` condition**, plus the second event type
@@ -1045,3 +1090,85 @@ failing writes returned normally and logged at `transcript_store.py:144`), so **
 additive** — it changes no existing behaviour and the `writes_failed` / `last_error` contract
 is untouched. And `fire_alert` reached from nowhere in `transcript_store.py` independently
 confirms §5's finding that no persist failure has ever alerted in this codebase.
+
+### 5.14 — A4b: a non-string `id` costs the entry, decided on type and not on size
+
+**The coordinator's gap is confirmed, and it is a live 500 on a public endpoint — not an
+incidental-margin question.** `_bound_entry` keeps `id` whatever its type (it is on the
+allowlist) and only touches it under `isinstance(entry_id, str)` (`turn_input.py:95-97`), while
+the depth check walks `_BULK_KEYS` only (`:105`). So `id` reaches the first `json.dumps` at
+`:109` with its shape intact. Reproduced against the shipped code, and then measured through
+the real route with the `stub_store` fixture:
+
+| `id` nesting | Request size | Result |
+|---|---|---|
+| 7 | 86 B | 204 — persisted, item depth **11** |
+| 28 | 129 B | 204 — persisted, item depth **32** (at DynamoDB's documented limit) |
+| 40 | 153 B | 204 — persisted, item depth **44**; the write is then **refused by DynamoDB** and swallowed |
+| 330 | 734 B | 204 — persisted; `TypeSerializer` territory, **no AWS call made** |
+| **500** | **1 074 B** | **`RecursionError` propagates out of the route — a 500 on an unauthenticated endpoint** |
+| 900 | 1 874 B | same |
+| 940+ | 1 954 B | 400 at body parsing (Starlette) |
+
+The same depths with the payload in `args` all answer 204 at item depth **4** with the bulk
+dropped — A4 working exactly as designed, one key over.
+
+**So settle the reachability plainly, as asked: the raise IS reachable through the route, and
+the margin is now demonstrably not a number.** `sanitize_tool_calls` is called at
+`main.py:1218`, **outside** the route's `try` (`:1246`), so nothing catches it; under uvicorn
+Starlette's `ServerErrorMiddleware` turns it into a 500. And the threshold moved between two of
+my own probe harnesses — depth 500 in `args` answered **204** in the §5 A4 probe and the same
+nominal depth in `id` **raises** here, because `json.dumps`'s remaining stack budget depends on
+how deep the call stack already is. That is the definition of a margin you cannot rely on, and
+D2 already states the stake: *"a sanitizer that throws would turn a hostile payload into a 500
+on a public endpoint, which is a worse hole than the one being closed."* **The helper's
+contract is what matters, and you are right about that** — but here it is not only the contract:
+the ≥28-level band needs no recursion argument at all, since it is plainly persisted and then
+refused by the service from a 129-byte request.
+
+> **Decision A4b — RATIFIED as the coordinator read it: a non-`str` `id` drops the ENTRY.**
+> One early return beside the `name` rule, before any serialization:
+> `id` present and not a `str` ⇒ return `None`. Do **not** extend the depth walk to `id`.
+
+**Why, with reason (1) kept, reason (2) overruled and reason (3) strengthened.**
+
+1. **Right, and it is the whole argument: A4b chooses no new behaviour, it makes an
+   already-chosen one unconditional.** `test_an_entry_still_over_budget_after_the_bulk_drop_is_dropped_outright`
+   posts `{'id': {'blob': 'x'*50000}, 'name': 'lookupResume'}` and pins `[]`, and D1's own
+   re-check text says an entry over budget via a non-`str` `id` "is **dropped outright**". So
+   "non-`str` `id` ⇒ entry dropped" is the shipped, ADR-sanctioned outcome *whenever
+   `json.dumps` survives long enough to measure it*. A4b deletes the condition. It therefore
+   **cannot regress a test**: every currently-testable input gets the identical result, and the
+   inputs that change are exactly the ones that today raise or over-nest.
+2. **Overruled — the conclusion is right but the reason is not, and the reason is what the next
+   reader will reuse.** "An identity that cannot be clamped is refused" does not apply, because
+   **this ADR classifies `id` as a *value*, not an identity** — that classification (`:84-94`,
+   and D1's "`id` is a correlation *value* … no consumer reads it") is the entire justification
+   for truncating it instead of dropping the entry. Read literally, *clamp values* would argue
+   for the third option nobody has named: **drop the `id` key and keep `{name}`**. That option
+   is rejected for a concrete reason, not a definitional one — it would *change* the pinned
+   behaviour in (1), requiring a shipped test to be rewritten, in order to retain a marginally
+   richer histogram row for a payload **no real producer emits** (both producers always send a
+   `str` `id`: `main.py:270-282`, `js/chat-live.js:986`). The correct statement of the rule is:
+   **a non-`str` `id` is a value with no truthful clamp** — truncation is undefined for it,
+   `str()` would mint a fake correlation id, and dropping the key alone contradicts the
+   already-pinned outcome. And the symmetry that makes it obvious: **`name` is already total on
+   type and therefore has no such hole** (`{'name': <3000 nested lists>}` returns `[]` cleanly,
+   verified); `id` is the only allowlisted key that keeps a non-conforming type. A4b removes the
+   hole by making the two identity-ish keys behave alike, not by adding a second shape check.
+3. **Right, and stronger than stated: extending the walk does not even answer the question.**
+   You cannot "drop the bulk" of an `id` — there is no bulk key to pop — so a depth-walked `id`
+   would still force a choice between dropping the key and dropping the entry. The walk defers
+   the decision instead of making it, and buys a second traversal per entry to do so. It would
+   also leave the hole half-open: a depth-6 non-`str` `id` would still be persisted as a shape
+   no reader expects.
+
+**This needs a red first — run the cycle.** The case to pin, and the reason each half matters:
+a non-`str` `id` nested past `sys.getrecursionlimit()` returns `[]` **without raising** (the
+totality half, which is the hole), *and* a shallow non-`str` `id` with no bulk keys at all —
+e.g. `{'id': {'a': 1}, 'name': 'probe'}` — also returns `[]` (the decided-on-type half, which
+the existing 50 KB case cannot distinguish from decided-on-size). Both assertions are needed:
+the first alone would pass if someone "fixed" it by walking `id`, and the second alone is
+invisible to the recursion hole. **Ungated** — `turn_input.py` only, no `main.py` edit, so no
+new clearance. **Priority: ahead of A2 and A3.2** (§5.12 item 4b) — it is the only item left in
+this addendum that is remotely triggerable, needs no credential and costs one request.
