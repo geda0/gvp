@@ -409,13 +409,16 @@ proves it comes FIRST.
     as if it were already fact** (refuted by the six-lens review of 2026-10-05, recorded as
     ADR-0020 §5): the rule is **met today** for **entry count** (≤10), **serialized JSON size
     per tool-call entry** (≤2 000 chars, re-checked), the **`transport` key space** (a 3-value
-    set) and the **`sessionId` partition key** (`max_length=128`, rejected not clamped).
+    set), the **`sessionId` partition key** (`max_length=128`, rejected not clamped) and — since
+    commit `2018a40` — the **`createdAt` GSI sort key**, which is now **server-stamped**:
+    `capturedAt` is gone from `LiveTranscriptTurn` and `main.py:1216` is `captured_at = now_iso`,
+    matching what the text path has always done (`:771-773`). A caller may still *send*
+    `capturedAt`; it is ignored, which is what made that a no-coordinated-deploy change.
     It is **NOT met** for the **byte** size of the free-text fields, for **nesting depth**, for
-    **turns / bytes per DynamoDB item**, for the **`capturedAt` sort key** — which is a
-    caller-chosen GSI RANGE key today, the sharpest violation of the rule's last clause — or for
-    tool-name **cardinality across requests**. All five are decided in ADR-0020 §5 A1-A8 and
-    listed as *Pending* below with their verification. **Nothing here may be read as claiming
-    them until the matching slice is green.**
+    **turns / bytes per DynamoDB item**, or for tool-name **cardinality across requests**. Those
+    four are decided in ADR-0020 §5 A2, A3, A4 and A7, and listed as *Pending* below with their
+    verification. **Nothing here may be read as claiming them until the matching slice is
+    green.**
     `POST /api/live/transcript` takes **no credential of any kind**,
     so before `persist_turn` it clamps `transport` to the known set
     `{'live','relay','direct_google'}` — anything else (unknown, empty, wrong type) becomes
@@ -559,19 +562,34 @@ proves it comes FIRST.
     - **Pending — decided, not yet implemented** (ADR-0020 §5, in priority order). Each line is
       an open hole in THE RULE above, and the conformance paragraph may not be widened until
       the matching slice is green:
-      1. **`capturedAt` is a caller-chosen sort key.** `main.py:1214` takes it verbatim
-         (`max_length=64`, no format check) and `:1249` writes it as the item's `createdAt`, the
-         RANGE key of the `byCreatedAt` GSI (`aws/template.yaml:161-166`) that the admin list
-         reads `ScanIndexForward: false` (`aws/src/contact-admin.js:481`). Verified:
-         `capturedAt: 'zzzzzzzzzzzzzzzz'` answers **204** and pins that session to page 1
-         permanently (`createdAt` is written `if_not_exists`). It also poisons the 30-day
-         activity sparkline (`contact-admin.js:721-724`) and silently drops the turn from the
-         daily digest (`aws/src/common/daily-report.js:68-69`). Decision **A1**: the field
-         leaves the request model; the sink uses the server clock, as the text path already does
-         (`main.py:771-773`). This is the direct contradiction of the *clamp values, reject
-         identities* rule stated above — a sort key is an identity, and M0 never touched it.
-      2. **Persist failures are silent.** Decision **A3.1**: `fire_alert` on every persist
-         failure, distinguishing "session full" from "writes are broken".
+      1. ~~**`capturedAt` is a caller-chosen sort key.**~~ **CLOSED by A1, commit `2018a40`** —
+         the first violation of the rule's *no caller-supplied value becomes a storage key*
+         clause that M0 had missed. Kept here as the worked example, because it is the clearest
+         statement of what the rule is for: `capturedAt` was taken verbatim (`max_length=64`,
+         no format check) and written as the item's `createdAt`, the RANGE key of the
+         `byCreatedAt` GSI (`aws/template.yaml:161-166`) the admin list reads
+         `ScanIndexForward: false` (`aws/src/contact-admin.js:481`). Verified before the fix:
+         `capturedAt: 'zzzzzzzzzzzzzzzz'` answered **204** and pinned that session to page 1
+         permanently (`createdAt` is written `if_not_exists`), poisoning the 30-day activity
+         sparkline (`contact-admin.js:721-724`) and dropping the turn from the daily digest
+         (`aws/src/common/daily-report.js:68-69`). **Strict ISO-8601 validation would not have
+         closed it** — `9999-12-31T23:59:59Z` is valid and sorts first too; a sort key the
+         caller chooses is not telemetry. Now server-stamped. Pinned by the sort-key case in
+         `docker/chat/tests/test_turn_persistence.py`, which doubles as the pin on Pydantic's
+         ignore-unknown-fields tolerance that A2 and A4 also rely on.
+      2. **Persist failures are silent, and the fix needs TWO event types.** Decision **A3.1′**
+         (ADR-0020 §5.13): `alerts.py:65-72` throttles per **event type** and knows nothing
+         about priority, so one shared type would let a routine *session full* fire suppress a
+         genuine *writes are broken* for the cooldown window (default 3600 s) — the benign
+         condition masking the outage the alert exists to announce. Therefore
+         **`chat_transcript_write_failed` (P1)** for any non-budget persist exception, shipping
+         with A3.1, and **`chat_transcript_session_full` (P2)** for
+         `ConditionalCheckFailedException` only, shipping with A3.2 so neither branch is ever
+         unreachable. **The seam rule this establishes, which M7 inherits: one event type = one
+         priority = one throttle bucket; if two conditions need different priorities they are
+         different event types.** Priority is a static property of the type (a `_PRIORITY` dict
+         consulted when `alerts.py:111` builds the subject), never a per-fire argument and never
+         part of the throttle key.
       3. **The three unpinned bounds** above. Decisions **A5**, **A6**.
       4. **Nesting depth is unbounded.** Verified: a **127-byte** request with 29 levels inside
          `args` answers 204 and yields an item 34 levels deep against DynamoDB's documented 32;

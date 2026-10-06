@@ -515,6 +515,14 @@ imprecise, understated, or wrong about the tests.
 
 ### A1 — `capturedAt` is retired from the wire; the sink stamps the server's receive time
 
+> **SHIPPED 2026-10-05, commit `2018a40`.** Within clearance and nothing more: `main.py`
+> line 174 deleted, `captured_at = now_iso` at the renumbered `:1216` — two insertions, one
+> deletion in the gated file. Pinned by the sort-key case in
+> `docker/chat/tests/test_turn_persistence.py`, which posts the hostile `capturedAt`, asserts
+> **204** (the field is *ignored*, not rejected) and brackets both the GSI sort key and the
+> rendered value inside the request's own clock window. Chat suite 125 green.
+> `js/chat-live.js:681` still sends the field harmlessly — settled in **A9**.
+
 **Verified.** `POST /api/live/transcript` with `capturedAt: 'zzzzzzzzzzzzzzzz'` answers **204**
 and persists that string verbatim, both as the turn's `capturedAt` and — via
 `main.py:1249` `created_at=captured_at` — as the item's **`createdAt`**, which is the RANGE
@@ -615,6 +623,9 @@ session losing every turn past the limit with no symptom — is the real motivat
 tail risk. So A3 ranks below A1.
 
 > **Decision A3.1 (the part that must land): every persist failure fires an alert.**
+> **AMENDED before green by §5.13 — the single shared event type specified below is
+> self-defeating. Take the event-type contract from §5.13; everything else in this paragraph
+> stands.**
 > `transcript_store.py:140-144` calls `alerts.fire_alert` with a new event type
 > `chat_transcript_write_failed` (P1 under M7's split), distinguishing
 > `ConditionalCheckFailedException` ("session full" — expected, P2) from everything else
@@ -792,6 +803,27 @@ DynamoDB bytes (≤ the ceiling, as derived), and four attempts to make nesting 
 bytes past the character budget (flat lists of empty lists, of zeros, of empty maps) all came
 out at **×0.99** — the derivation is tight, not lucky.
 
+### A9 — the now-stale `capturedAt` send is removed from the frontend (added 2026-10-05, post-A1)
+
+A1 has shipped, so `js/chat-live.js:681` sends `capturedAt: new Date().toISOString()` to a
+server that ignores it.
+
+> **Decision: remove the send. Do not keep it as proof that the ignore-unknown-fields path
+> works.**
+
+That proof is a test's job, and the test now exists: A1's sort-key case in
+`docker/chat/tests/test_turn_persistence.py` posts `capturedAt` and asserts **204** plus a
+server-stamped instant, which pins exactly the Pydantic tolerance that made A1 a
+no-coordinated-deploy change and that **A2 and A4 will lean on again**. That test fails loudly
+if anyone ever sets `model_config = ConfigDict(extra='forbid')`; a field sitting in production
+code fails silently and is an active trap — the next reader of `:681` sees a timestamp being
+sent and reasonably concludes it matters, which is the precise drift §4 was written to stop.
+Weaker evidence, and a lie in the frontend, to keep a guarantee a test already holds.
+
+Ungated (`js/` is unblocked by `SECURITY_GLOB`) and **bottom of the queue**: it is a tidy-up,
+and leaving it costs ~30 bytes per beacon and nothing else. Bundle it with the next
+`js/chat-live.js` touch rather than spending a slice on it.
+
 ### 5.9 — What did not survive verification
 
 1. **"Three requests wedge a session"** → **four**. One maximal turn is 116 008 bytes; three
@@ -875,12 +907,13 @@ needed it.
 
 Ranked by (exploitability × blast radius) ÷ cost, not by which finding was labelled a blocker.
 
-1. **A1 — `capturedAt` → server clock.** Remote, one 204 request, no auth, permanent, and it
-   hits the owner's primary admin view, the GSI ordering, the activity sparkline and the daily
-   digest at once. Smallest diff in the whole addendum (two lines of gated `main.py`).
-2. **A3.1 — alert on persist failure.** Ungated, tiny, and the **precondition** for the rest:
-   without it, A3.2's and A4's refusals are as silent as the bug they replace. It also
-   retroactively surfaces the depth and size failures already happening.
+1. ~~**A1 — `capturedAt` → server clock.**~~ **SHIPPED, commit `2018a40`.** Remote, one 204
+   request, no auth, permanent, and it hit the owner's primary admin view, the GSI ordering,
+   the activity sparkline and the daily digest at once. Smallest diff in the whole addendum.
+2. **A3.1 — alert on persist failure**, one event type (`chat_transcript_write_failed`, P1 —
+   §5.13). Ungated, tiny, and the **precondition** for the rest: without it, A3.2's and A4's
+   refusals are as silent as the bug they replace. It also retroactively surfaces the depth and
+   size failures already happening. **In flight (red written).**
 3. **A5 + A6 — the four missing tests.** Test-only, ungated, no behaviour change, and A6c is
    what makes A8's published number a ceiling rather than a hope. Cheap, so do it before the
    constants are leaned on further.
@@ -889,11 +922,126 @@ Ranked by (exploitability × blast radius) ÷ cost, not by which finding was lab
    recurses on exactly the payloads A4 removes.
 5. **A2 — byte-bounded text clamp.** Shrinks the worst-case turn from ~116 KB to ~44 KB, which
    is what makes A3.2's budget generous in practice.
-6. **A3.2 — the `bytesStored` condition.** The decision that finally makes "bounded" true per
-   item. Last of the bound work because it depends on 4 and is most useful after 5.
+6. **A3.2 — the `bytesStored` condition**, plus the second event type
+   (`chat_transcript_session_full`, P2) and its discriminator (§5.13). The decision that
+   finally makes "bounded" true per item. Last of the bound work because it depends on 4 and is
+   most useful after 5.
 7. **A7b — the histogram collision.** Gated, but low exploitability (it needs a tool literally
    named `toString`) and a contained blast radius.
-8. **A7a — read-side cardinality bucketing.** No change now; carried by ADR-0021 / M8.
+8. **A9 — delete the stale `capturedAt` send.** Ungated tidy-up; bundle it with the next
+   `js/chat-live.js` touch rather than spending a slice.
+9. **A7a — read-side cardinality bucketing.** No change now; carried by ADR-0021 / M8.
+   **M7 note (§5.13):** `_PRIORITY` in `alerts.py` is a one-dict change and can land in M7 in
+   any order relative to the above — nothing here waits on it, because every type this
+   addendum introduces already carries exactly one priority.
 
 Until item 6 lands, **#17 does not claim the item is bounded** — see the pending list in the
 invariant. The claim and the code move together, or the invariant lies again.
+
+### 5.13 — A3.1′ amendment (2026-10-05, pre-green): two event types, and priority belongs to the type
+
+**The coordinator's reading is correct, and the defect is slightly worse than described.**
+Verified in `docker/chat/app/alerts.py`:
+
+- `_should_send(event_type, now)` (`:65-72`) keys `_last_sent` **on `event_type` alone**, under
+  one global window from `_cooldown_seconds()` (`:57-62`, default 3600 s). One type, one
+  bucket.
+- **Priority does not exist in `alerts.py` at all.** It is not a parameter of `fire_alert`
+  (`:80`), not in the throttle key, not in the subject (`:111` is
+  `f'[chat alert · {env}] {event_type} — {summary}'`), and not in the body (`:113-120`). So
+  A3.1's "`[P1]` for broken writes, `[P2]` for session full" could only have been realised by
+  the *call site* baking the marker into `summary` — which is how the test came to pin it.
+
+So a routine `session full` fire would own the bucket for an hour and silence the outage A3.1
+exists to announce. Worse than masking: the P2 condition is the *frequent* one, so in steady
+state the benign fire almost always wins the race.
+
+> **Decision A3.1′ — two independently throttled event types.**
+>
+> | Event type | Priority | Fires on | Means |
+> |---|---|---|---|
+> | **`chat_transcript_write_failed`** | **P1** | any persist exception that is **not** the budget condition — the boto3-absent `RuntimeError` (`transcript_store.py:75-78`), a DynamoDB `ValidationException` (item > 400 KB, nesting > 32), `TypeSerializer` `RecursionError`, a `json.dumps` failure, IAM or throttling errors | *writes are broken* |
+> | **`chat_transcript_session_full`** | **P2** | **only** `ConditionalCheckFailedException` from A3.2's `bytesStored` guard | *one session hit its byte budget; writes are healthy* |
+>
+> Because `_should_send` keys on the type, the two carry independent cooldowns: a session-full
+> storm can never mask an outage, and an outage can never hide the fact that sessions are
+> filling up.
+
+**Discriminator constraint** (part of the decision, not a detail): branch on
+`type(exc).__name__ == 'ConditionalCheckFailedException'`, **not** on
+`botocore.exceptions`. `transcript_store.py` is deliberately written to survive boto3 being
+absent — `:75-78` exists for exactly that — so the discriminator must not introduce an import
+that can fail at module scope.
+
+**Slice placement, which is what keeps both branches reachable: `chat_transcript_session_full`
+ships with A3.2, not with A3.1.** Before the `ConditionExpression` exists there is no condition
+to fail, so defining its type in A3.1 would be a branch no test can reach and the critic should
+reject it. **A3.1 ships one type**; A3.2 adds the second plus the discriminator.
+
+#### The prior-art question, settled for M7: priority is a static property OF the event type
+
+> **One event type = one priority = one throttle bucket. If two conditions need different
+> priorities, they are different event types.**
+
+Priority and throttle key are therefore **not** independent dimensions, and must not become
+them. What follows:
+
+- **`alerts.py` needs no new dimension, and M7 is smaller than the plan's wording implied, not
+  bigger.** M7 adds a module-level `_PRIORITY: dict[str, str]` and changes one f-string at
+  `:111` so the subject reads `[chat alert · prod] [P1] chat_live_error — …`. No change to
+  `fire_alert`'s signature, no change to `_should_send`, no change to the throttle key, and no
+  call site learns its own priority. That is what "`alerts.py` subjects carry `[P1]/[P2]`"
+  (`docs/plan-2026-09-port.md:250`) should mean.
+- **Anti-rule, because it is the tempting alternative:** do **not** key the throttle on
+  `(event_type, priority)`. One condition would get two independent cooldowns, quietly doubling
+  every alert's storm budget and making invariant #14's "at most one email per event type per
+  cooldown window" false.
+- **Default for an unclassified type: P1 — fail loud.** A `fire_alert` added without a
+  `_PRIORITY` row announces the omission in the subject line rather than filing a genuine P1 as
+  routine, and the cost is bounded to one email per hour per type.
+- **Verified against M7's own data, so nothing is being forced into a shape it resists.** Every
+  type in the plan carries exactly one priority — `chat_live_error` P1,
+  `contact_submit_error` P1, `voice_mint_failed` P1, `chat_cold_wait` P2, `chat_live_blocked`
+  P2 (`docs/plan-2026-09-port.md:246-251`) — as does every type already live in
+  `gemini_routing.py` (`chat_upstream_unavailable`, `chat_primary_timeout`, `chat_model_error`,
+  `chat_primary_rate_limit`). The partition is **total** over the current and planned type set.
+  Note that `contact_submit_error` lives on the contact side
+  (`aws/src/common/site-alerts-core.js`, with its own cooldown persisted in the events table):
+  the same rule must hold there, or the two halves of M7 disagree about what a priority is.
+- The plan's own closing line for M7 — *"two different priorities, not one silent record"* —
+  is about two different **conditions**. Under this rule that is two event types, which is
+  exactly what it already lists.
+
+#### Must the current red change? Yes — one assertion, not the structure
+
+- **Keep exactly as written:** the event type `chat_transcript_write_failed`, and that two
+  failing writes each fire it. `assert [] == ['chat_transcript_write_failed',
+  'chat_transcript_write_failed']` is the right red and its expected value is **unchanged** —
+  both failures in that test are generic, so both map to the P1 type.
+- **Must change:** any assertion that `[P1]` (or any priority marker) appears in the `summary`
+  handed to `fire_alert`. Under A3.1′ the call site does not know its own priority; `alerts.py`
+  derives it from the type. Pinning it at the call site would pin the mechanism this amendment
+  rejects, and M7 would then have to rewrite the test to land a one-dict change.
+- **Pin instead, because this is what makes a P1 actionable:** the event type, and that
+  `detail` carries the exception class name and the resolved session id. Leave the prose
+  `summary` unpinned.
+- **Must move, not just change:** the red as written also fabricates a
+  `ConditionalCheckFailedException` and a second store to raise it. That is A3.2's condition,
+  which does not exist yet — so the test currently spans two slices. **A3.1's red keeps only
+  the broken-writes half**: one store, one generic exception, one fire of
+  `chat_transcript_write_failed`, plus the two assertions that A3.1 is additive
+  (`persist_turn` returned normally, `writes_failed == 1`). The session-full half moves to
+  A3.2's red whole.
+- **The free verifier, and it is a good one.** The red sets
+  `CHAT_ALERT_COOLDOWN_SECONDS = '0'` "so both fires land" — which is itself a demonstration of
+  the masking bug: with one shared type at the **default** 3600 s, the second fire is
+  suppressed. So A3.2's two-type test must **not** zero the cooldown. Leaving it at the default
+  and still seeing both alerts is exactly what proves the buckets are independent; if that test
+  ever needs `'0'` to pass, the two types have been collapsed back into one and this amendment
+  has been undone. Pin the decision with the default, not around it.
+
+Also confirmed from the red run and worth recording: `persist_turn`'s swallow is intact (both
+failing writes returned normally and logged at `transcript_store.py:144`), so **A3.1 is purely
+additive** — it changes no existing behaviour and the `writes_failed` / `last_error` contract
+is untouched. And `fire_alert` reached from nowhere in `transcript_store.py` independently
+confirms §5's finding that no persist failure has ever alerted in this codebase.

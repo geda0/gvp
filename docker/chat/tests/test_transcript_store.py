@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from app import alerts
 from app.main import app
 from app.transcript_store import TranscriptStore, build_transcript_store
 
@@ -20,6 +23,30 @@ class FakeTable:
 
     def update_item(self, **kwargs) -> None:
         self.calls.append(kwargs)
+
+
+class RaisingTable:
+    """DynamoDB table stand-in whose UpdateItem always fails."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def update_item(self, **kwargs) -> None:
+        raise self._error
+
+
+class ConditionalCheckFailedException(Exception):
+    """Stands in for boto3's error-factory exception when DynamoDB refuses a
+    conditional write — the "this session is full" case. Carries BOTH the real
+    class name and the real error code so the store may recognise it either
+    way."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            'An error occurred (ConditionalCheckFailedException) when calling '
+            'the UpdateItem operation: The conditional request failed'
+        )
+        self.response = {'Error': {'Code': 'ConditionalCheckFailedException'}}
 
 
 @pytest.mark.asyncio
@@ -147,3 +174,54 @@ async def test_persist_turn_disabled_counts_as_failure_not_success() -> None:
     assert s['writes_failed'] == 1
     assert s['last_error'] is not None
     assert 'disabled' in s['last_error'].lower() or 'boto3' in s['last_error'].lower()
+
+
+@pytest.mark.asyncio
+async def test_persist_failure_fires_alert_whose_priority_names_the_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed transcript write is announced, and its priority says WHICH
+    failure (ADR-0020 A3.1). Today the error is swallowed into a `writes_failed`
+    counter visible only on /ready and the gated host-status, so a broken table
+    — or a session that can never accept another turn — has no symptom the owner
+    would ever see. `[P1]` = writes are broken; `[P2]` = session full, expected.
+    """
+    # Alerts ship dark: configure with throwaway values and capture at the send
+    # seam, so nothing is actually delivered. Zero cooldown so both fires land.
+    monkeypatch.setenv('CHAT_ALERT_EMAIL', 'owner@example.com')
+    monkeypatch.setenv('CHAT_ALERT_FROM_EMAIL', 'alerts@example.com')
+    monkeypatch.setenv('RESEND_API_KEY', 'k-test')
+    monkeypatch.setenv('CHAT_ALERT_COOLDOWN_SECONDS', '0')
+    alerts.reset_for_tests()
+    fired: list[tuple[str, str]] = []
+
+    async def _capture(event_type: str, summary: str, detail: str) -> None:
+        fired.append((event_type, summary))
+
+    monkeypatch.setattr(alerts, '_send', _capture)
+
+    broken = TranscriptStore('ChatTranscripts')
+    broken._table = RaisingTable(RuntimeError('ProvisionedThroughputExceeded'))
+    session_full = TranscriptStore('ChatTranscripts')
+    session_full._table = RaisingTable(ConditionalCheckFailedException())
+
+    # Both calls must return normally — a persist failure may never break the
+    # fire-and-forget turn that triggered it.
+    await broken.persist_turn(
+        session_id='s-broken', created_at='2026-01-01T00:00:00+00:00',
+        prompt_version='v1', provider='mock', model='m',
+        turn={'reply': 'a'}, flags={},
+    )
+    await session_full.persist_turn(
+        session_id='s-full', created_at='2026-01-01T00:00:00+00:00',
+        prompt_version='v1', provider='mock', model='m',
+        turn={'reply': 'b'}, flags={},
+    )
+    await asyncio.sleep(0)  # let the detached alert tasks run
+
+    assert [event_type for event_type, _ in fired] == [
+        'chat_transcript_write_failed',
+        'chat_transcript_write_failed',
+    ]
+    assert '[P1]' in fired[0][1], 'writes are broken is P1'
+    assert '[P2]' in fired[1][1], 'session full is expected, so P2'
