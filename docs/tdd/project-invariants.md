@@ -467,9 +467,22 @@ proves it comes FIRST.
       docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 14. **Operational alerting is best-effort: an instant alert can never raise into — or
-    delay — a chat turn.** `[chat]` `fire_alert` is fire-and-forget: it is a no-op when
-    unconfigured (ships **dark** — needs `CHAT_ALERT_EMAIL`/`CONTACT_REPORT_EMAIL` +
-    `RESEND_API_KEY`), it never raises in a sync (no-running-loop) context, it is throttled
+    delay — a chat turn.** `[chat]`
+    **AMENDED 2026-10-07 by ADR-0022 §25.4a — read this with #19.** This invariant is a **safety**
+    contract (what alerting may do *to a turn*), **not a liveness** one (whether an event reaches a
+    human). "Best-effort" bounds the failure **mode**, not the failure **rate**: it licenses
+    occasional loss on a configured host; it does **not** license a production host on which the
+    gate is unconditionally `False`, which is *certainty* of non-delivery. **MEASURED 2026-10-07:**
+    `alerts_enabled()` is `False` on both deployed stage Lambda chat hosts. Delivery is covered by
+    **#19**; no word of #14 below is superseded.
+    `fire_alert` is fire-and-forget: it is a no-op when
+    unconfigured (ships **dark**). **Correction, 2026-10-07:** the gate is **three conjuncts over
+    five names**, not two — a destination (`CHAT_ALERT_EMAIL` **or** `CONTACT_REPORT_EMAIL`,
+    `alerts.py:34-39`) **AND** a from-address (`CHAT_ALERT_FROM_EMAIL` **or** `CONTACT_FROM_EMAIL`,
+    `:42-46`) **AND** `RESEND_API_KEY` (`:50`). This invariant previously listed only
+    `CHAT_ALERT_EMAIL`/`CONTACT_REPORT_EMAIL` + `RESEND_API_KEY`, as the module docstring
+    (`:10-12`) still does, so a reader who configured exactly those got a silent no-op anyway.
+    It never raises in a sync (no-running-loop) context, it is throttled
     to one email per event type per cooldown window (`CHAT_ALERT_COOLDOWN_SECONDS`, default
     3600s), and the actual `_send` swallows EVERY exception. The request path schedules the
     send as a detached task and returns immediately, so a broken or slow alert provider can
@@ -882,6 +895,65 @@ proves it comes FIRST.
          belongs in ADR-0022 §18's acceptance list and the admin smoke rather than `node --test` —
          but it is the only check that catches the actual user-visible symptom, a correct-looking
          configuration that still buffers.
+
+19. **An operational alert reaches a durable channel on every host that can emit it — alerting is a
+    property of the APPLICATION, not of the host it happens to run on.** `[chat]` Recorded
+    2026-10-07 by **ADR-0022 §25 (DECISION 5)**; the complement of **#14**, which bounds what
+    alerting may do *to a turn* but says nothing about whether an event reaches a human.
+    **Two tiers, and the split is the invariant:**
+    **Tier 1 — emission (application, host-independent, mandatory).** Every `fire_alert` call writes
+    one structured, stably-prefixed line to stdout/stderr at **WARNING or above** — event type, env
+    label, summary — **unconditionally, before and independently of any delivery attempt**, whether
+    or not `alerts_enabled()` is true. The per-type cooldown may suppress the *email*; it must not
+    suppress the *line*. A log line cannot raise and cannot block, so Tier 1 satisfies #14 **by
+    construction** rather than by budget — which is why it is a log line and not an awaited network
+    call. **Tier 2 — delivery (host capability, at least one per host).** On a long-lived process
+    (ECS Express) the in-process Resend send is the delivery tier. On Lambda it is a **CloudWatch
+    Logs metric filter on the Tier-1 line → alarm → SNS**, because log delivery is the *runtime's*
+    obligation and completes with the invocation, whereas an in-process HTTP POST is the *process's*
+    obligation and the process is not guaranteed to run again.
+    **Corollary — env parity.** Every host running `docker/chat/app` carries the env the alert gate
+    reads: a destination (`CHAT_ALERT_EMAIL` **or** `CONTACT_REPORT_EMAIL`) **AND** a from-address
+    (`CHAT_ALERT_FROM_EMAIL` **or** `CONTACT_FROM_EMAIL`) **AND** `RESEND_API_KEY` — three conjuncts
+    over five names (`alerts.py:33-54`) — plus `CHAT_ENV`, without which `_env_label()` is
+    `'unknown'` (`:97-103`) and an alert cannot be attributed to stage or prod. **Scope is the
+    APPLICATION, not the route:** the six event types fire from `gemini_routing.py` (4 types, 10
+    sites) *and* `transcript_store.py:180,186` (2 types), and the latter persists **voice** turns
+    too — so a host that serves only `POST /api/live/session` can still emit. Scoping this to
+    `POST /api/chat` is the mistake that produced the 2026-10-07 finding.
+    **WHY THIS IS AN INVARIANT AND NOT A PREFERENCE, measured:** on 2026-10-07
+    `get-function-configuration` showed `alerts_enabled()` `False` and `_env_label()` `'unknown'` on
+    **both** deployed stage Lambda chat hosts (`…ChatStreamFunction-48hA0gOKhVzC`, 7 env keys;
+    `gvp-chat-stage-ChatFunction-e9cDGaRVL5II`, 11 keys), while the ECS Express template
+    (`aws/chat-express-template.yaml:160-176`, 17 vars) is the only host configured. Stage's
+    committed meta points at the CloudFront front door (commit `046563d`) whose two origins are both
+    Lambda — so stage chat is **serving traffic with the alarm bell disconnected**, across all six
+    event types, on an upstream that ADR-0023 exists because it was failing roughly 1 request in 3.
+    Alerting had silently become a property of one host.
+    - Implemented by: **nothing yet, on either tier.** `alerts.py:85-86` returns with **no log line
+      at any level** when the gate is false (`:92-93` logs the no-loop exit at DEBUG, below the
+      default level — also silent in practice); `aws/chat-template.yaml:89-99` (11 vars) and
+      `aws/chat-stream-template.yaml:146-153` (7 vars) set none of the gate's five names and no
+      `CHAT_ENV`. The gate slice for both templates is in flight under ADR-0022 §25.6; Tier 1 and
+      the startup announcement are the next slice.
+    - Proven by: **partially — the corollary only.** `test/chat-alert-gate-env.test.mjs` asserts
+      that every template which can run `docker/chat/app` passes the alert gate, **deriving** the
+      five legal names from `alerts.py` rather than hardcoding them (which is how the `CONTACT_*`
+      fallbacks were found), and scoping its parse to the `Environment:` block so a
+      declared-but-never-passed `Parameters:` entry does **not** satisfy it. Its independently
+      parsed counts (11 and 7) match the deployed functions exactly. **It asserts key PRESENCE,
+      never values** — values are deploy-time parameters and asserting them would make the test a
+      secret-shaped liability. **Still unproven: Tier 1** (that an unconfigured `fire_alert` leaves
+      a durable record — a `docker/chat/tests` unit test, cheap), **Tier 2 on Lambda** (that a metric
+      filter exists and alarms — a template assertion), and the **startup announcement**. Those are
+      ADR-0022 §26.5 items **G5** and **E6**.
+    - **Open, labelled honestly: DERIVED, NOT MEASURED** — that a surviving `loop.create_task`
+      (`alerts.py:94`) wrapping an awaited 10 s httpx POST (`:128-129`) is frozen by Lambda when the
+      response completes, and therefore delayed to the next invocation or lost. Reasoning in
+      ADR-0022 §25.3; the measurement is specified there as **§25.3-M** and needs the owner's
+      authorization. **This invariant does not depend on the answer** — if the freeze claim is false,
+      Tier 2's metric filter is belt rather than the primary; Tier 1 is required either way, because
+      the silent exit at `:85-86` is what hid this for the life of the feature.
 
 ## Out of scope / explicitly allowed
 

@@ -1600,3 +1600,662 @@ reused.** This applies to any Express-vs-stream comparison on either side.
 The fix is decided in **ADR-0023** (retryable upstream set; a 503 reaches the fallback and does
 **not** demote the primary) and amends invariant #9. It is the cheaper of B1's two blockers and
 should land first — scaling stage Express up to take a contaminated measurement would waste both.
+
+---
+
+# FOURTH AMENDMENT — 2026-10-07: alerting is a property of the host, M-7 closed, and the unpadded prod-roll blocker list
+
+Trigger: two findings on the same seam, filed by the orchestrator on 2026-10-07 — (1) the alert
+path is configured by the **host**, not by the application, so it dies when the host changes; (2) the
+Lambda concurrency quota increase **landed**, which closes M-7 and simultaneously **removes** the
+accidental ceiling §23.2 was leaning on. This amendment rules on both, and states the blocker list.
+
+## 25. The alerting seam — env parity is necessary, and it is not the invariant
+
+### 25.1 What is MEASURED, what is DERIVED, and by whom
+
+**MEASURED by the architect from the tree at this commit — read, counted, re-verified, not taken on
+trust:**
+
+- There is exactly **one** alert path: `docker/chat/app/alerts.py` (**137 lines**).
+  `alerts_enabled()` (`:53-54`) is `bool(_dest_email() and _from_email() and _api_key())`.
+- **The gate is three conjuncts over FIVE env names, not three.** Two slots have fallbacks:
+  `CHAT_ALERT_EMAIL` **or** `CONTACT_REPORT_EMAIL` (`:34-39`); `CHAT_ALERT_FROM_EMAIL` **or**
+  `CONTACT_FROM_EMAIL` (`:42-46`); `RESEND_API_KEY` alone (`:50`). Independently re-verified by the
+  orchestrator against `:33-51`, who corrected their own brief. **Consequence for any text or test:
+  say "the gate", or name all five — enumerating only `CHAT_ALERT_*` is over-tight and would fail a
+  host legitimately configured through the contact-stack names.** The measured conclusion is
+  unchanged: neither Lambda host sets **any** of the five.
+- `fire_alert()` (`:80`) has **three** pre-send exits, two of them invisible:
+  **(a)** `:85-86` — `alerts_enabled()` false → returns with **no log line at any level**;
+  **(b)** `:87-88` — throttled → correctly silent, that is the feature;
+  **(c)** `:92-93` — no running loop → logs at **DEBUG**, below the default level, so silent in
+  practice. Only (b) should be silent.
+- `_env_label()` (`:97-103`) falls back to `'unknown'` (`:102`, `:103`) without `CHAT_ENV` /
+  `STAGE` / `ENVIRONMENT`, so an alert that *does* send from an unlabelled host cannot be
+  attributed to stage or prod from its subject.
+- **Six event types across twelve call sites**, counted: `chat_upstream_unavailable` (4),
+  `chat_primary_timeout` (2), `chat_primary_rate_limit` (2), `chat_model_error` (2) — all in
+  `gemini_routing.py` (`:295,300,307,321,326` on `ainvoke`; `:382,387,395,409,414` on `astream`) —
+  plus `chat_transcript_write_failed` and `chat_transcript_session_full` at
+  `transcript_store.py:180,186` (shipped this session as M0 A3.1/A3.2, ADR-0020 §5.13). The
+  finding's count is exact.
+- Env actually passed, counted: `aws/chat-express-template.yaml:160-176` = **17** vars including all
+  the alert names and `CHAT_ENV`; `aws/chat-template.yaml:89-99` = **11**, none alert-related, no
+  `CHAT_ENV`; `aws/chat-stream-template.yaml:146-153` = **7**, none alert-related, no `CHAT_ENV`, no
+  `CHAT_VOICE_MODEL`, no `SMOKE_PROBE_KEY`.
+- `httpx==0.28.1` is in **both** `docker/chat/requirements.txt` and `requirements-lambda.txt`, so
+  the alert module's one runtime dependency is **not** a parity gap. Named because it is the obvious
+  second hypothesis and it is false.
+
+**MEASURED by the orchestrator at runtime, 2026-10-07, read back with
+`get-function-configuration`:** `gvp-chat-lambda-stream-stage-ChatStreamFunction-48hA0gOKhVzC`
+carries exactly **7** env keys (`CHAT_CORS_ORIGINS`, `CHAT_PROVIDER`, `CHAT_TRANSCRIPTS_TABLE`,
+`GEMINI_API_KEY`, `GEMINI_FALLBACK_MODEL`, `GEMINI_LIVE_MODEL`, `GEMINI_MODEL`) and
+`gvp-chat-stage-ChatFunction-e9cDGaRVL5II` carries **11** — neither holding any of the gate's five
+names. Therefore `alerts_enabled()` is **False** and `_env_label()` is **`'unknown'`** on both stage
+Lambda hosts, at runtime, today. The template counts parsed by `test/chat-alert-gate-env.test.mjs`
+(11 and 7) **match the deployed functions exactly**, which is the useful corroboration: the
+templates are not drifted from the deployments, they are simply wrong in the same way.
+**This half is fact, and it carries the template fix on its own.**
+
+**CONFIRMED, with a sharpening.** The finding's consequence holds: stage's committed meta points at
+the CloudFront front door (`index.html:48`, `admin/index.html:16` →
+`https://d2lw3pyns4zzyb.cloudfront.net/api/chat`, commit `046563d`), whose exact `/api/chat`
+behavior targets the stream Function URL (`aws/chat-stream-cdn-template.yaml:148-149`) and whose
+default behavior targets the `gvp-chat-stage` HttpApi (`:182`). Both of stage's reachable hosts are
+Lambda; neither is configured; **stage chat alerting is dead across all six types.**
+
+The sharpening, because it changes how bad this is rather than whether it is bad: §24.5 records
+`gvp-chat-express-stage` at `desiredCount: 0` returning 503, so stage chat had **no working host at
+all** before the repoint. The loss is therefore not "alerting regressed" — it is **"chat came back
+and the alarm bell did not"**: a functioning, traffic-serving, *uninstrumented* host, which is the
+worse of the two states because it looks healthy. The same repoint applied to prod would silence all
+six types on a **known-flaky upstream**: the project memory records *"primary model times out on
+prose; timeout-fallback + instant alerts"* as load-bearing, and ADR-0023 exists because a Gemini
+`503` was reaching users at roughly 1 request in 3 (§24.10). These alerts are the instrumentation
+that found that. They are not decorative.
+
+### 25.2 Question 1 — the invariant is at the wrong level of abstraction, and the silent no-op is not a belt
+
+The orchestrator's lean was **both**, with env parity load-bearing and the startup warning as the
+belt that makes future drift visible. **Half right, and the wrong half is the important one.**
+
+**(i) "Every host that serves `POST /api/chat` carries the env the alert path needs" is the wrong
+invariant — too narrow on the left, too weak on the right.**
+
+*Too narrow on the left:* `POST /api/chat` is not the only route that can `fire_alert`. The two
+transcript types fire from `transcript_store.py`, which persists **voice** turns as well as text —
+and under the shipped CloudFront shape the voice mint (`POST /api/live/session`) lands on the
+**default** behavior, i.e. the HttpApi Lambda. The trailing-slash spelling `/api/chat/` also falls
+through to that host and runs a **full chat turn** there, reaching all six types (invariant 18).
+Scope the invariant to the route and you configure one host and leave the other silent — which is
+exactly the state measured in §25.1.
+
+*Too weak on the right:* env presence does not imply delivery. §25.3 is the acute reason, but the
+general point stands without it: **env parity is a statement about configuration, and what is needed
+is a statement about outcome.** An invariant written at the mechanism level is satisfiable by a host
+on which the mechanism does not work.
+
+**(ii) The silent return at `alerts.py:85-86` is a CO-DEFECT, not a belt.** It is why this was
+invisible for the life of the feature, and — once (iii) is adopted — it is why the guarantee cannot
+otherwise be met: if the only record of an alert event is an email that may not send, there is no
+durable record at all. Promote it from belt to contract.
+
+**(iii) DECISION 5 — the alert contract is TWO-TIER: durable *emission* is the application's job;
+*delivery* is the host's.**
+
+> **Tier 1 — emission (application, host-independent, mandatory).** Every `fire_alert` call MUST
+> write one structured, stably-prefixed line to stdout/stderr at **WARNING or above**, naming the
+> event type, the env label and the summary — **unconditionally, before and independently of any
+> delivery attempt**, and whether or not `alerts_enabled()` is true. Throttling may suppress the
+> *email*; it must not suppress the *line*. The `no running loop` exit moves from DEBUG to WARNING
+> for the same reason.
+>
+> **Tier 2 — delivery (host capability, at least one per host).** On a long-lived process (ECS
+> Express) the in-process Resend send is the delivery tier and works today. On Lambda the delivery
+> tier is a **CloudWatch Logs metric filter on the Tier-1 line → alarm → SNS email**, because log
+> delivery is the **runtime's** obligation and completes with the invocation, whereas an in-process
+> HTTP POST is the **process's** obligation and the process is not guaranteed to run again.
+
+**Why this beats the env-parity invariant it replaces, and beats all three options the orchestrator
+proposed (§25.4):** it inverts the dependency. Instead of making the application's network send
+durable on a host that freezes, it makes the application's *emission* durable — roughly three lines
+of application code, no IAM grant, no new in-process network I/O, **and no conflict with invariant
+#14 or with `alerts.py:81-84`'s promise never to delay a turn** — and delegates delivery to the
+host, which is where a hosting-seam ADR should put it. A log line cannot raise and cannot block; it
+is the only Tier-1 mechanism that is compatible with #14 *by construction* rather than by budget.
+
+Env parity does **not** become optional. It becomes a **corollary with three jobs**: it makes the
+in-process tier work where that tier is the delivery mechanism; it supplies `CHAT_ENV` so a line or
+a subject is attributable to an environment instead of to `'unknown'`; and — the practical reason to
+keep it written down — it is the one half of this contract that a **cheap, offline,
+credential-free** template test can pin today, which `test/chat-alert-gate-env.test.mjs` now does.
+
+- **Invariant (load-bearing, recorded as project invariant 19):** every alert event the application
+  emits reaches a durable channel on every host that can emit it, and every such host has at least
+  one configured delivery tier for that channel.
+- **Corollary (testable now):** env parity across hosts — the gate first (§25.5), the full set later.
+- **Drift detector:** the startup announcement.
+
+**On "refuse to start" — rejected, and not narrowly.** `alerts.py` is designed to **ship dark**
+(`:10-12`) and invariant #14 records that as the contract. That is correct: a missing optional
+secret must not be able to take down the feature it observes. Refusing to start inverts the blast
+radius of the *observability* subsystem onto the *observed* one — an unset `CHAT_ALERT_EMAIL` would
+become a chat outage. **Warn, do not refuse.** One line at startup, at WARNING, naming the missing
+names, emitted once from the existing `lifespan` hook (`docker/chat/app/main.py:361-362`, after
+`app.state.transcript_store = build_transcript_store()` at `:369`). That is the whole of it.
+
+### 25.3 The unmeasured half — fire-and-forget under Lambda freeze
+
+**Standing of this claim, stated so it is not blurred with §25.1: DERIVED from AWS's documented
+execution-environment semantics plus the code path. NOT MEASURED on this function.** The
+orchestrator attempted the measurement today (set the gate vars to dummies plus a bogus Resend key
+so a `401` log line would be the observable and no mail could be sent; point
+`CHAT_TRANSCRIPTS_TABLE` at a nonexistent table to force `chat_transcript_write_failed`; fire one
+turn; time the `alert send failed event=` line against the next invocation) and was **denied by the
+sandbox permission layer as a shared-resource modification**. The denial was not routed around; the
+experiment needs the owner's authorization.
+
+The derivation, with verified references:
+
+- `fire_alert` resolves the running loop and schedules `loop.create_task(_send(...))`
+  (`alerts.py:94`); nothing awaits the task, by design (invariant #14).
+- `_send` opens `httpx.AsyncClient(timeout=10.0)` (`:128`) and `await client.post(...)` to Resend
+  (`:129`) — real third-party network I/O, up to 10 s.
+- `docker/chat/Dockerfile.lambda-stream` runs `CMD ["uvicorn","app.main:app",…]` with the Lambda Web
+  Adapter as an internal extension proxying each invoke to `127.0.0.1:8000`, so the task lands on
+  **uvicorn's long-lived loop**, not a per-invocation loop.
+- AWS documents that Lambda **freezes the execution environment** when the response completes, and
+  that unfinished background work resumes **only if** that environment is reused. Under
+  `RESPONSE_STREAM` the invocation completes when the stream closes — and the highest-value event
+  type, `chat_transcript_write_failed`, fires from `_persist_text_turn`, which `main.py` **awaits**
+  at the *end* of the turn (`:872`, `:896`, `:915`, `:1014`). The task is created microseconds
+  before completion, so the `await client.post` cannot have finished.
+- If the derivation holds: an alert on Lambda is **delayed to the next invocation** (if the
+  environment survives) or **silently lost** (if it is reaped first). At 77 lifetime sessions,
+  reaped-first is the common case, not the edge case. On ECS the process is long-lived and the task
+  simply completes — which is why this has never been visible. The HttpApi Lambda is in the same
+  position with a different ASGI adapter.
+
+**Two reference slips in the filing, corrected so they do not propagate:** the file is **137** lines,
+not 144 — `_send` is `:106-137`, the httpx post is `:129` (not `:130-131`), and the log lines are
+`:131-133` / `:135` / `:137` (not `:138` / `:142`).
+
+**Is the derivation too thin to publish as fact? It is published as DERIVED — and it does not
+matter, because DECISION 5 does not rest on it.** That is the useful result, and it is worth saying
+plainly because it unblocks the roll without waiting on the experiment:
+
+| If the freeze claim is… | Tier 1 (durable log line) | Tier 2 on Lambda (metric filter) | Env parity |
+|---|---|---|---|
+| **TRUE** | required — the *only* durable record | required — the *only* delivery path | still required (`CHAT_ENV`, attribution) |
+| **FALSE** | still required — independently justified by §25.2(ii): the unconfigured exit at `:85-86` is silent today, which is how this hid | demoted to belt — in-process email works once the gate is satisfied | required — it *is* the delivery tier |
+
+So **nothing in DECISION 5 is contingent**, and §27's blocker list does not wait on the measurement.
+What the measurement decides is only whether the metric-filter alarm is **the** delivery path on
+Lambda or a **second** one. Either answer keeps it in the roll, because the stream stack already
+owes an SNS topic and three alarms (§23.3 delta 3, §18.E2) — a fourth alarm on a metric filter is
+marginal cost inside an edit that is happening anyway.
+
+**The measurement to run once the owner authorizes it**, recorded so it is run as specified
+(**§25.3-M**): the orchestrator's protocol above, plus one addition — record whether the
+`alert send failed event=` line appears **before** the firing invocation's `REPORT` line, in the
+**next** invocation's log stream, or **never**. "Before REPORT" refutes the claim outright; "next
+invocation" confirms delay; "never" confirms loss.
+
+### 25.4 Ruling on the three options as filed — (a) rejected, (b) rejected as framed, (c) rejected
+
+- **(a) `await` the alert inline.** Rejected. It puts a 10 s third-party HTTP call on the turn's
+  critical path and contradicts both `alerts.py:81-84` and **invariant #14 verbatim**. Worse on this
+  host specifically: response streaming bills **wall-clock**, so awaiting Resend is billed — and the
+  events most likely to fire are the ones on an **already-degraded** turn, so the user waits longest
+  exactly when the upstream is sickest.
+- **(b) Fire to SNS/EventBridge instead.** Rejected **as framed**, and the reason is the point:
+  `create_task(publish)` has the **identical** freeze bug. Making it durable requires **awaiting**
+  the publish — which is (a) with a 30 ms budget instead of a 10 s one — plus a new resource, plus a
+  new IAM grant on a role that today holds only logs and `PutItem`/`UpdateItem` on one table ARN
+  (`aws/chat-stream-template.yaml:106-115`), plus a subscriber. It buys nothing the log line does
+  not, at higher cost and blast radius. *Noted as the right eventual shape if the owner ever wants
+  in-process email parity on Lambda — and it would want its own ADR then, not a line in this one.
+  Do not build it for this roll.*
+- **(c) Accept best-effort and say so.** Rejected. See §25.4a, because the orchestrator's follow-up
+  raised the strongest argument for (c) and it deserves a direct answer.
+
+### 25.4a Does invariant #14 already license (c)? No — and the distinction is the whole ruling
+
+Invariant #14 (`docs/tdd/project-invariants.md:469-491`) reads: *"Operational alerting is
+best-effort: an instant alert can never raise into — or delay — a chat turn."* It records
+fire-and-forget, the dark-by-default no-op, the per-type throttle, and `_send` swallowing every
+exception. The orchestrator is right that it concedes best-effort and never claims any host has
+alerting lit. So the question is fair: is (c) already the contract?
+
+**No. #14 is a SAFETY invariant, not a LIVENESS one.** Read its subject: every clause bounds what
+alerting may do **to the turn** — never raise, never delay, never block, swallow everything. It is a
+blast-radius contract for the *observability* subsystem. It says nothing whatever about whether an
+event reaches a human, and "ships dark" describes the unconfigured state as a *safe* state, not as
+an *acceptable production* state.
+
+**The asymmetry the orchestrator named is exactly right, and here is the sharp form of it:
+"best-effort" is a bound on the failure MODE, not a licence for the failure RATE.** Best-effort with
+a configured sink on a long-lived process means occasional loss. Best-effort with
+`alerts_enabled() == False` means **zero delivery, by construction, always**. A contract that
+tolerates loss does not thereby tolerate *certainty* of loss — "writes are best-effort" would not
+license deleting the table. And #14's "detached task" clause is written for a long-lived process: it
+asserts detachment so the task cannot block, and tacitly assumes the loop keeps running. It never
+contemplates an execution environment that freezes. So #14 does not license (c); it is **silent** on
+the case, which is a gap in #14, not a permission.
+
+**Therefore #14 is AMENDED, not superseded** — by the addition of invariant 19 rather than by any
+edit to #14's own text, because every word of #14 remains true. The two are complementary: **#14
+bounds what alerting may do to a turn; 19 requires that the event reach a durable channel.** Tier 1
+is a log line precisely so that satisfying 19 cannot violate #14.
+
+**Does ADR-0020 §5.13's "actionable" claim survive? Yes — but it is VACUOUS on both Lambda hosts
+today, and vacuous is the right word, not wrong.** §5.13's decision is about **masking**: two
+independently-throttled types so a frequent benign `chat_transcript_session_full` cannot own the
+bucket and silence a `chat_transcript_write_failed` outage for an hour. That reasoning is intact and
+needs no amendment. What §5.13 did not state, and must now cross-reference, is that it
+**presupposes an announcement channel** — with the gate False there is nothing to mask and nothing
+to announce, so the two-type design is correct and inert. §5.13's actionability is satisfied by the
+**emission** tier, not by the email. A cross-reference note is appended there; no part of §5.13 is
+superseded, and the registry it tabulates has since grown from two types to **six**.
+
+### 25.5 Question 2 — the justified exclusion list
+
+**First, a scope distinction, because two different lists are in play and conflating them is how a
+test ends up encoding the wrong rule.**
+
+- **List 1 — the GATE (this slice).** `test/chat-alert-gate-env.test.mjs` pins only the three
+  conjuncts of `alerts_enabled()`, derives the five legal names from `alerts.py` rather than
+  hardcoding them (which is what surfaced the `CONTACT_*` fallbacks), scopes its parse to the
+  `Environment:` block so a declared-but-unpassed `Parameters:` entry does **not** satisfy it, and
+  therefore **needs no exclusion list to be correct**. That design is right and the architect
+  endorses it as written.
+- **List 2 — FULL env parity (§18.G1, still owed).** This is where an exclusion list is load-bearing
+  and where the ruling below applies.
+
+**Caution on the test's own comment, so it does not become the exclusion list by accident.** Its
+header calls `AWS_REGION`, `CHAT_READY_VERBOSE` and `CHAT_LIVE_RELAY` / `CHAT_LIVE_VOICE_STRICT`
+"legitimate divergences". That is **true within List 1's scope** and **wrong as a general rule** —
+`CHAT_READY_VERBOSE` is *required* under List 2 (below). Narrow the comment to "out of scope for
+this test" rather than "legitimate", or the next reader will take it as the parity contract.
+
+**For List 2 — EXCLUDED, do NOT copy to a Lambda host (3 names):**
+
+| Var | Reason (one line) |
+|---|---|
+| `AWS_REGION` | **Reserved key.** Lambda injects it; an `Environment.Variables` containing it is rejected at `CreateFunction`/`UpdateFunctionConfiguration`. Express must set it because a Fargate task gets no such injection and boto3 needs a region — grep confirms **zero** reads in `docker/chat/app/`, so it is boto3's variable, not the app's. Orchestrator correct. |
+| `CHAT_LIVE_RELAY` | **Dead.** `grep -rn CHAT_LIVE_RELAY docker/chat/app/` → **0 hits**. The relay is retired; voice is `direct_google`. Correct on the rule — see the misattribution note. |
+| `CHAT_LIVE_VOICE_STRICT` | **Dead.** Same grep, **0 hits**. Same note. |
+
+**Misattribution to fix, because a test written from the draft list would assert the wrong thing:**
+`CHAT_LIVE_RELAY` and `CHAT_LIVE_VOICE_STRICT` are **not** Express vars. They appear **nowhere** in
+`aws/chat-express-template.yaml`. They are set only by `aws/chat-template.yaml:95-96`. So they are
+not "Express vars that must not be copied forward" — they are **vars the HttpApi template sets that
+must be DELETED there** (§18.G2 already owes it) and never added anywhere. Exclusion and deletion
+are the same decision.
+
+**Promoted from the draft exclusion list to REQUIRED under List 2 — the orchestrator's read is wrong
+here:** **`CHAT_READY_VERBOSE` must be set on the stream host.** It is not a droppable stage
+diagnostic: it is read **4 times** in `main.py` (`:536`, `:538`, `:1124`, `:1125`), gating both the
+verbose `/ready` body and a probe, and **§18.C2 depends on it** — `/ready` is the only working way to
+read `writes_failed` / `writes_succeeded`, because `GET /api/chat/host-status` 401s on every host
+(§22.3). Dropping it makes C2 unmeasurable. Carry Express's exact shape, `!If [IsStage, '1', '0']`:
+set on both environments, enabled only on stage.
+
+**Required on the stream host under List 2 (the other 9 of the 10 missing), so the list is
+complete:** `CHAT_ENV`, `RESEND_API_KEY`, `CHAT_ALERT_EMAIL`, `CHAT_ALERT_FROM_EMAIL`,
+`CHAT_ALERT_COOLDOWN_SECONDS`, `CHAT_VOICE_MODEL` (§23.3 delta 2), `SMOKE_PROBE_KEY` and
+`GEMINI_LIVE_MINT_TIMEOUT_SEC: '15'` (§18.D3/D4 — and note the deep probe *can* complete on a
+Function URL, which has no API Gateway 29–30 s integration cap, unlike §22.6's host), and
+`CHAT_READY_VERBOSE`. **17 Express vars − 1 excluded (`AWS_REGION`) = 16 on the stream host**, which
+is the arithmetic List 2's test should assert.
+
+**A third category List 2 must model, or it will be wrong in a year.** "Excluded" and "required" are
+not exhaustive. Two names are **declared unset, with a known consequence**, and a parity test must
+not flag them as drift:
+
+- `ADMIN_API_KEY` — set by **no** chat template, so `GET /api/chat/host-status` 401s everywhere
+  (§22.3). Deliberate today; the consequence is recorded.
+- `CHAT_READY_VERBOSE_SECRET` — read at `main.py:538`, set by no template. The alternative unlock
+  for verbose `/ready`; unused because `CHAT_READY_VERBOSE` covers stage.
+
+**Shape List 2's test should take, so it pins a rule and not a snapshot:** parse the three templates
+and assert (1) each Lambda host's env key set equals the Express set minus the excluded list,
+(2) no template sets any excluded name, (3) each declared-unset name is set by no template **and**
+appears in this ADR's list — i.e. adding a third-category member requires a decision, not an edit.
+**Assert on key presence, never on values**, here and in List 1: values are deploy-time parameters,
+and a test that asserts them becomes a secret-shaped liability.
+
+### 25.6 Question 3 — which templates must change, and the gate
+
+| Template | Change required | On `SECURITY_GLOB`? | Clearance? |
+|---|---|---|---|
+| `aws/chat-stream-template.yaml` | **Yes** — the gate now; List 2's 16-var set plus §23.3 deltas 1 and 3 later | **No** — verified: the ERE at `.claude/tdd.config:63` is `(^\|/)aws/(template\|chat-template)\.yaml`, which does not match `chat-stream-template.yaml` | **No** — proceed |
+| `aws/chat-express-template.yaml` | No env change — it is the reference host | **No** — same verification | **No** |
+| `aws/chat-template.yaml` | **Yes** — the gate now; the §18.G2 deletions later | **YES** — it matches | **YES — issued** |
+| `aws/chat-stream-cdn-template.yaml` | None for this decision (invariant 18's rewrite is separate, §24.7) | **No** | **No** |
+
+**Why `aws/chat-template.yaml` is in scope for *this* roll and not a pre-existing gap to defer:**
+under the shipped CloudFront shape its Lambda is the **default origin**, making it the host for the
+paid voice mint, the smoke probes, and the trailing-slash chat fall-through. It goes from "the legacy
+stack nobody points at" to "a production-serving host", and §25.2(i) is precisely the mistake of
+configuring one host and not the other.
+
+**Clearance issued at `.claude/state/security-clearance`** — one file, two hunks, counted:
+
+- **(A) Parameters, inserted after `:48`** (end of `SmokeProbeKey`'s `Description`), before the blank
+  `:49` / `Conditions:` at `:50`. *Anchor corrected: the clearance as first issued said `:49` /
+  `:50` / `:51` — off by one, caught by the orchestrator and re-verified by the architect
+  (`SmokeProbeKey:` `:44`, `Type` `:45`, `NoEcho` `:46`, `Default` `:47`, `Description` `:48`, blank
+  `:49`, `Conditions:` `:50`). Recorded rather than silently fixed, because an anchor in a security
+  clearance is part of the audit trail.* `ResendApiKey` **5** lines (mirrors
+  `chat-express-template.yaml:49-53`, `NoEcho` included), `ChatAlertEmail` **4** (mirrors `:54-57`),
+  `ChatAlertFromEmail` **4** (mirrors `:58-61`) = **13**. Plus `StageName` **5** *only if* `CHAT_ENV`
+  is in the slice — verified that `aws/chat-template.yaml` has **no** stage parameter today (its nine
+  are at `:6,10,16,21,27,32,36,40,44`) = **18**.
+- **(B) Environment block `:89-99`** (`Environment:` `:87`, `Variables:` `:88`): add
+  `RESEND_API_KEY`, `CHAT_ALERT_EMAIL`, `CHAT_ALERT_FROM_EMAIL` = **3** lines; **+1** for
+  `CHAT_ENV: !Ref StageName` if included.
+- **Totals: 16 lines touched (gate-only) / 22 (with `CHAT_ENV`). Hard cap 18 / 25.** The 2–3 line
+  slack exists for exactly one stated reason — a YAML `Description:` may fold onto a second line with
+  `>`. It is not headroom for anything else. **If the real edit exceeds the cap, stop and ask.** A
+  clearance earlier this session was written for four lines when six were needed and the widening had
+  to be justified after the fact; this budget was derived by reading both templates and adding the
+  items up, so a miss means the scope changed, not that the count was loose.
+
+**Deliberately NOT in this slice**, so the diff matches the red test: the §18.G2 deletion of
+`:95-96`, `GEMINI_LIVE_MINT_TIMEOUT_SEC`, any MetricFilter/Alarm/SNS resource (it must not land
+before `alerts.py` emits the line a filter would match), and `docker/chat/app/main.py` — which is
+**also** on `SECURITY_GLOB` and needs ~2 lines for the Tier-1 startup announcement. The clearance
+hook (`.claude/hooks/local.d/security-clearance.sh`) disarms the guard **globally** while the file
+exists, so its own docstring is right that the window must be short: the two edits belong to
+different slices and get **two windows**. The `main.py` clearance will be issued at ≤6 lines when
+that slice is taken.
+
+**Decided on the two questions the orchestrator asked about the slice's contents:**
+
+- **`CHAT_ALERT_COOLDOWN_SECONDS` — NO.** Not part of the gate, `alerts.py:57-62` already defaults
+  to 3600 s, and absent it changes nothing. A pure ride-along. Add it when someone wants a different
+  window.
+- **`CHAT_ENV` — yes in substance, but PIN IT FIRST.** Without it every alert that ever sends is
+  subject-lined `[chat alert · unknown]`, and with both environments now behind CloudFront front
+  doors an unattributable alert is close to useless — you cannot tell whether production is burning.
+  But it is a value-only attribution field the current red test does not cover, and shipping it
+  unpinned in a green slice is exactly what the critic should flag as over-build. **Ruling:** add one
+  assertion to `test/chat-alert-gate-env.test.mjs` — `CHAT_ENV` is **present** in each Lambda host's
+  `Environment:` block (presence only, never the value) — then include it; or **defer** `CHAT_ENV`
+  to its own cycle. Either is acceptable; shipping it unpinned is not. The clearance budget covers
+  both so there is no second round-trip.
+
+## 26. M-7 CLOSED — the quota landed, and it REMOVED the ceiling this ADR was leaning on
+
+### 26.1 Evidence, as supplied
+
+**MEASURED 2026-10-07** (owner/orchestrator, AWS console + CLI): Service Quotas request
+`e66ca23fbf8047e8bf9f358007990859q8kiaTuI` is **CASE_CLOSED**; applied quota **`L-B99A9384` = 1000**;
+`lambda get-account-settings` reports `ConcurrentExecutions` **1000** and
+`UnreservedConcurrentExecutions` **1000**; and
+`put-function-concurrency --reserved-concurrent-executions 5` against the **stage stream function**
+now **SUCCEEDS**, returning `{"ReservedConcurrentExecutions": 5}`.
+
+### 26.2 Corrections to this ADR, applied
+
+- **§24.5's gate-table row E1 — "BLOCKED by M-7" is STALE as of 2026-10-07.** E1 is now
+  **achievable** and is the cheapest remaining control on the list. The row is kept as written so the
+  history reads correctly; this supersedes it.
+- **§23.2 and M-7 are CLOSED**, on §26.1's evidence. Read the closure narrowly: what closed is *"a
+  reservation cannot be set on this account"*. What did **not** close is M-4, whose ask was always
+  **both** a reservation **and** an invocation/billing alarm. §23.2 says so in its own last line.
+- **§23.2's cross-feature coupling claim is RESOLVED, in the good direction.** The account ceiling of
+  10 shared with the contact functions — *"a chat abuse burst can starve the contact form"*, named
+  there as "the sharpest edge of the migration as currently configured" — is gone at 1000/1000. Keep
+  the paragraph: it was true when written and it explains why E1 was urgent.
+- **§18.E1's number should be read as 5, not 2.** E1 says `ReservedConcurrentExecutions: 2`, §23.2
+  says 5, §26.1 measured 5 succeeding. **Decided: 5.** Reconciled here so no test encodes 2.
+
+### 26.3 THE CONSEQUENCE NOBODY FILED — the quota increase made E1 *more* load-bearing, not less
+
+Read this twice, because it runs opposite to the intuition that a lifted limit is good news. §23.2's
+justification for shipping `Default: 0` was explicit:
+
+> "`0` is only honest because the ACCOUNT-WIDE limit of 10 is itself a hard concurrency ceiling
+> today."
+
+**That premise is now FALSE.** The accidental ceiling *was* the account quota, and the account quota
+is now **1000**. Raising it **removed the only cost and abuse bound a public, API-Gateway-less
+Function URL had** — so `Default: 0` moved from "honest, because something else caps it" to
+"unbounded, with nothing behind it". The worst-case arithmetic moves with the quota: §23.2's bound of
+roughly **10 × $64.80 ≈ $648/mo** was computed against the limit of 10, and at 1000 the same
+arithmetic has two more orders of magnitude in it. *No new dollar figure is asserted here* — the
+point is that the number is no longer bounded by the account, so it must be bounded by the template.
+
+**Therefore E1 is not merely unblocked, it is a BLOCKER (§27.1 B-2), and the day the quota landed is
+the day it became one.** A quota increase applied without setting the reservation is a strictly worse
+posture than before the increase.
+
+### 26.4 Wording for the template's superseded measurement, as requested
+
+The owner is correcting `aws/chat-stream-template.yaml:74-81` directly. House rule: a superseded
+measurement is **kept with its refutation**, never deleted — it is the only thing that explains why
+the default is what it is. Recommended shape (the owner's wording, this structure):
+
+1. Keep the original block **verbatim**, re-labelled as history:
+   `SUPERSEDED MEASUREMENT (true 2026-10-06, FALSE from 2026-10-07): …` then the existing text
+   unchanged, including the `UnreservedConcurrentExecution below its minimum value of [10]` quote and
+   the "for 5 AND for 1" note. Those are what answer a reader's "why is the default 0?".
+2. Immediately below, the refutation with its evidence:
+   `REFUTED 2026-10-07: quota L-B99A9384 raised to 1000 (request e66ca23f…q8kiaTuI, CASE_CLOSED).`
+   `get-account-settings: ConcurrentExecutions 1000, Unreserved 1000. put-function-concurrency`
+   `--reserved-concurrent-executions 5 on the stage stream function now returns`
+   `{"ReservedConcurrentExecutions": 5}. ADR-0022 §26.`
+3. Then the consequence, because this is the sentence a future reader needs most:
+   `The account-wide limit of 10 was ALSO the only thing bounding cost on this endpoint (§23.2).`
+   `Raising it removed that bound, so the reservation is now the ONLY ceiling. Default changed`
+   `0 -> 5 for that reason. ADR-0022 §26.3.`
+4. **Change `Default: 0` to `Default: 5`.** It is the intended value (§15.3, §23.2), it now deploys,
+   and leaving 0 after §26.3 ships the unbounded posture by default.
+
+**One defect found while ruling on this, to fix in the same edit — the parameter overloads `0`.**
+`ReservedConcurrency` is wired as
+`!If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref 'AWS::NoValue']` with
+`HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]` (`:88-90`, `:143`). So in the
+**parameter's** semantics `0` means **"do not reserve" = unbounded**, while in the **Lambda API's**
+semantics `0` means **"reserve zero" = function disabled**. Those are opposites — and §18.E4's kill
+switch is literally "set reserved concurrency to 0, confirm 429". A reader who throws the kill switch
+through the template gets **unbounded** instead of **off**. Fix: keep `MinValue: 0`, and state in the
+`Description` that **`0` here means "do not reserve", NOT "disable"**, and that the kill switch is an
+out-of-band `aws lambda put-function-concurrency --reserved-concurrent-executions 0`, never a
+template deploy. Filed as drift item 18 (§28).
+
+### 26.5 Question 4, explicitly — can G1–G4 be read as closed by this fix alone?
+
+**No, and the distinction matters because G is about to be used as a release gate.**
+
+- **G1 (required env present)** — closes when List 2's set lands on **both**
+  `aws/chat-stream-template.yaml` and `aws/chat-template.yaml`. The gate slice (§25.6) closes the
+  three names that matter most; it does **not** close G1. §18.G1's own list is also short by one — it
+  omits `CHAT_VOICE_MODEL` (§23.3 delta 2). **Use §25.5 List 2's 16-name set as the authority; it is
+  the counted one.**
+- **G2 (must not be set)** — **not** closeable by the stream template alone. The stream template
+  already complies (it never had the two dead vars). The **violation lives at
+  `aws/chat-template.yaml:95-96`**, which still sets both. G2 closes when those two lines are
+  deleted — explicitly *not* in the gate slice, so G2 remains open after it.
+- **G3 (IAM: `PutItem`/`UpdateItem` on one table ARN)** — **already satisfied** on the stream
+  template (`:106-115`, verified; §23.3 names it correct). Nothing owed.
+- **G4 (do not set `AWS_REGION`)** — **already satisfied** on both Lambda templates. Nothing owed.
+
+So G1–G4 close on **two template edits**, one of them gated — and **closing G still does not make
+alerting work**, because G is an env-parity gate and §25.2 is why that is not the invariant. The
+outcome tier needs two items §18 does not contain, added here rather than smuggled into G:
+
+- **G5 (new) — the alert path announces its configuration at startup.** Each host logs exactly one
+  line at startup saying whether alerts are configured and, if not, which names are missing; and
+  `fire_alert` writes its Tier-1 line unconditionally. *This is the drift detector: it is what makes
+  the NEXT host added to this seam fail loudly instead of silently.*
+- **E6 (new) — each Lambda host has a Logs metric filter on the Tier-1 line, alarmed to SNS,
+  validated once with `set-alarm-state`,** to E2's validation standard. On ECS Express the in-process
+  send remains the delivery tier; **note, UNVERIFIED:** `aws/chat-express-template.yaml` declares no
+  log configuration (grep finds one comment at `:91`, no `LogConfiguration`), so whether Express
+  ships stdout to a CloudWatch log group at all is **not established** — check before relying on a
+  metric filter there. It is belt on ECS, not the primary, so nothing blocks on the answer.
+
+## 27. DECISION 6 — the prod-roll blocker list, unpadded
+
+Context: the owner has **browser-tested stage end-to-end and reports it passed**, and has said to
+**proceed without waiting on quotas** (which have since landed anyway). §18 lists many rows as
+"owed". Most are bookkeeping. Some are not. The separation below is the ruling, not a summary.
+
+### 27.1 Genuine blockers — five
+
+- **B-1 — The alert gate satisfied on BOTH Lambda hosts, plus Tier-1 emission.** The §25.1 finding.
+  Rolling prod without it silences six alert types on an upstream measured as failing roughly 1
+  request in 3 before ADR-0023 (§24.10). **Justified by the MEASURED half alone; does not wait on
+  §25.3-M.** *Artifacts:* the gate slice on both templates (§25.6), then the unconditional Tier-1
+  line and the startup announcement in `alerts.py` (G5).
+- **B-2 — `ReservedConcurrentExecutions: 5` on the prod stream function (E1).** Was blocked, is now
+  free, and §26.3 makes it **more** necessary than when it was written, because the quota increase
+  deleted the accidental ceiling. A public Function URL with no API Gateway throttle, per-invocation
+  billing, a paid upstream, and nothing bounding concurrency is not a posture to roll into production
+  on a personal-portfolio budget.
+- **B-3 — At least one invocation/billing alarm, confirmed delivering, plus the budgets (E2/E3).**
+  §23.3 delta 3 is **unapplied** — verified at this commit: `grep -n "Alarm\|SNS\|Topic"
+  aws/chat-stream-template.yaml` returns **nothing**. M-4 always asked for a reservation **and** an
+  alarm: a reservation caps the bill's slope, an alarm is how you learn. The owed set is three
+  alarms; **one delivering invocation alarm is the floor** below which this is not a blocker list but
+  a hope.
+- **B-4 — Invariant 18's trailing-slash hole, pinned.** Still live and still unproven by anything in
+  the suite. The prod failure mode is the **silent** one: a correct-looking 200 `text/event-stream`
+  delivered all at once — the exact defect this migration exists to remove. **Blocker = pin 1 only**
+  (invariant 18's offline frontend characterization test). One `node:test`, no credentials, and it
+  converts a property that is currently true *by accident* into a contract. The CloudFront URI
+  rewrite is in flight; if it does not land, pin 1 is what stops the accident being undone by the
+  next edit to `js/`.
+- **B-5 — One post-deploy verification, on the prod host, that alerts are live.** Read `/ready`, or
+  the startup line, or `get-function-configuration`, **once**, after the prod deploy, and confirm the
+  gate would be true and `_env_label()` is not `'unknown'`. This exists because of §27.4: a
+  hand-rolled deploy cannot omit an env **key** (keys come from the template) but can trivially pass
+  an **empty value** for `ChatAlertEmail`, silently reproducing the exact state measured in §25.1.
+  One check closes the only remaining way B-1 can be defeated after it ships.
+
+**Conditions on the roll — constraints on *how*, not items to complete.** Listed separately so they
+are neither mistaken for work nor omitted:
+
+- **Prod must ship the IDENTICAL distribution shape as stage** (CloudFront + OAC; exact `/api/chat` →
+  stream Function URL; default → the prod HttpApi). The owner's stage browser pass substantively
+  satisfies **A2** and carries **D2** *only* under that identity. A different shape voids the
+  transfer and D2 returns to owed. State which it is in the roll note.
+- **Do NOT delete or scale down prod Express** until prod has run on the new path for at least one
+  observation window. §11 is unambiguous: `gv-<32 hex>.ecs.us-east-2.on.aws` is **not recoverable**,
+  so Express-still-existing *is* the rollback. Deleting it converts a one-line meta revert into a
+  coordinated two-branch meta + guard-constant change.
+- **Do not claim the deep probe (D4) through the front door.** The voice mint and the smoke probes
+  land on the **default** behavior, i.e. the HttpApi, whose API Gateway integration timeout is 29–30 s
+  against a 25 s probe with a 30 s inner `recv` (§22.6). The mint itself is fine (D1 wants p95 < 3 s);
+  **`?deep=1` cannot complete there by construction.** It can complete on the Function URL directly.
+  State the limit rather than discovering it.
+
+### 27.2 Bookkeeping — real work, not gates
+
+**B2** (cold samples over HTTPS — §13.2's 1 542 ms predicts a pass), **B3** (post-deploy warm-up),
+**B4** (HTTPS chunk count vs 42), **A3**/**A4** (legacy JSON; single `Access-Control-Allow-Origin` —
+both characterize behavior that already works), **C1–C4** (persistence and the admin panel — worth
+doing early because they are how you would *notice* a problem, but their absence breaks nothing),
+**D1** (10/10 mint — D2's human pass is the one that can falsify anything), **E5** (computed cost —
+do it, but once B-2 bounds the tail it is a number, not a gate), **F1**/**F2** (premise re-check: two
+greps, at roll time as §18 says).
+
+**Now closed, verified at this commit, and worth striking from the owed list so it stops reading
+longer than it is:**
+
+- **§18.A5 for the browser — CLOSED.** `js/chat-payload-hash.js` exists; `js/chat.js:1148-1165` calls
+  `buildChatRequest` and spreads its `headers` into the `fetch`, honoring the
+  serialize-once-hash-that-string constraint and documenting it inline at `:1151-1155`; and
+  `test/chat-payload-hash.test.mjs:62` asserts
+  `headers['x-amz-content-sha256'] === sha256Hex(request.body)`. §24.9 item 11 is **done**, and
+  **A2 is no longer gated on it.**
+- **§24.10's contamination — FIXED.** The retryable-upstream widening landed (ADR-0023; §24.9 item 16
+  records the trigger as `is_upstream_retryable` on both paths since `f1a214d` / `0227545`). B1's
+  *cheaper* blocker is gone.
+- **§23.3 delta 5 (`AWS_LWA_READINESS_CHECK_PATH`) — DOWNGRADED to hygiene by measurement.** Still
+  unapplied (`grep AWS_LWA docker/chat/Dockerfile.lambda-stream` → only `AWS_LWA_INVOKE_MODE` at
+  `:38` and `AWS_LWA_PORT` at `:39`), but the stack has served measured streaming turns through
+  CloudFront (§24.1), so readiness is empirically fine. Set it for correctness; it gates nothing.
+
+### 27.3 The B1 waiver — recorded as a DECISION, because §24.5 requires that
+
+§24.5 says a B1 waiver "belongs in this ADR as a decision, not as a gap". Taking it at its word:
+
+> **DECISION 7 — §18.B1 (interleaved A/B latency vs stage Express) is WAIVED for the prod roll.**
+>
+> Grounds: (1) §1 establishes the driver as **cost, not capability**, and §24.1 measured TTFT on this
+> workload as **model-dominated** — the host contributes a minority of a 19–31 s turn. (2) The
+> baseline host does not answer: `gvp-chat-express-stage` is at `desiredCount: 0` and returns 503.
+> (3) A latency regression on this seam is **immediately observable in production and reversible by a
+> one-line meta revert** (§11 Reversible), provided prod Express still exists — a standing condition
+> of the roll (§27.1). Gating a cost-driven, reversible migration on an A/B against a scaled-to-zero
+> host is rigor in form and bookkeeping in substance.
+>
+> **Consequence, stated so it is not lost:** this ADR's latency claim for the browser path is
+> **UNMEASURED**. §13.1's SDK numbers do **not** substitute — §13.1 disqualifies them itself. Any
+> future citation of "the stream host is as fast as Express" must carry this waiver.
+>
+> **Cheap and still recommended, as follow-up rather than gate:** §24.5 option (a) — scale stage
+> Express to 1, take the interleaved samples now that §24.10's contamination is fixed, scale back.
+> Under $1. If taken, the result supersedes this waiver; if not, the waiver stands as written.
+
+### 27.4 Question 5's last part — is a deploy-script branch a prod-roll blocker?
+
+**Flagged as asked, not fixed. Verified:** `scripts/integrate-and-deploy.sh:312` is
+`if [[ "${CHAT_DEPLOY_TARGET:-express}" == "express" ]]; then`, closing at `:369`
+(`fi  # chat ECS Express deploy`). There is **no `elif`, no `else`, no `stream` branch** — the usage
+text at `:16` and `:31` documents only `express`. So `CHAT_DEPLOY_TARGET=stream` **silently deploys no
+chat at all**, and the stream stacks were necessarily deployed by hand.
+
+**Ruling: NOT a blocker — but only because B-5 exists, and the reasoning is the useful part.**
+
+Hand-rolled `--parameter-overrides` **cannot** omit an env **key**: env keys are declared in the
+template, so once the gate slice lands, every deploy of that template sets those names regardless of
+who typed the command. What a hand-deploy **can** do is pass an **empty value** — and
+`ChatAlertEmail`'s `Default: ''` means a forgotten override yields `alerts_enabled() == False` again,
+silently, with the template fully correct. **That is the real residual risk, and it is a value risk,
+not a key risk** — which is why the protection is the startup announcement (G5) plus one post-deploy
+read (B-5), not a shell branch.
+
+Two further notes, because "not a blocker" must not read as "fine":
+
+- **A silent no-op on an unrecognized `CHAT_DEPLOY_TARGET` is its own defect**, independent of this
+  ADR: the script should `exit 1` on a value it does not implement. Filed as drift item 19.
+- **The branch is the right next PM slice**, and should land before the *second* hand-deploy rather
+  than after. Hand-rolled parameters are how env parity drifts — the orchestrator's framing is
+  correct; the disagreement is only about whether that drift is caught by a script or by a check. A
+  check catches it closer to the symptom, which is why it is the blocker and the script is not.
+
+## 28. New drift found by this amendment — for the loop, not the architect (continues §24.9 at 18)
+
+18. **`aws/chat-stream-template.yaml`'s `ReservedConcurrency` parameter overloads `0`** (§26.4): `0`
+    means "do not reserve / unbounded" to the template and "disable the function" to the Lambda API,
+    while §18.E4's kill switch is "set it to 0". Opposite meanings for one literal, on the control
+    §27.1 B-2 makes a blocker. Fix in the `Description` plus the §26.4 default change.
+19. **`scripts/integrate-and-deploy.sh` silently no-ops on an unimplemented `CHAT_DEPLOY_TARGET`**
+    (`:312`, closing `:369`; usage at `:16`, `:31`). Any value but `express` deploys no chat and
+    prints nothing. Should `exit 1` naming the supported values. §27.4.
+20. **`aws/chat-stream-template.yaml:1-8`'s header is now FALSE.** It states *"Nothing here is
+    referenced by the committed `gvp:chat-api-url` meta (invariant 11) — testing is against the raw
+    Function URL."* Commit `046563d` pointed the committed stage meta at the CloudFront front door
+    whose exact `/api/chat` behavior targets this function. The file also still calls itself a
+    *"Measurement candidate ONLY"* that *"must not replace or disturb"* the Express stacks — it is now
+    stage's production chat host. Same class as items 14 and 17: a stale self-description that will
+    mislead the next reader.
+21. **`alerts.py`'s module docstring understates its own gate** (`:10-12`): *"a no-op unless
+    `CHAT_ALERT_EMAIL` (or `CONTACT_REPORT_EMAIL`) and `RESEND_API_KEY` are set"* — it omits the
+    **from**-address conjunct, which `alerts_enabled()` (`:53-54`) also demands via `_from_email()`
+    (`:42-46`). A reader who configures the two names the docstring lists still gets a silent no-op.
+    **Invariant #14's prose repeats the same omission** (`project-invariants.md:471-473`). Prose only;
+    fix both in the same edit as the Tier-1 change.
+22. **`test/chat-alert-gate-env.test.mjs`'s header calls `CHAT_READY_VERBOSE` a "legitimate
+    divergence".** True for that test's scope (the gate), **wrong** as a general parity rule — it is
+    read 4× in `main.py` and §18.C2 depends on it (§25.5). Narrow the comment to "out of scope for
+    this test" so it is not later mistaken for the exclusion list.
+23. **`CHAT_READY_VERBOSE_SECRET` is read by no template and documented nowhere** (`main.py:538`).
+    Either record it as deliberately unset (§25.5's third category) or remove the branch.

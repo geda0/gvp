@@ -123,6 +123,17 @@ Parameters:
       explicit reservation is now load-bearing rather than cosmetic.
       Reserved concurrency is NOT a substitute for an invocation/billing alarm —
       M-4 asks for both, and the alarm half (E2-E5) is still owed.
+      THIS PARAMETER OVERLOADS 0, AND THE TWO MEANINGS ARE OPPOSITES. Here, 0 means
+      "do not reserve" (the HasReservedConcurrency condition below omits the property
+      entirely), which leaves the function drawing on the 1000-wide unreserved pool —
+      i.e. UNBOUNDED. The Lambda API's 0 means the opposite: reserve zero, which
+      DISABLES the function. So ADR-0022 §18.E4's kill switch, phrased as "set it to
+      0", must NOT be thrown through this template: a deploy with
+      ReservedConcurrency=0 gives you unbounded concurrency when you were trying to
+      stop the function. The kill switch is out-of-band and immediate:
+        aws lambda put-function-concurrency --function-name <fn> \
+          --reserved-concurrent-executions 0 --region us-east-2
+      Never a deploy parameter.
 
 Conditions:
   HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]

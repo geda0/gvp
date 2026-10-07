@@ -985,6 +985,36 @@ invariant. The claim and the code move together, or the invariant lies again.
 
 ### 5.13 — A3.1′ amendment (2026-10-05, pre-green): two event types, and priority belongs to the type
 
+> **CROSS-REFERENCE added 2026-10-07 — ADR-0022 §25 (fourth amendment), DECISION 5. Nothing in
+> §5.13 is superseded; two things about it are now qualified.**
+>
+> **1. The registry is SIX types, not two.** §5.13 tabulates the two transcript types it decided.
+> Counted 2026-10-07 across twelve call sites: `chat_upstream_unavailable` (4),
+> `chat_primary_timeout` (2), `chat_primary_rate_limit` (2), `chat_model_error` (2) — all in
+> `gemini_routing.py` — plus `chat_transcript_write_failed` and `chat_transcript_session_full`
+> (`transcript_store.py:180,186`). §5.13's rule — *one event type = one priority = one throttle
+> bucket* — is the registry's governing rule and applies to all six. The anti-rule (do **not** key
+> the throttle on `(event_type, priority)`) likewise stands unchanged.
+>
+> **2. §5.13's actionability claim is VACUOUS on both Lambda hosts today — vacuous, not wrong.**
+> §5.13 decides a **masking** question: two independently-throttled types so a frequent benign
+> `chat_transcript_session_full` cannot own the bucket and silence a `chat_transcript_write_failed`
+> outage for a cooldown window. That reasoning is intact and needs no amendment. What it
+> **presupposes** is an announcement channel. **MEASURED 2026-10-07** with
+> `get-function-configuration`: `alerts_enabled()` is `False` on both deployed stage Lambda chat
+> hosts (7 and 11 env keys, none of the alert gate's five names), so on those hosts there is nothing
+> to mask and nothing to announce — the two-type design is correct and inert. Alerting had become a
+> property of the ECS Express host rather than of the application.
+>
+> **What this does to M0 A3.1/A3.2's guarantee:** it is satisfied by the **emission** tier, not by
+> the email. ADR-0022 DECISION 5 makes every `fire_alert` write an unconditional structured log line
+> (Tier 1) and makes delivery a per-host capability (Tier 2), recorded as **project invariant 19**.
+> Until Tier 1 ships, read A3.1/A3.2's "the operator learns" as conditional on the host — which is
+> the correction, and the reason the fix is a prod-roll blocker (ADR-0022 §27.1 B-1) rather than a
+> documentation note. Option (c) — "accept best-effort and say so" — was considered and **rejected**
+> in ADR-0022 §25.4a: invariant #14's "best-effort" bounds the failure *mode*, not the failure
+> *rate*, and a contract that tolerates loss does not thereby tolerate certainty of loss.
+
 **The coordinator's reading is correct, and the defect is slightly worse than described.**
 Verified in `docker/chat/app/alerts.py`:
 
