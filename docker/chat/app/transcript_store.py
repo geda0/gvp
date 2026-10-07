@@ -168,11 +168,26 @@ class TranscriptStore:
             logger.exception("Failed to persist chat transcript id=%s", resolved_id)
             from app.alerts import fire_alert
 
-            fire_alert(
-                'chat_transcript_write_failed',
-                f'transcript persist failed for session {resolved_id}',
-                f'{type(exc).__name__}: {str(exc)[:240]} (session_id={resolved_id})',
-            )
+            detail = f'{type(exc).__name__}: {str(exc)[:240]} (session_id={resolved_id})'
+            # Two different operational facts, so two event TYPES (ADR-0020
+            # 5.13): a budget refusal means writes are healthy and ONE session
+            # is full (P2); anything else means writes are broken (P1).
+            # alerts.py throttles per event type, so sharing one type would let
+            # the frequent benign refusal suppress a real outage for the whole
+            # cooldown window. Discriminate by class NAME, not a botocore
+            # import: this module must survive boto3 being absent.
+            if type(exc).__name__ == 'ConditionalCheckFailedException':
+                fire_alert(
+                    'chat_transcript_session_full',
+                    f'transcript session {resolved_id} hit its byte budget',
+                    detail,
+                )
+            else:
+                fire_alert(
+                    'chat_transcript_write_failed',
+                    f'transcript persist failed for session {resolved_id}',
+                    detail,
+                )
 
 
 def build_transcript_store() -> TranscriptStore | None:

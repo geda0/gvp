@@ -35,6 +35,32 @@ class RaisingTable:
         raise self._error
 
 
+class ConditionalCheckFailedException(Exception):
+    """Stand-in for what DynamoDB raises when an `UpdateItem`'s
+    `ConditionExpression` is false — here A3.2's `bytesStored < :budget` guard,
+    i.e. a session that hit its byte budget. Deliberately carries BOTH
+    recognition affordances a real botocore error has: the class **name**
+    (`type(exc).__name__` — the discriminator ADR-0020 §5.13 decided on, because
+    `transcript_store.py:75-78` exists precisely so the module survives boto3
+    being absent, and so it may not add a `botocore.exceptions` import that can
+    fail at module scope) and the `response['Error']['Code']` botocore
+    populates. So the test pins the ROUTING, not the mechanism: either
+    recognition strategy satisfies it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            'An error occurred (ConditionalCheckFailedException) when calling '
+            'the UpdateItem operation: The conditional request failed'
+        )
+        self.response = {
+            'Error': {
+                'Code': 'ConditionalCheckFailedException',
+                'Message': 'The conditional request failed',
+            }
+        }
+
+
 @pytest.mark.asyncio
 async def test_chat_persists_transcript_turn(client) -> None:
     chain_before = app.state.chain
@@ -296,3 +322,83 @@ async def test_broken_write_fires_an_actionable_alert(
     # The counter still moves: the alert is additional to the swallow, not a
     # replacement for it.
     assert store.stats()['writes_failed'] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_full_session_announces_itself_as_session_full_while_a_broken_write_still_announces_broken_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR-0020 §5.13 (A3.1'). A3.2's `ConditionExpression` made the
+    `ConditionalCheckFailedException` branch reachable in production for the
+    first time, and `persist_turn` funnels EVERY exception into one
+    `chat_transcript_write_failed` — the P1 "writes are broken" page. So a
+    routine full session now wakes the owner for an outage that isn't one.
+
+    Per §5.13's table, the two conditions are two event TYPES, because
+    `alerts.py:65-72` throttles per type and knows nothing about priority:
+      * `chat_transcript_write_failed` (P1) — any persist exception that is NOT
+        the budget condition: *writes are broken*.
+      * `chat_transcript_session_full` (P2) — ONLY the budget condition:
+        *one session hit its byte budget; writes are healthy*.
+
+    BOTH halves are asserted here on purpose. The session-full half alone is
+    satisfied by renaming the existing fire unconditionally, which would delete
+    the P1 outage signal outright.
+
+    And the cooldown is deliberately left at the PRODUCTION DEFAULT (3600s —
+    the env override is removed, not zeroed). That is what makes this a test of
+    *independent throttle buckets* rather than of two string literals: the
+    benign P2 fires FIRST, which is the exact shape of the masking bug §5.13
+    exists to prevent. Under one shared type it owns the bucket for the hour and
+    the outage below is silently swallowed, so `fired` holds one entry instead of
+    two. If this test ever needs `CHAT_ALERT_COOLDOWN_SECONDS='0'` to pass, the
+    types have collapsed back into one bucket and the amendment has been undone.
+    """
+    # Alerts ship dark: configure with throwaway values and capture at the send
+    # seam, so nothing is delivered.
+    monkeypatch.setenv('CHAT_ALERT_EMAIL', 'owner@example.com')
+    monkeypatch.setenv('CHAT_ALERT_FROM_EMAIL', 'alerts@example.com')
+    monkeypatch.setenv('RESEND_API_KEY', 'k-test')
+    monkeypatch.delenv('CHAT_ALERT_COOLDOWN_SECONDS', raising=False)
+    alerts.reset_for_tests()
+    fired: list[tuple[str, str, str]] = []
+
+    async def _capture(event_type: str, summary: str, detail: str) -> None:
+        fired.append((event_type, summary, detail))
+
+    monkeypatch.setattr(alerts, '_send', _capture)
+
+    full_session = TranscriptStore('ChatTranscripts')
+    full_session._table = RaisingTable(ConditionalCheckFailedException())
+    broken_writes = TranscriptStore('ChatTranscripts')
+    broken_writes._table = RaisingTable(RuntimeError('ProvisionedThroughputExceeded'))
+
+    refusal_returned = await full_session.persist_turn(
+        session_id='s-full', created_at='2026-01-01T00:00:00+00:00',
+        prompt_version='v1', provider='mock', model='m',
+        turn={'reply': 'a'}, flags={},
+    )
+    await asyncio.sleep(0)  # let the detached alert task run
+
+    await broken_writes.persist_turn(
+        session_id='s-broken', created_at='2026-01-01T00:00:00+00:00',
+        prompt_version='v1', provider='mock', model='m',
+        turn={'reply': 'a'}, flags={},
+    )
+    await asyncio.sleep(0)
+
+    assert [event_type for event_type, _, _ in fired] == [
+        'chat_transcript_session_full',
+        'chat_transcript_write_failed',
+    ], (
+        'a budget refusal is a healthy write refusing one full session (P2); a '
+        'broken write is an outage (P1). One shared type means the frequent '
+        'benign fire suppresses the outage for the whole cooldown window'
+    )
+    assert 's-full' in fired[0][2], (
+        'the session-full alert must name the session that stopped accepting '
+        'turns — it is the only thing the owner can act on'
+    )
+    # The swallow still holds: the caller is a fire-and-forget beacon, so a
+    # refusal may never surface at the turn that triggered it.
+    assert refusal_returned is None
