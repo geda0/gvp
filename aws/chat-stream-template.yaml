@@ -1,30 +1,46 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
+# ─────────────────────────────────────────────────────────────────────────────────
+# WHY THIS PROSE IS IN COMMENTS AND NOT IN `Description`: CloudFormation caps the
+# template `Description` at 1024 characters, and a changeset fails outright with
+# "'Description' length is greater than 1024" when it is exceeded. MEASURED
+# 2026-10-07: it had grown to 1892. `aws cloudformation validate-template` accepts
+# an over-long Description, so only a real deploy catches it. Comments have no such
+# limit and no deploy cost, so durable rationale belongs here.
+#
+# NO LONGER A MEASUREMENT CANDIDATE ON STAGE. This stack still runs SIDE BY SIDE
+# with gvp-chat-express-{stage,prod} and must not disturb them, but as of commit
+# 046563d the committed STAGE gvp:chat-api-url meta points at the CloudFront front
+# door in aws/chat-stream-cdn-template.yaml, whose exact /api/chat behavior targets
+# THIS stack's Function URL. Stage browser traffic is therefore served from here and
+# invariant 11 does bind this host. The original wording ("nothing here is
+# referenced by the committed meta") was true when written and is now false. PROD is
+# still on gvp-chat-express-prod and is unaffected by this stack.
+#
+# ALERTING IS WIRED BUT NOT NECESSARILY LIT, and the distinction is the point. This
+# stack DECLARES the three env vars docker/chat/app/alerts.py gates on
+# (RESEND_API_KEY, CHAT_ALERT_EMAIL, CHAT_ALERT_FROM_EMAIL) plus CHAT_ENV, pinned by
+# test/chat-alert-gate-env.test.mjs. But all three parameters default to '', so
+# alerts_enabled() is still False unless the DEPLOY passes real values. A deploy can
+# no longer omit a key; it can still pass an empty one and silently reproduce the
+# state measured on 2026-10-07, when this host dropped all six chat alert types with
+# no log line. The test pins KEY PRESENCE only, deliberately — asserting the values
+# would make it a secret-shaped liability. So presence is enforced by the suite and
+# liveness is not: verify liveness on the deployed function after any deploy, per
+# ADR-0022 §27.1 B-5.
+#
+# CHAT_ENV takes StageName, which DEFAULTS TO 'stage'. A prod deploy that forgets to
+# override it labels prod alerts '[chat alert · stage]' — worse than the 'unknown' it
+# replaced, because it is confidently wrong. scripts/integrate-and-deploy.sh passes
+# StageName=${DEPLOY_ENV} for exactly this reason; a hand-deploy must too.
+# ─────────────────────────────────────────────────────────────────────────────────
+
 Description: >
   ADR-0022 — portfolio chat on Lambda RESPONSE STREAMING via the AWS Lambda Web
-  Adapter, behind a Lambda Function URL (InvokeMode RESPONSE_STREAM).
-  NO LONGER A MEASUREMENT CANDIDATE ON STAGE. It still runs SIDE BY SIDE with
-  gvp-chat-express-{stage,prod} and must not disturb them, but as of commit 046563d
-  the committed STAGE gvp:chat-api-url meta points at the CloudFront front door in
-  aws/chat-stream-cdn-template.yaml, whose /api/chat behavior targets THIS stack's
-  Function URL. So stage browser traffic is served from here and invariant 11 does
-  bind this host — the earlier wording ("nothing here is referenced by the committed
-  meta") was true when written and is now false. PROD is still on
-  gvp-chat-express-prod and is unaffected by this stack.
-  ALERTING IS WIRED BUT NOT NECESSARILY LIT, and the distinction is the whole point.
-  This stack now DECLARES the three env vars docker/chat/app/alerts.py gates on
-  (RESEND_API_KEY, CHAT_ALERT_EMAIL, CHAT_ALERT_FROM_EMAIL) plus CHAT_ENV, pinned by
-  test/chat-alert-gate-env.test.mjs. But all three parameters default to '', so
-  alerts_enabled() is still False unless the DEPLOY passes real values — a deploy
-  cannot omit a key any more, but it can trivially pass an empty one and silently
-  reproduce the state measured on 2026-10-07, when this host dropped all six chat
-  alert types with no log line. The test pins KEY PRESENCE only, deliberately: a test
-  that asserted the values would be a secret-shaped liability. So presence is
-  enforced by the suite and liveness is not — verify liveness on the deployed
-  function after any deploy, per ADR-0022 §27.1 B-5.
-  CHAT_ENV takes StageName, which DEFAULTS TO 'stage'. A prod deploy that forgets to
-  override it labels prod alerts '[chat alert · stage]', which is worse than the
-  'unknown' it replaced, because it is confidently wrong. Pass StageName explicitly.
+  Adapter, behind a Function URL (InvokeMode RESPONSE_STREAM). Serves STAGE browser
+  traffic through the CloudFront front door in aws/chat-stream-cdn-template.yaml;
+  prod is still on gvp-chat-express-prod. Alerting is wired here but only LIT when
+  the deploy passes real values — see the comments above this field.
 
 Parameters:
   StageName:
