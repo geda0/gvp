@@ -19,9 +19,42 @@ CHAT_LIST_PK = 'CHAT_TRANSCRIPT'
 # every later write for that session raises, is swallowed in persist_turn, and
 # the turn is lost -- a permanently wedged session with no visible symptom.
 # The budget is carried IN the item (`bytesStored`) and the write is conditional
-# on it, leaving 20 KiB of headroom for one more maximal turn plus the
-# item-level scaffolding.
-SESSION_BYTE_BUDGET = 380 * 1024
+# on it.
+#
+# DynamoDB's documented hard maximum item size.
+DYNAMODB_MAX_ITEM_BYTES = 400 * 1024
+
+# `bytesStored` accumulates `len(json.dumps(turn))` and NOTHING ELSE: not attribute
+# names, not DynamoDB's own encoding, not the `turns` list structure, not the
+# item-level attributes this update SETs fresh every turn. So the counter is always
+# SMALLER than the real item.
+# MEASURED on stage 2026-10-07, by filling one session through the public sink: the
+# counter read 387_824 with 16 turns stored -- 21_776 bytes UNDER the 409_600 limit
+# and still under the then-budget of 389_120, so the condition was happily permitting
+# writes -- while DynamoDB had already refused the write with
+# "Item size to update has exceeded the maximum allowed size". The real item was
+# therefore >= 409_600 while the counter said 387_824: an undercount of at least 5.6%.
+# That 5.6% is a FLOOR, not a value -- the refusal proves the item was past the limit,
+# not how far past -- so the margin is set at 10% of the limit, a little under 2x the
+# measured floor. It costs ~41 KB of 400 KB, roughly one maximal turn in nine, against
+# losing every later turn of a session.
+UNDERCOUNT_MARGIN_BYTES = DYNAMODB_MAX_ITEM_BYTES // 10
+
+
+def session_byte_budget(turn_bytes: int) -> int:
+    """The largest `bytesStored` that may still accept a turn of `turn_bytes`.
+
+    Computed PER WRITE rather than fixed, because the condition gates on the bytes
+    ALREADY stored and so permits a write whenever `bytesStored < budget`. A static
+    budget therefore allows an item of `budget - 1 + turn_bytes`, and the previous
+    static 380 KiB left only 20_480 bytes of headroom for a turn measured at 42_848 --
+    i.e. an over-limit item was reachable by ARITHMETIC, before the undercount above
+    even entered into it. Subtracting the turn being appended makes the condition read
+    "adding THIS turn stays under the limit", which is the property that was wanted,
+    and it keeps full capacity for small turns instead of pessimising every session to
+    the worst case.
+    """
+    return DYNAMODB_MAX_ITEM_BYTES - turn_bytes - UNDERCOUNT_MARGIN_BYTES
 
 
 class TranscriptStore:
@@ -86,6 +119,8 @@ class TranscriptStore:
                 'transcript_store is disabled (boto3 import failed at startup; '
                 'check requirements.txt and rebuild the chat image)'
             )
+        # Once, and used for BOTH the charge and the threshold: they must agree.
+        turn_bytes = len(json.dumps(turn).encode('utf-8'))
         table.update_item(
             Key={'id': session_id},
             UpdateExpression=(
@@ -129,8 +164,8 @@ class TranscriptStore:
                 ':one': 1,
                 # Charge the turn being appended, not the whole write: the
                 # item-level fields are SET fresh each turn, never accumulated.
-                ':turnBytes': len(json.dumps(turn).encode('utf-8')),
-                ':budget': SESSION_BYTE_BUDGET,
+                ':turnBytes': turn_bytes,
+                ':budget': session_byte_budget(turn_bytes),
             },
         )
 
