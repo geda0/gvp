@@ -649,7 +649,9 @@ kept verbatim because the two numbers in it are exactly what was wrong.** Found 
 owner-authorized ADR-0022 §25.3-M probe, which filled one stage session through the public sink and
 produced the *undesigned* failure: the alert that fired was `chat_transcript_write_failed` carrying
 `ValidationException: Item size to update has exceeded the maximum allowed size` — **not**
-`chat_transcript_session_full`. The budget never engaged. Two independent defects:
+`chat_transcript_session_full`. The budget never engaged. ~~Two independent defects:~~ **Filed as two
+independent defects; on review (2026-10-07, architect) only the FIRST is established — the second is
+retracted below, and the first is sufficient on its own to explain everything observed.**
 
 1. **The headroom was smaller than one turn, so an over-limit item was reachable by arithmetic
    alone.** The condition gates on bytes *already* stored, so it permits a write whenever
@@ -658,14 +660,57 @@ produced the *undesigned* failure: the alert that fired was `chat_transcript_wri
    existing unit test, against **20_480** bytes of headroom. The prose above calls a maximal turn
    "44 KB" in the very next paragraph while setting a budget that leaves less than half that — the
    refutation was sitting inside the decision.
-2. **`bytesStored` undercounts the real item.** `len(json.dumps(turn))` counts the turn's JSON and
+2. ~~**`bytesStored` undercounts the real item.**~~ **RETRACTED 2026-10-07 by the architect — the
+   inference does not hold, and it contradicts a derivation this repo had already published. Kept
+   struck rather than deleted, because a correction that is itself wrong is the most dangerous thing
+   in a document and striking it is the only honest record of that.** The filed text was: *"`len(json.dumps(turn))` counts the turn's JSON and
    nothing else: not attribute names, not DynamoDB's encoding, not the `turns` list structure, not
    the item-level attributes the update SETs fresh every turn. MEASURED on stage: the counter read
-   **387_824** with 16 turns stored — 21_776 bytes *under* the 409_600 limit and under the
+   **387_824** with 16 turns stored — 21_776 bytes under the 409_600 limit and under the
    then-budget, so the condition was still permitting writes — while DynamoDB had already refused
    the write. The real item was therefore ≥ 409_600 while the counter said 387_824: an undercount
-   of at least **5.6%**, and that figure is a *floor*, since a refusal proves the item was past the
-   limit and not how far past. **Turns 17 and 18 were lost.**
+   of at least 5.6%, and that figure is a floor."*
+
+   **Why it fails, in one step.** `ValidationException: Item size to update has exceeded the maximum
+   allowed size` is evaluated against the item **after** the update. So the refusal bounds
+   `stored + turn`, **never `stored` alone** — and the whole inference rested on reading it as a
+   statement about `stored`. The measurement is silent about the counter's accuracy.
+
+   **And defect 1 alone explains the refusal, arithmetically and completely.** Slack was
+   `409_600 − 387_824 = 21_776` bytes. The mean stored turn was `387_824 / 16 = 24_239` bytes. So
+   `387_824 + 24_239 = 412_063 > 409_600`: **the next average-sized turn overflows unaided**, and
+   any turn over 21_776 bytes does — including the 42_848-byte route-clamped maximum this ADR
+   already cites. Nothing beyond defect 1 is required to produce the observed failure, so nothing
+   beyond defect 1 is evidenced by it. *This is the ordinary trap of a two-defect filing: the first
+   defect was sufficient, and the second was read out of the same data without checking whether the
+   first had already consumed it.*
+
+   **It also had the wrong sign, and the counter-derivation is this project's own.** Invariant 17's
+   `10 × 2000` bound is justified type by type on the premise that **DynamoDB's documented
+   accounting of a JSON value is ≤ its `json.dumps` character count** (a string's UTF-8 bytes ≤ its
+   escaped length; a map costs `3 + Σ(len(k)+1+v)` vs JSON's `2 + Σ(len(k)+4+v)`; a list costs
+   `3 + Σ(v+1)` vs JSON's `2 + Σ(v+2)`). If that holds, `bytesStored` **over**counts the turns'
+   DynamoDB contribution. Two documents in this repo asserted opposite signs for the same quantity;
+   the measurement supports neither, and the one with a derivation behind it wins.
+
+   **What IS genuinely uncounted**, stated so the margin is not left with no justification at all:
+   the item-level scaffolding — the thirteen attributes `_persist_sync` SETs fresh every turn
+   (`id`, `listPk`, `createdAt`, `updatedAt`, `promptVersion`, `provider`, `model`, `reviewed`,
+   `adminNotes`, `flags`, `flagged`, `turnCount`, `bytesStored`) plus the `turns` list's per-element
+   overhead. That is a **constant of order hundreds of bytes**, and critically it does **not** grow
+   with turn count — so it cannot be expressed as a percentage of the limit and 10% is not a
+   calibration of it.
+
+   **Turns 17 and 18 were lost** — that part is solid, and independently re-verified: exactly **two**
+   `CHAT_ALERT event=chat_transcript_write_failed env=stage` lines for session
+   `freeze-probe-1791402857` (ADR-0022 §25.3-M).
+
+   **The fix in `5620bd8` stands; do not revert it and do not retune the margin on this.**
+   Subtracting `turn_bytes` per write is precisely the right repair for defect 1, which was the real
+   and sufficient defect, and the margin errs in the safe direction. A 40 KB margin bought with a
+   bad reason is still a 40 KB margin. Changing a working bound to improve its paperwork is how the
+   `380 * 1024` literal got there in the first place; retune it only against an actual measurement
+   of the scaffolding. Full reasoning: ADR-0022 §29.6.
 
 **What A3.2 actually achieved, stated precisely:** it converted silent, permanent data loss into a
 *loud* alert — which is A3.1's contribution and is real — but it did **not** bound the item, so the
@@ -676,8 +721,21 @@ good; A3.2 now merely keeps the item inside the limit.
 **The fix:** the threshold is computed PER WRITE as
 `DYNAMODB_MAX_ITEM_BYTES - turn_bytes - UNDERCOUNT_MARGIN_BYTES`, so the condition reads "adding
 THIS turn stays under the limit" rather than "the item is not yet nearly full". Small turns keep
-full capacity instead of every session being pessimised to the worst case. The margin is 10% of the
-limit (40_960), a little under 2× the measured floor.
+full capacity instead of every session being pessimised to the worst case. ~~The margin is 10% of the
+limit (40_960), a little under 2× the measured floor.~~ **Amended 2026-10-07 with the retraction
+above:** the margin is 10% of the limit (**40_960**), and "2× the measured floor" was a reference to
+the retracted 21_776 figure, so **the margin has no quantitative justification and is now labelled
+as the conservative guess it is.** It covers the item-level scaffolding (hundreds of bytes) with
+roughly two orders of magnitude to spare, which is wasteful and safe. Kept as-is per §29.6: the
+number works, and re-deriving a working bound is how the original literal was introduced.
+
+**DRIFT, for the loop, not the architect:** `docker/chat/app/transcript_store.py:27-41` still carries
+the retracted reasoning verbatim in the `UNDERCOUNT_MARGIN_BYTES` comment (*"the counter is always
+SMALLER than the real item"*, *"an undercount of at least 5.6%"*, *"a little under 2x the measured
+floor"*). Prose only — **the constant and all behaviour stay exactly as they are**; replace the
+justification with the §29.6 one and keep the name (renaming the constant is a behaviour-free churn
+that would invalidate the test's mutation record). `transcript_store.py` is **not** on
+`SECURITY_GLOB`, so no clearance is required.
 
 **Pinned as a relationship, not a literal, and that distinction is the lesson.** The pre-existing
 test asserted `values[':budget'] == 380 * 1024`. That assertion pinned the defect and is precisely

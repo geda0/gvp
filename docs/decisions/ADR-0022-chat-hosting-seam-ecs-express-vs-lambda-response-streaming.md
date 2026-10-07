@@ -1850,6 +1850,14 @@ names, emitted once from the existing `lifespan` hook (`docker/chat/app/main.py:
 
 ### 25.3 The unmeasured half — fire-and-forget under Lambda freeze
 
+> **STANDING SUPERSEDED 2026-10-07 — this claim is now MEASURED and CONFIRMED. See §25.3-M below
+> and §29.** Everything from here to the end of §25.3 is the DERIVATION as it was filed, kept
+> verbatim because the measurement vindicated it and a prediction is only worth anything if the
+> text that made it is still legible. Read the paragraph immediately below as historical: the words
+> "NOT MEASURED" were true when written and are false now. **The one consequence that changed:**
+> the table further down says "if TRUE → Tier 2 is the *only* delivery path on Lambda". It is true.
+> So Tier 2 is no longer a belt, and §27.1 B-3 moves with it.
+
 **Standing of this claim, stated so it is not blurred with §25.1: DERIVED from AWS's documented
 execution-environment semantics plus the code path. NOT MEASURED on this function.** The
 orchestrator attempted the measurement today (set the gate vars to dummies plus a bogus Resend key
@@ -1910,7 +1918,7 @@ mechanisms and the probe exercised only the first. **§25.3-M remains owed**, un
 **next** invocation's log stream, or **never**. "Before REPORT" refutes the claim outright; "next
 invocation" confirms delay; "never" confirms loss.
 
-#### 25.3-M, attempt 1 — ATTEMPTED 2026-10-07, NOT COMPLETED. Still owed.
+#### 25.3-M, attempt 1 — ATTEMPTED 2026-10-07, NOT COMPLETED. **Superseded by attempt 2, which completed. Kept because the four dead ends are the reusable part.**
 
 Recorded because "owed" reads the same whether a measurement was never tried or tried and blocked,
 and those are different states. The owner authorized it; the reading half is built
@@ -1941,11 +1949,91 @@ T1/T2/TR per environment and classifies each as REFUTES / DELAYED / LOST). What 
    to error.
 
 **Consequence for the roll: none.** §25.3 already states that nothing in DECISION 5 is contingent on
-this, and §27.1 B-1 is justified by the measured half alone. The claim in §25.3 therefore stays
-labelled **DERIVED, NOT MEASURED**, and invariant 19's "Open, labelled honestly" paragraph stands
-unchanged. What is now additionally known is that completing it needs the owner to permit **one** of
-(2) or (3) explicitly — (3) is the cheaper and more deterministic of the two, and its only lasting
-side effect is one oversized item in the **staging** table, which can be deleted afterwards.
+this, and §27.1 B-1 is justified by the measured half alone. ~~The claim in §25.3 therefore stays
+labelled **DERIVED, NOT MEASURED**~~ — struck by attempt 2. What is now additionally known is that
+completing it needs the owner to permit **one** of (2) or (3) explicitly — (3) is the cheaper and
+more deterministic of the two, and its only lasting side effect is one oversized item in the
+**staging** table, which can be deleted afterwards.
+
+#### 25.3-M, attempt 2 — **COMPLETED 2026-10-07. The freeze claim is CONFIRMED. Verdict: the detached task never ran to completion, and no email was sent.**
+
+The owner authorized trigger (3). One stage transcript session was filled through the public sink
+until a write was refused, which fired `chat_transcript_write_failed` on
+`gvp-chat-stage-ChatFunction-e9cDGaRVL5II`. **Counts re-verified independently by the architect
+against CloudWatch, not taken from the filing:**
+
+| Pattern on `/aws/lambda/gvp-chat-stage-ChatFunction-e9cDGaRVL5II` | Count |
+|---|---|
+| `CHAT_ALERT` (Tier 1, synchronous) | **2** |
+| `alert sent event` (`alerts.py:148`, INFO, success branch) | **0** |
+| `alert send failed` (`:144-146`, WARNING, HTTP ≥400 branch) | **0** |
+| `alert send errored` (`:150`, WARNING, exception branch) | **0** |
+
+The two Tier-1 lines, quoted so the record does not depend on a log group:
+
+```
+2026-10-07T19:54:26.623Z  [WARNING] CHAT_ALERT event=chat_transcript_write_failed env=stage transcript persist failed for session freeze-probe-1791402857
+2026-10-07T19:54:27.396Z  [WARNING] CHAT_ALERT event=chat_transcript_write_failed env=stage transcript persist failed for session freeze-probe-1791402857
+```
+
+**Three things the architect added to the filing, two of which strengthen it and one of which
+corrects it.**
+
+1. **A confound the filing left open is now closed.** `alert sent event=` is `logger.info`, so a
+   zero count would be *vacuous* if the effective level were WARNING — the line would be absent
+   whether or not the task ran. `docker/chat/app/main.py:45` is
+   `logging.basicConfig(level=logging.INFO)`, so INFO **is** emitted. The zero is real.
+2. **The filing checked two of the three outcome branches; all three are zero.** `_send` has
+   exactly three terminal log statements — success (INFO), HTTP-error (WARNING) and a bare
+   `except Exception` (WARNING, `exc_info=True`). Checking only the first two leaves the reading
+   "it ran and threw" alive. It did not throw. It did not run to any terminus at all.
+3. **CORRECTION — the filing said "a 10-minute window spanning many later invocations". There were
+   ZERO later invocations.** Measured: the firing log stream
+   `2026/10/07/[$LATEST]8cf8667b87b241cbad6b1f202314f6a2` carries **18** `REPORT` lines, and the two
+   alerts fired in the **last two** of them. After the second alert's `REPORT` at 19:54:27.398Z the
+   function was **not invoked again at all** — `filter-log-events` for `REPORT` from 19:54:27.399Z
+   to the time of writing (21.5 minutes) returns **0** across the whole log group. The window had
+   many *earlier* invocations, not later ones.
+
+**Why correction 3 matters, and why the verdict survives it.** It matters because a detached
+`create_task` is **per execution environment**: only a thaw of *that* environment can advance it, so
+"many later invocations" would only be evidence if they landed on the same environment. They
+didn't — there were none. So the evidence is not "the task had many chances and took none"; it is:
+
+- **The "REFUTES" branch of the §25.3 protocol is dead outright.** The protocol asked whether the
+  outcome line appears **before** the firing invocation's `REPORT`. Alert 1's line is at
+  19:54:26.623Z and its `REPORT` at 19:54:27.065Z — **442 ms**, no outcome line. Alert 2's line is
+  at 19:54:27.396Z and its `REPORT` at 19:54:27.398Z — **2 ms**. A 10 s-timeout `httpx` POST to a
+  third-party API cannot complete in 2 ms. The in-invocation hypothesis is refuted quantitatively,
+  not by absence.
+- **The "DELAYED" branch got exactly one chance and failed it.** Alert 1's task was pending when the
+  environment froze; the environment thawed once more for alert 2's invocation — **48.50 ms** of
+  billed duration — and froze again. 48 ms is not enough for the POST, so the task was still
+  pending at the second freeze, and the environment was never thawed again.
+- **"LOST" is therefore the verdict**, by the protocol's own definition ("never"), with the
+  mechanism named precisely: *lost because the environment was never thawed for long enough again*.
+
+**Generalise it carefully — the honest claim is weaker than "always lost" and stronger than
+"sometimes delayed".** On a busy host the same task would be **delayed** by an unbounded amount
+(and then attributed to a later request's log stream with a stale body); on this host, at this
+traffic level (77 lifetime sessions; zero invocations in the 21 minutes after a real degradation
+event), it is **lost**. Neither is a delivery channel. The correct general statement, and the one
+invariant 19 should carry: **a detached `create_task` is not a delivery mechanism on Lambda — its
+outcome is delay or loss, never guaranteed delivery, and which one you get is a property of your
+traffic rather than of your code.** Note the direction of the trap: the quieter the host, the more
+certainly the alert is lost — so alerting fails hardest exactly where failures are least likely to
+be noticed by any other means.
+
+**Consequence, which is the point of having run this.** §25.3's table has an answer in the TRUE
+column: **Tier 2 on Lambda is required as the *only* delivery path, not as a belt.** Nothing in
+DECISION 5 changes (it was written not to depend on this), but **E6 is no longer an optional
+hardening** — without it, a Lambda chat host emits a durable *record* and no *notification*, which
+is better than 2026-10-07's nothing and is still not alerting. §27.1 B-3 is restated accordingly,
+and §29 rules on how the metric filter gets a log group to attach to.
+
+**Side effects of the probe, for the ledger:** one wedged `freeze-probe-1791402857` session item in
+the **staging** transcripts table (deletable), and it incidentally found a real A3.2 defect — see
+§29.6 and ADR-0020's A3.2 correction, where the architect has also corrected the correction.
 
 ### 25.4 Ruling on the three options as filed — (a) rejected, (b) rejected as framed, (c) rejected
 
@@ -2272,6 +2360,29 @@ Context: the owner has **browser-tested stage end-to-end and reports it passed**
   alarm: a reservation caps the bill's slope, an alarm is how you learn. The owed set is three
   alarms; **one delivering invocation alarm is the floor** below which this is not a blocker list but
   a hope.
+  **RESTATED 2026-10-07 after §25.3-M completed, and the restatement WIDENS B-3 rather than closing
+  it.** Two measured facts move it:
+  (i) **The Tier-2 metric-filter alarm (E6) joins B-3 as a blocker in its own right.** §25.3-M
+  confirmed the freeze claim, so on a Lambda chat host the metric-filter alarm is the **entire**
+  delivery path for all six alert types — not a belt over an in-process email that works once the
+  gate is satisfied. B-3 was written about *invocation/billing* alarms; it now reads: **one
+  delivering invocation alarm AND the Tier-1 metric-filter alarm**, on each Lambda host. §29 rules
+  on the log-group ownership E6 needs and publishes the exact resources.
+  (ii) **"Confirmed delivering" is now the load-bearing phrase in B-3, and it has two measured
+  counter-examples in this account.** MEASURED 2026-10-07, us-east-2:
+  `gvp-chat-stage-ChatErrorTopic-wRMWQy6I5qiR`'s only subscription is literally
+  `PendingConfirmation`, so `gvp-chat-stage-ChatLambdaErrorsAlarm-J4azDB192uZP` — created the same
+  day at 10:01, in `OK` ever since, never yet fired — **has never been able to deliver anything.**
+  Independently, `page-ContactAlarmTopic-CDrjLAHILdwB` has **zero** subscriptions while **three
+  prod** contact alarms name it as their `AlarmActions` target. So "an alarm exists" and "an alarm
+  delivers" have already come apart twice here, on both sides of the stage/prod line, in two
+  different ways. B-3 is satisfied by a **verified** subscription and never by a declared one; the
+  one-call check is §29.5.
+  The critic's precision on the existing alarm is accepted and recorded: `ChatLambdaErrorsAlarm`
+  keys on Lambda `Errors` and is **structurally blind** to the 200-with-silent-degradation class
+  this whole thread is about (§25.1a: a healthy-looking `200 text/event-stream` over a 13.2 s
+  fallback emits no Lambda error). Its existence is not coverage — and as measured, its existence
+  was not even delivery.
 - **B-4 — Invariant 18's trailing-slash hole, pinned.** Still live and still unproven by anything in
   the suite. The prod failure mode is the **silent** one: a correct-looking 200 `text/event-stream`
   delivered all at once — the exact defect this migration exists to remove. **Blocker = pin 1 only**
@@ -2381,6 +2492,9 @@ Two further notes, because "not a blocker" must not read as "fine":
 
 ## 28. New drift found by this amendment — for the loop, not the architect (continues §24.9 at 18)
 
+*Items 18–24 are the third amendment's. **Items 25–28 are the fourth amendment's (§29)** and are
+listed here rather than under §29 so there stays exactly one drift list in this ADR.*
+
 18. **`aws/chat-stream-template.yaml`'s `ReservedConcurrency` parameter overloads `0`** (§26.4): `0`
     means "do not reserve / unbounded" to the template and "disable the function" to the Lambda API,
     while §18.E4's kill switch is "set it to 0". Opposite meanings for one literal, on the control
@@ -2423,3 +2537,528 @@ Two further notes, because "not a blocker" must not read as "fine":
     also lives: `note_primary_timed_out()` (`gemini_limit_state.py:55-63`) sets
     `_prefer_fallback = True` for the day, as **in-process** state, so on Lambda the routing posture
     is per-execution-environment and observable from nowhere.
+25. **`page-ContactAlarmTopic-CDrjLAHILdwB` (PROD contact) has ZERO subscriptions, while three prod
+    alarms name it as their `AlarmActions` target** — `page-ContactDlqAlarm-C0tNNKTBDk8A`,
+    `page-ContactFailureReportErrorsAlarm-WpyYDNCxmUUR`, `page-DailyReportErrorsAlarm-RKSAVlbgtQSL`.
+    MEASURED 2026-10-07 via `list-subscriptions-by-topic` (§29.5). A topic with no subscribers
+    accepts every publish **successfully**, so all three prod alarms are indistinguishable from
+    working. This is the §25.1 failure class in the **contact** stack — out of ADR-0022's scope,
+    which is why it is filed and not fixed. The stage twin
+    (`page-staging-ContactAlarmTopic-GcvNmIoBx8Dr`) has one **confirmed** subscription, so the
+    defect is prod-only: the environment where it matters and where nobody has been looking.
+    Likely cause: `aws/template.yaml`'s alarm-email parameter was passed for the staging deploy and
+    left empty (or the subscription was never confirmed and later purged) for prod. Fix is one
+    `subscribe` + confirm, then re-run §29.5.
+26. **`alerts.py`'s outcome logging has three terminal branches and only one of them is at INFO**
+    (`:144-150`): success is `logger.info`, the HTTP-error and `except Exception` branches are
+    `logger.warning`. Nothing is wrong with that, but it means **"no `alert sent` line" is only
+    evidence if the effective level is INFO** — which it is, via `main.py:45`
+    `logging.basicConfig(level=logging.INFO)`, a *different module* from the one doing the logging.
+    §25.3-M's reading depended on that coupling and had to verify it separately. Make it local: a
+    one-line comment in `alerts.py` noting that the success branch is INFO and that `main.py:45` is
+    what makes it visible. Prose only, no behaviour change.
+27. **A caller can forge the Tier-1 line into the log group and fire the Tier-2 alarm at will**
+    (§29.4). `main.py:1046` logs `payload.sessionId[:48]` verbatim and `sessionId` is
+    `Field(default=None, max_length=128)` with no character restriction (`:163,167,171`), so
+    `POST /api/live/session` with `sessionId: "CHAT_ALERT event=x env=y"` (24 chars) plants the
+    filter's exact term. Fix at the **log site**, not the filter — the filter cannot be hardened
+    against it (§29.4). Smallest sufficient fix: log a hash or a character-class-restricted slice
+    instead of the raw value; or drop the line, since it carries no diagnostic the response does not.
+    `main.py` **IS** on `SECURITY_GLOB`, so this one needs its own clearance — do not fold it into
+    the §29.7 clearance, which is scoped to `aws/chat-template.yaml` only.
+28. **`docker/chat/app/transcript_store.py:27-41` carries the retracted A3.2 "undercount" reasoning**
+    (§29.6). Prose only; the constant and all behaviour stay. Not on `SECURITY_GLOB`. Detail and the
+    replacement justification are in ADR-0020's A3.2 correction.
+
+---
+
+## 29. Fourth amendment, 2026-10-07 — **DECISION 8: who owns the Lambda log group, and the exact shape of Tier 2**
+
+Context: §25.3-M completed (above) and moved Tier 2 from belt to sole delivery path on Lambda, which
+makes E6 a blocker (§27.1 B-3 as restated). E6 wants, on both Lambda chat hosts, an
+`AWS::Logs::MetricFilter` on the Tier-1 line (prefix `CHAT_ALERT`, emitted at **`alerts.py:97`**,
+pinned by `docker/chat/tests/test_alerts.py::test_emits_tier1_warning_line_even_when_gate_is_disabled`)
+feeding a `AWS::CloudWatch::Alarm` feeding SNS. A `MetricFilter` requires its log group to exist.
+
+**Line-number reconciliation, so the earlier sections do not mislead on re-read.** `alerts.py` is now
+**150** lines, and §25.3 — which says 137 — was written against an earlier revision and cites
+`:94` / `:128-129` / `:131-133` / `:135` / `:137`. At this commit the same statements are:
+Tier-1 warning **`:97`**, gate **`:98`**, `loop.create_task` **`:107`**, `AsyncClient` / `await
+client.post` **`:141-142`**, and the three outcome branches **`:144-146`** (HTTP error),
+**`:148`** (success, INFO) and **`:150`** (`except Exception`). §25.3's numbers are left as filed
+because that section is kept verbatim as the prediction it was; **cite this paragraph, not §25.3,
+for positions.**
+
+**MEASURED at this commit, re-verified by the architect:** `describe-stack-resources` returns
+**0** `AWS::Logs::*` resources for `gvp-chat-stage` (8 resources total) and for
+`gvp-chat-lambda-stream-stage` (4 total), yet both log groups exist, auto-created by Lambda on
+first invocation, both with retention **NEVER EXPIRE**. `describe-metric-filters` returns **0**
+filters account-wide, so Tier 2 is unimplemented everywhere, as invariant 19 says.
+
+### 29.1 DECISION 8 — **Option (D): each stack declares its OWN log group under a NEW name and points the function at it via `LoggingConfig`.** (A), (B)-with-import and (B)-with-deletion are all rejected.
+
+```yaml
+ChatLogGroup:
+  Type: AWS::Logs::LogGroup
+  Properties:
+    LogGroupName: !Sub '/gvp/chat/${StageName}'          # stream stack: /gvp/chat-stream/${StageName}
+    RetentionInDays: 30
+```
+plus, on the function, `LoggingConfig: { LogGroup: !Ref ChatLogGroup }`.
+
+**Why (D) and not the fork as filed.** The fork was real but it was a false dilemma: both horns
+assumed the log group has to be *the one Lambda picks*. It does not — `LoggingConfig.LogGroup` lets
+the function write to a group we name, and a name we have never used cannot collide. That dissolves
+the fork instead of resolving it, which is the better kind of answer because it removes a step
+rather than choosing between two bad ones.
+
+- **(A) reference `/aws/lambda/${Function}` by name, declare nothing — REJECTED.** The orchestrator's
+  reasoning is correct and is adopted: it works on the existing stage stacks and **fails on a fresh
+  PROD stack**, where CloudFormation creates the function but the log group does not exist until the
+  first invocation. The prod roll creates three new stacks. A construct that passes today and fails
+  on the one deploy nobody is watching this resource during is worse than no construct, because it
+  also consumes the attention that would have gone to a working one.
+- **(B) declare `AWS::Logs::LogGroup` at Lambda's default name — REJECTED, for cost not correctness.**
+  It is the right long-term shape and it was right to prefer it; (D) *is* (B) with the one property
+  that makes it deployable today. At the default name, adoption on the deployed stage stacks needs
+  either deletion (destroys the stage logs, including today's §25.3-M evidence) or import.
+- **(C) divergence between environments — REJECTED.** See §29.3.
+
+**On import, answered directly because it was asked.** `AWS::Logs::LogGroup` **does** qualify as an
+importable resource type (primary identifier `LogGroupName`), so the mechanism exists. Two frictions
+make it the wrong tool here even so, and one of them is a hard constraint: an `IMPORT` change set
+must describe the **entire existing stack plus the imported resource with `DeletionPolicy: Retain`**
+and **may not change any other resource in the same change set** — so Tier 2 would need an import
+deploy followed by a second ordinary deploy to add `LoggingConfig` and the `MetricFilter`, i.e. two
+deploys where (D) needs zero extra. Second, and labelled as the uncertainty it is: these are
+`AWS::Serverless-2016-10-31` templates, `sam deploy` has no import path, and the interaction of an
+`IMPORT` change set with a macro transform is **UNVERIFIED by this amendment**. I am not asserting it
+fails; I am declining to find out, because (D) makes the question moot. *Do not read this paragraph
+as "import does not work on SAM" — read it as "nobody here has measured it, and now nobody needs
+to."*
+
+**Consequences of (D), including the ones not in the brief.** The brief named the lingering orphan
+group; these are the rest.
+
+1. **Nothing in this repo reads `/aws/lambda/<function>` by name — CHECKED, and this was the one
+   finding that could have reversed the decision.** `grep -rn '/aws/lambda/'` over the repo
+   (excluding `.venv-ci`, `node_modules`, `.git`, `scratchpad`) returns **exactly one** hit:
+   `ADR-0014:12`, and it names `/aws/lambda/page-DailyReportFunction-c9fRdKLrcbU3` — the daily-report
+   function in the **contact** stack, which (D) does not touch. `grep -riE 'logGroupName|CloudWatchLogs|filter-log-events|describe-log'` returns no hit in
+   `scripts/`, `aws/src/`, `js/`, `.github/` or `docker/`. So no deploy script, dashboard, admin
+   panel or runbook resolves a chat log group by name, and (D) breaks no reader.
+2. **IAM is fine, and this was the other thing that could have failed hard.** A custom group name is
+   only writable if the role permits it. Verified by reading the policy document:
+   `arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole` grants
+   `logs:CreateLogGroup` + `logs:CreateLogStream` + `logs:PutLogEvents` on **`Resource: "*"`**. The
+   stream function attaches it explicitly (`chat-stream-template.yaml:170-171`); the HttpApi
+   function gets it from SAM's generated role. **No IAM edit is needed for (D)** — which also means
+   (D) touches no IAM surface, and that is part of why its clearance is small.
+3. **The orphan group's cost is already paid in this account, and it did no harm.** There is already
+   a third, orphaned chat group — `/aws/lambda/gvp-chat-stage-ChatFunction-GHtYQkPpJI6C`,
+   `storedBytes: 0`, retention **30** — left behind by an earlier function replacement, with
+   retention already set on it by someone. So "a lingering group holding history and receiving
+   nothing" is a condition this account is already in, independent of (D), and the practice of
+   setting retention on such a group already has precedent here. Mitigation in §29.2.
+4. **A real, small gap the brief did not name: the cutover window.** `LoggingConfig` is function
+   configuration, and it takes effect for **new execution environments**. Warm environments alive at
+   deploy time keep writing to the old group until they cycle. For those few minutes, logs are split
+   across two groups and the `MetricFilter` on the new group is **blind to the old one**. This is
+   operationally trivial and it is still a window in which an alert can be recorded and not
+   notified, so it is stated here rather than discovered. Do not run B-5's liveness check in that
+   window; cycle the function (any config change does it) or wait.
+5. **Retention is not self-healing.** If the declared group is ever deleted while the function is
+   running, Lambda recreates it from `LoggingConfig` **without** `RetentionInDays` — CloudFormation
+   will not notice and the group silently reverts to never-expire. Drift, not a defect; worth one
+   line in a future audit, not a guard.
+
+### 29.2 `RetentionInDays` — **30**, and the stated reason is not the one in the brief
+
+**Decision: `RetentionInDays: 30` on both new chat log groups.** And one correction to the framing,
+because it changes what the number is *for*: the brief calls retention "a real cost lever on a log
+group that currently retains forever." **It is a much smaller lever than that implies.** CloudWatch
+Logs bills *ingestion* (~$0.50/GB) far more heavily than *storage* (~$0.03/GB-month), and
+`RetentionInDays` reduces **storage only** — it does not reduce a single cent of ingestion. On these
+volumes (`storedBytes`: **84 067** on the stream group, **5 832** on the HttpApi group, after months
+and 77 lifetime sessions) the storage line is a rounding error either way. **So 30 is not chosen on
+cost.** Choosing it on cost would be a number dressed up as a decision.
+
+It is chosen on **evidence**, against the asymmetry the brief itself identifies — that a Tier-1 line
+in a group nobody tails is now the primary record of a degradation event:
+
+- The **alarm** is the thing that must not be missed; the **log** is what you read *after* the alarm.
+  Those have different timescales. The alarm's response time is minutes; the investigation it starts
+  runs hours to days.
+- **30 days covers the realistic failure shape, which is not the acute one.** The 2026-10-07 defect
+  had been live for the life of the feature and was found by *inspection*, not by alarm. The
+  question that actually gets asked is "how long has this been happening?", and 30 days answers it
+  for anything that began within the last month.
+- **Not 7:** too short for exactly that question — and 7 days would have destroyed the §25.3-M
+  evidence before the §25.3-M protocol was written.
+- **Not 90 or 365:** on a personal-portfolio budget, that buys a diagnosis nobody will run. Anything
+  worth keeping past a month belongs in the transcripts table or the daily report, which are
+  structured; raw Lambda logs are not an archive and should not be asked to be one.
+- **Not never-expire:** unbounded retention is how today's evidence survived, and it is still a
+  liability rather than a feature. The honest version of "we kept it forever" is "we never chose."
+
+**On the legacy auto-created groups, and a trap in the obvious next step.** They keep their history
+and receive nothing new. Set retention on them out of band —
+`aws logs put-retention-policy --log-group-name /aws/lambda/<fn> --retention-in-days 30` — a single
+non-destructive call, no CloudFormation, no stack drift. **But `put-retention-policy` is
+retroactive**: events already older than the new window age out promptly. That is safe *only
+because* §25.3-M's evidence is now transcribed verbatim into this ADR, which is the general rule
+worth stating: **the ADR is the durable record; the log group is not.** If evidence has not been
+quoted into a document, do not set retention on the group that holds it.
+
+### 29.3 May the two environments diverge in the interim? **No in SHAPE, yes in VALUES — and (D) is chosen partly because it removes the reason to ask.**
+
+This is the right instinct and the answer is the strict one. The drift that produced the alerting
+defect was **shape** drift, not value drift: ECS Express carried 17 environment variables, the two
+deployed Lambda hosts carried 7 and 11, and no artifact anywhere stated what the set *should* be —
+so the gap was not visible as a gap. Invariant 19's corollary and
+`test/chat-alert-gate-env.test.mjs` exist to make shape a contract. A Tier-2 shape that exists on
+stage and not on prod would re-open the same hole one layer up, and it would do so on the resource
+whose entire purpose is to notice silent failure.
+
+The working rule, stated so it can be applied without re-litigating: **the template is the shape;
+parameters are the values; a test pins the shape.** Values may differ per environment — different
+emails, different `StageName`, different `RetentionInDays` if there is ever a reason. Shape may
+differ **only** under all three of: (a) the divergence is recorded in an ADR, (b) it is bounded to a
+named number of deploys, and (c) the closing deploy is identified in advance. (D) satisfies none of
+those because it needs none of them — it is **identical in both environments from the first deploy**,
+which is the single strongest argument for it and is worth more than the retention it also buys.
+
+### 29.4 The filter pattern, and the topic
+
+**Filter pattern — `'"CHAT_ALERT event="'` (a quoted term), prefix only, one metric per host+env.**
+Not a preference: three measured constraints force it.
+
+1. **It must be a QUOTED TERM, not a space-delimited pattern. MEASURED, and this is the finding that
+   decides the question.** The two real §25.3-M events arrived with the Tier-1 line **concatenated
+   behind a traceback tail inside a single CloudWatch event** — the raw message is
+   `...maximum allowed size[WARNING]\t2026-10-07T19:54:26.623Z\t<reqid>\tCHAT_ALERT event=...`, with
+   no separator at the join. A CloudWatch term filter matches a substring **anywhere** in the event,
+   so `"CHAT_ALERT event="` matches. A space-delimited pattern anchors on field *position*
+   (`[level="[WARNING]", ts, reqid, ...]`) and **would not have matched either real event.** The
+   space-delimited form is refuted by the only two production samples that exist.
+2. **Therefore per-type metric `Dimensions` are not available.** A metric filter may set `Dimensions`
+   only from **named fields of a JSON or space-delimited pattern** — there is no way to attach a
+   *static* dimension, and (1) rules out the only pattern forms that could supply a dynamic one.
+   The event-type-per-dimension design is not rejected on taste; it is unreachable.
+3. **Prefix only, one alarm — and the arithmetic of the alternative is the argument.** Six event
+   types share the prefix. Per-type would mean 6 filters + 6 alarms per host = **24 resources across
+   two hosts**, ×2 environments = **48**, and it would *still* miss a seventh type added later —
+   silently, in the same way everything else in this thread failed silently. One filter per host
+   cannot miss a type.
+
+**`MetricName` must carry host and environment, and this is a trap worth naming.** Because static
+dimensions are impossible (2), two stacks publishing `MetricNamespace: GvpChat` /
+`MetricName: ChatAlertLines` would publish to the **same metric**, and a prod alarm would fire on a
+stage alert line. That is the stage/prod confusion class this ADR already worries about in
+`chat-stream-template.yaml:32-35` (`StageName` defaulting to `stage` mislabelling prod alerts),
+arriving by a different door. So: `MetricName: !Sub 'ChatAlertLines-httpapi-${StageName}'` and
+`'ChatAlertLines-stream-${StageName}'`. Uniqueness lives in the name because it cannot live in a
+dimension.
+
+**Set `DefaultValue: 0`, with its limit stated.** Without it, a period with no match yields *no
+datapoint*, the alarm sits in `INSUFFICIENT_DATA`, and that is **indistinguishable from a filter
+that is broken** — the precise failure class being removed. With it, a non-matching ingested event
+publishes 0, so `OK` means "the filter ran and saw none". **The limit, so this is not over-claimed:
+`DefaultValue` fires on a non-matching *ingested event*. On a genuinely idle function there is no
+event, so there is still no datapoint, and `OK`/`INSUFFICIENT_DATA` does not prove liveness on an
+idle host.** It is a partial improvement, not a heartbeat.
+
+**One accepted false-positive mode, recorded:** a quoted term matches anywhere, case-sensitively, so
+a log line that merely *quotes* the string — a traceback containing the format string, or a
+diagnostic echoing this ADR — also matches. Accepted: the consequence is one spurious "go look",
+and the alternative patterns are refuted by (1).
+
+**A reachable one, found while reviewing the clearance, and it cannot be fixed in the pattern.**
+`docker/chat/app/main.py:1046` logs `logger.info("live session request session=%s", payload.sessionId[:48])`
+— and `sessionId` is `Field(default=None, max_length=128)` with **no character restriction**
+(`:163,167,171`). So an anonymous `POST /api/live/session` carrying
+`sessionId: "CHAT_ALERT event=x env=y"` (24 chars, inside the 48-char slice) writes the filter's
+exact term into the log group and **fires the Tier-2 alarm on demand.** This is invariant 17's
+subject arriving somewhere new: a caller-supplied value becoming part of a **control signal** rather
+than merely of stored data.
+
+- **Pattern hardening does not help, and saying so prevents a wasted slice.** Requiring both terms
+  of the real format (`'"CHAT_ALERT event=" "env="'`, which CloudWatch ANDs) is forgeable in the
+  same 24 characters. Any pattern that matches the genuine line is forgeable by anything that echoes
+  caller input into the same log group. **The fix belongs at the log site, not at the filter** —
+  which is the correct seam, because the log group is Tier 1's record and its integrity is the
+  application's job.
+- **The blast radius is small, for a reason worth knowing.** A CloudWatch alarm notifies on state
+  **transitions**, not per datapoint, so a sustained injection holds it in `ALARM` and sends **one**
+  email. The damage is therefore a *false signal* and the erosion of trust in it — not a flood. That
+  is still the worse of the two outcomes for this particular alarm, whose only job is to be
+  believed.
+- **Not a blocker for E6**, because the alternative is no notification at all, and because the fix
+  is one line in a file that is **not** on `SECURITY_GLOB`. **Filed as §28 item 27.**
+
+**How an operator learns WHICH of the six types fired — the honest answer is: not from the alarm.**
+The alarm is a **doorbell**; the log group is the **record**. That trade is acceptable *only* because
+Tier 1 is complete and durable, and it is the direct consequence of (2). The design obligation is
+therefore to make the second step mechanical rather than remembered:
+
+- **`AlarmDescription` carries the exact query**, including the log group name and the filter string,
+  so the operator's next action is copy-paste and not recall. SNS email includes the description
+  verbatim, so it arrives in the notification itself. This is mandatory, not decorative — it is the
+  whole compensation for losing the type.
+- **`AlarmName` names host and environment**
+  (`!Sub 'gvp-chat-${StageName}-tier1-alert-line'`) so the subject line is unambiguous about *which*
+  of four log groups to read.
+- **Explicitly NOT in this slice: an SNS→Lambda formatter** that reads the matching lines and emails
+  the type. It would restore the type, and it would do so by adding a second asynchronous delivery
+  hop that can fail silently — reintroducing the exact class §25.3-M just measured. If the doorbell
+  ever proves insufficient, the right answer is a `logs:StartQuery` from a **synchronous** context,
+  not another detached task.
+
+**Topic — REUSE `ChatErrorTopic` in `aws/chat-template.yaml`; the stream stack gets its own. Do NOT
+rename the logical ID.** Three reasons, the second of which is measured and decisive:
+
+1. **A topic is a destination, not a signal.** The critic's blindness critique is accepted in full,
+   and it is a critique of the existing **alarm's metric**, not of the topic. Nothing is gained by
+   giving a correct new alarm a separate destination.
+2. **Every additional topic is an additional unconfirmed-subscription risk, and that risk is LIVE
+   here.** SNS confirmation is per `(topic, endpoint)` pair, which is not a documentation claim but
+   a measured one in this account: `marwan.gendy@gmail.com` is **confirmed** on
+   `page-staging-ContactAlarmTopic-GcvNmIoBx8Dr` and **`PendingConfirmation`** on
+   `gvp-chat-stage-ChatErrorTopic-wRMWQy6I5qiR` — the same address, two topics, two states. A second
+   chat topic would have produced a second confirmation email, and the odds of *that* one also going
+   unconfirmed are evidently not small.
+3. **Renaming the logical ID would be actively harmful, so the misnomer stays.** `ChatErrorTopic` is
+   now a misnomer (it carries a non-error signal), and renaming it in CloudFormation **deletes and
+   recreates** the topic — discarding the subscription and minting a fresh **unconfirmed** one. The
+   name is wrong and the name stays; the template comment says why. *Prefer a wrong name to a
+   deleted subscription.*
+
+**Precondition on the reuse, and it is a blocker-grade one:** `ChatErrorTopic`'s only subscription
+is `PendingConfirmation` as measured. Attaching the Tier-2 alarm to it **as-is** produces an alarm
+that looks perfect and delivers nothing — the exact shape of the defect this amendment exists to
+remove, rebuilt by hand on top of its own fix. Confirm the subscription, then verify per §29.5.
+
+For `aws/chat-stream-template.yaml`, which has no topic or alarm at all (`grep` confirms), create
+`ChatStreamAlertTopic` in that stack rather than referencing the other stack's ARN. Cross-stack
+reuse would give one fewer confirmation but would couple the stream stack's alerting to the HttpApi
+stack's lifecycle — an invisible dependency across a boundary this ADR deliberately keeps clean
+(§27.1's "must not disturb"), where deleting one stack silently darkens the other. §29.5 is what
+makes the extra topic safe, and it is why this trade is affordable.
+
+### 29.5 Subscription verification — **YES, verify it; and the check is one call that has already found two live failures**
+
+Asked: is an unconfirmed SNS email subscription a failure mode worth designing against, given that
+the owner has agreed to confirm it? **Yes — and not as a precaution. It is the current state of this
+account.** "The owner agreed to confirm it" is a plan; what is wanted is a check, because the whole
+subject of this thread is the gap between a thing being configured and a thing working.
+
+**The check, which needs no new infrastructure:** an unconfirmed subscription has the literal string
+`PendingConfirmation` in place of its ARN, so one account-wide call enumerates every one of them
+regardless of how many topics exist:
+
+```sh
+aws sns list-subscriptions --region us-east-2 \
+  --query "Subscriptions[?SubscriptionArn=='PendingConfirmation'].[TopicArn,Protocol,Endpoint]" \
+  --output table
+```
+
+**MEASURED 2026-10-07 — the whole account has 2 subscriptions and 3 distinct states, which is why
+this is a check and not a formality:**
+
+| Topic | Subscriptions | State |
+|---|---|---|
+| `gvp-chat-stage-ChatErrorTopic-wRMWQy6I5qiR` | 1 | **`PendingConfirmation`** — `ChatLambdaErrorsAlarm` cannot deliver |
+| `page-staging-ContactAlarmTopic-GcvNmIoBx8Dr` | 1 | confirmed |
+| `page-ContactAlarmTopic-CDrjLAHILdwB` (**PROD**) | **0** | **three prod contact alarms deliver to nobody** |
+
+Two independent live instances, one of them on **prod**, found by one command in one second. The
+zero-subscription case is the worse of the two and was not even in the question as asked: it is not
+"unconfirmed", it is *absent*, and a topic with no subscribers accepts every publish successfully.
+`page-ContactAlarmTopic` is the **contact** stack's, outside this ADR's scope — **filed as drift for
+the loop (§28 item 25), not fixed here.**
+
+**Rulings:**
+
+- **This check is added to §27.1 B-5** (the post-deploy liveness check), which already exists
+  because a deploy can pass an empty parameter value. It is the same class of defect one layer out:
+  B-5 asks "would the gate be true?", and this asks "would the notification arrive?". One command,
+  run once per deploy, covering every topic in the region at once — so the "own topic per stack"
+  decision in §29.4 costs nothing in verification effort.
+- **An empty result is the pass condition**, and that is the property that makes it worth automating
+  later: it does not need to know which topics are supposed to exist.
+- **It does not cover the zero-subscription case**, so B-5 also asserts that each alarm's
+  `AlarmActions` topic has **≥1** subscription. Two queries, both read-only, no credentials beyond
+  what a deploy already holds.
+- **Not designed against: a confirmed address that bounces or filters.** Out of scope, and deliberately
+  so — SNS reports delivery, not reading, and chasing that leads to a monitor needing a monitor. The
+  bound on this regress is `ChatAlertEmail` going to a mailbox the owner reads, which is an
+  assumption, stated as one.
+
+### 29.6 A3.2's write-up — one claim CORRECTED, because the inference does not hold
+
+The §25.3-M probe found a real A3.2 defect, fixed in `5620bd8`. **Defect 1 is correct and is
+well-stated.** **Defect 2 — the `bytesStored` "undercount of at least 5.6%" — is NOT established by
+the measurement, and it contradicts a derivation this project has already published.** Corrected in
+`ADR-0020` and in invariant 17; recorded here because this ADR's probe is what produced it. The
+short form:
+
+- The inference was: counter read `387_824`; DynamoDB refused; therefore the real item was ≥ `409_600`
+  while the counter said `387_824`. **The middle step is wrong.** `ValidationException: Item size to
+  update has exceeded the maximum allowed size` is raised against the item **after** the update — so
+  the refusal bounds `stored + turn`, never `stored` alone.
+- And defect 1 explains the refusal completely, arithmetically: `409_600 − 387_824 = 21_776` bytes of
+  slack, against a mean stored turn of `387_824 / 16 = 24_239` bytes. `387_824 + 24_239 = 412_063 >
+  409_600`. **The next average-sized turn overflows on its own.** No undercount is required to
+  produce what was observed, so none is evidenced by it.
+- It also contradicts **invariant 17's** own derivation, which argues the opposite direction and
+  argues it type by type: DynamoDB's documented accounting of a JSON value is **≤** its
+  `json.dumps` character count. If that holds — and it is the basis of invariant 17's `10 × 2000`
+  bound — then `bytesStored` **over**counts the turns' DynamoDB contribution. Two documents in this
+  repo asserted opposite signs for the same quantity, and the measurement supports neither.
+- What *is* genuinely uncounted is the **item-level scaffolding** — the thirteen attributes
+  `_persist_sync` SETs fresh each turn (`id`, `listPk`, `createdAt`, `updatedAt`, `promptVersion`,
+  `provider`, `model`, `reviewed`, `adminNotes`, `flags`, `flagged`, `turnCount`, `bytesStored`) plus
+  the `turns` list's per-element overhead. That is a **constant of order hundreds of bytes**, not
+  5.6% of 400 KB, and it does **not** grow with turn count.
+- **The fix in `5620bd8` is still right and should not be reverted.** Subtracting `turn_bytes` per
+  write is exactly the correct repair for defect 1, which was the real defect. Only the *margin's
+  justification* is wrong, and the margin is conservative in the safe direction. **Do not re-tune
+  `UNDERCOUNT_MARGIN_BYTES` on the strength of this correction** — a 40 KB margin bought with a bad
+  reason is still a 40 KB margin, and changing a working bound to improve its paperwork is how the
+  380 KiB literal got there. Retune it, if ever, when there is a measurement of the scaffolding.
+
+### 29.7 The authorized edit — exact blocks, counted, and the SECURITY CLEARANCE
+
+Two files change. **`aws/chat-stream-template.yaml` is NOT on `SECURITY_GLOB`** (verified against
+`.claude/tdd.config:63`, whose ERE lists `aws/(template|chat-template)\.yaml` only) — it needs no
+clearance and is not covered by the one below. It needs the same four resources with
+`/gvp/chat-stream/${StageName}`, `ChatAlertLines-stream-${StageName}`, its own `ChatStreamAlertTopic`
+(§29.4) and a `ChatAlertAlarmEmail` parameter, since it has no topic, no alarm and no alarm-email
+parameter today.
+
+**`aws/chat-template.yaml` IS on `SECURITY_GLOB`.** The blocks below are the authorized edit, written
+out so the count is verifiable rather than asserted — the line budget is a count of this text.
+
+**Block 1 — INSERT at line 88, immediately before `  ChatFunction:`. 14 lines (8 comment + 5 YAML + 1 trailing blank).**
+
+```yaml
+  # ADR-0022 §29 (DECISION 8) — Tier 2 of invariant 19 needs a log group THIS STACK
+  # owns: a MetricFilter cannot attach to a group that does not exist, and Lambda's
+  # auto-created /aws/lambda/<fn> does not exist until the first invocation, so a
+  # fresh PROD stack would fail. A NEW name (not /aws/lambda/<fn>) also avoids the
+  # "already exists" collision on the deployed stage stack and leaves its logs —
+  # including the §25.3-M evidence — intact. No IAM change needed: the basic
+  # execution policy grants logs:* on Resource "*". RetentionInDays is chosen on
+  # EVIDENCE, not cost (§29.2) — Logs bills ingestion, which retention never cuts.
+  ChatLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/gvp/chat/${StageName}'
+      RetentionInDays: 30
+
+```
+
+**Block 2 — INSERT after line 94 (`      PackageType: Image`), inside `ChatFunction.Properties`. 2 lines.**
+
+```yaml
+      LoggingConfig:
+        LogGroup: !Ref ChatLogGroup
+```
+
+**Block 3 — INSERT after line 161 (`        - !Ref ChatErrorTopic`, the end of `ChatLambdaErrorsAlarm`). 53 lines (21 comment + 2 blank + 30 YAML), counted mechanically off this block, not by eye.**
+
+```yaml
+
+  # ADR-0022 §29.4 — Tier 2 for this host. QUOTED-TERM pattern, prefix only.
+  # MEASURED 2026-10-07: the CHAT_ALERT line can arrive CONCATENATED behind a
+  # traceback tail inside ONE CloudWatch event, so a space-delimited pattern
+  # ([level="[WARNING]", ts, reqid, ...]) would not have matched either real
+  # event; a quoted term matches anywhere in the event and does. That also rules
+  # out per-type metric Dimensions, which can only take values from named fields
+  # of a JSON or space-delimited pattern — hence ONE metric for all six event
+  # types. MetricName carries host+env because a metric filter cannot set a
+  # STATIC dimension: without it, stage and prod publish to the same metric and
+  # each alarms on the other's alert lines.
+  ChatAlertMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ChatLogGroup
+      FilterPattern: '"CHAT_ALERT event="'
+      MetricTransformations:
+        - MetricNamespace: GvpChat
+          MetricName: !Sub 'ChatAlertLines-httpapi-${StageName}'
+          MetricValue: '1'
+          # Publishes 0 for a NON-matching ingested event, so OK means the filter
+          # ran and saw none, instead of INSUFFICIENT_DATA which is
+          # indistinguishable from a broken filter. Limit: on an IDLE function
+          # there is no event at all, so this is not a heartbeat.
+          DefaultValue: 0
+
+  # REUSES ChatErrorTopic (§29.4). The logical ID is deliberately NOT renamed even
+  # though "Error" is now a misnomer: renaming deletes and recreates the topic,
+  # discarding its email subscription and minting a fresh UNCONFIRMED one. Prefer
+  # a wrong name to a deleted subscription.
+  # PRECONDITION, MEASURED 2026-10-07: this topic's only subscription was
+  # PendingConfirmation, so ChatLambdaErrorsAlarm could never have delivered.
+  # Confirm it, then verify with the list-subscriptions check in §29.5.
+  ChatAlertLinesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatErrorAlarm
+    Properties:
+      AlarmName: !Sub 'gvp-chat-${StageName}-tier1-alert-line'
+      AlarmDescription: >
+        A CHAT_ALERT Tier-1 line was written (invariant 19 Tier 2, ADR-0022 §29).
+        Says THAT one of six alert types fired, never WHICH — read the type from
+        the log group: aws logs filter-log-events --log-group-name /gvp/chat/<env>
+        --filter-pattern '"CHAT_ALERT event="' --start-time <epoch-ms>
+      Namespace: GvpChat
+      MetricName: !Sub 'ChatAlertLines-httpapi-${StageName}'
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatErrorTopic
+```
+
+**Note `Condition: HasChatErrorAlarm` is on the ALARM only.** The log group and the metric filter are
+**unconditional**: the *record* and the *metric* are always wanted, and only the *notification*
+needs a destination. A deploy with an empty `ChatErrorAlarmEmail` therefore still produces a
+complete, queryable Tier-1 record — a strictly better degraded state than today's.
+
+> ## SECURITY CLEARANCE — granted 2026-10-07, ADR-0022 DECISION 8
+>
+> - **File:** `aws/chat-template.yaml` (on `SECURITY_GLOB` via `(^|/)aws/(template|chat-template)\.yaml`).
+>   **This clearance covers that file and nothing else.**
+> - **Insertion points:** line **88** (before `  ChatFunction:`); after line **94**
+>   (`      PackageType: Image`); after line **161** (`        - !Ref ChatErrorTopic`). File is 173
+>   lines at this commit.
+> - **Line budget, counted from the blocks above, not estimated:** **69 lines added** (14 + 2 + 53),
+>   **0 removed, 0 modified.** **Budget: 75 added / 0 removed / 0 modified.** The 6-line cushion is
+>   named, not padding: comment reflow at the file's wrap width, and the `AlarmDescription` block
+>   scalar, where a line may split differently. **If the edit needs a line REMOVED or MODIFIED, this
+>   clearance does not cover it — come back.**
+> - **Why it is safe at this size:** the edit adds four things — a log group, a `LoggingConfig`
+>   pointer, a metric filter, an alarm. It touches **no** authentication, **no** secret or `NoEcho`
+>   parameter, **no** CORS, **no** token, **no** IAM policy or role (verified: the basic-execution
+>   managed policy already grants `logs:*` on `Resource: "*"`, so no permission is added), and **no**
+>   existing resource. It is purely additive: zero existing lines change, so nothing currently
+>   deployed can be altered by it.
+> - **Two checks the reviewer must make, both specific to this edit:**
+>   1. **`AlarmDescription` is world-ish-readable** — it ships verbatim in the SNS email and to anyone
+>      with `cloudwatch:DescribeAlarms`. The authorized text contains only a log group name and a
+>      filter string. **No secret, no email address, no ARN, no account id may be added to it.**
+>   2. **`ChatErrorTopic` must not be renamed, retyped, or have its `Subscription` block touched**
+>      (§29.4): a logical-ID change deletes the topic and its subscription. The authorized edit only
+>      **references** it via `!Ref`.
+> - **Explicitly NOT cleared by this:** `aws/template.yaml`; `docker/chat/app/main.py` (the §28 item
+>   27 log-site fix needs its own clearance); anything in `aws/src/`; and
+>   `aws/chat-stream-template.yaml` — which needs no clearance but is also not blessed by this one,
+>   so its reviewer reads §29.4 on its own terms.
+> - **Preconditions to verify BEFORE claiming Tier 2 works** (none of them block the edit):
+>   confirm `gvp-chat-stage-ChatErrorTopic-wRMWQy6I5qiR`'s pending subscription; run §29.5's
+>   `list-subscriptions` check and the per-alarm `≥1 subscription` check; and do not run B-5's
+>   liveness check inside the §29.1(4) cutover window.
+

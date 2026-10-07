@@ -803,11 +803,31 @@ proves it comes FIRST.
       6. **The item has no size bound.** Decision **A3.2**: a `bytesStored` counter in the item
          plus `ConditionExpression`. **The 380 KiB budget originally shipped here was DEFECTIVE and
          is corrected (2026-10-07, `5620bd8`)** — its 20_480 bytes of headroom were smaller than one
-         turn (42_848 route-clamped), so an over-limit item was reachable by arithmetic, and
-         `bytesStored` undercounts the real item by ≥5.6% because it counts only the turn's JSON.
-         MEASURED on stage: the counter read 387_824 while DynamoDB had already refused the write,
-         and two turns were lost. The threshold is now computed per write as
-         `limit - turn_bytes - margin`. Note what A3.2 does and does not deliver: it made the
+         turn (42_848 route-clamped), so an over-limit item was reachable by arithmetic alone.
+         MEASURED on stage 2026-10-07 (the ADR-0022 §25.3-M probe): `bytesStored` read **387_824**
+         over 16 turns, DynamoDB refused with `ValidationException: Item size to update has
+         exceeded the maximum allowed size`, and **two turns (17 and 18) were lost** — two
+         `CHAT_ALERT event=chat_transcript_write_failed` lines, independently re-counted. The
+         threshold is now computed per write as `limit - turn_bytes - margin`.
+         **A SECOND claim was filed here and is RETRACTED 2026-10-07 by the architect, because its
+         inference does not hold and it contradicted the derivation four paragraphs up.** The
+         retracted wording was *"`bytesStored` undercounts the real item by ≥5.6% because it counts
+         only the turn's JSON"*, inferred from "the counter said 387_824 and DynamoDB refused,
+         therefore the real item was already ≥ 409_600". **The refusal is evaluated against the item
+         AFTER the update**, so it bounds `stored + turn`, never `stored` alone. And defect 1
+         explains the refusal on its own: slack was `409_600 − 387_824 = 21_776` against a mean
+         stored turn of `387_824 / 16 = 24_239`, so `387_824 + 24_239 = 412_063 > 409_600` — the
+         next average turn overflows unaided. No undercount is needed to produce what was seen, so
+         none is evidenced by it. It also had the **wrong sign**: this invariant's own `10 × 2000`
+         bound rests on DynamoDB's accounting of a JSON value being **≤** its `json.dumps`
+         character count, type by type — which makes `bytesStored` an **over**count of the turns'
+         DynamoDB contribution. What is genuinely uncounted is the item-level scaffolding (the
+         thirteen attributes `_persist_sync` SETs fresh each turn, plus the `turns` list's
+         per-element overhead): a constant of order **hundreds of bytes**, which does **not** grow
+         with turn count. **The fix in `5620bd8` stands and must not be reverted** — subtracting
+         `turn_bytes` per write is the correct repair for the real defect; only the *margin's
+         stated justification* was wrong, and the margin errs safe. Full reasoning: ADR-0022 §29.6.
+         Note what A3.2 does and does not deliver: it made the
          failure **loud** (that is A3.1, and it is real) but it did not **bound** the item until
          this correction, so ADR-0020's "A3.2 makes the invariant true" was false as written.
       7. **The admin tool histogram collides on `Object.prototype` keys.** Verified in node:
@@ -1008,7 +1028,8 @@ proves it comes FIRST.
     fire-and-forget alert did not. Tier 1 is therefore *demonstrated viable* on a RESPONSE_STREAM
     Lambda behind LWA, not merely argued. **Limits, stated so they are not over-claimed:** that
     probe exercised a **mid-turn** line, not a post-response one; it does **not** measure the freeze
-    question (ADR-0022 §25.3-M stays owed); and n = 1 bounds any claim about rate.
+    question (~~ADR-0022 §25.3-M stays owed~~ — **§25.3-M COMPLETED 2026-10-07**, see the CLOSED
+    paragraph below); and n = 1 bounds any claim about rate.
     - Implemented by: **Tier 1 yes; the corollary in the TEMPLATES but not yet on the DEPLOYED
       hosts; Tier 2 on Lambda not at all.** Updated 2026-10-07 after the slices landed, because the
       previous wording ("nothing yet, on either tier") was written while they were in flight and was
@@ -1059,17 +1080,61 @@ proves it comes FIRST.
       assertion that its anchor matched, because a mutation that silently fails to apply reads as a
       survivor and this project has already published one wrong "SURVIVED" that way.
       **Still unproven: Tier 2 on Lambda** (that a metric filter exists and alarms — a template
-      assertion), the **startup announcement**, and **post-response Tier-1 delivery on Lambda**
-      (§25.1a observed a MID-TURN line; the two transcript types fire at the END of a turn from
-      `_persist_text_turn`, and that is a short inference, not an observation). Those are ADR-0022
-      §26.5 items **G5** and **E6** plus a runtime check that no unit test can stand in for.
-    - **Open, labelled honestly: DERIVED, NOT MEASURED** — that a surviving `loop.create_task`
-      (`alerts.py:94`) wrapping an awaited 10 s httpx POST (`:128-129`) is frozen by Lambda when the
-      response completes, and therefore delayed to the next invocation or lost. Reasoning in
-      ADR-0022 §25.3; the measurement is specified there as **§25.3-M** and needs the owner's
-      authorization. **This invariant does not depend on the answer** — if the freeze claim is false,
-      Tier 2's metric filter is belt rather than the primary; Tier 1 is required either way, because
-      the silent exit at `:85-86` is what hid this for the life of the feature.
+      assertion; `describe-metric-filters` returns **0** account-wide as of 2026-10-07) and the
+      **startup announcement**. Those are ADR-0022 §26.5 items **G5** and **E6** plus a runtime
+      check that no unit test can stand in for.
+      **END-OF-TURN Tier-1 delivery is no longer an inference — but only on ONE of the two Lambda
+      hosts, and the distinction is load-bearing.** This formerly read "post-response Tier-1
+      delivery on Lambda" as unproven, on the grounds that §25.1a observed a MID-TURN line while the
+      two transcript event types fire at the END of a turn from `_persist_text_turn`. §25.3-M
+      attempt 2 observed exactly that: two `CHAT_ALERT event=chat_transcript_write_failed` lines
+      reached CloudWatch from `_persist_text_turn`, 442 ms and 2 ms before their own `REPORT`. **But
+      that host is `gvp-chat-stage-ChatFunction-e9cDGaRVL5II` — the HttpApi function, built from
+      `Dockerfile.lambda` and BUFFERED behind API Gateway — not the RESPONSE_STREAM host**, whose
+      invocation completes when the stream closes and whose adapter configuration differs. So:
+      **OBSERVED on the buffered HttpApi host; still a short inference on
+      `…ChatStreamFunction-48hA0gOKhVzC`.** Do not let the two be collapsed; the freeze derivation
+      leaned specifically on RESPONSE_STREAM completion semantics, which this probe did not touch.
+    - **CLOSED — the freeze question is now MEASURED, and the answer makes Tier 2 the whole of
+      delivery on Lambda.** This paragraph previously read *"Open, labelled honestly: DERIVED, NOT
+      MEASURED"* and said the invariant did not depend on the answer. Both halves were right: it was
+      honestly labelled, it did not depend on the answer, and **the answer came back confirming the
+      derivation.** Recorded 2026-10-07, ADR-0022 **§25.3-M attempt 2**.
+      **What was measured**, on `gvp-chat-stage-ChatFunction-e9cDGaRVL5II`, by filling one stage
+      transcript session through the public sink until a write was refused: `CHAT_ALERT` (Tier 1,
+      synchronous) **2** lines; `alert sent event` **0**; `alert send failed` **0**;
+      `alert send errored` **0**. All three of `_send`'s terminal branches are zero, so "it ran and
+      threw" is excluded, not just "it ran and succeeded". The success branch is `logger.info`
+      (`alerts.py:148`) and `main.py:45` sets `logging.basicConfig(level=logging.INFO)`, so the zero
+      is a real absence and not a level filter — a confound worth naming because it would have made
+      the whole measurement vacuous.
+      **Timing, which refutes the alternative quantitatively rather than by absence:** the first
+      alert's Tier-1 line precedes its own `REPORT` by **442 ms** with no outcome line between them;
+      the second by **2 ms**. A 10 s-timeout `httpx` POST to a third-party API does not complete in
+      2 ms. The execution environment thawed exactly **once** more (**48.5 ms** of billed duration)
+      and was never invoked again — **0** invocations on the function in the following 21 minutes.
+      **The general claim, stated at the width the evidence supports:** a detached `loop.create_task`
+      (`alerts.py:107`) wrapping an awaited 10 s httpx POST (`:141-142`) **is not a delivery
+      mechanism on Lambda** — its outcome is *delay* or *loss*, never guaranteed delivery, and which
+      one you get is a property of your **traffic**, not of your code. On a busy host the alert
+      arrives late and attributed to an unrelated request's log stream; on a quiet host it is lost.
+      Note the direction of that trap: **the quieter the host, the more certainly the alert is
+      lost** — so this fails hardest exactly where no other signal would have caught the problem
+      either. On ECS the process is long-lived and the task simply completes, which is why this was
+      invisible for the life of the feature.
+      **Consequence for the two tiers above: Tier 2 on Lambda is no longer a belt over a working
+      in-process send — it is the ENTIRE delivery path.** A Lambda chat host without the metric
+      filter emits a durable *record* and no *notification*. That is better than the 2026-10-07
+      state of nothing at all, and it is still not alerting. The log-group ownership that the metric
+      filter needs is ruled in ADR-0022 **§29 (DECISION 8)**; ADR-0022 §27.1 **B-3** is widened to
+      carry it as a prod-roll blocker.
+      **Still open, and labelled honestly in its turn: "an alarm exists" is not "an alarm delivers."**
+      MEASURED the same day, us-east-2: `gvp-chat-stage-ChatErrorTopic-wRMWQy6I5qiR`'s only
+      subscription is literally `PendingConfirmation`, so `gvp-chat-stage-ChatLambdaErrorsAlarm`
+      has never been able to deliver; and `page-ContactAlarmTopic-CDrjLAHILdwB` has **zero**
+      subscriptions while three **prod** contact alarms target it. Tier 2 is not satisfied by a
+      declared subscription, only by a verified one — ADR-0022 §29.5 gives the one-call check and
+      folds it into B-5.
 
 ## Out of scope / explicitly allowed
 
