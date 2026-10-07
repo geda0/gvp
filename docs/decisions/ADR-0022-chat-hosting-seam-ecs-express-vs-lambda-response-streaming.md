@@ -2240,13 +2240,20 @@ Two further notes, because "not a blocker" must not read as "fine":
 19. **`scripts/integrate-and-deploy.sh` silently no-ops on an unimplemented `CHAT_DEPLOY_TARGET`**
     (`:312`, closing `:369`; usage at `:16`, `:31`). Any value but `express` deploys no chat and
     prints nothing. Should `exit 1` naming the supported values. §27.4.
-20. **`aws/chat-stream-template.yaml:1-8`'s header is now FALSE.** It states *"Nothing here is
-    referenced by the committed `gvp:chat-api-url` meta (invariant 11) — testing is against the raw
-    Function URL."* Commit `046563d` pointed the committed stage meta at the CloudFront front door
-    whose exact `/api/chat` behavior targets this function. The file also still calls itself a
-    *"Measurement candidate ONLY"* that *"must not replace or disturb"* the Express stacks — it is now
-    stage's production chat host. Same class as items 14 and 17: a stale self-description that will
-    mislead the next reader.
+20. ~~**`aws/chat-stream-template.yaml:1-8`'s header is now FALSE.**~~ **ALREADY CLOSED WHEN FILED —
+    struck 2026-10-07.** The defect was real and correctly characterised: the header did state
+    *"Nothing here is referenced by the committed `gvp:chat-api-url` meta (invariant 11)"* and did
+    call itself a *"Measurement candidate ONLY"* that *"must not replace or disturb"* the Express
+    stacks, both false since `046563d` pointed the committed stage meta at the CloudFront front door
+    whose exact `/api/chat` behavior targets this function. But it was fixed in commit `ad219bc`,
+    which landed **before** this amendment was written: the header now opens *"NO LONGER A
+    MEASUREMENT CANDIDATE ON STAGE"* and explicitly records that the earlier wording *"was true when
+    written and is now false"*. The amendment was drafted against the pre-`ad219bc` text and not
+    re-read before filing. Recorded rather than deleted, because a drift list that quietly loses
+    entries is as untrustworthy as one that carries false ones — and because this item is itself an
+    instance of the failure mode it describes: a reader working from a stale copy. The header has
+    since been revised twice more (`f59f863`, `4a73827`) to say that alerting is now **wired but not
+    lit**, and that `StageName` defaulting to `stage` will mislabel prod alerts.
 21. **`alerts.py`'s module docstring understates its own gate** (`:10-12`): *"a no-op unless
     `CHAT_ALERT_EMAIL` (or `CONTACT_REPORT_EMAIL`) and `RESEND_API_KEY` are set"* — it omits the
     **from**-address conjunct, which `alerts_enabled()` (`:53-54`) also demands via `_from_email()`
