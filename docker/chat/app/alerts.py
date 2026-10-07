@@ -81,7 +81,20 @@ def fire_alert(event_type: str, summary: str, detail: str = '') -> None:
     """Schedule an instant alert without blocking the caller. Safe on the request
     path: never raises, never delays the turn, no-op when unconfigured or
     throttled. Requires a running event loop to actually send (the chat request
-    handlers provide one)."""
+    handlers provide one).
+
+    TIER 1 (ADR-0022 §25 DECISION 5, project invariant 19): the line below is
+    emitted UNCONDITIONALLY, before and independently of any delivery attempt, and
+    nothing may be placed above it. Email delivery is Tier 2 and is a property of
+    the HOST, not of the app — it is dark wherever the gate is unconfigured, which
+    on 2026-10-07 was BOTH deployed Lambda chat hosts, where this function returned
+    at the gate below and six alert types vanished with no trace at all. A log line
+    is the fix precisely because it cannot raise and cannot block, so it satisfies
+    invariant #14 by construction, and because log delivery is the RUNTIME's
+    obligation, completing with the invocation, where an in-process POST is the
+    PROCESS's and the process is not guaranteed to run again on Lambda.
+    """
+    logger.warning('CHAT_ALERT event=%s env=%s %s', event_type, _env_label(), summary)
     if not alerts_enabled():
         return
     if not _should_send(event_type, time.monotonic()):

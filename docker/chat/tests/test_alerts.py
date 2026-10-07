@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
 from app import alerts
+
+# Tier-1 lines are what a CloudWatch Logs metric filter keys on, so the prefix is
+# part of the contract (ADR-0022 §25, DECISION 5 / invariant 19). Only the prefix
+# and the fields a filter reads are pinned — the rest of the wording is free.
+TIER1_PREFIX = 'CHAT_ALERT'
 
 
 def _configure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,3 +125,36 @@ async def test_throttle_resets_after_cooldown(monkeypatch: pytest.MonkeyPatch) -
 
     # Zero cooldown -> every call sends.
     assert sent.count('chat_primary_timeout') == 2
+
+
+def test_emits_tier1_warning_line_even_when_gate_is_disabled(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Tier 1 — emission (ADR-0022 §25 DECISION 5, invariant 19). Emission is the
+    APPLICATION's job and is unconditional: a disabled gate may suppress the
+    *email*, never the *line*. This is the case that was actually broken — on
+    2026-10-07 `alerts_enabled()` was False on both deployed Lambda chat hosts and
+    `fire_alert` returned with no record at any level, so six event types across
+    twelve call sites vanished for the life of the feature."""
+    # Arrange: the gate is off (no destination, no from-address, no key) and the
+    # env label is attributable.
+    monkeypatch.delenv('CHAT_ALERT_EMAIL', raising=False)
+    monkeypatch.delenv('CONTACT_REPORT_EMAIL', raising=False)
+    monkeypatch.delenv('CHAT_ALERT_FROM_EMAIL', raising=False)
+    monkeypatch.delenv('CONTACT_FROM_EMAIL', raising=False)
+    monkeypatch.delenv('RESEND_API_KEY', raising=False)
+    monkeypatch.setenv('CHAT_ENV', 'tier1-probe-env')
+    alerts.reset_for_tests()
+    assert alerts.alerts_enabled() is False  # precondition, not the behavior
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=alerts.__name__):
+        alerts.fire_alert('chat_primary_timeout', 'primary stalled while dark')
+
+    # Assert: exactly one stably-prefixed line, at WARNING or above, naming the
+    # event type and the env label.
+    lines = [r for r in caplog.records if r.getMessage().startswith(TIER1_PREFIX)]
+    assert len(lines) == 1, f'expected one {TIER1_PREFIX} line, got {caplog.records}'
+    assert lines[0].levelno >= logging.WARNING
+    assert 'chat_primary_timeout' in lines[0].getMessage()
+    assert 'tier1-probe-env' in lines[0].getMessage()
