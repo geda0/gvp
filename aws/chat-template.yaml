@@ -46,6 +46,24 @@ Parameters:
     NoEcho: true
     Default: ''
     Description: Probe-scoped secret validated by /api/chat/smoke (x-smoke-key). Distinct from the contact admin key.
+  ResendApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: 'Resend API key for instant chat-degradation alerts. Empty leaves alerts dark (no-op).'
+  ChatAlertEmail:
+    Type: String
+    Default: ''
+    Description: 'Recipient for instant chat alerts (model switch / timeout / rate-limit / breakage). Empty leaves alerts dark.'
+  ChatAlertFromEmail:
+    Type: String
+    Default: ''
+    Description: 'From address for instant chat alerts (a verified Resend sender). Empty leaves alerts dark.'
+  StageName:
+    Type: String
+    Default: stage
+    AllowedValues: [stage, prod]
+    Description: Environment label (surfaced as CHAT_ENV in alert subjects).
 
 Conditions:
   HasChatTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
@@ -97,6 +115,10 @@ Resources:
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
           SMOKE_PROBE_KEY: !Ref SmokeProbeKey
+          RESEND_API_KEY: !Ref ResendApiKey
+          CHAT_ALERT_EMAIL: !Ref ChatAlertEmail
+          CHAT_ALERT_FROM_EMAIL: !Ref ChatAlertFromEmail
+          CHAT_ENV: !Ref StageName
       Events:
         RootAny:
           Type: HttpApi

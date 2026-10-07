@@ -11,12 +11,20 @@ Description: >
   bind this host — the earlier wording ("nothing here is referenced by the committed
   meta") was true when written and is now false. PROD is still on
   gvp-chat-express-prod and is unaffected by this stack.
-  KNOWN GAP, measured 2026-10-07: this stack's Environment omits RESEND_API_KEY,
-  CHAT_ALERT_EMAIL and CHAT_ALERT_FROM_EMAIL, so docker/chat/app/alerts.py
-  alerts_enabled() is False here and all six chat alert types are silently dropped
-  (CHAT_ENV is also unset, so _env_label() reports 'unknown'). Alerting is currently
-  a property of the ECS Express host, not of the app. Do not promote prod onto this
-  host until that is closed.
+  ALERTING IS WIRED BUT NOT NECESSARILY LIT, and the distinction is the whole point.
+  This stack now DECLARES the three env vars docker/chat/app/alerts.py gates on
+  (RESEND_API_KEY, CHAT_ALERT_EMAIL, CHAT_ALERT_FROM_EMAIL) plus CHAT_ENV, pinned by
+  test/chat-alert-gate-env.test.mjs. But all three parameters default to '', so
+  alerts_enabled() is still False unless the DEPLOY passes real values — a deploy
+  cannot omit a key any more, but it can trivially pass an empty one and silently
+  reproduce the state measured on 2026-10-07, when this host dropped all six chat
+  alert types with no log line. The test pins KEY PRESENCE only, deliberately: a test
+  that asserted the values would be a secret-shaped liability. So presence is
+  enforced by the suite and liveness is not — verify liveness on the deployed
+  function after any deploy, per ADR-0022 §27.1 B-5.
+  CHAT_ENV takes StageName, which DEFAULTS TO 'stage'. A prod deploy that forgets to
+  override it labels prod alerts '[chat alert · stage]', which is worse than the
+  'unknown' it replaced, because it is confidently wrong. Pass StageName explicitly.
 
 Parameters:
   StageName:
@@ -55,6 +63,19 @@ Parameters:
       Existing STAGE transcripts table, reused so persistence is measurable.
       This stack only ever writes to it; the table itself belongs to page-staging
       and is NOT managed here.
+  ResendApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: 'Resend API key for instant chat-degradation alerts. Empty leaves alerts dark (no-op).'
+  ChatAlertEmail:
+    Type: String
+    Default: ''
+    Description: 'Recipient for instant chat alerts (model switch / timeout / rate-limit / breakage). Empty leaves alerts dark.'
+  ChatAlertFromEmail:
+    Type: String
+    Default: ''
+    Description: 'From address for instant chat alerts (a verified Resend sender). Empty leaves alerts dark.'
   FunctionUrlAuthType:
     Type: String
     Default: NONE
@@ -169,6 +190,10 @@ Resources:
           GEMINI_LIVE_MODEL: !Ref GeminiLiveModel
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
+          RESEND_API_KEY: !Ref ResendApiKey
+          CHAT_ALERT_EMAIL: !Ref ChatAlertEmail
+          CHAT_ALERT_FROM_EMAIL: !Ref ChatAlertFromEmail
+          CHAT_ENV: !Ref StageName
       Tags:
         Project: gvp
         Component: chat-lambda-stream
