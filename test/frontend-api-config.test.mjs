@@ -115,7 +115,19 @@ const SPELLINGS = [
   (url) => `${url}///`,
   (url) => `  ${url}  `,
   (url) => ` \t${url}/\n`,
-  (url) => `\n ${url}///  `
+  (url) => `\n ${url}///  `,
+  // A DOUBLED SEPARATOR, which is the spelling invariant 18's headline names and the
+  // one the other six do not vary. `//api/chat` misses CloudFront's exact `/api/chat`
+  // behavior exactly as a trailing slash does, and falls through to the buffered
+  // default origin: still 200, still text/event-stream, still the right text, delivered
+  // all at once with streaming silently dead. It is also LESS protected than the
+  // trailing slash, not more — `js/site-config.js` strips trailing slashes but leaves
+  // interior runs untouched — and two base-join idioms that can produce it already sit
+  // in aws/*.yaml: chat-stream-template.yaml joins `${Base}api/chat` with no separator
+  // because a Function URL ends in `/`, while chat-template.yaml and
+  // chat-express-template.yaml expose bases with no trailing slash.
+  // scripts/sync-site-api-urls.mjs writes its argument into the meta verbatim.
+  (url) => url.replace('/api/chat', '//api/chat')
 ]
 
 // Derive the endpoint js/chat.js would POST to, for one <meta> content value.
