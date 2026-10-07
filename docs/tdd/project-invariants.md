@@ -870,10 +870,36 @@ proves it comes FIRST.
     and survives that edit, so the clean and whitespace-only spellings still match — and removing
     `.trim()` instead fails the whitespace spellings. Both counts matched the hand-derived
     prediction before the run, and `js/site-config.js` was restored to an empty diff after each.
-    **Still unproven, and not closed by pin 1:** that the trailing spelling is unreachable from
-    anywhere other than `js/chat.js` — it remains reachable from curl, the docs, and the deploy
-    scripts, which is why the edge rewrite in `aws/chat-stream-cdn-template.yaml` carries the other
-    half of this invariant.
+    **THE "no doubled separator" CLAUSE — over-claimed when first marked PROVEN hours earlier,
+    now actually implemented and pinned (`b0f0a4a`).** Caught by the `tdd-critic`, and the finding
+    stands recorded rather than quietly fixed because the over-claim is instructive: the paragraph
+    above this one asserted PROVEN for an invariant whose *headline* names two spellings, while
+    `js/site-config.js` normalised only one. VERIFIED before fixing: a meta of
+    `https://h.example//api/chat` derived that string verbatim. `//api/chat` misses CloudFront's
+    exact `/api/chat` behavior exactly as `/api/chat/` does, so it falls through to the buffered
+    default origin — the identical silent 200. Of the six spellings originally pinned, five varied
+    one property and **none** varied the property the invariant headline names.
+    The critic's sharpest point was my own argument turned around: the trailing slash was pinned to
+    guard against "the next edit that joins a base to a path", and that edit is **already in the
+    tree twice, in opposite styles** — `aws/chat-stream-template.yaml` joins `${Base}api/chat` with
+    no separator *because* a Function URL ends in `/`, while `aws/chat-template.yaml` and
+    `aws/chat-express-template.yaml` expose bases with none, and
+    `scripts/sync-site-api-urls.mjs` writes its argument into the meta verbatim. So the **less**
+    protected spelling was the one scoped out.
+    Now a 7th spelling, and mutation-verified twice: removing the interior collapse fails, and
+    collapsing *everything* (so `https://` becomes `https:/`) also fails — the second mutant is
+    what proves the test guards scheme preservation and not merely the collapse. The scheme is
+    preserved by splitting it off rather than with a `(?<!:)` lookbehind, because Safari gained
+    lookbehind only in 16.4 and an unsupported one is a parse-time `SyntaxError` that takes the
+    whole module down instead of degrading.
+    **Still unproven, and not closed by pin 1:** that either spelling is unreachable from anywhere
+    other than `js/chat.js` — both remain reachable from curl, the docs, and the deploy scripts,
+    which is why the edge rewrite in `aws/chat-stream-cdn-template.yaml` carries the other half of
+    this invariant. **And one claim above is weaker than it reads:** "both real committed hosts" are
+    two string *literals* in the test, not values derived from `index.html`, so when ADR-0022 moves
+    prod off the ECS host those cells keep passing against hosts that no longer ship. Deriving one
+    base from the committed meta — the shape `test/frontend-api-url-env-guard.test.mjs` already
+    uses — is the open follow-up.
     What pin 1 converts is the *incidental* property into a contract: the frontend was **already** a
     one-spelling emitter, but **incidentally, not by
     contract** — `js/site-config.js:9` strips trailing slashes from the meta content

@@ -5,11 +5,21 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
 // Instant chat alerting is gated, once, by `alerts_enabled()` in
-// docker/chat/app/alerts.py:53-54 — the SOURCE OF TRUTH for which env vars must reach the
-// container. When it returns False, `fire_alert()` returns silently (alerts.py:85-86): no log
-// line, no counter. All six alert types (chat_upstream_unavailable, chat_primary_timeout,
-// chat_primary_rate_limit, chat_model_error, chat_transcript_write_failed,
-// chat_transcript_session_full) are dropped without a trace.
+// docker/chat/app/alerts.py — the SOURCE OF TRUTH for which env vars must reach the container.
+// When it returns False, EMAIL delivery is skipped for all six alert types
+// (chat_upstream_unavailable, chat_primary_timeout, chat_primary_rate_limit, chat_model_error,
+// chat_transcript_write_failed, chat_transcript_session_full).
+//
+// CORRECTED 2026-10-07, same day, and the correction is the point of this note. This comment
+// originally read "...returns silently: no log line, no counter. All six alert types are dropped
+// without a trace." That was TRUE when this test was written and became FALSE within the hour,
+// when commit 39e2033 added the unconditional Tier-1 WARNING line as the first statement of
+// `fire_alert` (ADR-0022 §25 DECISION 5, project invariant 19). An unconfigured host now leaves a
+// durable record, so the stakes of a missing env var are "no EMAIL" rather than "no trace".
+// Deliberately NOT deleted: the superseded sentence is why this test exists, and a test whose
+// stated justification silently overstates its own stakes is how a test outlives its reason.
+// Line citations are kept coarse here on purpose — 39e2033 shifted alerts.py by +13 and the
+// pinpoint `:85-86` style of citation went stale across three files at once.
 //
 // MEASURED 2026-10-07 on the deployed functions: `alerts_enabled()` is False on BOTH Lambda
 // chat hosts (gvp-chat-lambda-stream-stage-ChatStreamFunction-*, 7 env keys; and
@@ -39,7 +49,12 @@ const CHAT_HOST_TEMPLATES = [
 // once). Each top-level `def` body is taken up to the next top-level `def`.
 function pythonTopLevelDefs (src) {
   const defs = new Map()
-  for (const chunk of src.split(/^def /m).slice(1)) {
+  // Splits on `async def` as well as `def`: without it a chunk runs to EOF and swallows the
+  // next coroutine. The tdd-critic verified this cannot move the gate groups, since none of
+  // alerts_enabled / _dest_email / _from_email / _api_key is followed by an `async def` — so the
+  // local workaround that used to live in envLabelEnvNames was duplicating this rule for a
+  // reason that did not hold.
+  for (const chunk of src.split(/^(?:async )?def /m).slice(1)) {
     const named = chunk.match(/^(\w+)/)
     if (named) defs.set(named[1], chunk)
   }
@@ -55,7 +70,7 @@ function alertGateEnvGroups (alertsPy) {
   // \b before the underscore so `alerts_enabled()` does not self-match as `_enabled()`.
   const helpers = [...gate.matchAll(/\b(_\w+)\(\)/g)].map(m => m[1])
   return helpers.map(helper => [
-    ...(defs.get(helper) || '').matchAll(/os\.environ\.get\(\s*'([A-Z][A-Z0-9_]*)'/g)
+    ...(defs.get(helper) || '').matchAll(/os\.environ\.get\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]/g)
   ].map(m => m[1]))
 }
 
@@ -137,10 +152,8 @@ test('every chat-host template wires the env vars alerts_enabled() gates on', ()
 // parameter, and a test that pins values becomes a secret-shaped liability. Same for any
 // successor to this test.
 function envLabelEnvNames (alertsPy) {
-  // Truncated at the next `def`: pythonTopLevelDefs splits only on top-level `def `, and
-  // `_env_label` is followed by `async def _send`, whose body must not leak into the group.
-  const body = (pythonTopLevelDefs(alertsPy).get('_env_label') || '').split(/\n(?:async )?def /)[0]
-  return [...body.matchAll(/os\.environ\.get\(\s*'([A-Z][A-Z0-9_]*)'/g)].map(m => m[1])
+  const body = pythonTopLevelDefs(alertsPy).get('_env_label') || ''
+  return [...body.matchAll(/os\.environ\.get\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]/g)].map(m => m[1])
 }
 
 test('every chat-host template declares the env var that attributes an alert to an environment', () => {
