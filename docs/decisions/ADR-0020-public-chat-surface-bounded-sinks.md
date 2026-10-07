@@ -644,6 +644,49 @@ tail risk. So A3 ranks below A1.
 > increments nothing — the item stays valid and the session simply stops accepting turns,
 > loudly (A3.1).
 
+**A3.2 AS SHIPPED WAS DEFECTIVE. CORRECTED 2026-10-07 (commit `5620bd8`); the decision above is
+kept verbatim because the two numbers in it are exactly what was wrong.** Found by the
+owner-authorized ADR-0022 §25.3-M probe, which filled one stage session through the public sink and
+produced the *undesigned* failure: the alert that fired was `chat_transcript_write_failed` carrying
+`ValidationException: Item size to update has exceeded the maximum allowed size` — **not**
+`chat_transcript_session_full`. The budget never engaged. Two independent defects:
+
+1. **The headroom was smaller than one turn, so an over-limit item was reachable by arithmetic
+   alone.** The condition gates on bytes *already* stored, so it permits a write whenever
+   `bytesStored < :budget`; the largest item a static 380 KiB can therefore allow is
+   `389_119 + :turnBytes`. Turns measure **42_848** bytes route-clamped and **60_038** in the
+   existing unit test, against **20_480** bytes of headroom. The prose above calls a maximal turn
+   "44 KB" in the very next paragraph while setting a budget that leaves less than half that — the
+   refutation was sitting inside the decision.
+2. **`bytesStored` undercounts the real item.** `len(json.dumps(turn))` counts the turn's JSON and
+   nothing else: not attribute names, not DynamoDB's encoding, not the `turns` list structure, not
+   the item-level attributes the update SETs fresh every turn. MEASURED on stage: the counter read
+   **387_824** with 16 turns stored — 21_776 bytes *under* the 409_600 limit and under the
+   then-budget, so the condition was still permitting writes — while DynamoDB had already refused
+   the write. The real item was therefore ≥ 409_600 while the counter said 387_824: an undercount
+   of at least **5.6%**, and that figure is a *floor*, since a refusal proves the item was past the
+   limit and not how far past. **Turns 17 and 18 were lost.**
+
+**What A3.2 actually achieved, stated precisely:** it converted silent, permanent data loss into a
+*loud* alert — which is A3.1's contribution and is real — but it did **not** bound the item, so the
+sentence "A3.2 makes the invariant true without it" was false when written. The one-item-per-turn
+redesign deferred to ADR-0021/M8 is therefore still the only change that removes this coupling for
+good; A3.2 now merely keeps the item inside the limit.
+
+**The fix:** the threshold is computed PER WRITE as
+`DYNAMODB_MAX_ITEM_BYTES - turn_bytes - UNDERCOUNT_MARGIN_BYTES`, so the condition reads "adding
+THIS turn stays under the limit" rather than "the item is not yet nearly full". Small turns keep
+full capacity instead of every session being pessimised to the worst case. The margin is 10% of the
+limit (40_960), a little under 2× the measured floor.
+
+**Pinned as a relationship, not a literal, and that distinction is the lesson.** The pre-existing
+test asserted `values[':budget'] == 380 * 1024`. That assertion pinned the defect and is precisely
+why it shipped green: a test that asserts the number cannot notice the number is wrong. It now
+asserts `:budget + :turnBytes <= 409_600` against the test file's own copy of the limit — not by
+importing the app's `session_byte_budget`, which would be the code asserting it equals itself.
+Mutation-verified three ways, each caught: reverting to the static budget, dropping the margin, and
+dropping the turn subtraction.
+
 A **count** cap was rejected as the primary bound: it cannot be both generous to real sessions
 and sufficient against worst-case turns (at 44 KB/turn the count would have to be 8, which is
 absurd for a conversation; at a generous 100 the size is unbounded again). A byte budget

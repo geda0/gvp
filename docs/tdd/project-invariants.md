@@ -801,12 +801,26 @@ proves it comes FIRST.
          astral-plane code points persist 32 000 bytes. Decision **A2**: `clamp_text` on a UTF-8
          byte budget (8 000 / 16 000 bytes), clamping not rejecting.
       6. **The item has no size bound.** Decision **A3.2**: a `bytesStored` counter in the item
-         plus `ConditionExpression`, budget 380 KiB.
+         plus `ConditionExpression`. **The 380 KiB budget originally shipped here was DEFECTIVE and
+         is corrected (2026-10-07, `5620bd8`)** — its 20_480 bytes of headroom were smaller than one
+         turn (42_848 route-clamped), so an over-limit item was reachable by arithmetic, and
+         `bytesStored` undercounts the real item by ≥5.6% because it counts only the turn's JSON.
+         MEASURED on stage: the counter read 387_824 while DynamoDB had already refused the write,
+         and two turns were lost. The threshold is now computed per write as
+         `limit - turn_bytes - margin`. Note what A3.2 does and does not deliver: it made the
+         failure **loud** (that is A3.1, and it is real) but it did not **bound** the item until
+         this correction, so ADR-0020's "A3.2 makes the invariant true" was false as written.
       7. **The admin tool histogram collides on `Object.prototype` keys.** Verified in node:
          `contact-admin.js:374` on a plain `{}` turns a tool named `toString` into the string
          `"function toString() { [native code] }11"`, compounding through the merge at
          `:697-699`; `__proto__` silently drops the bucket. Not prototype pollution. Decision
-         **A7b**: `Object.create(null)` at `:327`, `:328`, `:612`, `:613`.
+         **A7b**: `Object.create(null)` at **six** sites, verified at this commit — `:330`, `:332`,
+         `:333` (the per-item counters) and `:618`, `:619`, `:641` (the summary counters).
+         **This list said four.** The architect's clearance scoped it to four; the test-writer found
+         the summary objects are bumped from keys arriving as OWN properties of an
+         already-null-prototype item object, so fixing only the item side left `errorsByCode`
+         corruptible through `summary.stream.errorsByCode`. Six shipped, and the widening was
+         recorded in the clearance at the time rather than justified afterwards.
 
 18. **The streaming chat route is reachable by exactly one spelling, and every spelling the
     frontend can emit lands on a streaming behavior — a silent fall-through to a buffered origin
