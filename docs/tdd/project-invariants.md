@@ -850,10 +850,32 @@ proves it comes FIRST.
     trade stated). This is also the general form: **any** `30x` the chat app builds from the `Host`
     header is unfollowable under OAC, because `AllViewerExceptHostHeader` means that header is the
     *origin's* name, not ours.
-    **CONFORMANCE, stated plainly: this invariant is NOT proven, and nothing in the suite catches
-    its violation today** — it is recorded now, ahead of its test, because the hole is live in
-    infrastructure that is about to carry production traffic (ADR-0022 §24.7). What is true at this
-    commit: the frontend is **already** a one-spelling emitter, but **incidentally, not by
+    **CONFORMANCE — PIN 1 IS NOW PROVEN, 2026-10-07. The paragraph that stood here said the
+    opposite** ("this invariant is NOT proven, and nothing in the suite catches its violation
+    today"), which was true when written and is superseded rather than deleted, because it is what
+    explains why the pin was written.
+    `test/frontend-api-config.test.mjs::every chat-api-url meta spelling derives exactly
+    <base>/api/chat` asserts **18 derivations** — three bases, including both real committed hosts,
+    times six spellings (clean, one trailing slash, three, surrounded by whitespace, and whitespace
+    plus slashes) — through a **fresh cache-busted import** of `js/site-config.js` per case with a
+    stubbed `document`, since that module reads `document` at import time and static imports hoist
+    above a stub. `hostname` is deliberately not `localhost`, so the local fallback can never be
+    what makes a case pass. It asserts the derivation's OUTPUT, not the source text: a regex over
+    `js/` would keep passing the moment someone rewrote the normalisation into something
+    equivalent-looking that no longer normalised.
+    **MUTATION-VERIFIED, both halves independently, each applied under an assertion that its anchor
+    matched** (a mutation that silently fails to apply reads as a survivor, and this project has
+    already published one wrong "SURVIVED" that way): removing `.replace(/\/+$/, '')` fails the
+    test with **exactly 12 of 18** cells gaining a trailing slash — `.trim()` is a separate call
+    and survives that edit, so the clean and whitespace-only spellings still match — and removing
+    `.trim()` instead fails the whitespace spellings. Both counts matched the hand-derived
+    prediction before the run, and `js/site-config.js` was restored to an empty diff after each.
+    **Still unproven, and not closed by pin 1:** that the trailing spelling is unreachable from
+    anywhere other than `js/chat.js` — it remains reachable from curl, the docs, and the deploy
+    scripts, which is why the edge rewrite in `aws/chat-stream-cdn-template.yaml` carries the other
+    half of this invariant.
+    What pin 1 converts is the *incidental* property into a contract: the frontend was **already** a
+    one-spelling emitter, but **incidentally, not by
     contract** — `js/site-config.js:9` strips trailing slashes from the meta content
     (`raw.replace(/\/+$/, '')`), `js/chat.js:338` uses the result verbatim as the POST endpoint
     (`:1149`), and `js/chat-live.js:247` / `js/admin.js:26` re-strip before deriving their own
