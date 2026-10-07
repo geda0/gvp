@@ -958,13 +958,22 @@ proves it comes FIRST.
       `CHAT_ALERT_FROM_EMAIL` and `CHAT_ENV` to the `Environment:` block of both
       `aws/chat-template.yaml` and `aws/chat-stream-template.yaml` (one satisfier per conjunct is
       enough, so the `CONTACT_*` alternates are deliberately not declared).
-      **WIRED IS NOT LIT, and this is the live gap:** all three alert parameters default to `''`, so
-      a deploy can no longer omit a *key* but can still pass an empty *value*. The deployed
-      functions measured at 7 and 11 env keys **have not been redeployed**, so
-      `alerts_enabled()` is still `False` in stage right now — the templates are correct and the
-      running hosts are not. Closing that is a deploy, which is why ADR-0022 §27.1 carries **B-5**
-      (one post-deploy liveness check) as a blocker in its own right rather than folding it into
-      B-1.
+      **STAGE IS NOW LIT — MEASURED 2026-10-07 after the deploy**, and this paragraph previously
+      said the opposite, which was true when written and false within the hour. Read back from
+      `get-function-configuration` on both hosts:
+      `…ChatStreamFunction-48hA0gOKhVzC` 7 → **11 env keys**, `alerts_enabled()` **True**,
+      `_env_label()` **`stage`**; `gvp-chat-stage-ChatFunction-e9cDGaRVL5II` 11 → **15 env keys**,
+      `alerts_enabled()` **True**, `_env_label()` **`stage`**. `ReservedConcurrentExecutions` is
+      **5** and survived the deploy, and the committed `gvp:chat-api-url` metas were untouched, so
+      invariant 11 still holds. **PROD is NOT lit** — it remains on `gvp-chat-express-prod`, which
+      was already configured, so prod alerting never broke; the gap was stage and the two Lambda
+      hosts the prod roll targets.
+      **WIRED IS STILL NOT LIT, as a standing property:** all three parameters default to `''`, so
+      a deploy can no longer omit a *key* but can still pass an empty *value*. The suite pins key
+      presence only, deliberately, so liveness is never provable from the repo. That is why
+      ADR-0022 §27.1 keeps **B-5** (one post-deploy liveness check) as a blocker in its own right
+      rather than folding it into B-1 — and this deploy is the first time that check has actually
+      been run.
       **Still unimplemented:** Tier 2 on Lambda (metric filter on the Tier-1 line, alarm, SNS) and
       the startup announcement — ADR-0022 §26.5 items **E6** and **G5**. Note `:92-93` still logs
       the no-loop exit at DEBUG, below the default level; DECISION 5 moves it to WARNING and that is

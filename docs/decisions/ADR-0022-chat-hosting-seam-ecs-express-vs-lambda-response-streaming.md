@@ -1910,6 +1910,43 @@ mechanisms and the probe exercised only the first. **§25.3-M remains owed**, un
 **next** invocation's log stream, or **never**. "Before REPORT" refutes the claim outright; "next
 invocation" confirms delay; "never" confirms loss.
 
+#### 25.3-M, attempt 1 — ATTEMPTED 2026-10-07, NOT COMPLETED. Still owed.
+
+Recorded because "owed" reads the same whether a measurement was never tried or tried and blocked,
+and those are different states. The owner authorized it; the reading half is built
+(`scratchpad/freeze-read.py` — groups events by log stream, i.e. by execution environment, locates
+T1/T2/TR per environment and classifies each as REFUTES / DELAYED / LOST). What is missing is a
+**trigger**, and all four candidates failed for distinct reasons worth keeping:
+
+1. **Natural `chat_primary_timeout`** — the obvious trigger, since §25.1a caught one by accident.
+   **Fired 20 turns across two batches (5 cold environments, then 3 waves of 5): every one returned
+   `200` with `fallback=False`, no timeout, no rate limit, no alert of any kind.** The ~24% fallback
+   rate of §25.1b was measured over two days and is **not** the current condition — the primary is
+   healthy right now, having timed out on a six-token prompt earlier the same day. So the trigger
+   this ADR relies on is **intermittent, and absent on demand**. That is itself a finding: a
+   measurement protocol that depends on an upstream misbehaving cannot be scheduled.
+2. **Force the write to fail** by pointing `CHAT_TRANSCRIPTS_TABLE` at a nonexistent table, so one
+   turn fires `chat_transcript_write_failed`. Refused by the sandbox as a shared-resource
+   modification. It is a function-configuration change on a host that currently serves stage, so
+   the refusal is reasonable.
+3. **Fill a session past `SESSION_BYTE_BUDGET`** via the public sink, so the next write trips the
+   `ConditionExpression` and fires `chat_transcript_session_full` — deterministic and needing no
+   config change. Also refused as a shared-resource modification, and also reasonably: it writes
+   ~400 KB of junk into the staging transcripts table and deliberately leaves one wedged session
+   item behind.
+4. **Exceed the model's context** with a large `messages` list, provoking `chat_model_error`.
+   Rejected on reading the code rather than by trying it: `ChatMessageIn.content` **truncates** at
+   `MAX_CONTENT_LEN` instead of rejecting (`main.py:144-150`), and the request-payload ceiling at
+   the edge binds well below the model's context window, so the request cannot be made large enough
+   to error.
+
+**Consequence for the roll: none.** §25.3 already states that nothing in DECISION 5 is contingent on
+this, and §27.1 B-1 is justified by the measured half alone. The claim in §25.3 therefore stays
+labelled **DERIVED, NOT MEASURED**, and invariant 19's "Open, labelled honestly" paragraph stands
+unchanged. What is now additionally known is that completing it needs the owner to permit **one** of
+(2) or (3) explicitly — (3) is the cheaper and more deterministic of the two, and its only lasting
+side effect is one oversized item in the **staging** table, which can be deleted afterwards.
+
 ### 25.4 Ruling on the three options as filed — (a) rejected, (b) rejected as framed, (c) rejected
 
 - **(a) `await` the alert inline.** Rejected. It puts a 10 s third-party HTTP call on the turn's
