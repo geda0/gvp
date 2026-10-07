@@ -203,9 +203,26 @@ PO=(
   "$(sam_param_override ContactFromEmail "${CONTACT_FROM_EMAIL}")"
   "$(sam_param_override AlarmEmail "${ALARM_EMAIL}")"
   "$(sam_param_override AdminApiKey "${ADMIN_API_KEY}")"
-  "$(sam_param_override IpHashPepper "${IP_HASH_PEPPER:-}")"
-  "$(sam_param_override SmokeProbeKey "${SMOKE_PROBE_KEY:-}")"
 )
+
+# IpHashPepper and SmokeProbeKey are OPTIONAL and were passed unconditionally, which made this
+# script unable to deploy at all whenever they are unset — their default state in this repo:
+# neither is in .secrets/*, in either manifest, or anywhere else in the tree, so
+# `sam_param_override` emitted a bare `IpHashPepper=` and SAM rejected the whole
+# --parameter-overrides list ("is not a valid format"), before reaching any chat stack. MEASURED
+# 2026-10-07, exit 2.
+# Conditional is strictly better than empty, never worse: CloudFormation reuses the PREVIOUS value
+# of any parameter a deploy omits, so on the live stacks (page / page-staging both hold a real
+# NoEcho pepper) this preserves it instead of trying to blank it, and on a brand-new stack the
+# template's own `Default: ''` applies exactly as before. Same shape the adjacent
+# ContactReportEmail / ContactCorsOrigins blocks already use.
+if [[ -n "${IP_HASH_PEPPER:-}" ]]; then
+  PO+=("$(sam_param_override IpHashPepper "${IP_HASH_PEPPER}")")
+fi
+
+if [[ -n "${SMOKE_PROBE_KEY:-}" ]]; then
+  PO+=("$(sam_param_override SmokeProbeKey "${SMOKE_PROBE_KEY}")")
+fi
 
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
   PO+=("$(sam_param_override ContactReportEmail "${CONTACT_REPORT_EMAIL}")")
@@ -354,8 +371,14 @@ if [[ "${run_chat_sam}" == "true" ]]; then
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
     "GeminiLiveModel=${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}"
     "ChatVoiceModel=${CHAT_VOICE_MODEL:-gemini-3.1-flash-live-preview}"
-    "SmokeProbeKey=${SMOKE_PROBE_KEY:-}"
   )
+  # Conditional for the same reason as IpHashPepper above, and it matters HERE and not in the
+  # express or CDN arrays because this stack goes through `sam deploy` (PackageType: Image) and SAM
+  # rejects a bare `SmokeProbeKey=` outright, where awscli's `deploy` accepts it. SMOKE_PROBE_KEY is
+  # unset in this repo's .secrets/*, so passing it unconditionally fails the whole deploy.
+  if [[ -n "${SMOKE_PROBE_KEY:-}" ]]; then
+    CHAT_PO+=("SmokeProbeKey=${SMOKE_PROBE_KEY}")
+  fi
   if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
     CHAT_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
   else
