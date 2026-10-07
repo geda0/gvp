@@ -1,11 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  ADR-0022 spike — portfolio chat on Lambda RESPONSE STREAMING via the AWS Lambda
-  Web Adapter, behind a Lambda Function URL (InvokeMode RESPONSE_STREAM).
-  Measurement candidate ONLY: it runs SIDE BY SIDE with gvp-chat-express-{stage,prod}
-  and must not replace or disturb them. Nothing here is referenced by the committed
-  gvp:chat-api-url meta (invariant 11) — testing is against the raw Function URL.
+  ADR-0022 — portfolio chat on Lambda RESPONSE STREAMING via the AWS Lambda Web
+  Adapter, behind a Lambda Function URL (InvokeMode RESPONSE_STREAM).
+  NO LONGER A MEASUREMENT CANDIDATE ON STAGE. It still runs SIDE BY SIDE with
+  gvp-chat-express-{stage,prod} and must not disturb them, but as of commit 046563d
+  the committed STAGE gvp:chat-api-url meta points at the CloudFront front door in
+  aws/chat-stream-cdn-template.yaml, whose /api/chat behavior targets THIS stack's
+  Function URL. So stage browser traffic is served from here and invariant 11 does
+  bind this host — the earlier wording ("nothing here is referenced by the committed
+  meta") was true when written and is now false. PROD is still on
+  gvp-chat-express-prod and is unaffected by this stack.
+  KNOWN GAP, measured 2026-10-07: this stack's Environment omits RESEND_API_KEY,
+  CHAT_ALERT_EMAIL and CHAT_ALERT_FROM_EMAIL, so docker/chat/app/alerts.py
+  alerts_enabled() is False here and all six chat alert types are silently dropped
+  (CHAT_ENV is also unset, so _env_label() reports 'unknown'). Alerting is currently
+  a property of the ECS Express host, not of the app. Do not promote prod onto this
+  host until that is closed.
 
 Parameters:
   StageName:
@@ -63,27 +74,34 @@ Parameters:
       is lifted (or until a CloudFront + OAC front end signs for the browser).
   ReservedConcurrency:
     Type: Number
-    Default: 0
+    Default: 5
     MinValue: 0
     Description: >
       ADR-0022 M-4 hard ceiling. A Function URL has NO API Gateway in front of it,
       so the 5 rps / burst 10 throttle at aws/chat-template.yaml:67-69 does not
       apply here. Unthrottled public endpoint + per-invocation billing + a paid
       upstream model is a cost-amplification tail; reserved concurrency is the
-      enforceable cap, and the intended value is 5.
-      MEASURED FACT, account 429844072978, 2026-10-06: ANY reserved concurrency is
-      currently REJECTED. The account limit is ConcurrentExecutions=10 with
-      UnreservedConcurrentExecutions=10, and PutFunctionConcurrency answers
+      enforceable cap, and 5 is the intended value.
+      MEASURED FACT, account 429844072978, 2026-10-07: reserving is now ACCEPTED.
+      Service Quotas request e66ca23fbf8047e8bf9f358007990859q8kiaTuI (quota
+      L-B99A9384, "Concurrent executions") is CASE_CLOSED and APPLIED at 1000;
+      get-account-settings reports ConcurrentExecutions=1000 /
+      UnreservedConcurrentExecutions=1000, and PutFunctionConcurrency with
+      ReservedConcurrentExecutions=5 on this stack's function returns
+      {"ReservedConcurrentExecutions": 5}. Reserving 5 leaves 995 unreserved, far
+      above the minimum-unreserved floor. This closes ADR-0022 gate E1 and §23.2
+      (M-7), which named this quota as a gate on the prod roll.
+      SUPERSEDED, kept because it explains why the default used to be 0 — measured
+      2026-10-06, before the increase: the account limit was ConcurrentExecutions=10
+      with UnreservedConcurrentExecutions=10, and PutFunctionConcurrency answered
       "Specified ReservedConcurrentExecutions for function decreases account's
-      UnreservedConcurrentExecution below its minimum value of [10]." — for 5 AND
-      for 1. Hence default 0 (= do not reserve), which deploys; 0 is only honest
-      because the ACCOUNT-WIDE limit of 10 is itself a hard concurrency ceiling
-      today. Caution: that ceiling is SHARED with the page / page-staging contact
-      functions, so it bounds cost but does not isolate this function.
-      Set this to 5 the moment the account concurrency limit is raised above the
-      minimum-unreserved floor (floor is 10 on this account, 100 on a standard
-      one). Reserved concurrency is NOT a substitute for an invocation/billing
-      alarm — M-4 asks for both.
+      UnreservedConcurrentExecution below its minimum value of [10]." for 5 AND
+      for 1, so no reservation of any size could be made. 0 (= do not reserve) was
+      honest then only because the account-wide limit of 10 was itself a hard
+      ceiling; at 1000 that incidental ceiling is GONE, which is precisely why an
+      explicit reservation is now load-bearing rather than cosmetic.
+      Reserved concurrency is NOT a substitute for an invocation/billing alarm —
+      M-4 asks for both, and the alarm half (E2-E5) is still owed.
 
 Conditions:
   HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
