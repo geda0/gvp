@@ -436,3 +436,63 @@ def test_response_nested_too_deep_costs_the_entry_its_bulk_as_well() -> None:
     # (`_BULK_KEYS`) rather than reasoning about which half was oversized.
     # Retaining `args` here would be a different decision, not a test detail.
     assert kept == {'id': 'call-1', 'name': 'probe'}
+
+
+def test_clamped_text_fits_the_byte_budget_without_splitting_a_character() -> None:
+    """The free-text fields are bounded in BYTES, not code points (ADR-0020 §5 A2).
+
+    `userText` / `assistantText` carry Pydantic `max_length=8000` / `16000`
+    (`main.py:172-173`), which counts CODE POINTS, while DynamoDB charges UTF-8
+    BYTES. Measured through the real route: 8 000 astral-plane code points pass
+    that outer guard and persist **32 000 bytes** — a 4x undercount. That is why
+    one maximal turn measures ~116 KB, and why the 4th write into a session's
+    single DynamoDB item is the one the 400 KB item limit refuses, after which
+    `transcript_store.py:140-144` swallows the failure and the owner silently
+    loses every later turn of that session.
+
+    `clamp_text` CLAMPS rather than rejects (D1, invariant #17 "clamp values,
+    reject identities"): a truncated transcript is a truthful weaker fact, and
+    the caller is a fire-and-forget `keepalive` beacon that never reads the
+    response (`js/chat-live.js:671-700`). The Pydantic code-point bounds stay
+    exactly as they are as a cheap outer guard, so nothing new answers 400.
+
+    The distinguishing fact — the one that separates a correct implementation
+    from the obvious wrong one — is that the budget is in BYTES and a multi-byte
+    character is NEVER split. A `value[:max_bytes]` slice passes every ASCII
+    fixture and is wrong on precisely the input this function exists for, so the
+    fixture below is astral-plane text and the budget is deliberately NOT a
+    multiple of the character width: ten bytes cannot be fully spent by 4-byte
+    characters, so a conforming result is strictly UNDER budget and the only way
+    to spend all ten is to cut a character in half. The ADR's realistic case is
+    the same arithmetic one byte narrower — 3-byte CJK, where an 8 000-byte
+    budget is ~2 600 characters.
+
+    The 8 000 / 16 000 byte budgets are CALL-SITE facts (`main.py:1208-1209`, a
+    separate cycle). `max_bytes` is a parameter, so this passes a small explicit
+    budget and the arithmetic stays checkable by eye.
+    """
+    # Arrange: 12 astral-plane code points, each exactly 4 bytes in UTF-8
+    # (U+1F6F8, U+1FA90, U+1F30D, U+1F680 — all above U+FFFF, hence 4 bytes
+    # each, and all single code points, so no variation selector muddies the
+    # count). The two preconditions pin that arithmetic in the two units that
+    # disagree, so the fixture fails loudly instead of drifting if either
+    # assumption changes. The characters are distinct so the prefix assertion
+    # proves order survived, rather than being satisfied by any run of one
+    # repeated character.
+    spoken = '🛸🪐🌍🚀' * 3
+    assert len(spoken) == 12                   # code points — Pydantic's unit
+    assert len(spoken.encode('utf-8')) == 48   # bytes — DynamoDB's unit
+    budget = 10  # bytes: two characters (8 bytes) fit, a third (12) does not
+
+    # Act
+    clamped = turn_input.clamp_text(spoken, budget)
+
+    # Assert: the result is charged within the byte budget, and it is still
+    # whole text — it round-trips through UTF-8 (no lone surrogate, no U+FFFD
+    # stand-in for a severed character) and it is a prefix of the input, so
+    # nothing was invented or reordered. The exact truncation index is
+    # deliberately not asserted; that it truncates rather than deletes is.
+    assert len(clamped.encode('utf-8')) <= budget
+    assert clamped.encode('utf-8').decode('utf-8') == clamped
+    assert spoken.startswith(clamped)
+    assert clamped
