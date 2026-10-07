@@ -930,12 +930,45 @@ proves it comes FIRST.
     Lambda — so stage chat is **serving traffic with the alarm bell disconnected**, across all six
     event types, on an upstream that ADR-0023 exists because it was failing roughly 1 request in 3.
     Alerting had silently become a property of one host.
-    - Implemented by: **nothing yet, on either tier.** `alerts.py:85-86` returns with **no log line
-      at any level** when the gate is false (`:92-93` logs the no-loop exit at DEBUG, below the
-      default level — also silent in practice); `aws/chat-template.yaml:89-99` (11 vars) and
-      `aws/chat-stream-template.yaml:146-153` (7 vars) set none of the gate's five names and no
-      `CHAT_ENV`. The gate slice for both templates is in flight under ADR-0022 §25.6; Tier 1 and
-      the startup announcement are the next slice.
+    **AND IT WAS THEN OBSERVED FIRING, not inferred** (ADR-0022 §25.1a, same day): a real stage turn
+    through the front door returned a healthy-looking `200 text/event-stream`, while the log group
+    showed the primary model timing out on a **six-token** prompt, demoting itself for the day
+    (`note_primary_timed_out()`, `gemini_limit_state.py:55-63`), and the visitor waiting **13.2 s**
+    for first token. `fire_alert('chat_primary_timeout', …)` was called and returned at
+    `alerts.py:86`: **no log line, no email, no record of any kind.** Note what makes this the
+    decisive case rather than an unlucky one — **the fallback WORKED**, so the degradation is
+    invisible at the HTTP layer by design. No error code, no 5xx, no truncated stream, nothing an
+    uptime check or a CloudFront metric can see. **When the only symptom is latency and the recovery
+    is automatic, the alert is not one channel among several; it is the only one.**
+    **Measured support for the two-tier split, from a controlled comparison inside one invocation:**
+    `logger.warning(…)` (`gemini_routing.py:376-380`) and `fire_alert(…)` (`:387-390`) are in the
+    **same `except` branch, eleven lines apart** — the synchronous line reached CloudWatch, the
+    fire-and-forget alert did not. Tier 1 is therefore *demonstrated viable* on a RESPONSE_STREAM
+    Lambda behind LWA, not merely argued. **Limits, stated so they are not over-claimed:** that
+    probe exercised a **mid-turn** line, not a post-response one; it does **not** measure the freeze
+    question (ADR-0022 §25.3-M stays owed); and n = 1 bounds any claim about rate.
+    - Implemented by: **Tier 1 yes; the corollary in the TEMPLATES but not yet on the DEPLOYED
+      hosts; Tier 2 on Lambda not at all.** Updated 2026-10-07 after the slices landed, because the
+      previous wording ("nothing yet, on either tier") was written while they were in flight and was
+      false within the hour.
+      **Tier 1 — `39e2033`.** `fire_alert` now emits
+      `logger.warning('CHAT_ALERT event=%s env=%s %s', ...)` as its first statement, above the gate,
+      so an unconfigured host leaves a durable record instead of returning in silence.
+      **Corollary — `f59f863`**, which added `RESEND_API_KEY`, `CHAT_ALERT_EMAIL`,
+      `CHAT_ALERT_FROM_EMAIL` and `CHAT_ENV` to the `Environment:` block of both
+      `aws/chat-template.yaml` and `aws/chat-stream-template.yaml` (one satisfier per conjunct is
+      enough, so the `CONTACT_*` alternates are deliberately not declared).
+      **WIRED IS NOT LIT, and this is the live gap:** all three alert parameters default to `''`, so
+      a deploy can no longer omit a *key* but can still pass an empty *value*. The deployed
+      functions measured at 7 and 11 env keys **have not been redeployed**, so
+      `alerts_enabled()` is still `False` in stage right now — the templates are correct and the
+      running hosts are not. Closing that is a deploy, which is why ADR-0022 §27.1 carries **B-5**
+      (one post-deploy liveness check) as a blocker in its own right rather than folding it into
+      B-1.
+      **Still unimplemented:** Tier 2 on Lambda (metric filter on the Tier-1 line, alarm, SNS) and
+      the startup announcement — ADR-0022 §26.5 items **E6** and **G5**. Note `:92-93` still logs
+      the no-loop exit at DEBUG, below the default level; DECISION 5 moves it to WARNING and that is
+      a separate slice.
     - Proven by: **partially — the corollary only.** `test/chat-alert-gate-env.test.mjs` asserts
       that every template which can run `docker/chat/app` passes the alert gate, **deriving** the
       five legal names from `alerts.py` rather than hardcoding them (which is how the `CONTACT_*`
@@ -943,10 +976,22 @@ proves it comes FIRST.
       declared-but-never-passed `Parameters:` entry does **not** satisfy it. Its independently
       parsed counts (11 and 7) match the deployed functions exactly. **It asserts key PRESENCE,
       never values** — values are deploy-time parameters and asserting them would make the test a
-      secret-shaped liability. **Still unproven: Tier 1** (that an unconfigured `fire_alert` leaves
-      a durable record — a `docker/chat/tests` unit test, cheap), **Tier 2 on Lambda** (that a metric
-      filter exists and alarms — a template assertion), and the **startup announcement**. Those are
-      ADR-0022 §26.5 items **G5** and **E6**.
+      secret-shaped liability.
+      **Tier 1 is now proven too**, by
+      `docker/chat/tests/test_alerts.py::test_emits_tier1_warning_line_even_when_gate_is_disabled`,
+      which deletes all five gate names, asserts `alerts_enabled() is False` as a precondition so it
+      cannot pass vacuously, and then requires exactly one record at WARNING or above carrying the
+      stable `CHAT_ALERT` prefix, the event type and the env label — presence, never values.
+      **Mutation-verified four ways**, each caught: demoting the call to DEBUG, dropping the env
+      label from the format, changing the prefix, and — the one that matters, since it is the actual
+      defect — moving the line back BELOW the gate. The reordering mutant was applied under an
+      assertion that its anchor matched, because a mutation that silently fails to apply reads as a
+      survivor and this project has already published one wrong "SURVIVED" that way.
+      **Still unproven: Tier 2 on Lambda** (that a metric filter exists and alarms — a template
+      assertion), the **startup announcement**, and **post-response Tier-1 delivery on Lambda**
+      (§25.1a observed a MID-TURN line; the two transcript types fire at the END of a turn from
+      `_persist_text_turn`, and that is a short inference, not an observation). Those are ADR-0022
+      §26.5 items **G5** and **E6** plus a runtime check that no unit test can stand in for.
     - **Open, labelled honestly: DERIVED, NOT MEASURED** — that a surviving `loop.create_task`
       (`alerts.py:94`) wrapping an awaited 10 s httpx POST (`:128-129`) is frozen by Lambda when the
       response completes, and therefore delayed to the next invocation or lost. Reasoning in

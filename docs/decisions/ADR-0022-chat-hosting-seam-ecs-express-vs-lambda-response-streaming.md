@@ -1676,6 +1676,108 @@ prose; timeout-fallback + instant alerts"* as load-bearing, and ADR-0023 exists 
 `503` was reaching users at roughly 1 request in 3 (§24.10). These alerts are the instrumentation
 that found that. They are not decorative.
 
+### 25.1a OBSERVED IN PRODUCTION — the defect firing, not inferred, and measured support for DECISION 5
+
+**This is the best evidence in §25 and it arrived after the ruling was written.** Caught by the
+orchestrator 2026-10-07 in a routine verification probe, not by looking for it. The architect
+re-derived the code path before recording it; the orchestrator's reading is **sound and if anything
+understated**, so it is recorded as cited with two sharpenings and one narrowing.
+
+**What was run.** `POST https://d2lw3pyns4zzyb.cloudfront.net/api/chat` (the stage front door) with
+`x-amz-content-sha256`, body
+`{"messages":[{"role":"user","content":"Say the single word: ok"}],"stream":true}`. **Response:**
+`HTTP/2 200`, `content-type: text/event-stream`, `x-cf-behavior: apichat-exact`, one `token` event
+then `done`. **By the response alone the host looked perfectly healthy.**
+
+**What the log group held — two lines, and only two, from that invocation:**
+
+```
+WARNING:app.gemini_routing:gemini stream first_chunk_timeout model=gemini-3.1-flash-lite remaining_attempts=1
+INFO:app.main:chat stream ok model=gemma-4-26b-a4b-it latency_ms=13172 first_token_ms=13167 chunks=3 fallback=True
+```
+
+**Both lines match source exactly, verified:** the first is
+`gemini_routing.py:376-380`'s format string; the second is `main.py:1038`'s. And the internal
+arithmetic is coherent: `remaining_attempts=1` means `len(order) - idx - 1 == 1`, so `is_last` was
+**False**, so control took the `chat_primary_timeout` branch at `:387-390` and **not** the
+`chat_upstream_unavailable` branch at `:382-385` — consistent with `fallback=True` in the second
+line. The two lines corroborate each other rather than merely co-occurring.
+
+**So: the primary model timed out on a six-token prompt, the chain fell back, the visitor waited
+13.2 s for first token, `fire_alert('chat_primary_timeout', …)` was called — and returned at
+`alerts.py:86`. No alert line in the log group. No email. Nobody would ever have learned.** This is
+§25.1's finding **occurring in production**, and it should be cited that way wherever §25.1 is cited:
+the template-level reasoning is no longer the strongest form of the argument.
+
+**Sharpening 1 — the invisible event is worse than one slow turn: the host silently changed its own
+routing policy.** `:375` calls `note_primary_timed_out()`, which
+(`gemini_limit_state.py:55-63`) sets **`_prefer_fallback = True`** so *"subsequent turns skip the
+known-slow primary instead of eating the stall on every request"* and increments a daily counter. So
+the host **demoted its primary model for the rest of the day** and the only channel designed to
+announce that returned at `:86`. *Derived from code, not measured:* `_prefer_fallback` is in-process
+module state, so on Lambda it is **per execution environment** and dies with it — which makes the
+posture both less sticky than on ECS *and* inconsistent across concurrent environments, and
+observable from nowhere. A routing policy that varies per environment with no announcement channel
+is not a configuration, it is a rumour.
+
+**Sharpening 2 — the fallback *working* is precisely what makes the missing alert dangerous.** The
+visitor got a correct answer, so the degradation is **invisible at the HTTP layer by design**. There
+is no error code, no 5xx, no truncated stream — nothing a probe, an uptime check, or a CloudFront
+metric would catch. **When the only symptom is latency and the recovery is automatic, the alert is
+not one channel among several; it is the only one.** That is the substance of §27.1 B-1, and it is
+why B-1 is a blocker rather than hygiene.
+
+**MEASURED SUPPORT FOR DECISION 5, and the orchestrator is not overreading — the probe is a
+controlled comparison inside a single invocation.** `logger.warning(…)` at
+`gemini_routing.py:376-380` and `fire_alert('chat_primary_timeout', …)` at `:387-390` sit in the
+**same `except` branch, eleven lines apart, in the same invocation, on the same logger
+infrastructure**. One arrived in CloudWatch; the other did not. That is not two observations loosely
+joined — it is the **exact asymmetry DECISION 5 is built on**, exercised by accident under the real
+conditions: RESPONSE_STREAM, through LWA, through CloudFront, on the host prod is being rolled onto.
+So **Tier 1 is demonstrated viable on this host, not merely argued**: a synchronous WARNING emitted
+during a turn is delivered without the process having to survive the response.
+
+It also puts a real number on §25.4's rejection of **(a)**: that turn already cost the visitor
+**13.2 s**. Option (a) would have awaited up to 10 s of Resend POST **on that same turn** — the
+events that fire are the ones on an already-degraded turn, which was the abstract argument, and this
+is the concrete instance of it. And **(b)** inherits the losing side of the observed asymmetry:
+unless the publish is awaited it is detached, and detached is the thing that did not arrive.
+
+**NARROWING — the limit of this evidence, stated so it is not over-claimed later. Three things it
+does NOT establish:**
+
+1. **It does not measure §25.3-M.** The arriving line is a *synchronous* log call, so it says nothing
+   about whether a detached `create_task` survives the freeze. §25.3's claim stays **DERIVED, NOT
+   MEASURED**, and **§25.3-M remains owed** — this probe does not substitute for it.
+2. **It exercised a MID-TURN line, not a POST-RESPONSE one.** The WARNING was written ~13 s into the
+   invocation, long before the stream closed. The highest-risk Tier-1 lines are the two transcript
+   types, which fire from `_persist_text_turn` at the **end** of the turn. Tier-1 viability for those
+   is a **short inference** from this result rather than a direct observation — the write is still
+   synchronous and still inside the invocation, before the handler returns, so it is the same
+   mechanism — but it is an inference, and a Tier-1 test should cover the post-response case
+   explicitly rather than assume it.
+3. **n = 1 bounds what can be said about rate.** One invocation is an existence proof, not a
+   frequency.
+
+### 25.1b Collateral finding — the primary's timeout is NOT input-length-bound (for ADR-0023, not this ADR)
+
+Reported where it was found rather than dropped, and deliberately **not** ruled on here. The project
+memory records *"primary model times out on prose"*. The §25.1a probe's prompt was
+**`Say the single word: ok`** — roughly six tokens. It still hit `first_chunk_timeout`. **So the
+"on prose" characterization is too narrow: a trivially short prompt can stall the primary past its
+first-chunk budget.** Labelled precisely: **n = 1, so this establishes EXISTENCE, not rate** — it
+refutes "only on prose", it does not quantify anything.
+
+**Do not conflate this with §24.10.** That was a Gemini **503** being re-raised instead of falling
+back, fixed by ADR-0023. This is a **first-chunk timeout**, a different trigger on a path that was
+already wired — and here the fallback **worked**. ADR-0023's fix is not implicated; this is the
+timeout path behaving as designed, at a cost (13.2 s) nobody was told about.
+
+Belongs in **ADR-0023's** orbit (the upstream-retryability / primary-demotion seam), and filed as
+drift item 24 so it is routed rather than parked here. It also quietly supports **DECISION 7**: a
+six-token prompt producing a 13.2 s first token is further evidence that TTFT on this workload is
+**upstream-dominated**, which is the ground the §18.B1 waiver stands on.
+
 ### 25.2 Question 1 — the invariant is at the wrong level of abstraction, and the silent no-op is not a belt
 
 The orchestrator's lean was **both**, with env parity load-bearing and the startup warning as the
@@ -1796,6 +1898,11 @@ What the measurement decides is only whether the metric-filter alarm is **the** 
 Lambda or a **second** one. Either answer keeps it in the roll, because the stream stack already
 owes an SNS topic and three alarms (§23.3 delta 3, §18.E2) — a fourth alarm on a metric filter is
 marginal cost inside an edit that is happening anyway.
+
+**§25.1a does NOT close this.** The production probe shows a *synchronous* WARNING arriving from
+inside the request path on this exact host, which is what **Tier 1** needs; it says nothing about a
+*detached* `create_task` surviving the freeze, which is what **§25.3** claims. The two are different
+mechanisms and the probe exercised only the first. **§25.3-M remains owed**, unchanged.
 
 **The measurement to run once the owner authorizes it**, recorded so it is run as specified
 (**§25.3-M**): the orchestrator's protocol above, plus one addition — record whether the
@@ -2108,11 +2215,15 @@ Context: the owner has **browser-tested stage end-to-end and reports it passed**
 
 ### 27.1 Genuine blockers — five
 
-- **B-1 — The alert gate satisfied on BOTH Lambda hosts, plus Tier-1 emission.** The §25.1 finding.
-  Rolling prod without it silences six alert types on an upstream measured as failing roughly 1
-  request in 3 before ADR-0023 (§24.10). **Justified by the MEASURED half alone; does not wait on
-  §25.3-M.** *Artifacts:* the gate slice on both templates (§25.6), then the unconditional Tier-1
-  line and the startup announcement in `alerts.py` (G5).
+- **B-1 — The alert gate satisfied on BOTH Lambda hosts, plus Tier-1 emission.** The §25.1 finding,
+  and **§25.1a is the finding firing in production**: a real stage turn through the front door timed
+  out its primary, demoted it for the day, cost the visitor **13.2 s**, called
+  `fire_alert('chat_primary_timeout', …)` — and produced **no alert line and no email**, behind a
+  perfectly healthy-looking `200 text/event-stream`. Rolling prod without this silences six alert
+  types on an upstream that also failed roughly 1 request in 3 before ADR-0023 (§24.10).
+  **Justified by MEASURED facts alone; does not wait on §25.3-M.** *Artifacts:* the gate slice on
+  both templates (§25.6), then the unconditional Tier-1 line and the startup announcement in
+  `alerts.py` (G5). **The argument for B-1 is now an observation, not an inference — cite §25.1a.**
 - **B-2 — `ReservedConcurrentExecutions: 5` on the prod stream function (E1).** Was blocked, is now
   free, and §26.3 makes it **more** necessary than when it was written, because the quota increase
   deleted the accidental ceiling. A public Function URL with no API Gateway throttle, per-invocation
@@ -2266,3 +2377,12 @@ Two further notes, because "not a blocker" must not read as "fine":
     this test" so it is not later mistaken for the exclusion list.
 23. **`CHAT_READY_VERBOSE_SECRET` is read by no template and documented nowhere** (`main.py:538`).
     Either record it as deliberately unset (§25.5's third category) or remove the branch.
+24. **The primary model's first-chunk timeout is NOT input-length-bound — for ADR-0023's orbit, not
+    this ADR** (§25.1b). **MEASURED 2026-10-07, n = 1:** the prompt `Say the single word: ok`
+    (~6 tokens) hit `first_chunk_timeout` on `gemini-3.1-flash-lite`, fell back to
+    `gemma-4-26b-a4b-it`, and returned first token at **13 167 ms**. The project memory's
+    *"times out on prose"* is therefore too narrow. **Existence, not rate** — one invocation. Route
+    to the upstream-retryability / primary-demotion seam (ADR-0023), where the demotion side effect
+    also lives: `note_primary_timed_out()` (`gemini_limit_state.py:55-63`) sets
+    `_prefer_fallback = True` for the day, as **in-process** state, so on Lambda the routing posture
+    is per-execution-environment and observable from nowhere.
