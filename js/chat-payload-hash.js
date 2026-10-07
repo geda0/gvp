@@ -20,9 +20,13 @@ const toHex = (buffer) =>
 
 export async function buildChatRequest (payload) {
   const body = JSON.stringify(payload)
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body))
-  return {
-    body,
-    headers: { 'x-amz-content-sha256': toHex(digest) }
+  // Degrade, don't throw: `crypto.subtle` exists only in a secure context, so over plain http
+  // on localhost it is undefined. The caller awaits this inside its fetch `try`, so a throw
+  // would surface as a retryable "could not reach the chat service". Drop only the header.
+  try {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body))
+    return { body, headers: { 'x-amz-content-sha256': toHex(digest) } }
+  } catch (_) {
+    return { body, headers: {} }
   }
 }

@@ -62,6 +62,81 @@ test('the chat request carries the SHA-256 of the exact body bytes it hands back
   assert.equal(request.headers['x-amz-content-sha256'], sha256Hex(request.body))
 })
 
+// REGRESSION (local dev over http). `crypto.subtle` exists only in a SECURE context.
+// `js/site-config.js:5-12` falls back to a same-origin `/api/chat` when the hostname is
+// `localhost` / `127.0.0.1` — commonly plain http, where the browser exposes `crypto` but
+// `crypto.subtle` is `undefined`, so the digest cannot be computed. `js/chat.js:1157` awaits
+// `buildChatRequest` INSIDE the try whose `catch (_)` means "fetch failed", so a throw here
+// is reported as `makeRetryableError('Could not reach the chat service…')` — a misleading
+// network error that is also marked RETRYABLE, so it can spin retries — for a request that
+// would have succeeded without the header (dev talks to a local server / ECS / API Gateway,
+// none of which require it; only CloudFront + OAC does).
+//
+// The digest concern belongs to THIS helper, so the helper degrades instead of making every
+// caller defend itself: same body, NO digest header. The caller's `...headers` spread of `{}`
+// is a no-op, so the POST goes out exactly as it did before the digest slice existed. Nothing
+// throws, so `js/chat.js` needs no change and its catch keeps its single meaning.
+//
+// The absence is simulated by swapping `globalThis.crypto` for an insecure-context stand-in
+// — `getRandomValues` present, `subtle` absent, which is precisely what a browser exposes
+// over http (both `subtle` and `randomUUID` are `[SecureContext]`, `getRandomValues` is not).
+// It uses the repo's existing `Object.defineProperty(globalThis, …)` + restore-in-`finally`
+// idiom (`test/site-events-session.test.mjs:77-108`): Node's global `crypto` is a
+// non-writable but CONFIGURABLE accessor, so plain assignment would throw. The real object is
+// restored before any assertion runs, so nothing leaks into the next test, and the helper's
+// signature is untouched — it keeps reading the ambient `crypto`, as a browser module must.
+//
+// A `crypto.subtle` that is PRESENT but whose `digest` rejects is the same clause of the same
+// contract and is deliberately NOT pinned here (one behavior per test); a `try/catch` around
+// the digest covers both, but only the missing-`subtle` corner is proven by this file.
+//
+// The happy path is not re-asserted here — the first test above already pins the real digest,
+// so a degrade-always `return { body, headers: {} }` cannot satisfy this cycle.
+test('still hands back the body with no digest header when the context has no crypto.subtle', async () => {
+  // Arrange — an insecure context: `crypto` without `subtle`.
+  const payload = {
+    messages: [{ role: 'user', content: 'hello from http://localhost:8000' }],
+    stream: true,
+    sessionId: 'session-insecure-context',
+    language: 'en'
+  }
+  const realCrypto = globalThis.crypto
+  Object.defineProperty(globalThis, 'crypto', {
+    value: { getRandomValues: (array) => realCrypto.getRandomValues(array) },
+    configurable: true,
+    writable: true
+  })
+
+  // Act
+  let request = null
+  let thrown = null
+  try {
+    request = await buildChatRequest(payload)
+  } catch (error) {
+    thrown = error
+  } finally {
+    Object.defineProperty(globalThis, 'crypto', { value: realCrypto, configurable: true, writable: true })
+  }
+
+  // Assert
+  assert.equal(
+    thrown,
+    null,
+    'buildChatRequest must degrade when the digest cannot be computed, not throw — a throw lands in the fetch catch of js/chat.js as a RETRYABLE "Could not reach the chat service". It threw: ' +
+      (thrown ? thrown.message : '(nothing)')
+  )
+  assert.deepEqual(
+    JSON.parse(request.body),
+    payload,
+    'the degraded request must still carry the single serialization of the payload as its body'
+  )
+  assert.deepEqual(
+    request.headers,
+    {},
+    'with no digest available the request must go out with no digest header, so the caller spread is a no-op'
+  )
+})
+
 // The seam above is worthless until the sender uses it: today `js/chat.js` still builds
 // `body: JSON.stringify({...})` inline, so no chat POST carries a digest and the
 // CloudFront + OAC front door answers 403 InvalidSignatureException. Asserted at SOURCE
