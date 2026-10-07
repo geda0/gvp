@@ -35,10 +35,14 @@ const ENV_HOSTS = {
   },
   stage: {
     contact: 'fvfqpef8kb.execute-api.us-east-2.amazonaws.com',
-    // ADR-0007 Phase 3: staging chat is hosted on ECS Express Mode (AWS's managed successor
-    // to App Runner, which entered maintenance mode 2026-04-30). Browser-direct voice means
-    // no WS to host, so the ECS-managed *.ecs.<region>.on.aws URL + TLS is all staging needs.
-    chat: 'gv-d7fa1a51ec09445caf0d435348131479.ecs.us-east-2.on.aws'
+    // ADR-0022: staging chat moved OFF the ECS Express host onto the CloudFront distribution
+    // that fronts both origins — `/api/chat` to the response-streaming Lambda Function URL via
+    // OAC, everything else (the paid voice mint included) to the throttled HttpApi. Prod is
+    // deliberately NOT moved: that is gated on a human voice pass and the Lambda concurrency
+    // quota. A public Function URL cannot be reached directly (anonymous AuthType NONE is
+    // blocked account-wide), so the distribution is not an optimisation here, it is the only
+    // browser-reachable streaming path.
+    chat: 'd2lw3pyns4zzyb.cloudfront.net'
   }
 }
 

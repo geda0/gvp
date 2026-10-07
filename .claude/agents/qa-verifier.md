@@ -54,6 +54,24 @@ TT_QA_EMIT=1 node .claude/scripts/smoke-verify.cjs <loopback-url> "<marker 1>" "
 **Verdict meaning (decision table):** all markers present → `pass`; booted but some
 missing → `concerns`; did not boot at all → `block`.
 
+**`smoke`'s range — and its hard limit (ADR 0024):** `smoke` answers exactly one question —
+*"is this **text marker** present in the **rendered DOM**?"* It **cannot** judge **appearance**:
+layout, colour, a starfield trail that never clears, "the page feels cheap" are all outside its
+range. An appearance/pixel bullet needs a richer instrument — `browser-mcp` (a host browser tool:
+screenshot / eval / console) or `human` (the navigator) — and whoever holds that instrument emits
+the experience `verdict` under its own `from` (see `docs/tdd/outer-loop.md`, "The QA seam").
+
+**Browser MCP — an adopter-local opt-in (ADR 0007).** The kit ships this agent with
+`tools: Read, Bash, Grep, Glob` (portable; `Bash` already reaches the `smoke` helper). If your host
+has a browser MCP, you MAY add its tool names — `mcp__<server>__<tool>` (e.g. screenshot / eval) —
+to **your own copy** of this agent; `<server>` is *your* MCP config key, so the kit cannot ship it
+for you. That customization survives `ttics update` (ADR 0007).
+
+**The module-API trap (ADR 0024):** only the **CLI** invocation above with `TT_QA_EMIT=1` emits a
+`verdict` tic. A caller that `require(...)`s the helper and calls `smokeVerify(...)` as a **module**
+gets a pure predicate back and emits **nothing** — so it MUST emit its **own** `verdict` tic, or the
+ruling never reaches the bus and the accept has nothing to cite.
+
 **Honesty contract (load-bearing):** this verdict is **self-reported, not a
 hook-signed gate signal** — it never substitutes for the green suite. A smoke `pass`
 is not proof. When no browser/render is available the helper reports **`concerns`

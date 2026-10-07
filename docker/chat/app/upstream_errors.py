@@ -98,6 +98,33 @@ def is_upstream_rate_limit(exc: BaseException) -> bool:
     return body.get("code") == "upstream_rate_limited"
 
 
+# ADR-0023 §4.1: the enumerated set of upstream failures worth retrying on the
+# OTHER model. Keyed on the UPSTREAM status (or genai status name) carried by
+# the exception, never on upstream_error_body's mapped status (that maps auth
+# 401/403 -> 502; both models share one key, so retrying auth can never succeed).
+_RETRYABLE_UPSTREAM_CODES = frozenset({429, 500, 502, 503, 504})
+_RETRYABLE_UPSTREAM_STATUS_NAMES = frozenset(
+    {"RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED"}
+)
+
+
+def is_upstream_retryable(exc: BaseException) -> bool:
+    """May the chain try the other model? Default deny: no extractable upstream
+    status means not retryable (ADR-0023 §4.2)."""
+    try:
+        from google.genai import errors as genai_errors
+
+        if isinstance(exc, genai_errors.APIError):
+            if getattr(exc, "code", None) in _RETRYABLE_UPSTREAM_CODES:
+                return True
+            if getattr(exc, "status", None) in _RETRYABLE_UPSTREAM_STATUS_NAMES:
+                return True
+    except ImportError:
+        pass
+
+    return _extract_status_code_from_chain(exc) in _RETRYABLE_UPSTREAM_CODES
+
+
 def _extract_status_code_from_chain(exc: BaseException) -> int | None:
     seen: set[int] = set()
     cur: BaseException | None = exc

@@ -294,12 +294,17 @@ function fleetModel(targetDir, tics, opts) {
 // Roster view (ADR 0010): one row per standard role showing the configured MODEL_<ROLE> or "(default)".
 function ticsRoster(targetDir) {
   const ROLES = ["test-writer", "implementer", "architect", "tdd-critic", "product-owner", "qa-verifier", "project-manager", "dev-ops"];
+  const t = loadTics(targetDir).filter((x) => x.kind === "verdict" && (x.result === "accept" || x.result === "edit" || x.result === "reject"));
   console.log("Model roster (MODEL_<ROLE> in tdd.config):");
   for (const role of ROLES) {
     const key = "MODEL_" + role.toUpperCase().replace(/-/g, "_");
     const model = cfgStr(targetDir, key, "");
     const shown = model || "(default)";
-    console.log("  " + role.padEnd(16) + shown);
+    const a = t.filter((x) => x.to === role && x.result === "accept").length;
+    const e = t.filter((x) => x.to === role && x.result === "edit").length;
+    const r = t.filter((x) => x.to === role && x.result === "reject").length;
+    const drafts = (a + e + r) > 0 ? "  drafts " + a + "/" + e + "/" + r : "";
+    console.log("  " + role.padEnd(16) + shown + drafts);
   }
   return 0;
 }

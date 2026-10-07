@@ -6,6 +6,88 @@
 
 ## Feature in flight (outer loop — full-team)
 
+### `starfield-perf` — trail residue + draw cost (PO ruling 2026-07-08: **CONCERNS**)
+
+Brief (navigator, verbatim): _"The front end is heavy, i think a main factor is the stars trail never
+clears, let us keep things clean and clean the trail. performance should be better."_
+
+Acceptance (observable behavior), and the ruling on each:
+
+- [x] **AC-1 — the trail actually clears.** Night frame fully clears; no `destination-out` residue.
+      _Verified:_ `drawTime()` night is now `clearRect`; `test/starfield-perf.test.mjs` asserts
+      `clearRect >= 1` and that `destination-out` is never set. Both assertions RED-proven against
+      `HEAD:js/starfield.js` (old code: "night frame must fully clear the canvas each frame" fails).
+      Root-cause arithmetic checks out: `destination-out` at srcAlpha 0.22 gives `dstA * 0.78`; 8-bit
+      `dstA=1 → 0.78 → rounds back to 1`, so touched pixels never drain. Real bug, really fixed.
+      _Scope note:_ the bug only ever affected default-motion users — the old reduced-motion night
+      already erased at alpha 1 (full clear). Doesn't weaken AC-1.
+- [x] **AC-3 — measurably faster.** _Verified structurally, not just by report:_ the per-star
+      `createRadialGradient` and per-streak `createLinearGradient` are gone from `Star.show()`;
+      sprites are baked once in the `STAR_PALETTE_SIZE` init loop and `drawImage`d. The perf test
+      counts allocations during pumped frames and asserts **zero**; against old code it counts
+      **1344** in three frames. That is a structural invariant, now pinned by a test — it does not
+      depend on trusting the browser numbers (6.57→3.61 ms/frame, 391→215 ms/sec busy).
+      The navigator's guessed cause (the trail) was **not** the heavy part; the real cost was
+      ~132k gradient objects/sec. Finding that is the substance of this change.
+- [ ] **AC-2 — the night sky looks clean, not smeary.** **NOT SIGNED OFF — navigator's call.**
+      The smear is gone (AC-1 discharges half of AC-2). What is *not* discharged is whether the
+      resulting sky is the sky the owner wants. See the luminance ruling below.
+
+**The luminance ruling (the crux).** The claim is that mean luminance at 53% of old is "the accumulated
+smear haze the navigator asked to remove," evidenced by lit-pixel coverage matching (0.250 → 0.253).
+**Coverage cannot support that claim.** Coverage is a threshold count — it is blind to intensity, which
+is precisely the dimension that changed. Take either reading of the luminance metric and the haze story
+has the wrong sign:
+- If mean luminance is *per lit pixel*: haze pixels are dim, so deleting them should **raise** the mean.
+  It halved.
+- If mean luminance is *over all pixels*: coverage held flat while total light halved, so the average
+  lit pixel is **half as bright**. Same contradiction.
+
+Coverage was restored by *spreading light wider* (`STAR_GLOW_SCALE=2.2`), not by restoring brightness —
+which is exactly the signature of "more pixels, each dimmer." Two of the three knobs are also below the
+old build's effective values *by construction*: the drawn tail is 8 frames where the old accumulation
+stayed visible for ~14–18 (`0.78^n`), and the head caps at `STREAK_ALPHA=0.62` where accumulation drove
+the head toward saturation. So a real part of the missing light is **the comet tails themselves, shorter
+and fainter** — not haze.
+
+The claim is not *refuted* either: the old comet head genuinely did saturate into bright smear, and
+"bright smear" is arguably what the brief asked to remove. It is **undecidable from these numbers**, and
+worse, the old baseline is itself time-dependent — the residue bug being fixed makes old brightness a
+function of how long the tab had been open, so "0.217 vs 0.115" compares against a moving, partly-dirty
+reference. **No number in this dossier can settle AC-2. Only the owner's eyes can.**
+
+**Escalation (brand/aesthetic — navigator-owned by policy).** This is the owner's personal portfolio and
+the night sky is brand identity. Halving the sky's light is a material aesthetic delta, not an
+implementation detail. Retuning is a one-line change: `STAR_GLOW_SCALE`, `STREAK_ALPHA`,
+`STREAK_TAIL_FRAMES` are `export const`s at module scope in `js/starfield.js` (verified — outside
+`initStarfield`), and `test/starfield-streak.test.mjs` pins only *relative* tail behavior, so a retune
+does not break the suite.
+
+**Staging: APPROVED. Prod: BLOCKED until the navigator has looked.** Staging (`agent` → Amplify staging
+host) is the correct and only realistic instrument for AC-2 — you cannot eyeball 1,100 animated stars
+from a luminance scalar. It is non-prod, the suite is green (194 pass / 1 skip / 0 fail, re-run and
+confirmed), the tests are behavior-level and RED-proven, and the retune is one line. Ship it to staging
+*for review*, not *as accepted*. Do **not** promote to `main`/prod on this verdict.
+
+**This verdict is load-bearing.** `tdd-critic` emitted #784 (`pass` — PASS-WITH-NITS, "clear for STAGING,
+NOT yet for prod") mid-review, clearing the other gate arm. `product-owner: concerns` is now the *only*
+thing holding `tics gate`. That is correct and deliberate: a `pass` from me would open prod on an
+unreviewed brand change. It stays `concerns` until the owner has looked.
+
+**tdd-critic #784 independently corroborates** three findings below and adds two worth carrying:
+- Confirms the trail diagnosis, the `STREAK_MAX_DIST` meaning-change (skip-threshold → tail cap,
+  saturation knee at 18.75 px/frame), and that `drawSpace()` is dead code — and sharpens the last one:
+  `spaceTrailAlphaForPreference` now has **no live consumer**, so invariant #6's "trail alpha" clause is
+  **vacuous while its test stays green**. A green test asserting nothing is worse than no test.
+- Notes the perf test's `clearRect()` stub **discards its arguments**, so "fully clears" is not actually
+  asserted — only that `clearRect` was *called*. My AC-1 accept rests on direct source inspection
+  (`c.clearRect(0, 0, w, h)`, full canvas) plus the `destination-out`-never-set assertion, both verified.
+  The accept stands, but the test is weaker than it reads. Tighten it (record args) before prod.
+- Also correct that the streak test's red was a missing-export `SyntaxError` (honest, non-triangulating).
+  The perf test's red *was* behavioral — 1344 gradient allocations in three frames. I confirmed both.
+
+---
+
 **MILESTONE: Work-showcase reframe + agent guide.** Turn the site from a résumé-shaped page into a
 **portfolio** that leads with the work, and turn the chat agent into a **guide** that walks visitors
 around the site. Five tracks (A IA merge → "Work"; B inline experience + résumé demotion; C guided-tour
@@ -330,3 +412,187 @@ Tactics contact CTA, pre-prod hardening (staging + prod).
 - Source of truth: claims in `.claude/hooks/tics-mcp.cjs`; entry in `data/projects.json`
   `playground[]#team-tactics`; build in `scripts/build-chat-knowledge.mjs`; artifacts in
   `data/chat-knowledge/{faq,projects}.json`; existing test `test/team-tactics-project.test.mjs`.
+
+---
+
+# SETTLED PRODUCT DECISIONS — 2026-08 sandbox port (M0–M8) · recorded 2026-09-17
+
+> **Purpose of this section: to stop the same four arguments happening mid-build.** Each decision
+> below is **resolved by the navigator**, has a stated reason, and names what evidence would be
+> required to reopen it. A builder who disagrees escalates to the navigator — they do **not** relitigate
+> it inside a red→green cycle, and they do **not** quietly implement the other option because it is
+> "cleaner". Backlog items: `backlog.md` → "MILESTONE — 2026-08 sandbox port (M0–M8)".
+> Plan of record: `docs/plan-2026-09-port.md`.
+
+## D1 — The starfield look is FROZEN to prod's current render
+
+**Decision.** `agent`'s dust-GC (`collectDustBand` + `DUST_SWEEP_ROWS`, already shipped on the branch)
+is the trail fix. The sandbox's erase-alpha change — routing the night erase through
+`nightTrailEraseAlphaForPreference` at `0.59` — is **REJECTED**. Only its pure predicate
+`trailFramesToClear8Bit` is taken, as a regression test.
+
+**Why.** Both fixes address the same agreed root cause: night fades trails with `destination-out
+rgba(0,0,0,0.22)`, canvas alpha is 8-bit, so each frame computes `round(a × 0.78)` — which has a fixed
+point (`round(2×0.78)=2`, `round(1×0.78)=1`). Alpha 1–2/255 **never reaches 0**, so every pixel a star
+ever crossed keeps a permanent veil that accumulates screen-wide. The sandbox's fix is free at runtime
+and correct as arithmetic — **but it shortens night trails, i.e. it changes the look.**
+
+**The look is not negotiable, and this repo's history proves it.** `agent` carries **two explicit
+reverts because a change altered the render**: `2d079aa` ("restore the exact prod look from main") and
+`bf853d7` ("back to prod's exact look — screen blend changed the render"). The owner has now paid twice
+for the same lesson. The night sky is this portfolio's brand identity; a render delta is a **brand**
+change, which is navigator-owned by policy (see the `starfield-perf` AC-2 ruling above — the same
+principle, same owner, same conclusion). The GC costs a per-frame `getImageData` readback (~0.2 ms
+measured in software raster; a GPU-backed canvas additionally pays a pipeline sync). **We are
+deliberately buying the look with a readback.**
+
+**What this means for M1, concretely.**
+- M1 is **perf-only on top of the GC**. It does not touch the fade curve, the erase alpha, the blend
+  mode, or the tail length. `0.22` stays.
+- The bar is **pixel-identity**: deterministic `Math.random`, N frames, `getImageData` diff of old vs
+  new at hours **2 / 7 / 12 / 19 / 23** and under reduced-motion → **0 differing pixels**. The sandbox
+  achieved exactly this for the same optimisations, which is why this work is safe where the alpha
+  change was not. **Note: that is sandbox evidence, from another repo. It must be re-established
+  HERE** — building the diff harness is real work inside M1's ~6 slices, not a carried-over result.
+- `trailFramesToClear8Bit` lands as a **regression predicate only**: it pins that `0.22` stalls
+  (`=== Infinity`) and that the GC's floor is what collects the residue. It is a tripwire so the stall
+  can never silently return — it is **not** a licence to change the alpha to the value the predicate
+  says would "clear".
+- Explicitly **not built** (documented, with reason, not silently dropped): cached unit *linear*
+  gradient for streaks (~0.5 ms more, but ±1–2/255 on fringe pixels — **not** pixel-identical);
+  batching streaks-then-discs (**changes blend order**); sprite stars; dirty-rect clears;
+  `desynchronized`.
+- After the star pass is ~50 % cheaper, M1 **re-measures the readback** and either shrinks
+  `DUST_SWEEP_ROWS` with evidence or records why it stays. That is the only door left open here — and
+  it is a *cost* question, never a *look* question.
+
+**What would reopen it.** Only the owner's eyes: if he looks at the night sky on staging and asks for
+shorter or fainter trails, then the alpha becomes a tuning knob again. Nothing a builder measures
+reopens it. A frame-time number is not an argument against the look.
+
+## D2 — Per-IP rate limits ship OFF by default (global windows only)
+
+**Decision.** M8's cost guard (`app/rate_guard.py`) ships **global sliding-window caps only** by
+default — 120 chat requests/min, 30 paid voice mints/10 min → `429` + `Retry-After` + one P2 alert when
+engaged, with stats on `/ready`. **Per-IP limits exist in the code but default to `0` = OFF.**
+
+**Why.** The chat host sits **behind an ALB**, and a large share of real visitors arrive through
+**shared NATs** — corporate egress, mobile carriers, university networks, VPN exits. A per-IP limit in
+that topology does not throttle an abuser; it throttles **whoever happens to share that abuser's exit
+address**, which on a portfolio site is a recruiter on office wifi. Locking out a real visitor to save
+a few cents of model spend is a **worse outcome than the spend**. The global cap already bounds the
+bill, which is what the cost guard exists to do.
+
+**This is honoured by construction, not by tuning.** Two tests are part of M8's acceptance, not
+optional hardening:
+1. With per-IP limits off, a flood from one IP **never** 429s a *different* visitor on that same IP.
+2. An **empty or absent** IP is **never** rate-limited (a missing `X-Forwarded-For` must not collapse
+   every anonymous visitor into one bucket — that is the shared-NAT failure with extra steps).
+
+**Consistency.** This is the same reasoning that already produced two standing decisions in this repo:
+**no IP allowlisting on admin** (accepted residual — throttles + a high-entropy key instead), and
+**S30 per-IP WAF deferred** in the pre-prod hardening milestone. The port does not reverse either.
+
+**What would reopen it.** Evidence of real, sustained abuse that the global cap does not contain *and*
+that is attributable to a single non-shared address. Then per-IP is turned on **for that case**, with
+the shared-NAT tests still green. "It's more secure by default" is not that evidence.
+
+## D3 — The assistant opens FOCUSED, then yields the stage on the first site interaction
+
+**Decision.** First open = a **focused panel** (the conversation has the visitor's attention, as today).
+The moment the visitor's world changes — a navigation, a project opening, the contact form — the
+assistant **yields**: docked bottom-right at ≥ 768 px, minimized pill below that; `contact-open` → pill;
+Escape while docked → minimize. The docked card has **no backdrop, no scroll lock, `aria-modal=false`**.
+
+**Why focused first.** The assistant is a headline feature of this portfolio, not an afterthought
+widget. A visitor who deliberately opens it wants it; opening straight into a small corner card would
+undersell the one thing that makes this site unusual. **This is the parked cosmetic, kept as proposed —
+it is not a compromise, it is the intended entrance.**
+
+**Why it must yield.** Today the opposite happens and it is the single worst bug in the port: the chat
+is a modal that blocks the site, and **the assistant's own tools close it.** `app.js` calls
+`collapseChatDialog()` on every navigation; `contact.js`/`projects.js` fire a collapse event;
+`closePanel → snapClose → stopVoice`. So `navigate_to_section` / `open_contact_form` tore down the
+window **and the live voice session that had just promised the action** — the assistant destroying
+itself to keep its word. Yielding is what makes "take me there" survivable.
+
+**The rule, stated so a builder can check it.** *Never close, only demote.* Every site event moves the
+assistant **down** the ladder `modal → docked → minimized` and **never** to `closed`. A site event must
+**never** reach `stopVoice` — that is an assertion in the test suite, not a convention.
+
+**Two consequences that are part of the decision, not side effects.**
+- **`aria-modal=false` releases the focus trap.** That is the point (the site must be operable), but it
+  changes keyboard behaviour: Tab order now runs through both the page and the conversation, and
+  nothing may tell a screen reader the page is inert. Acceptance carries a bullet for this.
+- **"Confirmed but never executed" is a separate, co-shipped bug.** Beyond the teardown, the model said
+  "taking you there" and nothing happened because `navigateToSection` **exact-matched ids** — so
+  `"Portfolio"` and the legacy `playground` silently failed — and because the Live path had its own
+  gap. The fix set is `resolveNavTarget` (normalise + legacy map), `inferPromisedNavigation` as a
+  safety net, and **tool results that carry the resulting `siteState` back** so the model can
+  self-verify what it actually did. An assistant that confirms an action it did not perform is worse
+  than one that refuses.
+
+**Open UX question the navigator may still tune (does not block the build):** whether a *visitor-driven*
+navigation (they click the nav themselves, no assistant involvement) should also demote a focused
+panel, or only assistant-driven ones should. **Default: yes, demote on any navigation** — the visitor
+has shown they want the site, so give them the site.
+
+## D4 — Hail falls on a deterministic 1-in-9 of shoulder-season days
+
+**Decision.** Spring and autumn days are rain **or** hail; hail is chosen by a **deterministic 1-in-9**
+function of the date. Winter → snow, summer → rain, hemisphere-aware throughout. **Kept as proposed —
+do not retune the cadence mid-build.**
+
+**Why a cadence at all.** Today the daytime theme only has snow, and snow in July is simply wrong — it
+reads as "nobody thought about this". Weather that tracks the visitor's actual season is a small,
+cheap piece of craft that makes the site feel alive.
+
+**Why 1-in-9 specifically.** Hail is a *surprise*, and a surprise stops being one if it is common. At
+1-in-9 a returning visitor might see it a couple of times a season — memorable, never tiresome. There
+is no science here and none is claimed: it is a **taste call, already made**, and the exact number is
+not worth a cycle of anyone's time. If the owner later says "more hail", it is a one-constant change.
+
+**Why deterministic is the load-bearing half.** The same date must always produce the same weather.
+Rolling per page-load, per resize or per theme change would make the sky **flicker between kinds while
+a visitor watches**, which is a bug, not whimsy. The acceptance criterion is exactly that: no reroll on
+reload, resize, or theme change.
+
+**Build note (not a product decision, but it will bite):** M3 edits `js/starfield.js` and
+`js/starfield-prefs.js` — **the same two files as M1**. The plan calls M3 parallelisable, and it is,
+*against M2* — it is **not** safely parallel with M1. Sequence M1 → M3, or section the starfield files
+to one owner. Also: every new precipitation kind must honour the reduced-motion tiers, exactly as snow
+does. A reduced-motion visitor must not be handed a dense, fast downpour because the tier table only
+knew about snowflakes.
+
+## Standing notes for this port (not decisions — context builders keep getting wrong)
+
+- **`scripts/qa/` does not exist in this repo.** The headless-Chromium journey harness is **new
+  infrastructure**, born in M2 and grown by every later milestone. Most of this plan's UX claims are
+  only checkable through it. Budget it; do not assume it is being ported.
+- **The ttics harness is already installed here** (`.claude/tdd.config`, layers `app` + `chat`) — the
+  sandbox's turn-3 setup item is **done**. Do not redo it.
+- **ADR numbers 0015–0021 are reserved** and map 1:1 to M2/M3/M4/M5/M6/M7/M8, deliberately reusing the
+  transcript's numbering so the two records stay traceable. Do not renumber for tidiness.
+  **⚠ COLLISION, live as of 2026-09-17:** the repo's ADRs stop at **0014**, but an architect has
+  already written **`docs/decisions/ADR-0020-public-chat-surface-bounded-sinks.md`** for **M0** — and
+  the plan reserves **0020 for M7 (prioritised alerts)**. M0 was never assigned a number in the plan
+  (it is a ~1-slice hotfix). Two ADRs cannot share 0020, and silently renumbering M7 to 0022 breaks
+  the transcript traceability that is the *entire* reason for reusing 0015–0021. **Navigator/architect
+  call, needed before M7 starts (not urgent, but do not let it rot):** either renumber M0's ADR to
+  **0015** and shift M2–M8 to **0016–0022**, or give M0 **0022** and leave 0015–0021 as planned.
+  **PO preference: the second** — it keeps every planned milestone on its transcript number and costs
+  one file rename today.
+- **Suite-size projections are sandbox counts, not targets.** The plan's "app 189 → ~310, pytest 114 →
+  ~158" came from a different repo with a different baseline; **this repo's measured baseline is app
+  203 tests / 202 pass / 0 fail / 1 skip, chat 114 pass** (verified 2026-09-17 — the plan's "203/202"
+  is that one skip, not a failure). A test count is not a goal; padding toward it is a way of lying to
+  the bar.
+- **Three things cannot be verified in this repo and are gated on a human on staging** — a real Gemini
+  Live voice pass (G1, gates M2/M4), ECS Express accepting `MinTaskCount=0` plus the
+  `RegisterScalableTarget` permission (G2, gates M6), and the SSM `Secrets` reference on an Express
+  service (G3, gates M8.1). These are **gated acceptance bullets**. A green suite does not tick them,
+  and no agent may tick them on a human's behalf.
+- **Promotion path is unchanged and non-negotiable:** build on `agent`, merge **`--no-ff`**, re-pin prod
+  hosts with `scripts/sync-site-api-urls.mjs`, then `GVP_EXPECTED_ENV=prod node --test
+  test/frontend-api-url-env-guard.test.mjs` **before** push. **Never `--ff-only`** — Amplify serves
+  `main`'s HTML as-is, so a fast-forward leaks the staging hosts to prod.

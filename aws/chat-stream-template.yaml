@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  ADR-0022 spike — portfolio chat on Lambda RESPONSE STREAMING via the AWS Lambda
+  Web Adapter, behind a Lambda Function URL (InvokeMode RESPONSE_STREAM).
+  Measurement candidate ONLY: it runs SIDE BY SIDE with gvp-chat-express-{stage,prod}
+  and must not replace or disturb them. Nothing here is referenced by the committed
+  gvp:chat-api-url meta (invariant 11) — testing is against the raw Function URL.
+
+Parameters:
+  StageName:
+    Type: String
+    Default: stage
+    AllowedValues: [stage, prod]
+    Description: Environment label (naming/tagging only). This spike deploys stage.
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+    Description: >
+      Google AI Studio / Gemini API key. Passed at deploy time from
+      .secrets/chat-deploy.env — NEVER a template default, never echoed.
+  GeminiModel:
+    Type: String
+    Default: gemini-3.1-flash-lite
+    Description: Primary text model (app reads GEMINI_MODEL — docker/chat/app/providers.py).
+  GeminiFallbackModel:
+    Type: String
+    Default: gemma-4-26b-a4b-it
+    Description: Rate-limit fallback model (app reads GEMINI_FALLBACK_MODEL — providers.py).
+  GeminiLiveModel:
+    Type: String
+    Default: gemini-3.1-flash-live-preview
+    Description: >
+      Live API model for browser voice. app/live_env.py precedence is
+      CHAT_VOICE_MODEL -> GEMINI_VOICE_MODEL -> GEMINI_LIVE_MODEL -> built-in default.
+  ChatCorsOrigins:
+    Type: String
+    Default: 'https://chat.marwanelgendy.link,https://marwanelgendy.link'
+    Description: Comma-separated browser origins for CHAT_CORS_ORIGINS (app/main.py:133).
+  ChatTranscriptsTableName:
+    Type: String
+    Default: page-staging-ChatTranscriptsTable-1XSZI611F4WDM
+    Description: >
+      Existing STAGE transcripts table, reused so persistence is measurable.
+      This stack only ever writes to it; the table itself belongs to page-staging
+      and is NOT managed here.
+  FunctionUrlAuthType:
+    Type: String
+    Default: NONE
+    AllowedValues: [NONE, AWS_IAM]
+    Description: >
+      NONE is the intended shape (a public SSE endpoint). MEASURED FACT, account
+      429844072978, 2026-10-06: a public Function URL is BLOCKED ACCOUNT-WIDE here.
+      A one-resource probe (trivial function, AuthType NONE, resource policy
+      Principal '*' + Action lambda:InvokeFunctionUrl + condition
+      lambda:FunctionUrlAuthType=NONE) returns 403 Forbidden /
+      x-amzn-ErrorType: AccessDeniedException in BOTH us-east-2 and us-east-1,
+      under both RESPONSE_STREAM and BUFFERED. The SAME function with
+      AuthType AWS_IAM and a SigV4-signed request returns 200. The account is not
+      in an AWS Organization (no SCP/RCP), and CloudTrail holds no
+      public-access-block configuration event — so this is an AWS-side account
+      guardrail, not a template defect. Use AWS_IAM to take measurements until it
+      is lifted (or until a CloudFront + OAC front end signs for the browser).
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >
+      ADR-0022 M-4 hard ceiling. A Function URL has NO API Gateway in front of it,
+      so the 5 rps / burst 10 throttle at aws/chat-template.yaml:67-69 does not
+      apply here. Unthrottled public endpoint + per-invocation billing + a paid
+      upstream model is a cost-amplification tail; reserved concurrency is the
+      enforceable cap, and the intended value is 5.
+      MEASURED FACT, account 429844072978, 2026-10-06: ANY reserved concurrency is
+      currently REJECTED. The account limit is ConcurrentExecutions=10 with
+      UnreservedConcurrentExecutions=10, and PutFunctionConcurrency answers
+      "Specified ReservedConcurrentExecutions for function decreases account's
+      UnreservedConcurrentExecution below its minimum value of [10]." — for 5 AND
+      for 1. Hence default 0 (= do not reserve), which deploys; 0 is only honest
+      because the ACCOUNT-WIDE limit of 10 is itself a hard concurrency ceiling
+      today. Caution: that ceiling is SHARED with the page / page-staging contact
+      functions, so it bounds cost but does not isolate this function.
+      Set this to 5 the moment the account concurrency limit is raised above the
+      minimum-unreserved floor (floor is 10 on this account, 100 on a standard
+      one). Reserved concurrency is NOT a substitute for an invocation/billing
+      alarm — M-4 asks for both.
+
+Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+  IsPublicUrl: !Equals [!Ref FunctionUrlAuthType, NONE]
+
+Resources:
+  # Explicit execution role: logs + DynamoDB writes to ONE table ARN. Nothing wider.
+  ChatStreamFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: chat-stream-transcripts-write
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChatTranscriptsTableName}
+
+  ChatStreamFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      DockerContext: ../
+      Dockerfile: docker/chat/Dockerfile.lambda-stream
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      # Matches the existing Lambda chat stack (aws/chat-template.yaml Globals).
+      Timeout: 60
+      MemorySize: 1536
+      Role: !GetAtt ChatStreamFunctionRole.Arn
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref 'AWS::NoValue']
+      Environment:
+        Variables:
+          CHAT_PROVIDER: gemini
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          GEMINI_MODEL: !Ref GeminiModel
+          GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
+          GEMINI_LIVE_MODEL: !Ref GeminiLiveModel
+          CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
+          CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
+      Tags:
+        Project: gvp
+        Component: chat-lambda-stream
+        Adr: '0022'
+        Env: !Ref StageName
+
+  # Raw AWS::Lambda::Url + AWS::Lambda::Permission (not SAM's FunctionUrlConfig
+  # sugar) so the auth shape is explicit and auditable: both are UNQUALIFIED
+  # ($LATEST). A qualifier mismatch between the URL and the permission is a known
+  # cause of 403 AccessDeniedException on an AuthType NONE Function URL.
+  ChatStreamFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt ChatStreamFunction.Arn
+      AuthType: !Ref FunctionUrlAuthType
+      InvokeMode: RESPONSE_STREAM
+      # NO Function URL `Cors` block on purpose. The app already answers CORS
+      # itself (FastAPI CORSMiddleware driven by CHAT_CORS_ORIGINS,
+      # docker/chat/app/main.py:133) and that is what the ECS Express and HttpApi
+      # hosts use. Enabling Function URL CORS too would emit a SECOND
+      # Access-Control-Allow-Origin header, which browsers reject outright — and
+      # it would make this host behave differently from the baseline it is being
+      # measured against.
+
+  ChatStreamFunctionUrlPublicPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ChatStreamFunction.Arn
+      Action: lambda:InvokeFunctionUrl
+      # NONE -> anonymous ('*'). AWS_IAM -> this account only, never '*' (with
+      # AWS_IAM, '*' would mean "any AWS principal anywhere", which is worse than
+      # the public endpoint it is standing in for).
+      Principal: !If [IsPublicUrl, '*', !Ref 'AWS::AccountId']
+      FunctionUrlAuthType: !Ref FunctionUrlAuthType
+
+Outputs:
+  ChatStreamFunctionUrlAuthType:
+    Description: NONE = public; AWS_IAM = SigV4 required (see the parameter description).
+    Value: !Ref FunctionUrlAuthType
+  ChatStreamFunctionUrl:
+    Description: Function URL base (RESPONSE_STREAM). Append /health or /api/chat.
+    Value: !GetAtt ChatStreamFunctionUrl.FunctionUrl
+  ChatStreamPostApiUrl:
+    Description: Full URL for POST /api/chat. NOT for the committed meta — spike only.
+    Value: !Sub
+      - '${Base}api/chat'
+      - Base: !GetAtt ChatStreamFunctionUrl.FunctionUrl
+  ChatStreamFunctionName:
+    Value: !Ref ChatStreamFunction
+  ChatStreamFunctionArn:
+    Value: !GetAtt ChatStreamFunction.Arn
+  ChatStreamRoleArn:
+    Value: !GetAtt ChatStreamFunctionRole.Arn

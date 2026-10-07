@@ -11,10 +11,12 @@ proves it comes FIRST.
 > (contact durability — landed via the ADR-0006 injectable-core seam) and **#6** (reduced
 > motion) are proven by `node --test`; **#7** (every chat turn persisted with its terminal
 > `status`) is proven by `docker/chat/tests/test_turn_persistence.py` (all six
-> {ok,error,timeout}×{stream,non-stream} cells); **#9** (first-chunk rate-limit → fallback;
-> committed after first chunk) is proven by `docker/chat/tests/test_gemini_routing.py` (all
-> four clauses — rate-limit→fallback on `astream` + `ainvoke`, committed-midstream propagation,
-> non-rate-limit not retried, distinct-model guard); **#10** (Live voice timbre pinned to the
+> {ok,error,timeout}×{stream,non-stream} cells); **#9** (first-chunk **retryable** failure →
+> fallback; committed after first chunk) is **partly** proven by
+> `docker/chat/tests/test_gemini_routing.py` — `429` and `503` → fallback on `astream` + `ainvoke`,
+> the 429-only stickiness split on both, committed-midstream propagation, non-rate-limit not
+> retried (`astream` only), distinct-model guard — **with five clauses still unpinned; see the
+> #9 note below and #9's own CONFORMANCE paragraph**; **#10** (Live voice timbre pinned to the
 > deep/slow male `Charon` preset + cadence directive) is now proven by
 > `docker/chat/tests/test_live_voice_timbre.py` (all four clauses — default → `Charon`,
 > deliberate override honored verbatim, prebuilt voice on the connect config's `speech_config`,
@@ -26,9 +28,13 @@ proves it comes FIRST.
 > own environment's API bases — `main`=prod, `agent`=staging, diverging only on the
 > `gvp:*-api-url` metas) is proven by `test/frontend-api-url-env-guard.test.mjs`, born from the
 > 2026-06-04 staging-on-prod fast-forward incident (hotfixed in `843e648`).
-> **Proven set: ALL SIXTEEN — #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16.**
-> Every CHAT-layer invariant (#7, #8, #9, #10, #13, #14, #15) and every `[app]` invariant (#1–#6,
-> #11, #12) now holds; there are no open invariant clauses. **#12–#15 are the 2026-06-25 pass** over
+> **Proven set as of 2026-06-25: SIXTEEN — #1–#16** — but that sentence has since expired twice and
+> is kept with its correction attached rather than rewritten, because "all N proven" is the exact
+> shape of claim that goes stale silently: **#9 was re-opened on 2026-10-06 by ADR-0023 and is now
+> only PARTLY proven** (five named unpinned clauses in its own CONFORMANCE paragraph), and #17/#18
+> were added with their own conformance paragraphs. The honest read today: **#1–#8, #10–#16 proven;
+> #9 partly; #17 partly; #18 not at all.** Every CHAT-layer invariant (#7, #8, #9, #10, #13, #14,
+> #15) and every `[app]` invariant (#1–#6, #11, #12) has at least one real pin. **#12–#15 are the 2026-06-25 pass** over
 > load-bearing behavior shipped since 2026-06-04: **#12** (the living theme is a pure, bounded,
 > continuous function of local time) is proven by `test/theme-time.test.mjs`; **#13** (chat falls
 > back on a primary first-chunk TIMEOUT, not only a rate-limit — the stall sibling of #9) is proven
@@ -40,6 +46,26 @@ proves it comes FIRST.
 > is cited to `file:line` so the navigator can confirm it against the code, not take it on faith.
 > Line numbers are from the state of the repo at adoption and may drift; treat the cited
 > function/symbol as the anchor.
+>
+> **#9 HAS OPEN CLAUSES (2026-10-06, ADR-0023):** its old wording — *"Non-rate-limit
+> errors are not retried"* — was itself the defect. A Gemini `503 UNAVAILABLE` re-raised instead
+> of reaching the healthy fallback, on ~1 request in 3 against the prod host. **The `503` half
+> now SHIPPED and is pinned on both paths** (`f1a214d`, `0227545`, `fff8bc9`, `3daf8d7`; suite
+> 138), together with the 429-only stickiness split — an earlier version of this note and of #9's
+> conformance paragraph said it was unimplemented, which is **no longer true**. But the amended
+> trigger is **not fully pinned**: only `429` and `503` are exercised, the predicates' superset
+> clause is unasserted, `ainvoke`'s non-retryable side is unfenced, and the §5/§6 event types and
+> counters do not exist at all — so a retried 503 still fires a **mislabelled**
+> `chat_primary_rate_limit`. **Five named unpinned clauses live in #9's own CONFORMANCE paragraph;
+> read it before citing #9, and do not infer coverage from "the 503 fix shipped."**
+>
+> **Added since, and counted separately (2026-10-06):** **#17** (ADR-0020) and **#18** (ADR-0022
+> §24.7) each carry their **own conformance paragraph**, because neither is fully proven — the
+> "all sixteen" sentence above is scoped to **#1–#16** and must not be read as covering them.
+> **#18 is the first invariant admitted with no test at all**, deliberately: the regression it
+> names (a streaming route silently falling through a CDN onto a buffered origin) is live in
+> infrastructure now, and recording the rule ahead of its pin is cheaper than discovering it in
+> production. Its three candidate pins, and which one the architect prefers, are in the invariant.
 >
 > **Considered but NOT promoted (2026-06-25):** the voice-résumé safety net
 > (`js/voice-resume-button.js`) and the empty-reply derivation (`js/chat-reply-text.js`) are pure,
@@ -192,22 +218,124 @@ proves it comes FIRST.
      caps but does not floor). No open clause remains.
      Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
-9. **On a first-chunk rate limit the chat chain transparently falls back to the
-   secondary model; once any chunk has flushed it is committed.** `GeminiRoutingChain`
-   tries the primary model first; if the FIRST attempt fails with an upstream rate-limit
-   it retries on the fallback; once a chunk has been yielded, mid-stream errors propagate
-   rather than restart. Non-rate-limit errors are not retried. Primary and fallback model
+9. **On a RETRYABLE upstream failure of the first attempt the chat chain transparently falls
+   back to the secondary model; once any chunk has flushed it is committed.**
+   **AMENDED 2026-10-06 by ADR-0023** — the trigger was "a first-chunk **rate limit**" and this
+   invariant used to state *"Non-rate-limit errors are not retried."* **That sentence was the bug:**
+   a Gemini `503 UNAVAILABLE` re-raised on the first attempt and the healthy fallback was never
+   tried, on roughly **1 request in 3** against the prod host. The trigger is now an **enumerated
+   retryable set**, of which the rate limit is a subset. `GeminiRoutingChain` tries the primary
+   model first; if the FIRST attempt fails **retryably** it retries on the fallback; once a chunk
+   has been yielded, mid-stream errors propagate rather than restart. Primary and fallback model
    ids must differ.
-   - Implemented by: `docker/chat/app/gemini_routing.py:99-144` (`astream`: fall back
-     only when the first `__anext__` raises a rate-limit; commit after first yield),
-     `:71-97` (`ainvoke` analogue); distinct-model guard
+   **RETRYABLE — the exact set (ADR-0023 §4.1), keyed on the status carried by the UPSTREAM
+   exception:** `429`/`RESOURCE_EXHAUSTED`, `503`/`UNAVAILABLE`, `500`/`INTERNAL`,
+   `504`/`DEADLINE_EXCEEDED`, `502`.
+   **NOT RETRYABLE, and never tried on the second model (ADR-0023 §4.2):**
+   `401`/`403`/`UNAUTHENTICATED`/`PERMISSION_DENIED` (**both models share one API key, so the
+   retry cannot succeed** — the clause a naive widening breaks), `400`/`INVALID_ARGUMENT`, `413`,
+   `422`, any other 4xx, `404`/`NOT_FOUND` (a bad model id must stay loud, not hide behind a
+   silent fallback), and **anything with no extractable status — unknown is not transient,
+   default deny.**
+   **The retry decision and the quota bookkeeping are SEPARATE, and that separation is the
+   invariant** (ADR-0023 §3, §4.3): retryability is asked of `is_upstream_retryable`, while
+   `note_primary_rate_limited()` — which flips `prefer_fallback_first` for the **rest of the UTC
+   day** — is called for a **`429` only**. A 503 retries the turn and leaves the routing
+   preference untouched: it is a statement about Google's capacity in that instant, not about our
+   quota, and it **fails fast**, so re-discovering it next turn is cheap. The rule generalises —
+   **stickiness is earned by the cost of RE-DISCOVERY, not by the severity of the error**, which
+   is why #13's 12-second stall is sticky and this is not.
+   **Three outcomes, three event types** (ADR-0023 §5, applying ADR-0020 §5.13's *one type = one
+   priority*) — **NONE of this is implemented; see CONFORMANCE clause 4, and do not cite this
+   paragraph as describing current behavior**: a retried 503 whose turn then **succeeds** fires
+   **`chat_primary_unavailable` (P2)** — firing the P1-shaped `chat_model_error` on a turn that succeeded would be a false
+   alarm, and silence would hide a real degradation; a retryable failure on the **last** model
+   fires the existing **`chat_upstream_unavailable` (P1)**; and **`chat_model_error` (P1)** keeps
+   its exact meaning — a **non-retryable** error that ended the turn — so its blast radius
+   shrinks, which is the point.
+   **CONFORMANCE (rewritten 2026-10-06 after the slices landed; the paragraph it replaces said
+   the retryable-set half was unimplemented, which is now false on both paths).** What holds and
+   is pinned: the **commit-on-first-chunk** half; the **503 → fallback** retry on **both**
+   `astream` and `ainvoke`; and the **429-only stickiness** split on both. `is_upstream_retryable`
+   exists (`upstream_errors.py:111-125`) and is the retry predicate at
+   `gemini_routing.py:306` (`ainvoke`) and `:394` (`astream`); the quota bookkeeping is a separate
+   guarded call at `:313-314` and `:401-402` (`and is_upstream_rate_limit(e)`). Landed in
+   `f1a214d` (astream predicate + bookkeeping split), `0227545` (ainvoke), `fff8bc9` and `3daf8d7`
+   (the two stickiness pins). Baseline **138 passed**.
+   **What is NOT pinned, listed so the gap is visible rather than inferred — this invariant may
+   not be read as claiming any of the five below, and the conformance paragraph may not be widened
+   until the matching slice is green.** Each was re-verified by mutation on 2026-10-06 against
+   baseline 138:
+   1. **The retryable SET is only exercised at `429` and `503`.** `500`, `502` and `504` — and
+      the status names `INTERNAL` and `DEADLINE_EXCEEDED` — are in the enumerated set above and
+      **unfenced on both paths**. Mutation: shrinking `_RETRYABLE_UPSTREAM_CODES` to `{429, 503}`
+      and the status-name set to `{RESOURCE_EXHAUSTED, UNAVAILABLE}` leaves the suite **138
+      green** — three of the five codes and two of the four status names can be deleted in one
+      edit with nothing going red. (By contrast the two covered corners are real: dropping
+      `429`/`RESOURCE_EXHAUSTED` fails 4 tests, and dropping `503`/`UNAVAILABLE` fails the other
+      4.)
+   2. **The superset clause is unasserted.** ADR-0023 §3 requires
+      `is_upstream_retryable` ⊇ `is_upstream_rate_limit` — *"a contract clause worth its own test,
+      because it is what stops the two predicates drifting."* **No test asserts the containment.**
+      It happens to hold today, and its `429` corner is incidentally covered by clause 1's
+      mutation, but the two predicates can still drift apart on every other code in one edit.
+      There is also **no direct unit test of `is_upstream_retryable` at all** —
+      `tests/test_upstream_errors.py` covers only `is_upstream_rate_limit` and
+      `upstream_error_body`; the new predicate is reached exclusively through routing tests.
+   3. **The non-retryable side of `ainvoke` is entirely unfenced.** There is no `ainvoke`
+      analogue of `test_astream_non_ratelimit_error_not_retried`, so on the **non-streaming**
+      path nothing pins `401`/`403`, `404`/`NOT_FOUND`, or the **default-deny-on-no-extractable-
+      status** rule — the three clauses of §4.2 that a naive widening breaks. The streaming path
+      has exactly **one** test standing between the shared API key and a doubled-latency auth
+      retry.
+   4. **The three event types of §5 are NOT implemented — and the current alerting is
+      factually wrong for a 503.** Both retry paths still log `gemini rate_limited` /
+      `gemini stream rate_limited` (`gemini_routing.py:315-318`, `:403-406`) and fire
+      **`chat_primary_rate_limit`** (`:326-329`, `:414-417`) on a 503 that was never a rate
+      limit. **`chat_primary_unavailable` (P2) does not exist** — it appears nowhere in
+      `docker/chat/app/`, only in ADR-0023 and this document. So a retried 503 is observable only as a mislabelled
+      rate-limit alert, and §6's countability consequence is unmet.
+   5. **§6's countability debt is unpaid, so a retried 503 leaves no durable record at all.**
+      `note_primary_unavailable()` / `primary_unavailable_hits_today()` do not exist in
+      `gemini_limit_state.py`, and the recommended `upstream_unavailable` body code
+      (`{500,502,503,504}` → a distinct `errorCode`, §6) does not exist in `upstream_errors.py`.
+      ADR-0023 accepted the trade **"observability instead of state"**; the state half is gone
+      (correctly — clause 4's stickiness split is pinned) and the observability half was never
+      built. Today a 503 is counted nowhere and named wrongly. **Nothing here may be read as
+      claiming that a degraded primary is visible to an operator.**
+   - Implemented by: `docker/chat/app/gemini_routing.py:333-427` (`astream`: fall back only when
+     the first `__anext__` fails; commit after first yield), `:259-331` (`ainvoke` analogue);
+     the retry decision `:394` / `:306` (`if not is_upstream_retryable(e): fire_alert(
+     'chat_model_error', …); raise`) and the **separately guarded** quota bookkeeping `:401-402` /
+     `:313-314` (`if model_id == self.primary_id and is_upstream_rate_limit(e):
+     note_primary_rate_limited()`); `docker/chat/app/upstream_errors.py:111-125`
+     (`is_upstream_retryable` — keyed on `genai_errors.APIError.code`/`.status` then
+     `_extract_status_code_from_chain`, **never** on the status `upstream_error_body` returns,
+     because that function maps auth `401/403` → **502**; default deny when no status is
+     extractable), `:105-108` (`_RETRYABLE_UPSTREAM_CODES = {429, 500, 502, 503, 504}` and
+     `_RETRYABLE_UPSTREAM_STATUS_NAMES = {RESOURCE_EXHAUSTED, UNAVAILABLE, INTERNAL,
+     DEADLINE_EXCEEDED}` — **three fifths of this set is unfenced, see CONFORMANCE clause 1**),
+     `:94-98` (`is_upstream_rate_limit` — now **bookkeeping only**); daily routing state
+     `docker/chat/app/gemini_limit_state.py:35-69`; distinct-model guard
      `docker/chat/app/providers.py:200-201`.
-   - Proven by: `docker/chat/tests/test_gemini_routing.py` — all four clauses, asserting the
+   - Proven by: `docker/chat/tests/test_gemini_routing.py` — asserting the
      routed-output / propagation contract (not call counts): first-chunk rate-limit → fallback
      on **streaming** (*test_astream_first_chunk_ratelimit_falls_back*: primary `astream` raises
      `UpstreamError(429)` before any yield → joined content `== "from-fallback"`) and
      **non-streaming** (*test_ainvoke_ratelimit_falls_back*: `ainvoke` 429 → `result.content ==
-     "from-fallback"`); committed-after-first-chunk propagation
+     "from-fallback"`); the **503 sibling on both paths**
+     (*test_astream_first_chunk_503_unavailable_falls_back* and
+     *test_ainvoke_503_unavailable_falls_back*: `UpstreamError(503)` before any yield →
+     `"from-fallback"`; the 503 is carried **on the exception**, deliberately not only via
+     `upstream_error_body`, which maps it to a 502/`model_error` body — so a predicate reading
+     the MAPPED status is not reading the upstream one); the **429-only stickiness split** on
+     both paths (*test_a_503_does_not_demote_the_primary_for_the_day_but_a_429_does* and
+     *test_a_non_streaming_503_does_not_demote_the_primary_for_the_day_but_a_429_does*: after a
+     503 turn, `prefer_fallback_first() is False` and `primary_rate_limit_hits_today() == 0`;
+     after a 429 turn on the same chain, `True` and `== 1` — both halves driven through a real
+     turn, never by calling the bookkeeping function directly, and each test calls
+     `reset_for_tests()` and asserts the clean day so a leaked flip cannot make it pass
+     vacuously); committed-after-first-chunk propagation
      (*test_astream_committed_midstream_error_propagates*: yields `"from-primary"` then raises →
      `RuntimeError` propagates, `"from-primary"` seen, `"from-fallback"` NOT seen — no fallback
      restart); non-rate-limit first-chunk error not retried
@@ -215,6 +343,20 @@ proves it comes FIRST.
      propagates, `"from-fallback"` NOT seen); and the distinct-model guard
      (*test_distinct_model_guard_rejects_identical_ids*: `build_llm_runnable` rejects identical
      `GEMINI_MODEL`/`GEMINI_FALLBACK_MODEL`, builds a `GeminiRoutingChain` for distinct ids).
+     **Mutation record (2026-10-06, baseline 138 passed; each run alone and reverted):** the
+     `astream` predicate reverted to `is_upstream_rate_limit` fails *only*
+     *test_astream_first_chunk_503_unavailable_falls_back*; the `ainvoke` predicate reverted fails
+     *only* *test_ainvoke_503_unavailable_falls_back*; the bookkeeping guard reverted at `:401`
+     fails the `astream` stickiness pin and at `:313` the `ainvoke` one — **before those two pins
+     existed BOTH guard reverts survived at 137 green**, which is why they are the part of this
+     invariant most worth re-reading. A predicate written against the **mapped** status (the
+     ADR-0023 §3 auth trap: `upstream_error_body` maps `401/403` → `502`, and `502` is in the
+     retryable set) fails **exactly one** test —
+     *test_astream_non_ratelimit_error_not_retried* — and it catches the trap only
+     **transitively**, because a plain `RuntimeError` also maps to `502`. **No test in the suite
+     uses a real `401`/`403` on a routing path**, and `ainvoke` has no analogue at all
+     (CONFORMANCE clause 3). So §3's trap is fenced on the stream path by a single incidental
+     test, not by two and not on purpose.
      Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 10. **The Gemini Live voice timbre is pinned to a deep, slow male preset.** Every minted
@@ -400,6 +542,346 @@ proves it comes FIRST.
       is true only for a 409 invalid_idempotent_request"*, *"reportIdempotencyKey is
       scoped per environment"*, and *"reportEmailEnabled is false for the staging stack"*;
       handler wiring pinned in `test/daily-report-wiring.test.mjs`. Run: `node --test`.
+
+17. **THE RULE: anything persisted from an unauthenticated endpoint is bounded at the sink,
+    before the write — in count, in size (bytes, not code points), in shape (depth) and in key
+    space — and no caller-supplied value becomes a storage key.** `[chat]` Public sinks may not
+    hand caller-controlled structure to storage.
+    **CONFORMANCE, stated second and kept honest, because an earlier wording asserted the rule
+    as if it were already fact** (refuted by the six-lens review of 2026-10-05, recorded as
+    ADR-0020 §5): the rule is **met today** for **entry count** (≤10), **serialized JSON size
+    per tool-call entry** (≤2 000 chars, re-checked), the **`transport` key space** (a 3-value
+    set), the **`sessionId` partition key** (`max_length=128`, rejected not clamped) and — since
+    commit `2018a40` — the **`createdAt` GSI sort key**, which is now **server-stamped**:
+    `capturedAt` is gone from `LiveTranscriptTurn` and `main.py:1216` is `captured_at = now_iso`,
+    matching what the text path has always done (`:771-773`). A caller may still *send*
+    `capturedAt`; it is ignored, which is what made that a no-coordinated-deploy change.
+    Since commit `bd84398` it is also met for the **nesting depth of `args` and `response`**
+    (`_MAX_ARG_DEPTH = 6`, clamped by dropping the bulk) — **but only those two keys.**
+    It is **NOT met** for the depth of a non-`str` **`id`**, which still reaches `json.dumps`
+    and can raise out of the route (A4b, *Pending (4)* — the sharpest item left), nor for the
+    **byte** size of the free-text fields, **turns / bytes per DynamoDB item**, or tool-name
+    **cardinality across requests**. Those are decided in ADR-0020 §5 A4b, A2, A3 and A7, and
+    listed as *Pending* below with their verification. **Nothing here may be read as claiming
+    them until the matching slice is green — in particular this invariant does NOT claim that
+    `sanitize_tool_calls` never raises.**
+    `POST /api/live/transcript` takes **no credential of any kind**,
+    so before `persist_turn` it clamps `transport` to the known set
+    `{'live','relay','direct_google'}` — anything else (unknown, empty, wrong type) becomes
+    `'live'` — and sanitizes `toolCalls` to **≤10 entries** (taken from the front, order
+    preserved), **known keys only** (`id`/`name`/`args`/`response` — the union of what the
+    text path and the voice client actually produce), and **≤2000 chars of serialized JSON
+    per entry**. Two of those bounds behave differently on purpose, and the difference is
+    the invariant:
+    `name` is an **identity**, not a value — it is the admin tool histogram's key
+    (`aws/src/contact-admin.js:373`) — so it is **never coerced**: a `name` that is
+    missing, not a `str`, or empty after stripping **drops the whole entry**, because
+    coercing it (`str(['a','b'])`) would mint a permanent dashboard row for a tool that
+    never ran. A usable `name` is stripped and truncated to **60 chars**.
+    `id` is a correlation **value** no consumer reads, so it is truncated (**100 chars**)
+    rather than dropped. Over the JSON budget, the bulk keys (`args`, `response`) are
+    dropped and the entry is kept as its identity `{id, name}` — never a truncated,
+    unparseable JSON fragment — and then the budget is **re-checked**: an entry still over
+    2000 chars (only reachable via a non-`str` `id`, which the 100-char truncation cannot
+    reach) is dropped outright rather than persisted over budget.
+    **Worst case per turn, derived rather than measured** (ADR-0020 §5 A8 — the earlier
+    "19 930 chars" was a measurement of one payload, not a bound, and was wrong): every kept
+    entry satisfies `len(json.dumps(entry)) <= _MAX_ENTRY_JSON_LENGTH` *by the final re-check*,
+    so `toolCalls` per turn is at most
+    `_MAX_TOOL_CALLS × _MAX_ENTRY_JSON_LENGTH` = **10 × 2000 = 20 000 characters**. Those are
+    ASCII characters (`json.dumps` defaults to `ensure_ascii=True`), so the same number bounds
+    **bytes**; and it bounds **DynamoDB** bytes too, because for every JSON type DynamoDB's
+    documented accounting is ≤ its `json.dumps` character count (a string's UTF-8 bytes ≤ its
+    escaped length; a map costs `3 + Σ(len(k)+1+v)` vs JSON's `2 + Σ(len(k)+4+v)`; a list costs
+    `3 + Σ(v+1)` vs JSON's `2 + Σ(v+2)`; `true`/`null`/number literals cost ≤ their printed
+    length). Check it by multiplying two constants — do not re-measure it.
+    Unbounded values here are not merely an item-size problem:
+    `aws/src/contact-admin.js:337,371-375` builds the admin rollup's `transports` /
+    `toolHistogram` keyed **by the persisted value**, so without this bound an anonymous
+    caller owns the key space of the owner's dashboard, plus DynamoDB item bloat and the
+    retention/read cost that follows it. **Precisely how far that is closed:** key **length**
+    (60 chars), key **shape** (a usable `str` or the entry is dropped) and key **count per
+    request** (10) are bounded; tool-name **cardinality across requests** is not, and cannot be
+    at this sink — cardinality is a cross-request property the sink cannot see, so it is
+    read-side work by construction (ADR-0020 §5 A7a, carried by ADR-0021). `transport`
+    cardinality *is* closed, because its key space is a fixed 3-value set.
+    The sink **clamps rather than rejects** (the turn still persists, because the caller is
+    a fire-and-forget `keepalive` beacon that never reads the response,
+    `js/chat-live.js:671-700`).
+    The rule the seam runs on is **clamp values, reject identities**: a clamped telemetry
+    value is still a truthful, weaker fact, but a field that becomes a **storage key** must
+    never be silently rewritten — truncating it makes every caller sharing that prefix
+    collide into one partition key, silently merging distinct sessions into one row. So the
+    identity field is bounded by **rejection**: `sessionId` carries `max_length=128` on all
+    three request models that own one — `ChatRequest` (`main.py:163`), `LiveSessionRequest`
+    (`:167`) and `LiveTranscriptTurn` (`:171`) — because it lands as the DynamoDB partition
+    key `id` (`transcript_store.py:123`). All three are unauthenticated, so all three are
+    capped; an over-long id is a **400** `validation_error`, not a 422, via this app's own
+    `RequestValidationError` handler (`main.py:1266-1283`). Real ids are 32–36 chars
+    (`js/chat.js:185-190`), so no legitimate client can trip it.
+    - Implemented by: `docker/chat/app/turn_input.py` — a pure leaf module (no FastAPI, no
+      boto3, no I/O) exporting `clamp_transport` / `sanitize_tool_calls`; the five bounds
+      live there as **module-private** constants (`_MAX_TOOL_CALLS`, `_MAX_NAME_LENGTH`,
+      `_MAX_ID_LENGTH`, `_MAX_ENTRY_JSON_LENGTH`, `_KNOWN_TRANSPORTS`) and the tests assert
+      the numeric bounds from the outside, as behaviour — they are not imported as
+      constants, so a bound and its test cannot be changed in one edit. Plus the
+      `max_length=128` on the three `sessionId` fields. `docker/chat/app/main.py` is on
+      `SECURITY_GLOB`, so it only imports (`main.py:25`) and calls the sanitizers
+      (`main.py:1215-1216`), plus the one-token `Field` bound at `main.py:163`; keeping the
+      logic in the ungated leaf is deliberate and is what keeps the reviewed
+      security-surface diff to an import plus a call site. Recorded in
+      `docs/decisions/ADR-0020-public-chat-surface-bounded-sinks.md`, which is also the
+      architect clearance for that `main.py` edit.
+    - Proven by (every case below exists today, by this name): six helper-level cases in
+      `docker/chat/tests/test_turn_input.py` —
+      *test_oversized_tool_calls_payload_is_capped_at_ten_entries* (the count cap);
+      *test_single_hostile_entry_is_bounded_in_name_size_and_keys* (the 60-char `name`, the
+      2000-char budget, and the key allowlist — a caller-invented key is stripped);
+      *test_entry_over_the_json_budget_keeps_its_identity_and_drops_the_bulk*;
+      *test_entry_identity_fields_cannot_defeat_the_json_budget* (the `id` bound — bulk
+      hidden in `id` is bounded too);
+      *test_tool_name_is_normalized_or_the_entry_is_dropped* (a padded name is stripped; a
+      **list** `name`, a whitespace-only `name` and a **missing** `name` each drop the entry
+      — the never-coerce rule); and
+      *test_caller_invented_transport_is_clamped_to_a_known_value* (`'direct_google'`
+      round-trips; an invented label becomes `'live'`).
+      **Nesting depth of `args` / `response`** (A4, commit `bd84398`) —
+      *test_args_deeper_than_six_levels_keeps_its_identity_and_loses_the_bulk* (the
+      `_MAX_ARG_DEPTH` boundary: the bulk goes, the entry stays as `{id, name}`);
+      *test_args_deeper_than_pythons_recursion_limit_is_bounded_without_raising* (a value nested
+      past `sys.getrecursionlimit()` **returns** a bounded entry — this pins that the walk never
+      descends past the limit and runs before the first serialization, and it is the case the
+      six-level boundary cannot see); and
+      *test_response_nested_too_deep_costs_the_entry_its_bulk_as_well* (the bound covers both
+      bulk keys, not just `args`). **These three cover `args` and `response` only.** They do
+      **not** establish that `sanitize_tool_calls` never raises — a non-`str` `id` nested deep
+      still does, which is *Pending (4)* / A4b.
+      **The boundary pins for the two formerly-loose constants** (A5/A6, commit `16eef30`) —
+      *test_the_per_entry_json_budget_bounds_at_exactly_two_thousand_characters* and
+      *test_the_tool_call_id_bounds_at_exactly_one_hundred_characters*, plus
+      *test_an_entry_still_over_budget_after_the_bulk_drop_is_dropped_outright* for the final
+      re-check.
+      Route level, `docker/chat/tests/test_turn_persistence.py` —
+      *test_public_transcript_post_persists_a_bounded_turn* (the sanitizers are actually
+      wired into `POST /api/live/transcript`: a flood is cut to 10 and an invented transport
+      lands inside the known set) and
+      *test_well_formed_voice_turn_persists_its_telemetry_untouched* (the "existing voice
+      telemetry unaffected" bar: a real `{id,name,args,response}` entry reaches the store
+      **intact**, key for key).
+      The reject-the-identity half is API-level, so it sits alongside the other
+      request-validation cases in `docker/chat/tests/test_api.py` —
+      *test_over_long_session_id_is_rejected_and_persists_nothing*: a 200-char `sessionId`
+      on `POST /api/chat` answers **400** `validation_error` and the recording store sees
+      zero writes. Run: `cd docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+    - Totality — what is and is **not** guaranteed: `clamp_transport(value: object)` is
+      **total**; it accepts anything and returns a member of the known set (`None`, `''`
+      and a non-string all yield `'live'`). `sanitize_tool_calls(value: list[dict])` is
+      **total only over its declared type** — it raises `TypeError`/`AttributeError` on
+      `None`, on a bare `str`, on a list containing `None`, and on a value that will not
+      JSON-serialize. Those four are **not** a live hole: the only caller is
+      `main.py:1218`, behind `LiveTranscriptTurn.toolCalls:
+      list[dict[str, Any]] | None`, so Pydantic answers **400** `validation_error` on every
+      one of those shapes before the route body runs, and that call site passes
+      `payload.toolCalls or []` so `None` never arrives. The signature is honest about the
+      narrow contract rather than advertising a guarantee the body does not make.
+      **One raise IS live, and it is not on that list — corrected 2026-10-06 rather than left
+      to be discovered:** a **deep non-`str` `id`** is a perfectly well-typed
+      `list[dict[str, Any]]`, so Pydantic admits it and `json.dumps` (`turn_input.py:109`)
+      raises `RecursionError` from `main.py:1218`, which is **outside** the route's `try`
+      (`:1246`) — so it surfaces as a **500 on an unauthenticated endpoint**. Measured at a
+      500-level `id` in a 1 074-byte request; the band from ~28 levels up persists an
+      over-32-level item instead. A4b closes it (*Pending (4)*). Until it ships, **"no
+      reachable public request reaches a raise" is false**, and the depth tests above must not
+      be read as covering it. **Gap,
+      recorded not claimed:** there is no test that a non-list, a `None`-bearing list, or a
+      non-serializable value is refused at the boundary, and no test that
+      `clamp_transport` handles `''`/`None`/non-`str`, nor that `'live'` and `'relay'`
+      round-trip. If a second caller is ever added for `sanitize_tool_calls`, it must
+      either carry the same Pydantic bound or the function must be made total first.
+    - **Unpinned bounds — CLOSED by A5/A6, commit `16eef30`.** Re-verified by mutation on
+      2026-10-06 against baseline **133 passed**: every one of the mutations below now **fails**
+      — `_MAX_ENTRY_JSON_LENGTH` → 100 000 (2 fail), `_MAX_ID_LENGTH` → 1 966 (1),
+      `_MAX_ARG_DEPTH` → 60 (2), the re-check deletion (1), and `max_length=128` deleted from
+      `LiveTranscriptTurn` (1). The constants are deliberately still not imported by the tests,
+      so a bound and its test cannot move in one edit. **The record of what was wrong, kept
+      because it is the reason the numbers are now pinned at their boundaries** (verified by
+      mutation on 2026-10-05, baseline 124 passed; ADR-0020 §5 A5, A6): three of the numbers
+      above were claimed here but held by no test, so they could be moved in one edit —
+      (a) deleting `max_length=128` from
+      **`LiveTranscriptTurn.sessionId`** (`main.py:171`) leaves the suite **green** — the bound
+      on the public transcript sink is the one of the three that nothing pins (deleting it from
+      `LiveSessionRequest` or `ChatRequest` each fail one test); (b) deleting the **final
+      re-check** (`turn_input.py:82-83`) — the line that makes the worst case a ceiling rather
+      than an estimate — leaves the suite **green**; (c) `_MAX_ENTRY_JSON_LENGTH` can be raised
+      from 2 000 to **100 000** and `_MAX_ID_LENGTH` from 100 to **1 966** with the suite green,
+      because the hostile fixtures use 50 000-char blobs (25× the budget) and so trip any budget
+      below ~100 100. Closing these needs **boundary** cases (just-under / just-over the
+      documented number), not bigger payloads; test-only, no source change.
+    - Scope note: this invariant bounds **per-entry payload shape and key space**, not
+      **volume** and not the **item**. The 20 000-char figure is **per turn**, not per item:
+      `transcript_store.py:79-111` `list_append`s every turn into one DynamoDB item keyed by
+      session id under **no `ConditionExpression`** and with **no cap on turns**, and that item
+      caps at 400 KB. Measured (ADR-0020 §5 A3): one maximal turn is **116 008 bytes**, so three
+      successful public writes leave a session at 85 % of 409 600 and **the fourth write — and
+      every turn after it, forever — is refused**, with the caller still getting 204 and the
+      error swallowed into `writes_failed` (`transcript_store.py:140-144`), a counter visible
+      only on `/ready` and the gated `/api/chat/host-status`. **No alert fires on a persist
+      failure anywhere in the chat host today.**
+      Rate and cost limiting is NOT claimed here and does not exist yet: the shipped ECS
+      Express chat host has no API-Gateway throttle in front of it (the throttles in
+      `aws/chat-template.yaml` cover only the Lambda-container fallback), so M8's
+      `app/rate_guard.py` will be the *first* limit on `POST /api/chat` and the paid
+      `POST /api/live/session`, not a second layer. Transcript retention TTL, the admin
+      read/write key split, and read-side bucketing of unknown tool names in
+      `aws/src/contact-admin.js:371-375` (still caller-influenced across requests) are
+      likewise **deferred to M8** — see ADR-0020 §"What this ADR does NOT cover". The retention
+      TTL must be computed from the **server** clock: deriving it from a persisted `capturedAt`
+      would hand the expiry to the caller, which is the hole in *Pending (1)* one field over.
+    - **Pending — decided, not yet implemented** (ADR-0020 §5, in priority order). Each line is
+      an open hole in THE RULE above, and the conformance paragraph may not be widened until
+      the matching slice is green:
+      1. ~~**`capturedAt` is a caller-chosen sort key.**~~ **CLOSED by A1, commit `2018a40`** —
+         the first violation of the rule's *no caller-supplied value becomes a storage key*
+         clause that M0 had missed. Kept here as the worked example, because it is the clearest
+         statement of what the rule is for: `capturedAt` was taken verbatim (`max_length=64`,
+         no format check) and written as the item's `createdAt`, the RANGE key of the
+         `byCreatedAt` GSI (`aws/template.yaml:161-166`) the admin list reads
+         `ScanIndexForward: false` (`aws/src/contact-admin.js:481`). Verified before the fix:
+         `capturedAt: 'zzzzzzzzzzzzzzzz'` answered **204** and pinned that session to page 1
+         permanently (`createdAt` is written `if_not_exists`), poisoning the 30-day activity
+         sparkline (`contact-admin.js:721-724`) and dropping the turn from the daily digest
+         (`aws/src/common/daily-report.js:68-69`). **Strict ISO-8601 validation would not have
+         closed it** — `9999-12-31T23:59:59Z` is valid and sorts first too; a sort key the
+         caller chooses is not telemetry. Now server-stamped. Pinned by the sort-key case in
+         `docker/chat/tests/test_turn_persistence.py`, which doubles as the pin on Pydantic's
+         ignore-unknown-fields tolerance that A2 and A4 also rely on.
+      2. **Persist failures are silent, and the fix needs TWO event types.** Decision **A3.1′**
+         (ADR-0020 §5.13): `alerts.py:65-72` throttles per **event type** and knows nothing
+         about priority, so one shared type would let a routine *session full* fire suppress a
+         genuine *writes are broken* for the cooldown window (default 3600 s) — the benign
+         condition masking the outage the alert exists to announce. Therefore
+         **`chat_transcript_write_failed` (P1)** for any non-budget persist exception, shipping
+         with A3.1, and **`chat_transcript_session_full` (P2)** for
+         `ConditionalCheckFailedException` only, shipping with A3.2 so neither branch is ever
+         unreachable. **The seam rule this establishes, which M7 inherits: one event type = one
+         priority = one throttle bucket; if two conditions need different priorities they are
+         different event types.** Priority is a static property of the type (a `_PRIORITY` dict
+         consulted when `alerts.py:111` builds the subject), never a per-fire argument and never
+         part of the throttle key.
+      3. ~~**The three unpinned bounds.**~~ **CLOSED by A5/A6** — see the bullet above.
+      4. ~~**Nesting depth is unbounded.**~~ **CLOSED by A4 for `args`/`response`, commit
+         `bd84398`** — see the *Proven by* additions above. **STILL OPEN on the identity key,
+         and it is the sharpest item left in this list.** A4 walks `_BULK_KEYS` only
+         (`turn_input.py:105`), while `_bound_entry` keeps `id` whatever its type and only
+         touches it under `isinstance(entry_id, str)` (`:95-97`) — so a non-`str` `id` reaches
+         the first `json.dumps` (`:109`) with its shape intact. Measured through the route:
+         a 40-level `id` in a **153-byte** request persists an item **44** levels deep (refused
+         by DynamoDB, swallowed), and a 500-level `id` in a **1 074-byte** request raises
+         `RecursionError` out of `main.py:1218`, which sits **outside** the route's `try`
+         (`:1246`) — **a 500 on an unauthenticated endpoint**, the precise hole the *Totality*
+         bullet exists to deny. Decision **A4b** (ADR-0020 §5.14): a non-`str` `id` **drops the
+         entry**, decided on type, before any serialization — making unconditional the outcome
+         `test_an_entry_still_over_budget_after_the_bulk_drop_is_dropped_outright` already pins
+         for the shallow case, and making `id` behave like `name`, which is already total on
+         type and therefore has no such hole.
+      5. **The text fields are bounded in code points, charged in bytes.** Verified: 8 000
+         astral-plane code points persist 32 000 bytes. Decision **A2**: `clamp_text` on a UTF-8
+         byte budget (8 000 / 16 000 bytes), clamping not rejecting.
+      6. **The item has no size bound.** Decision **A3.2**: a `bytesStored` counter in the item
+         plus `ConditionExpression`, budget 380 KiB.
+      7. **The admin tool histogram collides on `Object.prototype` keys.** Verified in node:
+         `contact-admin.js:374` on a plain `{}` turns a tool named `toString` into the string
+         `"function toString() { [native code] }11"`, compounding through the merge at
+         `:697-699`; `__proto__` silently drops the bucket. Not prototype pollution. Decision
+         **A7b**: `Object.create(null)` at `:327`, `:328`, `:612`, `:613`.
+
+18. **The streaming chat route is reachable by exactly one spelling, and every spelling the
+    frontend can emit lands on a streaming behavior — a silent fall-through to a buffered origin
+    is a regression, not a variant.** `[chat]` When a CDN sits in front of the chat host
+    (ADR-0022 §17, §23.1 — CloudFront + OAC is the only browser-reachable shape for the
+    `RESPONSE_STREAM` Function URL on this account), the shipped frontend emits the chat endpoint
+    as **exactly `<base>/api/chat`** — no trailing slash, no doubled separator — and **every**
+    spelling it can emit matches a cache behavior whose target origin is the **streaming** origin
+    and whose policies do not buffer (`CachingDisabled`, `AllViewerExceptHostHeader`,
+    `Compress: false`). A spelling that misses those behaviors falls through the **default**
+    behavior, and when the default behavior points at the buffered API Gateway origin — the shape
+    ADR-0022 intends to ship, so non-streaming routes keep the 5 rps / burst 10 throttle — the
+    reply is still **200**, still `text/event-stream`, still the correct text, delivered **all at
+    once**. That is the exact defect this seam exists to remove (`docs/architecture.md:98`), and it
+    fails **with no error anywhere**: `readSseChat` parses a complete SSE body happily.
+    **Why the trailing slash is the hole, mechanically** (derived from config + code, not measured;
+    one `curl -i -X POST <dist>/api/chat/` and a glance at `Location` confirms it): the **exact**
+    pattern `/api/chat` (`aws/chat-stream-cdn-template.yaml:106`) is **correct and must stay
+    exact** — the glob `/api/chat*` would also swallow `/api/chat/smoke` and
+    `/api/chat/host-status`, which are request/response routes belonging on the buffered origin.
+    But `/api/chat/` does not match it. It reaches the default origin's `/{proxy+}` ANY route
+    (`aws/chat-template.yaml:104-109`), where Starlette's `redirect_slashes` answers **307** with
+    an **absolute** `Location` built from the `Host` header — and under
+    `AllViewerExceptHostHeader` that Host is the **origin's**, so the browser is redirected to the
+    raw `*.execute-api.*.amazonaws.com` host. `fetch` follows a 307 with method and body intact, so
+    the browser ends up **off the distribution entirely**, on a host named in **no `<meta>` tag**
+    (invariant 2), buffered by API Gateway, inside its 29–30 s integration timeout.
+    **AND THE DEEPER RULE, which adding a behavior does NOT satisfy** (found by dev-ops
+    2026-10-06 while implementing the trailing-slash behavior): **under OAC the origin must never
+    emit an absolute, self-referential redirect**, because **the browser cannot sign**. Route
+    `/api/chat/` to a second exact behavior on the **streaming** origin and the same
+    `redirect_slashes` now answers 307 with a `Location` naming the **private Function URL host**
+    (`*.lambda-url.*.on.aws`, `AuthType: AWS_IAM`) — and the unsigned follow gets **403**. So the
+    trailing slash has **two** failure modes, chosen by which origin the fall-through lands on:
+    **(a)** default behavior → buffered API Gateway origin → a **silently buffered 200**;
+    **(b)** a second behavior → Function URL origin → a **403 dead end**. A second cache behavior
+    is therefore **necessary but not sufficient**: the spelling must be normalised **before** the
+    origin sees it (a CloudFront viewer-request URI rewrite — in flight), or never emitted
+    (pin 1), or the app must stop redirecting at all (`FastAPI(redirect_slashes=False)`, which
+    turns the whole silent class into a loud 404 on every route — the loop's call, with that
+    trade stated). This is also the general form: **any** `30x` the chat app builds from the `Host`
+    header is unfollowable under OAC, because `AllViewerExceptHostHeader` means that header is the
+    *origin's* name, not ours.
+    **CONFORMANCE, stated plainly: this invariant is NOT proven, and nothing in the suite catches
+    its violation today** — it is recorded now, ahead of its test, because the hole is live in
+    infrastructure that is about to carry production traffic (ADR-0022 §24.7). What is true at this
+    commit: the frontend is **already** a one-spelling emitter, but **incidentally, not by
+    contract** — `js/site-config.js:9` strips trailing slashes from the meta content
+    (`raw.replace(/\/+$/, '')`), `js/chat.js:338` uses the result verbatim as the POST endpoint
+    (`:1149`), and `js/chat-live.js:247` / `js/admin.js:26` re-strip before deriving their own
+    paths. So `POST /api/chat/` is **not** reachable from `js/chat.js` as written — it is reachable
+    from curl, from the docs, from the deploy scripts, and from the next edit that joins a base to
+    a path. The practically reachable spelling set is therefore **`/api/chat`** and
+    **`/api/chat/`**; query strings do not participate in CloudFront path matching, and
+    `//api/chat`, case variants and percent-encoded forms are emitted by nothing in `js/`.
+    - Implemented by: `aws/chat-stream-cdn-template.yaml:103-127` — the exact `/api/chat` behavior
+      targets `stream-function-url` with `CachePolicyId 4135ea2d…` (CachingDisabled),
+      `OriginRequestPolicyId b689b0a8…` (AllViewerExceptHostHeader) and `Compress: false`; the
+      default behavior carries the same policies but the **other** origin, which is why the
+      fall-through is silent rather than broken. Frontend side: the single-spelling derivation at
+      `js/site-config.js:5-15` + `js/chat.js:338`. **A second exact behavior for `/api/chat/` is in
+      flight** (ADR-0022 §24.7).
+    - Proven by: **nothing yet.** Three pins, in the order the architect recommends them — full
+      reasoning in ADR-0022 §24.7:
+      1. **Frontend guarantee — PREFERRED, and the one to insist on.** A `node:test`
+         characterization that the shipped frontend can only ever emit `<base>/api/chat`:
+         `resolveApiUrl` strips trailing slashes (feed it `…/api/chat/`, `…/api/chat///`), the POST
+         endpoint is the unmodified `chatApiUrl`, and no module concatenates a `/` onto it. It pins
+         the side that actually **changes** (the CDN template is 151 lines edited rarely; `js/` and
+         the committed meta are edited weekly), it runs **offline, in CI, on every commit** with no
+         AWS credentials, it is the same shape as `test/frontend-api-config.test.mjs` and
+         `test/frontend-api-url-env-guard.test.mjs` which already guard this seam, and it costs one
+         test because the property is already true — the test converts an accident into a contract.
+      2. **Template assertion — second, and cheap.** Parse `aws/chat-stream-cdn-template.yaml`;
+         assert the streaming behaviors cover exactly the reachable spelling set, that each targets
+         the streaming origin, and that each carries CachingDisabled +
+         AllViewerExceptHostHeader + `Compress: false`. On its own it pins a *list*, and a list
+         drifts from its emitter — but paired with pin 1 it catches the one failure pin 1 cannot:
+         the right pattern pointed at the **wrong origin**, or with a policy that buffers.
+      3. **Journey — a release gate, not a suite pin.** For one real streaming POST through the
+         distribution, assert **`x-cf-behavior: apichat-exact`**
+         (`aws/chat-stream-cdn-template.yaml:50-59,116` stamps it — keep that header; it makes
+         "which behavior matched" client-visible without timing anything),
+         `content-type: text/event-stream`, and ≥ 2 body reads ≥ 40 ms apart (measured spacing was
+         38–216 ms). It needs a deployed distribution, credentials and a live model call, so it
+         belongs in ADR-0022 §18's acceptance list and the admin smoke rather than `node --test` —
+         but it is the only check that catches the actual user-visible symptom, a correct-looking
+         configuration that still buffers.
 
 ## Out of scope / explicitly allowed
 

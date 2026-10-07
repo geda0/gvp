@@ -1,0 +1,44 @@
+# Lambda container image — RESPONSE STREAMING variant (ADR-0022 spike, M-1/M-2).
+#
+# Build from the repo root:
+#   docker build --platform linux/amd64 -f docker/chat/Dockerfile.lambda-stream -t gvp-chat-lambda-stream .
+#
+# WHY THIS IS NOT THE LAMBDA BASE IMAGE. public.ecr.aws/lambda/python:3.12 has an
+# ENTRYPOINT that runs the runtime interface client, which expects a handler and
+# returns ONE buffered response (that is exactly Mangum's limitation — see
+# docker/chat/Dockerfile.lambda + ADR-0022 §1.1). The AWS Lambda Web Adapter needs
+# OUR OWN web server as CMD, so this image starts from python:3.12-slim and runs
+# uvicorn; LWA is installed as an internal extension and proxies the invoke to
+# 127.0.0.1:8000, streaming the SSE body through as it arrives.
+FROM python:3.12-slim
+
+# AWS Lambda Web Adapter as a Lambda internal extension.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 /lambda-adapter /opt/extensions/lambda-adapter
+
+WORKDIR /var/task
+
+# Lean on purpose: requirements-lambda.txt ONLY — no requirements-dev.txt, no
+# tests/, no pytest.ini. ADR-0022 §M-2 / §9.6: the fat ECS-style image is what
+# produced the ~100 s cold start recorded in ADR-0007; image weight is a direct
+# input to the cold-start measurement this image exists to take.
+COPY docker/chat/requirements-lambda.txt ./requirements-lambda.txt
+# boto3 is NOT in requirements-lambda.txt because the managed Lambda runtime
+# ships it — but this is python:3.12-slim, which ships none, and
+# app/transcript_store.py disables persistence (then raises on write) without it.
+# docker/chat/requirements.txt documents the same trap for the ECS image.
+RUN pip install --no-cache-dir -r requirements-lambda.txt boto3==1.35.86
+
+COPY docker/chat/app ./app
+COPY docker/chat/prompts ./prompts
+COPY data/chat-knowledge ./chat-knowledge
+
+ENV CHAT_KNOWLEDGE_DIR=/var/task/chat-knowledge \
+    CHAT_SYSTEM_PROMPT_PATH=/var/task/prompts/system-prompt.md \
+    CHAT_PROVIDER=gemini \
+    AWS_LWA_INVOKE_MODE=response_stream \
+    AWS_LWA_PORT=8000 \
+    PORT=8000
+
+EXPOSE 8000
+
+CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]

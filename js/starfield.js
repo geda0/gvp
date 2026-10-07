@@ -13,6 +13,85 @@ import {
 } from './starfield-prefs.js'
 import { sceneParamsAt } from './theme-time.js'
 
+// WHY — the "star dust" fixed point.
+// The night sky fades trails with destination-out + rgba(0,0,0,0.22): every frame the
+// 8-bit ALPHA channel becomes round(a * 0.78). Rounding gives it a FLOOR it can never
+// cross: round(2*0.78)=2 and round(1*0.78)=1. So alpha 1 and 2 stall FOREVER, and every
+// value above them descends INTO that stall. Result: every pixel a star ever crossed
+// keeps a permanent sub-perceptual veil (measured live: 37%->43% of canvas in 10s).
+// The fix must not change prod's LOOK, so we touch nothing about compositing, the fade
+// constant, blends, or star rendering. We add a garbage collector that zeroes ONLY the
+// pixels the fade provably cannot reach (alpha <= the derived stall floor, <=2/255, well
+// under the perceptual threshold). The visible decay 255 -> 3 is never disturbed.
+// Cost: a full-canvas getImageData+putImageData measured 14.9ms (a whole 60fps frame).
+// A ~10-row band measured 0.2ms median / 0.6ms max — so the GC is INCREMENTAL: a fixed
+// row band per frame, a cursor cycling the canvas, constant cost at any viewport height.
+// The load-bearing property is NO GAPS: an uncovered row is dust that never gets collected.
+
+/** Does repeatedly applying the fade to this alpha ever reach 0, or does it stall on a fixed point? */
+export function alphaStalls(alpha, fadeAlpha) {
+  if (alpha <= 0) return false;
+  if (fadeAlpha >= 1) return false;
+  let a = alpha;
+  while (a !== 0) {
+    const next = Math.round(a * (1 - fadeAlpha));
+    if (next === a) return true;
+    a = next;
+  }
+  return false;
+}
+
+/**
+ * Hard ceiling on what the collector is EVER allowed to erase. The derived stall
+ * floor is floor(0.5 / fadeAlpha), which grows without bound as the fade softens
+ * (0.01 -> 50, 0.002 -> 250) — a gentler trail would authorize the GC to erase the
+ * visible starfield. 2/255 is ~0.8% opacity: below perception, so collecting it
+ * cannot change the render. The clamp is what keeps "preserve prod's look exactly"
+ * true for ANY fade, not just the 0.22 we happen to call it with today.
+ */
+export const DUST_MAX_FLOOR = 2;
+
+/** Highest alpha value that stalls forever under this fade — the GC threshold, never perceptible. */
+export function dustAlphaFloor(fadeAlpha) {
+  let floor = 0;
+  for (let v = 1; v <= 255; v++) {
+    if (Math.round(v * (1 - fadeAlpha)) === v) floor = v;
+  }
+  return Math.min(floor, DUST_MAX_FLOOR);
+}
+
+// Rows collected per frame. A ~10-row band measured 0.2ms median / 0.6ms max, vs 14.9ms
+// for a full-canvas getImageData+putImageData (a whole 60fps frame). A fixed ROW COUNT
+// (not a fixed band count) keeps the per-frame cost constant regardless of viewport height.
+export const DUST_SWEEP_ROWS = 12;
+
+/** Rect for the sweep band at cursorRow, clipped so it never reads past the canvas. */
+export function sweepBandRect(cursorRow, rows, width, height) {
+  return { x: 0, y: cursorRow, w: width, h: Math.min(rows, height - cursorRow) };
+}
+
+/** Next sweep cursor: advances by rows, wrapping at the bottom for gap-free full coverage. */
+export function nextSweepCursor(cursorRow, rows, height) {
+  const next = cursorRow + rows;
+  return next >= height ? 0 : next;
+}
+
+/** Zeroes RGBA quads whose alpha is stuck at or below floor; returns the count cleared. */
+export function collectDust(data, floor) {
+  let collected = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3];
+    if (a > 0 && a <= floor) {
+      data[i] = 0;
+      data[i + 1] = 0;
+      data[i + 2] = 0;
+      data[i + 3] = 0;
+      collected++;
+    }
+  }
+  return collected;
+}
+
 /** Living time-of-day mode is active when theme.js has marked the root. */
 function isTimeMode() {
   return typeof document !== 'undefined' && document.documentElement.hasAttribute('data-time')
@@ -101,6 +180,15 @@ export function initStarfield(canvasId, options = {}) {
 
   /** Set in drawSpace each frame; Star.move multiplies depth speed by this. */
   let starSpeedScale = 1;
+
+  /**
+   * Dust collector cursor — the row where the next sweep band starts. The night
+   * fade multiplies 8-bit alpha by 0.78, and rounding has fixed points (2 and 1),
+   * so pixels a star crossed stall there forever — a permanent sub-perceptual
+   * veil. Each night frame collects one DUST_SWEEP_ROWS-tall band, cycling the
+   * whole canvas, and zeroes only pixels at or below the derived stall floor.
+   */
+  let dustCursor = 0;
 
   // Precomputed color palette: stars pick from this instead of building an
   // hsl() string on every spawn/respawn. Visually equivalent to randomColor().
@@ -278,6 +366,7 @@ export function initStarfield(canvasId, options = {}) {
     centerX = w / 2;
     centerY = h / 2;
     fl = w;
+    dustCursor = 0;
     const theme = getTheme();
     if (isTimeMode()) {
       // Living theme: stars (opacity modulated by the hour) + fireflies at dusk
@@ -374,6 +463,23 @@ export function initStarfield(canvasId, options = {}) {
     c.restore();
   }
 
+  /**
+   * Collect one band of stalled dust. Runs BEFORE the frame is painted so the
+   * faint halos this frame is about to draw are never clipped from what the
+   * viewer sees. Reads back only DUST_SWEEP_ROWS rows (~0.2ms) — a full-canvas
+   * readback is ~14.9ms, a whole 60fps frame.
+   */
+  function collectDustBand(fadeAlpha) {
+    const floor = dustAlphaFloor(fadeAlpha);
+    if (floor <= 0) return; // a full erase leaves no dust to collect
+    const band = sweepBandRect(dustCursor, DUST_SWEEP_ROWS, canvas.width, canvas.height);
+    if (band.h <= 0) { dustCursor = 0; return; }
+    const img = c.getImageData(band.x, band.y, band.w, band.h);
+    collectDust(img.data, floor);
+    c.putImageData(img, band.x, band.y);
+    dustCursor = nextSweepCursor(dustCursor, DUST_SWEEP_ROWS, canvas.height);
+  }
+
   function drawTime() {
     const w = canvas.width;
     const h = canvas.height;
@@ -408,6 +514,7 @@ export function initStarfield(canvasId, options = {}) {
     // Night: star motion-streak trails via a partial erase (keeps the canvas
     // transparent so the interpolated sky shows through) + fireflies at dusk.
     // No snow at night.
+    collectDustBand(prefersReducedMotion ? 1 : 0.22);
     c.globalCompositeOperation = 'destination-out';
     c.fillStyle = `rgba(0, 0, 0, ${prefersReducedMotion ? 1 : 0.22})`;
     c.fillRect(0, 0, w, h);

@@ -61,6 +61,84 @@ async def test_grounding_apptio_substring(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_over_long_session_id_is_rejected_and_persists_nothing(
+    client: AsyncClient,
+    stub_store,
+) -> None:
+    """Invariant #17, the reject-the-identity half. `sessionId` is not telemetry:
+    it lands as the DynamoDB partition key `id` (`transcript_store.py:123`), so
+    clamping it would merge every caller sharing a 128-char prefix into one row.
+    An identity that does not fit is refused, never truncated. `POST /api/chat`
+    takes no credential, so the bound has to hold for an anonymous caller; real
+    ids are 32-36 chars (`js/chat.js:185-190`), so no honest client trips it."""
+    # Arrange: an otherwise perfectly valid chat request whose only defect is a
+    # session id far past the bound. The `stub_store` fixture stands in for the
+    # store and catches any write. Without the bound this request succeeds and
+    # persists an ok row
+    # (test_turn_persistence.py::test_non_stream_success_persists_one_ok_row),
+    # so "nothing persisted" is a real observation, not a vacuous one.
+
+    # Act
+    r = await client.post(
+        "/api/chat",
+        json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+            "sessionId": "x" * 200,
+        },
+    )
+
+    # Assert: refused in this app's own validation shape — 400 `validation_error`
+    # from the RequestValidationError handler (main.py:1266-1283), not FastAPI's
+    # default 422 — and the over-long id never reached storage.
+    assert r.status_code == 400
+    assert r.json().get("code") == "validation_error"
+    assert stub_store.calls == []
+
+
+@pytest.mark.asyncio
+async def test_over_long_session_id_on_the_transcript_sink_is_rejected_and_persists_nothing(
+    client: AsyncClient,
+    stub_store,
+) -> None:
+    """The same reject-the-identity half of invariant #17, on the OTHER public
+    sink — `POST /api/live/transcript` (ADR-0020 §5 A5). This is the sink whose
+    own `sessionId` bound (`LiveTranscriptTurn`, `main.py:171`) nothing pinned:
+    the sibling case above covers `ChatRequest`, a different request model on a
+    different route, so deleting the transcript model's bound left the suite
+    green. Both routes take no credential, and both land `sessionId` as the
+    DynamoDB partition key `id` (`transcript_store.py:123`), so an identity that
+    does not fit must be refused here too — truncating it would merge every
+    caller sharing a 128-char prefix into one session's row.
+    """
+    # Arrange: an otherwise well-formed voice beacon whose only defect is a
+    # session id far past the bound. The identical beacon WITH a short id
+    # persists exactly one turn
+    # (test_turn_persistence.py::test_public_transcript_post_persists_a_bounded_turn),
+    # so "nothing persisted" is a real observation, not a vacuous one.
+
+    # Act
+    r = await client.post(
+        "/api/live/transcript",
+        json={
+            "sessionId": "x" * 200,
+            "userText": "hi",
+            "assistantText": "hello",
+        },
+    )
+
+    # Assert: refused in this app's own validation shape — 400 `validation_error`
+    # from the RequestValidationError handler (main.py:1268-1285), not FastAPI's
+    # default 422 — and the over-long id never reached storage. Note this is the
+    # one place the sink REJECTS rather than clamps: the beacon is
+    # fire-and-forget and never reads the response, which is exactly why the
+    # bound has to be asserted on the store, not on the status code alone.
+    assert r.status_code == 400
+    assert r.json().get("code") == "validation_error"
+    assert stub_store.calls == []
+
+
+@pytest.mark.asyncio
 async def test_malformed_json_400(client: AsyncClient) -> None:
     r = await client.post(
         "/api/chat",

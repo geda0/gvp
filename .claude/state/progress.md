@@ -3,6 +3,281 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+- **2026-07-13 — night-trail fade fix on top of the prod-restored starfield (app, suite 194/0/1). UNCOMMITTED.**
+  Navigator: "once the star is out of the view and gone, the trails should fade... preferably back to front."
+  MEASURED on the restored prod build: `destination-out` rgba(0,0,0,0.22) fades ALPHA, which rounds at the bottom
+  (2×0.78=1.56→2) — every touched pixel stalls at alpha 2 forever; stalled veil grew 37%→43% of the canvas in 10s.
+  Back-to-front comes FREE from the exponential fade (oldest deposits faded most); only the stall is the bug.
+  FIX (cherry-picked the e20446e architecture, NOT its faster fade — prod's 0.22 curve is preserved exactly):
+  night canvas opaque black, fade on COLOUR (truncates → reaches exactly 0) via source-over, canvas
+  `mix-blend-mode: screen` at night (black=identity, CSS sky shows through); day/legacy `normal`.
+  3 TDD cycles: (1) pure contract `test/starfield-trail.test.mjs` (TRAIL_FADE_ALPHA===0.22, trailFramesToClear
+  terminates, blend modes); (2) stub-DOM wiring `test/starfield-night-wiring.test.mjs` (no destination-out, base
+  painted once not per frame, per-frame 0.22 colour fade, screen at night); (3) characterization pin: day restores
+  normal+clearRect, re-entering night re-primes base once. Browser-verified: residue 12.1→16.1→**0.1%** (transient,
+  not stalled — broken build grew monotonically), blend screen/normal per scene, dusk fireflies + day snow intact.
+- **2026-07-13 (earlier) — starfield RESTORED to prod (`2d079aa` on agent): js/starfield.js + starfield-prefs.js
+  byte-identical to main; agent-only tests removed; experiments preserved on `wip/starfield-seasons` (92065a0) +
+  `feat/daylight-glints` (d7510d2) + agent history (e20446e..fe9fcfa). index.html left on staging hosts.**
+- 2026-07-10 — starfield scene reconception: two populations (light + occasional shooters), lit + calm (app, phase off, suite 216/1/0). SUPERSEDED — reverted by 2d079aa; kept for the record.
+  Navigator vs original: original sky felt LIT (many background stars) + CALM (not fast); wanted "stars there for light,
+  occasionally shooting randomly", + perf cleanup to afford more stars.
+  DIAGNOSIS (measured): the original's lit feel was partly the ACCUMULATION HAZE (now removed) smearing sub-pixel stars
+  into visibility. A far background star projects ~0.38px radius = invisible. And the shimmer build streaked EVERY star
+  (busy/fast feel). Speed far 0.073 / near 3.76 px/frame (perspective already makes close stars fast).
+  BUILT (all TDD, pure seams in `test/starfield-scene.test.mjs`): (1) **isShooting(frameDist)** gate — only stars whose
+  per-frame motion >= SHOOT_SPEED_THRESHOLD(1.35) get the coloured wake; the calm majority are just points (cheaper +
+  quieter). (2) **starPointRadius()** — floors every star to STAR_MIN_RADIUS(1.15px) so the dense field is VISIBLE
+  ("way more stars lighting the sky"); this was the key lever — litPct 0.062 -> **0.22** (3.5x). (3) **star-point twinkle**
+  — twinkle() gained a floor param; background stars breathe gently at STAR_TWINKLE_MIN(0.62) vs the wake's 0.1 sparkle.
+  (4) **off-screen cull** — a star projecting past the edge (+margin) skips its drawImage. TUNED (refactor): baseStars
+  717->1500 (updated the 1 prefs reference test), perspective speed factor 4->2.2, baseSpeed 0.1->0.08.
+  MEASURED: 1472 stars, ~1058 drawn/frame (rest culled), **0 gradient allocs/frame**, 6.4% shooting at once (~68 short
+  tails). Reads calm + densely lit; day/garden + snow intact; 0 console errors.
+  **SHOOTING REDESIGNED per navigator ("rare + dramatic meteors"):** the speed-threshold gate could never give "a few" —
+  fast stars are the close ones and there are always many (raising the threshold + speed gave ~73 shooters, WORSE). And
+  "shooting RANDOMLY" is not what a deterministic speed gate does. Replaced with **random designation**: `makeShooter()`
+  flags SHOOTER_FRACTION(0.008) of stars at spawn/respawn; a shooter's drift is boosted SHOOTER_SPEED_BOOST(3.4x) via the
+  new pure seam `starFrameSpeed(depthRatio, isShooter, base, scale)`; ONLY shooters draw the wake. Background drift stays
+  calm (BG_SPEED_FACTOR 1.5; closest bg star ~1.45px/frame). `isShooting`/SHOOT_SPEED_THRESHOLD removed with their tests;
+  `test/starfield-scene.test.mjs` now pins: shooters random + rare (statistical, N=20k), boosted vs background at equal
+  depth, background calm (<2px/frame), speedScale honoured. Node-stub measurement: ~1040 stars drawn/frame, **~8 meteors
+  on screen avg (min 6 max 11)** at desktop viewport; tails STREAK_LENGTH_MULT=26 (clamped 420px) so each reads as a meteor.
+  **TOOLING GOTCHA (cost an hour): the Browser pane keeps the tab `visibilityState:hidden`, so rAF NEVER fires — the
+  canvas reads litPct 0 and screenshots show an empty sky while the code is fine (node stub draws 1040/frame).**
+  Workaround for verification: `Object.defineProperty(document,'visibilityState',{value:'visible'})` + shim
+  `requestAnimationFrame` to setTimeout + dispatch `visibilitychange`; then the field renders and screenshots work.
+  Verified after shim: night opaque+screen, lit calm field; day normal+transparent+snow (0.288); round-trip clean; 0
+  console errors. Suite 218/1/0. UNCOMMITTED — navigator should eyeball the meteor character (ideally on stage at full
+  viewport; the pane viewport is 800x450 = only ~370 stars). Prod still gated on PO AC-2.
+- **2026-07-10 — p75 + "true form" of the wake: shimmering colored threads (app, phase off, suite 210/1/0). UNCOMMITTED — awaiting navigator intensity call.**
+  The accepted accumulation-trail fix is COMMITTED (`e20446e`). On top of it, per the navigator: "try p75 with the true
+  form — the dust is the result of interaction with the gravitational layers of spacetime; make it a line thin, magic
+  colorful like the stars glowing, random like fairies being."
+  Built: (1) **p75** — `DEPOSIT_FRAMES` 3 -> 6, so the derived fade is 0.578 (clears in 6 frames, keeps more smear);
+  invariant "wake never outlives deposit" still holds (6<=6). (2) **twinkle** — NEW pure seams `twinkle(phase,speed,t)`,
+  `makeTwinklePhase/Speed`, `TWINKLE_MIN`; each Star gets a random phase+speed (reassigned on respawn), and the streak
+  deposit's globalAlpha is modulated by `twinkle(...)` on `nowSeconds` (set once/frame in drawTime) — so each wake
+  shimmers on its own clock ("fairies"). (3) **magic colorful** — `streakColor` now boosts saturation (muted star * 2.3,
+  capped) + alpha 0.85, and screen-blend blooms overlaps; the STAR stays desaturated (distant sun), only the WAKE is vivid.
+  Also removes the last of the silent hsl->hsla string-surgery bug (parses components, throws on unknown form).
+  TDD: NEW `test/starfield-twinkle.test.mjs` (5 tests: range [TWINKLE_MIN,1], varies over time, hits both extremes,
+  two stars independent, random phase covers [0,2pi) + positive speed spread). Suite 210/1/0.
+  **Measured in-browser (dialed values TWINKLE_MIN=0.18, sat*2.3, alpha0.85):** ~76% of lit pixels are saturated/colored
+  (meanSat 0.26) — the "magic colorful" is real and measurable. Day/garden `normal`+snow intact, 0 console errors.
+  **DIALED UP per navigator ("push it more magical/visible"):** `TWINKLE_MIN` 0.32->0.18->0.10 (more sparkle contrast),
+  `streakColor` alpha 0.7->0.85->0.95 + saturation *1.9->*2.3->*2.8, `STREAK_MAX_DIST` 150->260. The real visibility lever
+  was thread LENGTH: constant-tuning barely moved it (coloredPct 0.048->0.057), because a streak was one frame of motion.
+  Added `STREAK_LENGTH_MULT = 4` — the streak is now drawn `dist*4` long (clamped to STREAK_MAX_DIST), head-at-star,
+  tapering at the tail. LENGTH ONLY, never width (width scaling was the "mantis ray"). coloredPct jumped 0.057->0.081,
+  meanSat ->0.34. Now reads at page scale: thin colored shooting-star threads, star-palette hued, shimmering per-star.
+  Magnified a bright thread: a clean thin periwinkle line (rgb 127,145,181), head-at-star, soft tail — exactly the spec.
+  Day/garden `normal`+snow intact, 0 console errors, suite 210/1/0.
+  **AWAITING navigator accept of THIS intensity, then commit + push to stage.** Prod still gated on product-owner AC-2.
+  Uncommitted files: `js/starfield.js`, NEW `test/starfield-twinkle.test.mjs`.
+- **2026-07-10 — trail fade DERIVED from a deposit budget: wake may not outlive its build (app, phase off, suite 205/1/0). UNCOMMITTED.**
+  Navigator: "collect the garbage faster, I need the accumulation not to exist beyond as much time as it took to build."
+  That is a SYMMETRY SPEC, not a taste knob — so it is now an invariant, and the fade is derived from it.
+  **Measured the deposit** (how long a star's glow paints one pixel = 2*glowRadius / screen-speed) by replicating the real
+  projection over ~10k sampled visible stars: **p25 1.5, median 3.1, p75 6.6, p90 13.1 frames**.
+  **The accumulation, quantified:** at the original 0.22 the wake took **18 frames** to clear against a **~3-frame deposit**
+  — glow piled up ~6x faster than it drained. THAT is the buildup.
+  NEW seams: `DEPOSIT_FRAMES = 3` (the median), `fadeAlphaForClearFrames(frames)` = the GENTLEST fade meeting the budget
+  (searching for the minimum keeps the longest smear the rule allows, instead of over-fading), and
+  `TRAIL_FADE_ALPHA = fadeAlphaForClearFrames(DEPOSIT_FRAMES)` = **0.834**, clearing in exactly **3 frames** (keeps 16.6%/frame).
+  Tests pin the RULE, not the number: "the trail never outlives the deposit that made it", "the fade is DERIVED, not
+  hand-tuned", "the derived fade is the gentlest that meets the budget", plus monotonicity. Break-checked BOTH directions:
+  a slower fade (0.45) fails the outlives-deposit guard; a harsher one (0.95) fails the derived-not-hand-tuned guard.
+  **Verified in-browser:** pure-black pixels hold FLAT at **99.9%** (zero growth — accumulation eliminated); mean canvas
+  luminance **0.345 (orig) -> 0.081 (0.45) -> 0.020 (now)**. Day/garden `normal`+transparent, night `screen`+opaque,
+  round-trip clean, 0 console errors.
+  **HONEST TRADEOFF — the navigator must judge:** enforcing clear<=3 frames REMOVES the visible radial smear. What remains
+  is a clean starfield + the 1-frame streak line. The smear the navigator called "the professionalized original design"
+  IS the accumulation; the rule and the look are in direct tension.
+  **The single lever is `DEPOSIT_FRAMES`** (the deposit is a DISTRIBUTION, and p50 was a choice):
+    p50=3 -> fade 0.834, clears 3f (now; no smear) | p75=6 -> fade 0.578, clears 6f (some smear, still <= most stars' deposit)
+    p90=13 -> fade 0.308, clears 13f (near-original smear) | original 0.22 -> 18f (violates the rule)
+  Not pushed. Prod still gated on product-owner AC-2.
+- **2026-07-10 — trail fade doubled: `TRAIL_FADE_ALPHA` 0.22 -> 0.45 (app, phase off, suite 201/1/0). UNCOMMITTED.**
+  Navigator: "clean the dust faster, so it is less intense in the build up, a lot faster." ("dust" = the trail smear;
+  the particle system is already gone.) The knob is how much of the trail is erased per frame.
+  NEW pure seam `trailFramesToClear(fadeAlpha, start=255)` models the canvas exactly (colour channel TRUNCATES, so it
+  always terminates — unlike alpha, which rounds up and stalls at 2). Model validated against the browser: predicts 18
+  frames at 0.22, browser measured colour reaching 0 at frame 19 (off-by-one from the initial fill).
+  **0.22 -> 0.45 halves the trail: 18 frames-to-black -> 9.**
+  Measured in-browser at steady state: pure-black pixels **80% -> 95%**, mean canvas luminance **0.345 -> ~0.08**
+  (~4x less residual glow). Rays still read as the original's continuous radial smear, just fainter/shorter.
+  **Test honesty:** the old test pinned `TRAIL_FADE_ALPHA === 0.22` and called the look dependent on it — the navigator
+  falsified that. Re-pinned the BEHAVIOUR instead (a bigger fade clears in strictly fewer frames; every fade in (0,1]
+  reaches pure black; the drawn fillStyle follows the exported knob), leaving the value free to tune. `ORIGINAL_TRAIL_FADE_ALPHA`
+  is kept purely as the reference the guard compares against. Break-checked: reverting the knob to 0.22 fails
+  "the trail clears a lot faster than the original 0.22 curve".
+  Day/garden + reduced-motion untouched (the fade only governs the night trail). 0 console errors. NOT pushed.
+- **2026-07-10 — starfield REVERTED to the original look; residue killed at the root (app, phase off, suite 198/1/0). UNCOMMITTED.**
+  Navigator, side-by-side vs prod: "looks like fireworks compared to the professionalized original design."
+  **They were right, and the diagnosis was mine to own:** the original trail is a CONTINUOUS motion-blur smear (the star's
+  glow convolved along its path by the accumulation buffer). Dust motes are a SAMPLED approximation of that smear, and
+  sampling it every 4 frames gives speckle = fireworks. Worse, the earlier "beach ball" was ALSO self-inflicted — I added
+  `STAR_GLOW_SCALE=2.1` + a solid glow core to replace the brightness the accumulation used to supply, which turned a soft
+  bloom into a hard ball; the depth guards then "fixed" damage I had caused. (Probe: the ORIGINAL draws stars with arc
+  radius up to 26,043px and looks fine.)
+  **THE ROOT CAUSE OF THE RESIDUE — browser-verified, and it is NOT what I claimed for three rounds:** the fade
+  `destination-out` + rgba(0,0,0,0.22) multiplies the **ALPHA** channel by 0.78, and 8-bit alpha ROUNDS UP at the bottom
+  (2*0.78=1.56 -> 2), so alpha stalls at 2 forever. The IDENTICAL 0.78 fade applied to a **COLOUR** channel TRUNCATES and
+  reaches exactly 0 (frame 19). Measured live on the original: pixels stuck at alpha 2 grew 39% -> 58% in 24s.
+  **FIX:** paint the night canvas opaque black, fade the trail on COLOUR with the same 0.22 curve, and set
+  `canvas.style.mixBlendMode = 'screen'` (black is the identity under screen, so the CSS sky shows through). Day/garden
+  flips back to `normal` (screen would blow out the snow). `ensureOpaqueBackdrop()` repaints the base only on entry to
+  night + after resize — never per frame, or it would erase the trail it exists to hold.
+  New: pure seams `trailFadeAlpha()`, `blendModeForScene()`, `TRAIL_FADE_ALPHA=0.22`, `NIGHT_BLEND_MODE='screen'`.
+  **VERIFIED:** trail decays to pure black (pureBlackPct 48->82%, meanLum 1.06->0.345 FALLING; the original grew instead).
+  night->day->night round-trip repaints the backdrop correctly. Garden/snow unchanged. 0 console errors.
+  **PERF (the original brief) — kept, via faithful sprite caching (identical gradient stops):**
+  radial gradients/sec 67,920 -> **0**; linear gradients/sec 63,536 -> **0**; strokes/sec 63,536 -> **0**.
+  **ALSO FIXED the latent silent bug:** `streakColor()` now PARSES the hsl components and throws on an unknown form,
+  instead of `hsl(`->`hsla(` string surgery that fails silently (canvas ignores an invalid fillStyle) the day
+  `randomColor()` emits modern `hsl(210 40% 80%)` syntax.
+  **REMOVED (reverted subsystems + their tests):** stardust particle pool, depth guards (near plane / depth fade /
+  radius clamp), comet streak, glow-scale + solid-core brightness compensation. Deleted `test/starfield-{dust,depth,streak}.test.mjs`
+  — the behaviour they pinned no longer exists. NEW `test/starfield-trail.test.mjs`; `test/starfield-perf.test.mjs` rewritten
+  to pin: zero gradients/frame, fade is source-over on colour + never `destination-out`, night=screen/day=normal,
+  opaque base painted ONCE not per frame, reduced motion = stars but zero streaks. All four break-checked (each guard
+  fails when its mechanism is reverted).
+  **A CORRECTION I OWE THE RECORD:** the earlier "110M px/frame, ~1020x overdraw" claim was WRONG — canvas clips draws to
+  the canvas bounds, so a 37k-px sprite does not rasterise 37k^2 px. I measured requested area, not rasterised area. The
+  real cost was always the ~131k gradient allocations/sec. Also do not quote ms/frame from this session: the preview tab
+  suspends rAF between tool calls.
+  NOT pushed. Prod still gated on product-owner AC-2.
+- **2026-07-10 — starfield depth guards: no more beach-ball stars (app, phase off, suite 224/1/0). UNCOMMITTED.**
+  Navigator on staging: "stars scale massively when they come close, looks like a big ball... best to avoid the stars
+  hitting the user in the face." **Root cause:** perspective is `size * (focalLength/z)` with `fl = canvas.width`, and
+  stars were recycled only at `z <= 0` — so a star aimed near screen centre kept closing on the camera and its radius
+  diverged. Measured table: at `z=0.32W` radius <= 8.3px; at `z=0.01W` radius = **313px**.
+  **Three guards (bluntest last), all in `js/starfield.js`:** (1) NEAR PLANE `STAR_NEAR_PLANE_RATIO=0.15` —
+  `starShouldRecycle()` retires a star before it can reach the camera; (2) DEPTH FADE `STAR_FADE_START_RATIO=0.32` —
+  `starDepthFade()` dissolves it on the way in so it never POPS (multiplies globalAlpha for that star's glow+streak);
+  (3) hard clamp `STAR_MAX_RADIUS=9` via `clampStarRadius()`. Star `z` is now seeded in front of the near plane.
+  **Verified in-browser:** biggest star on screen 3-8px diameter (mean 4.3) vs **70-104px before**.
+  **Fill-rate collapse (deterministic node stub, 30 frames after 200-frame warmup, same draw-call count ~6950/frame):**
+  max single drawImage height **37,129px -> 18px**; pixel area per frame **110,622,077 -> 108,418** (~1020x less
+  overdraw; the old frame was rasterising 45x the whole canvas). So this is a large PERF win as well as the visual fix.
+  **Could NOT get a trustworthy ms/frame this session** — the preview tab suspends rAF between tool calls (captured 2
+  frames); do not quote a ms number until re-measured on a visible tab. Prior committed build measured 5.06 ms/frame.
+  **TDD + break-checks:** NEW `test/starfield-depth.test.mjs` (7 pure-seam tests). CRUCIALLY the pure seams did NOT guard
+  the WIRING — reverting the recycle to `z<=0` or deleting the clamp left all 222 tests green. So the canvas stub now
+  records drawImage geometry + globalAlpha, and `test/starfield-perf.test.mjs` gained two wiring tests. Break-checked
+  each guard independently: delete clamp -> "no star renders as a ball" fails; delete fade -> "stars dissolve..." fails;
+  revert recycle to z<=0 -> "stars dissolve..." fails (draws collapse as stars linger invisible near the camera).
+  Day/garden snow path intact, 0 console errors. Not yet pushed; prod still gated on product-owner AC-2.
+- **2026-07-09 — starfield stardust: navigator-driven redesign of the trail (app, phase off, suite 215/1/0).**
+  Navigator reviewed the previous build ON STAGING and rejected it: close stars showed a "lollipop" (thin stick under a
+  fat round glow); after I widened the head to the glow DIAMETER it became a "mantis ray" (triangular wings). Their key
+  insight: the lingering glow must NOT be welded to the star — it should be dust deposited across the sky that fades out.
+  **Root realization:** the old uncleared canvas was doing TWO jobs at once — (a) a thin one-frame motion line per star,
+  (b) a sky-wide lingering glow. Stretching the streak to do (b) is why both artifacts appeared. Split them:
+  **STREAK** reverted to the ORIGINAL (`STREAK_TAIL_FRAMES=1`, thin, clamped by `STREAK_MAX_THICKNESS=3` via
+  `streakThickness()`). **STARDUST** = new bounded particle system: each star sheds a mote every `DUST_SPAWN_INTERVAL`
+  frames (staggered by star index); a mote is FROZEN at its spawn point (does not follow the star), keeps that star's
+  palette colour, and its alpha comes from `dustAlpha(age,life)=(1-age/life)^2` which is EXACTLY 0 at end of life.
+  Alpha is derived from age and NEVER read back off the canvas, so the 8-bit rounding that stranded the old
+  `destination-out` fade at ~2/255 (the permanent haze) is impossible by construction. `createDustPool` is a fixed-size
+  ring over typed arrays — spawning forever recycles, never grows. Small per-colour dust sprite baked once (navigator's
+  "alternating sprites" hint) instead of downscaling the 64px star glow ~5k times a frame.
+  **Navigator flipped the brightness knob:** `DUST_MIN_STAR_RADIUS 1 -> 0` (whole field sheds; brighter, denser sky).
+  `shedsDust(radius, threshold)` is parameterized so the SEAM stays pinned while the VALUE is free tuning.
+  **Measured (quiet machine, rAF-wrap, same method as baseline): 5.06 ms/frame, p95 5.4, busy 301 ms/s** vs the ORIGINAL
+  buggy build 6.57/7.2/391. Zero gradient allocations per frame (was 132k/sec). No accumulation, proven empirically:
+  fully-transparent pixel share holds 99.4-99.7% over 18s, residue band (alpha 1-4) flat at 0.03-0.08%.
+  NOTE: the dim-but-fastest build was 2.03 ms — dust is NOT free; ~3 ms/frame buys the sky the navigator wants.
+  **tdd-critic = PASS-WITH-NITS** (ref `starfield-dust`): verified the ring is provably safe (a slot is reused only after
+  `capacity` spawns, which takes >= `life` frames of aging, so it is already dead — no mote pops mid-fade), every alive
+  mote is aged 1:1 with frames, `dustAlpha` handles Infinity/NaN, per-resize pool realloc is churn not a leak. It judged
+  my two self-corrected tests HONEST (I had pinned falsified hypotheses: `STREAK_TAIL_FRAMES>1` and
+  `DUST_MIN_STAR_RADIUS>0` — both were taste/obsolete, re-pinned as behaviour against explicit params).
+  **All 3 nits FIXED before push:** (1) reduced-motion-sheds-no-dust was UNTESTED — added a count-independent guard
+  (dust makes per-frame drawImage RISE as the pool fills; no dust => flat), and my FIRST attempt at it was NOT red-capable
+  (it compared modes, but reduced motion also renders far fewer stars, masking leaked dust) — rewrote to compare a mode
+  against ITSELF over time, then BREAK-CHECKED it: removing the guard makes reduced-motion draws climb 210->966 and the
+  test fails. (2) day<->night crossover thawed stale mid-life motes at old positions (pool not aged while not drawn) —
+  added `resetDust(pool)` + a single `setDustEnabled()` edge-trigger that retires the pool on true->false, wired at all
+  4 call sites incl. the `sp.star <= 0.01` branch. (3) dropped a tautological `dustCapacity` assertion.
+  STILL OPEN (backlog, from the earlier critic pass): `streakAnchor()` seam (a sign flip at the streak draw leaves all
+  streak tests green), `streakColor()` (hsl->hsla string surgery fails SILENTLY on modern `hsl(210 40% 80%)` syntax),
+  and `drawSpace()` is DEAD (`js/theme.js:62` sets `data-time` unconditionally) making invariant #6's trail-alpha clause
+  vacuous while its test stays green.
+- **2026-07-08 — starfield: trail residue fixed + ~1.8× faster draw (app layer, phase off, suite 194/1/0).**
+  Navigator: "front end is heavy, the stars trail never clears — clean the trail, perf should be better." Feature WIP
+  parked in `stash@{0}` first (restructure + content-depth); ttics 0.67.1 kit update kept in tree.
+  **Two real defects, both measured in-browser before touching code:**
+  (1) `drawTime` night used `globalCompositeOperation='destination-out'` + `fillRect(alpha 0.22)` as a partial erase —
+  multiplying 8-bit alpha by 0.78 leaves pixels STUCK at alpha 1 forever, so trails never drained (permanent ghosts).
+  (2) The real cost was NOT the trail: `Star.show()` built a `createRadialGradient` **per star per frame** AND a
+  `createLinearGradient` per streak — measured **67,903 + 64,197 gradient objects/sec (~1132 stars/frame)**, ~90ms/sec
+  in gradient *creation* alone. (The file already documented this exact fix for SNOW at ~6k/sec; stars were 20× worse.)
+  **Fix:** bake one radial-glow sprite + one linear streak-strip sprite per palette colour ONCE (the repo's own sprite
+  pattern), `drawImage` them; replace the partial erase with `clearRect` (deterministic, matches the day path).
+  **Gotcha found:** clearing removed the accumulation that was silently supplying ~4.5× brightness → sky looked dead
+  (litPixel 0.25%→0.04%). Fixed by drawing the WHOLE comet tail every frame from `STREAK_TAIL_FRAMES=8` of motion back
+  (deterministic, no accumulation), plus `STAR_GLOW_SCALE=2.2` + solid glow core (sub-pixel stars must read in ONE pass)
+  + `STREAK_ALPHA=0.62`. Lit-pixel coverage now matches old exactly (0.253 vs 0.250).
+  **Verified A/B, same viewport/hour:** draw callback 6.57ms → **3.61ms/frame**; main-thread busy 391 → **215 ms/sec**;
+  gradients/sec 132k → **0**; full-canvas composite `fillRect` 60/sec → 0 (now `clearRect`). Day/garden snow path + 0
+  console errors confirmed. Mean *luminance* is ~53% of old on purpose — the missing half was the accumulated smear haze.
+  TDD: NEW `test/starfield-perf.test.mjs` (canvas-stub: frames allocate ZERO gradients; night frame clears, never
+  `destination-out`) + NEW `test/starfield-streak.test.mjs` (pure `streakLength()`: tail spans >1 frame, clamps at
+  `STREAK_MAX_DIST`, 0 when motionless). Both RED-proven first. UNCOMMITTED.
+  NOTE (dev only): python `http.server` heuristic-caches `/js/*.js` + `/data/*.json`; a stale entry can serve OLD code
+  through a plain reload. Bump the `launch.json` port (new origin = new cache keys) to force fresh, or cache-bust fetch.
+  **OUTER LOOP (ran before the stage push) — it caught a real defect I shipped into the working tree:**
+  `tdd-critic` = **PASS-WITH-NITS** (#784, clear for staging, not prod). `product-owner` = **CONCERNS** (#786):
+  AC-1 (trail clears) ACCEPT, AC-3 (faster) ACCEPT, **AC-2 (clean/aesthetic) NOT SIGNED OFF** — coverage was restored by
+  spreading light wider (`STAR_GLOW_SCALE`), so each lit pixel is ~half as bright; "the missing light is haze" is
+  undecidable from the numbers (and the old baseline is a moving reference, since its brightness grew with tab uptime).
+  PO ruling: **staging = yes (for review), prod = no** until the NAVIGATOR eyeballs the sky. Aesthetics are navigator-owned
+  (his brand). **DEFECT FOUND + FIXED:** `STAR_GLOW_SCALE=2.2` + the 8-frame tail were applied to EVERY path, but only the
+  default-motion night path ever accumulated — old reduced-motion night erased at **alpha 1 (a full clear)** and the day
+  path already `clearRect`ed. So a11y + day/dawn paths were silently over-brightened/over-streaked. Fixed via red→green:
+  NEW pure seam `compensateForClearedTrail(prefersReducedMotion, dayScene)` + per-frame `starGlowScale`/`starTailFrames`
+  (mirrors the existing `starSpeedScale` pattern); `streakLength(dist, tailFrames)`. Default-motion night look preserved
+  (lit 0.249 vs old 0.250). Also hardened per critic: perf test now asserts `clearRect` ARGS (full canvas, not a sub-rect)
+  + `fillRect === 0`, and NEW test pins invariant #6's live clause (reduced motion → stars but ZERO streaks).
+  **Clean A/B (rAF-wrap only, same method both runs): 6.57 → 2.03 ms/frame, p95 7.2 → 2.2, busy 391 → 122 ms/sec.**
+  (An earlier "3.61ms" figure was inflated by instrumenting `drawImage`, which fires 126k/sec — discarded.)
+  Suite 196/1/0. **Known, NOT fixed (backlog):** `drawSpace()`/`drawSnow()`/`drawStudio()` are DEAD — `js/theme.js:62` sets
+  `data-time` unconditionally, so `isTimeMode()` is always true; `spaceTrailAlphaForPreference` therefore has NO live
+  consumer and invariant #6's trail-alpha clause is **vacuous while its test stays green**. Also `STREAK_MAX_DIST` kept its
+  name/value but changed meaning (per-frame skip threshold → tail cap), moving the saturation knee 150 → 18.75 px/frame.
+  Also unpinned: `streakColor` plumbing (`hsl(`→`hsla(` string replace) fails SILENTLY if `randomColor()` ever emits
+  modern `hsl(210 40% 80%)` syntax. See `.claude/state/backlog.md` (PO wrote 5 ordered follow-ups).
+- **2026-07-07 — ttics kit bumped 0.67.0 → 0.67.1 (latest).** Safe in-place update via the LOCAL monorepo checkout
+  (`node ~/workspace/tdd-pair/team-tactics/packages/team-tactics/bin/cli.js update <abs gvp path>`, NO --force) — GitHub
+  releases lag (latest published = v0.66.0), local `main` HEAD = v0.67.1 (ADR 0022/0023 speculative-draft lanes). All data
+  files `keep` (progress/plan/design-notes/invariants/tdd.config untouched), feature files byte-identical (md5-verified),
+  suite green 195/1/0 through refreshed hooks, gate behaviorally proven live this session (blocked a red-phase source edit,
+  passed the green ones). CLAUDE.md managed block + docs/tdd/outer-loop.md refreshed by the update. See [[ttics-install-topology]].
+- **2026-07-07 — content-depth slice #2: structured Work-card narratives (navigator-approved copy, suite 199/1/0).**
+  The two content-rich Work projects (team-tactics, ai-assistant-chatbot) now carry `problem`/`work`/`outcome` in
+  `data/projects.json` (faithfully re-shaped from their EXISTING approved copy — no invented claims), so their cards render
+  the Problem→Approach→Demonstrates narrative that Experience roles use (createProjectCard's `isStructured` branch — no code
+  change needed beyond the data). The two one-liner builds (monday-rover, gvp) deliberately stay FLAT to avoid padding.
+  TDD'd: NEW `test/work-card-structure.test.mjs` (DOM-stub behavior — asserts the two are structured + non-empty, the two
+  stay flat). Browser-verified end-to-end (fresh fetch + real render fns). NOTE: python `http.server` heuristic-caches
+  `/data/projects.json`, so a plain browser reload can render STALE flat cards after a data edit — not a code bug; force a
+  cache-bust fetch to see edits. Copy is navigator-approved wording; UNCOMMITTED. NEXT (optional): og:image/JSON-LD SEO,
+  or a11y polish — see the earlier direction menu.
+- **2026-07-07 — Work/Experience restructure: slop-audited + first content-depth slice (app layer, phase off, suite 195/1/0).**
+  Navigator asked to "take it to the next level; deepen content, but treat any uncommitted work as slop." qa-verifier +
+  tdd-critic pass over the in-flight (uncommitted) Portfolio/Labs→Experience/Work restructure via the running site +
+  full diff. Restructure is sound EXCEPT one confirmed slop bug: `renderProjectsSectionError` was called in `js/app.js`
+  (projects-load-failure path) but dropped from its import list → `ReferenceError` on that path (invisible to happy-path
+  browsing + existing tests). Fixed via red→green + NEW guard `test/app-projects-imports.test.mjs` (asserts app.js imports
+  every projects.js export it calls). Cleaned trivial cruft (dead `orderWorkProjects` import + stray blank line in
+  projects.js). Then content-depth slice #1: Work cards never rendered their `tech` tags (tags were gated behind the
+  `isStructured` branch) — lifted the tech-tag render out so structured roles AND flat build cards both surface their
+  stack; exported `createProjectCard`; NEW `test/project-card-tech.test.mjs` (DOM-stub behavior test, 3 cases).
+  Browser-verified both themes, zero console errors. UNCOMMITTED (navigator has not asked to commit). NEXT depth (needs
+  navigator: voice/fact-sensitive): give Work projects the structured problem→approach→demonstrates narrative that
+  Experience roles have, drafted from each project's existing truthful `description`/`chatSummary` — do NOT invent claims.
 - **ALL SHIPPED — staging + PROD live & verified (2026-06-17).** Sequence this session: pre-prod review → fix-everything
   hardening milestone → staging (`agent` d242979, qa PASS) → PROD (`main` d45e18d, deploy-prod 27722767780, qa PASS;
   keyed ipHash live, prod IAM widened page-Contact*→page-* owner-authorized) → then per owner the analytics **CONSENT
