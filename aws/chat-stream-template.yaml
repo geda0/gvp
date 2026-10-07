@@ -125,7 +125,21 @@ Resources:
         - x86_64
       # Matches the existing Lambda chat stack (aws/chat-template.yaml Globals).
       Timeout: 60
-      MemorySize: 1536
+      # 512, not the 1536 the other chat stacks use. MEASURED on this stack, not guessed:
+      # a real streaming turn reports `Max Memory Used: 162 MB` (a trivial /health request
+      # reports 130 MB), so 512 leaves 3.2x headroom. 256 was rejected: 1.6x headroom is too
+      # thin for a Python app whose allocation is spiky mid-stream.
+      #
+      # Cold start is NOT the cost of going lower - init measured 2118 ms at 512 MB, within
+      # noise of 1024 and 1536. The only penalty is handler CPU: 65 ms at 1536 vs 108 ms at
+      # 512, which is irrelevant beside 19-31 s of model latency.
+      #
+      # Lambda bills GB-seconds, so this is a flat 3x cost cut. That matters more here than it
+      # looks: response streaming bills WALL-CLOCK, including every second spent waiting on
+      # Gemini, and measured turns run 19-31 s. On ECS a slow model cost nothing extra; on
+      # Lambda it is a line item. At 512 MB and 20 s turns, a container only becomes cheaper
+      # past roughly 8,000 chat turns/day (lifetime traffic to date: 77 sessions).
+      MemorySize: 512
       Role: !GetAtt ChatStreamFunctionRole.Arn
       ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref 'AWS::NoValue']
       Environment:
