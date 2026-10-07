@@ -163,6 +163,87 @@ async def test_persist_turn_disabled_counts_as_failure_not_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_persist_sends_a_conditional_write_charging_the_turn_against_a_380_kib_budget() -> None:
+    """ADR-0020 A3.2 — the wedge. Every turn is `list_append`ed into ONE
+    DynamoDB item under a 400 KB hard limit with no `ConditionExpression` and
+    no cap, so after enough turns the item no longer fits: every later write
+    raises, is swallowed into `writes_failed`, and the turn is lost. The
+    session is permanently wedged. A2 cut the worst-case turn to ~44 KB, which
+    buys ~9 turns instead of 4 — it does not close it.
+
+    The fix is a byte budget carried IN the item: the write charges the turn's
+    own serialized size to `bytesStored` and is conditional on `bytesStored`
+    still being under budget. A count cap was rejected: it cannot be both
+    generous to a real conversation and sufficient against worst-case turns.
+
+    SCOPE — this pins the WRITE, not the refusal. The refusal is DynamoDB's:
+    `UpdateItem` is evaluated atomically server-side, so a failed condition
+    appends nothing and increments nothing. A test for "a full session stops
+    accepting turns" would have to implement a ConditionExpression evaluator
+    in the fake table, and its verdict would then rest on that evaluator —
+    which can be wrong in both directions (a stub that mis-parses and refuses
+    too early goes green anyway; a stub that never refuses goes green against
+    a store whose condition is nonsense). Any evaluator must also read the
+    expression string, so simulating the refusal is MORE coupled to the exact
+    expression text than asserting on it directly, while looking less so. So
+    this test claims only what a unit test can see: the request issued.
+
+    The budget is written here as a literal, deliberately NOT imported — a
+    test that reads the constant it pins passes for every value of it, the
+    hole A5/A6 closed for the other bounds.
+    """
+    table = FakeTable()
+    store = TranscriptStore('ChatTranscripts')
+    store._table = table
+
+    # A ~60 KB turn. The item-level fields (SET fresh each turn, not
+    # accumulated) are made bulkier still, so "the size of the turn being
+    # appended" and "the size of the whole write" are ~20 KB apart and the
+    # last assertion can tell them apart. Charging the whole write would
+    # re-charge that scaffolding on every single turn, draining the budget
+    # against bytes the item never accumulates.
+    turn = {'userText': 'u', 'assistantText': 'x' * 60_000}
+
+    await store.persist_turn(
+        session_id='s-budget',
+        created_at='2026-01-01T00:00:00+00:00',
+        prompt_version='v1',
+        provider='gemini',
+        model='m' * 20_000,
+        turn=turn,
+        flags={},
+    )
+
+    assert len(table.calls) == 1
+    update = table.calls[0]
+
+    assert 'ConditionExpression' in update, (
+        'an unconditional list_append into a 400 KB item is the wedge: the '
+        'write that overflows and every write after it is refused forever'
+    )
+    condition = update['ConditionExpression']
+    assert 'attribute_not_exists(bytesStored)' in condition, (
+        "the session's first turn has no bytesStored yet — without this "
+        'clause the condition is false on turn one and no session could '
+        'ever start'
+    )
+    assert 'bytesStored < :budget' in condition
+
+    values = update['ExpressionAttributeValues']
+    assert values[':budget'] == 380 * 1024, '380 KiB = 389_120 bytes'
+
+    assert (
+        'bytesStored = if_not_exists(bytesStored, :zero) + :turnBytes'
+        in update['UpdateExpression']
+    ), 'the budget that is never accumulated is a budget that never trips'
+
+    assert 60_000 <= values[':turnBytes'] <= 61_000, (
+        'charge the serialized size of THIS turn (~60 KB here) — not a '
+        'constant, not a count, and not the ~80 KB whole write'
+    )
+
+
+@pytest.mark.asyncio
 async def test_broken_write_fires_an_actionable_alert(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

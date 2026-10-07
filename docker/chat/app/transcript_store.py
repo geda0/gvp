@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -12,6 +13,15 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 CHAT_LIST_PK = 'CHAT_TRANSCRIPT'
+
+# ADR-0020 A3.2. Every turn is list_append'ed into ONE DynamoDB item under a
+# 400 KB hard limit. Without a bound, enough turns make the item no longer fit:
+# every later write for that session raises, is swallowed in persist_turn, and
+# the turn is lost -- a permanently wedged session with no visible symptom.
+# The budget is carried IN the item (`bytesStored`) and the write is conditional
+# on it, leaving 20 KiB of headroom for one more maximal turn plus the
+# item-level scaffolding.
+SESSION_BYTE_BUDGET = 380 * 1024
 
 
 class TranscriptStore:
@@ -90,7 +100,17 @@ class TranscriptStore:
                 'turns = list_append(if_not_exists(turns, :emptyTurns), :newTurn), '
                 'flags = :flags, '
                 'flagged = :flagged, '
-                'turnCount = if_not_exists(turnCount, :zero) + :one'
+                'turnCount = if_not_exists(turnCount, :zero) + :one, '
+                'bytesStored = if_not_exists(bytesStored, :zero) + :turnBytes'
+            ),
+            # `attribute_not_exists` is not optional: a brand-new item has no
+            # bytesStored, so without it the condition is false on turn one and
+            # no session could ever start. DynamoDB evaluates UpdateItem
+            # atomically, so a refused write appends nothing and increments
+            # nothing: the item stays valid and the session simply stops
+            # accepting turns (loudly -- A3.1 alerts on the exception).
+            ConditionExpression=(
+                'attribute_not_exists(bytesStored) OR bytesStored < :budget'
             ),
             ExpressionAttributeValues={
                 ':listPk': CHAT_LIST_PK,
@@ -107,6 +127,10 @@ class TranscriptStore:
                 ':flagged': any(bool(v) for v in flags.values()),
                 ':zero': 0,
                 ':one': 1,
+                # Charge the turn being appended, not the whole write: the
+                # item-level fields are SET fresh each turn, never accumulated.
+                ':turnBytes': len(json.dumps(turn).encode('utf-8')),
+                ':budget': SESSION_BYTE_BUDGET,
             },
         )
 
