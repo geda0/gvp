@@ -1,7 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { buildChatRequest } from '../js/chat-payload-hash.js'
+
+const REPO = fileURLToPath(new URL('..', import.meta.url))
+
+function stripJsComments (source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/[^\n]*/gm, '$1')
+}
 
 // ADR-0022 §7.7 / §24.6: with CloudFront + OAC in front of the RESPONSE_STREAM
 // Lambda function URL, every chat POST must carry
@@ -49,4 +60,48 @@ test('the chat request carries the SHA-256 of the exact body bytes it hands back
   assert.equal(sha256Hex('abc'), SHA256_OF_ABC)
   assert.deepEqual(JSON.parse(request.body).messages, messages)
   assert.equal(request.headers['x-amz-content-sha256'], sha256Hex(request.body))
+})
+
+// The seam above is worthless until the sender uses it: today `js/chat.js` still builds
+// `body: JSON.stringify({...})` inline, so no chat POST carries a digest and the
+// CloudFront + OAC front door answers 403 InvalidSignatureException. Asserted at SOURCE
+// level on purpose — `js/chat.js` is not importable under `node --test` (it touches
+// `document` at import time, so a fake-`fetch` test is impossible), and the defect being
+// prevented, *hashing one string while sending another*, is a property of the source: a
+// second `JSON.stringify` in that file is how the body and its digest drift apart. Same
+// idiom as `test/frontend-api-config.test.mjs` / `test/frontend-no-secrets.test.mjs`,
+// which already guard the shipped frontend by reading it.
+//
+// The header goes out unconditionally — ECS and API Gateway ignore an unknown header, and
+// host-sniffing in the frontend would be new drift.
+test('the shipped chat POST takes its body from the hashing seam and attaches the digest header', () => {
+  // Arrange — the shipped module, comments removed so prose about JSON.stringify cannot
+  // satisfy or break the count.
+  const source = stripJsComments(readFileSync(join(REPO, 'js', 'chat.js'), 'utf8'))
+
+  // Act — one serialization site must remain: the unrelated prefill dataset write.
+  const serializationSites = source.match(/JSON\.stringify/g) || []
+
+  // Assert
+  assert.match(
+    source,
+    /import\s*\{[^}]*\bbuildChatRequest\b[^}]*\}\s*from\s*['"]\.\/chat-payload-hash\.js['"]/,
+    'js/chat.js must import buildChatRequest from ./chat-payload-hash.js'
+  )
+  assert.match(source, /buildChatRequest\s*\(/, 'js/chat.js must actually call buildChatRequest')
+  assert.match(
+    source,
+    /\.\.\.\s*(?:[A-Za-z_$][\w$]*\s*\.\s*)?headers\b/,
+    "the seam's headers must be merged into the POST headers (e.g. `...headers`), or no digest reaches the edge"
+  )
+  assert.equal(
+    serializationSites.length,
+    1,
+    'js/chat.js must serialize the chat body exactly once — via buildChatRequest, not inline'
+  )
+  assert.match(
+    source,
+    /dataset\.prefill\s*=\s*JSON\.stringify\(/,
+    'the one surviving JSON.stringify must be the prefill dataset write, not the POST body'
+  )
 })

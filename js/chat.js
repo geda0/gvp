@@ -6,6 +6,7 @@ import { normalizeSection } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
+import { buildChatRequest } from './chat-payload-hash.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
@@ -1147,18 +1148,26 @@ export function initChat() {
   const postChatOnce = async (history, { onDelta } = {}) => {
     let response
     try {
+      // CloudFront + OAC in front of a Lambda Function URL requires the viewer to send
+      // `x-amz-content-sha256` over the request body; Lambda rejects unsigned payloads and
+      // recomputes the hash over the real bytes (absent / UNSIGNED-PAYLOAD -> 403
+      // InvalidSignatureException). Sent unconditionally: ECS and API Gateway ignore it.
+      // The body MUST come from buildChatRequest and must not be re-serialized, or the
+      // digest stops matching the bytes that go out.
+      const { body, headers } = await buildChatRequest({
+        messages: history,
+        stream: true,
+        sessionId: state.sessionId,
+        language: currentLanguage
+      })
       response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'text/event-stream, application/json'
+          'Accept': 'text/event-stream, application/json',
+          ...headers
         },
-        body: JSON.stringify({
-          messages: history,
-          stream: true,
-          sessionId: state.sessionId,
-          language: currentLanguage
-        })
+        body
       })
     } catch (_) {
       // fetch() rejects on offline / DNS / connection reset — all transient.
