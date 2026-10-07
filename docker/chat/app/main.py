@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
-from app.turn_input import clamp_transport, sanitize_tool_calls
+from app.turn_input import clamp_text, clamp_transport, sanitize_tool_calls
 from app.knowledge_context import (
     build_context,
     build_live_system_instruction,
@@ -1204,8 +1204,8 @@ async def live_transcript(payload: LiveTranscriptTurn) -> JSONResponse:
             },
         )
 
-    user_text = (payload.userText or "").strip()
-    assistant_text = (payload.assistantText or "").strip()
+    user_text = clamp_text((payload.userText or "").strip(), 8_000)
+    assistant_text = clamp_text((payload.assistantText or "").strip(), 16_000)
     if not user_text and not assistant_text:
         return JSONResponse(status_code=204, content=None)
 
