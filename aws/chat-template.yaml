@@ -85,6 +85,20 @@ Resources:
       DefaultRouteSettings:
         ThrottlingBurstLimit: 10
         ThrottlingRateLimit: 5
+  # ADR-0022 §29 (DECISION 8) — Tier 2 of invariant 19 needs a log group THIS STACK
+  # owns: a MetricFilter cannot attach to a group that does not exist, and Lambda's
+  # auto-created /aws/lambda/<fn> does not exist until the first invocation, so a
+  # fresh PROD stack would fail. A NEW name (not /aws/lambda/<fn>) also avoids the
+  # "already exists" collision on the deployed stage stack and leaves its logs —
+  # including the §25.3-M evidence — intact. No IAM change needed: the basic
+  # execution policy grants logs:* on Resource "*". RetentionInDays is chosen on
+  # EVIDENCE, not cost (§29.2) — Logs bills ingestion, which retention never cuts.
+  ChatLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/gvp/chat/${StageName}'
+      RetentionInDays: 30
+
   ChatFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -92,6 +106,8 @@ Resources:
       Dockerfile: docker/chat/Dockerfile.lambda
     Properties:
       PackageType: Image
+      LoggingConfig:
+        LogGroup: !Ref ChatLogGroup
       Policies:
         - !If
           - HasChatTranscriptsTable
@@ -151,6 +167,59 @@ Resources:
       Dimensions:
         - Name: FunctionName
           Value: !Ref ChatFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatErrorTopic
+
+  # ADR-0022 §29.4 — Tier 2 for this host. QUOTED-TERM pattern, prefix only.
+  # MEASURED 2026-10-07: the CHAT_ALERT line can arrive CONCATENATED behind a
+  # traceback tail inside ONE CloudWatch event, so a space-delimited pattern
+  # ([level="[WARNING]", ts, reqid, ...]) would not have matched either real
+  # event; a quoted term matches anywhere in the event and does. That also rules
+  # out per-type metric Dimensions, which can only take values from named fields
+  # of a JSON or space-delimited pattern — hence ONE metric for all six event
+  # types. MetricName carries host+env because a metric filter cannot set a
+  # STATIC dimension: without it, stage and prod publish to the same metric and
+  # each alarms on the other's alert lines.
+  ChatAlertMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ChatLogGroup
+      FilterPattern: '"CHAT_ALERT event="'
+      MetricTransformations:
+        - MetricNamespace: GvpChat
+          MetricName: !Sub 'ChatAlertLines-httpapi-${StageName}'
+          MetricValue: '1'
+          # Publishes 0 for a NON-matching ingested event, so OK means the filter
+          # ran and saw none, instead of INSUFFICIENT_DATA which is
+          # indistinguishable from a broken filter. Limit: on an IDLE function
+          # there is no event at all, so this is not a heartbeat.
+          DefaultValue: 0
+
+  # REUSES ChatErrorTopic (§29.4). The logical ID is deliberately NOT renamed even
+  # though "Error" is now a misnomer: renaming deletes and recreates the topic,
+  # discarding its email subscription and minting a fresh UNCONFIRMED one. Prefer
+  # a wrong name to a deleted subscription.
+  # PRECONDITION, MEASURED 2026-10-07: this topic's only subscription was
+  # PendingConfirmation, so ChatLambdaErrorsAlarm could never have delivered.
+  # Confirm it, then verify with the list-subscriptions check in §29.5.
+  ChatAlertLinesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatErrorAlarm
+    Properties:
+      AlarmName: !Sub 'gvp-chat-${StageName}-tier1-alert-line'
+      AlarmDescription: >
+        A CHAT_ALERT Tier-1 line was written (invariant 19 Tier 2, ADR-0022 §29).
+        Says THAT one of six alert types fired, never WHICH — read the type from
+        the log group: aws logs filter-log-events --log-group-name /gvp/chat/<env>
+        --filter-pattern '"CHAT_ALERT event="' --start-time <epoch-ms>
+      Namespace: GvpChat
+      MetricName: !Sub 'ChatAlertLines-httpapi-${StageName}'
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
