@@ -157,18 +157,35 @@ class ChatMessageIn(BaseModel):
         return s
 
 
+# ADR-0022 §30.1 — `sessionId` is an IDENTITY, so its CHARACTER space is bounded
+# like its length already is (invariant #17, "rejected not clamped"). It is the
+# DynamoDB partition key AND it reaches four log/alert sinks: main.py:1046,
+# transcript_store.py:203, and the two `fire_alert` summaries (:215, :221) that
+# alerts.py:97 interpolates into the Tier-1 line. Unbounded, an anonymous caller
+# could plant `CHAT_ALERT event=` and fire the §29.4 alarm on demand, or forge
+# `env=`/`event=` INSIDE a real alert line so a stage write failure reads as a
+# prod outage. Bounded HERE, at the one identity, not at the four sinks.
+# THE ANCHORS ARE LOAD-BEARING: pydantic matches with re.search semantics, so an
+# unanchored `[A-Za-z0-9._-]+` ACCEPTS 'CHAT_ALERT event=x env=prod' — measured
+# on pydantic 2.13.4. Without `^...$` this bound is a silent no-op.
+# NOT LOSSY, verified: every id the app mints conforms — `crypto.randomUUID()`
+# and `chat-${Date.now()}-${hex}` (js/chat.js:187-191) and the store's own
+# `chat-{uuid4()}` (transcript_store.py:182) — and ids live in sessionStorage,
+# which does not outlive the tab, so there is no legacy id population to reject.
+SESSION_ID_PATTERN = r'^[A-Za-z0-9._-]{1,128}$'
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessageIn] = Field(default_factory=list)
     stream: bool = False
-    sessionId: str | None = Field(default=None, max_length=128)
+    sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
 
 
 class LiveSessionRequest(BaseModel):
-    sessionId: str | None = Field(default=None, max_length=128)
+    sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
 
 
 class LiveTranscriptTurn(BaseModel):
-    sessionId: str | None = Field(default=None, max_length=128)
+    sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
     userText: str = Field(default="", max_length=8000)
     assistantText: str = Field(default="", max_length=16000)
     transport: str | None = Field(default=None, max_length=32)
