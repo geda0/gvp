@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -12,6 +13,48 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 CHAT_LIST_PK = 'CHAT_TRANSCRIPT'
+
+# ADR-0020 A3.2. Every turn is list_append'ed into ONE DynamoDB item under a
+# 400 KB hard limit. Without a bound, enough turns make the item no longer fit:
+# every later write for that session raises, is swallowed in persist_turn, and
+# the turn is lost -- a permanently wedged session with no visible symptom.
+# The budget is carried IN the item (`bytesStored`) and the write is conditional
+# on it.
+#
+# DynamoDB's documented hard maximum item size.
+DYNAMODB_MAX_ITEM_BYTES = 400 * 1024
+
+# `bytesStored` accumulates `len(json.dumps(turn))` and NOTHING ELSE: not attribute
+# names, not DynamoDB's own encoding, not the `turns` list structure, not the
+# item-level attributes this update SETs fresh every turn. So the counter is always
+# SMALLER than the real item.
+# MEASURED on stage 2026-10-07, by filling one session through the public sink: the
+# counter read 387_824 with 16 turns stored -- 21_776 bytes UNDER the 409_600 limit
+# and still under the then-budget of 389_120, so the condition was happily permitting
+# writes -- while DynamoDB had already refused the write with
+# "Item size to update has exceeded the maximum allowed size". The real item was
+# therefore >= 409_600 while the counter said 387_824: an undercount of at least 5.6%.
+# That 5.6% is a FLOOR, not a value -- the refusal proves the item was past the limit,
+# not how far past -- so the margin is set at 10% of the limit, a little under 2x the
+# measured floor. It costs ~41 KB of 400 KB, roughly one maximal turn in nine, against
+# losing every later turn of a session.
+UNDERCOUNT_MARGIN_BYTES = DYNAMODB_MAX_ITEM_BYTES // 10
+
+
+def session_byte_budget(turn_bytes: int) -> int:
+    """The largest `bytesStored` that may still accept a turn of `turn_bytes`.
+
+    Computed PER WRITE rather than fixed, because the condition gates on the bytes
+    ALREADY stored and so permits a write whenever `bytesStored < budget`. A static
+    budget therefore allows an item of `budget - 1 + turn_bytes`, and the previous
+    static 380 KiB left only 20_480 bytes of headroom for a turn measured at 42_848 --
+    i.e. an over-limit item was reachable by ARITHMETIC, before the undercount above
+    even entered into it. Subtracting the turn being appended makes the condition read
+    "adding THIS turn stays under the limit", which is the property that was wanted,
+    and it keeps full capacity for small turns instead of pessimising every session to
+    the worst case.
+    """
+    return DYNAMODB_MAX_ITEM_BYTES - turn_bytes - UNDERCOUNT_MARGIN_BYTES
 
 
 class TranscriptStore:
@@ -76,6 +119,8 @@ class TranscriptStore:
                 'transcript_store is disabled (boto3 import failed at startup; '
                 'check requirements.txt and rebuild the chat image)'
             )
+        # Once, and used for BOTH the charge and the threshold: they must agree.
+        turn_bytes = len(json.dumps(turn).encode('utf-8'))
         table.update_item(
             Key={'id': session_id},
             UpdateExpression=(
@@ -90,7 +135,17 @@ class TranscriptStore:
                 'turns = list_append(if_not_exists(turns, :emptyTurns), :newTurn), '
                 'flags = :flags, '
                 'flagged = :flagged, '
-                'turnCount = if_not_exists(turnCount, :zero) + :one'
+                'turnCount = if_not_exists(turnCount, :zero) + :one, '
+                'bytesStored = if_not_exists(bytesStored, :zero) + :turnBytes'
+            ),
+            # `attribute_not_exists` is not optional: a brand-new item has no
+            # bytesStored, so without it the condition is false on turn one and
+            # no session could ever start. DynamoDB evaluates UpdateItem
+            # atomically, so a refused write appends nothing and increments
+            # nothing: the item stays valid and the session simply stops
+            # accepting turns (loudly -- A3.1 alerts on the exception).
+            ConditionExpression=(
+                'attribute_not_exists(bytesStored) OR bytesStored < :budget'
             ),
             ExpressionAttributeValues={
                 ':listPk': CHAT_LIST_PK,
@@ -107,6 +162,10 @@ class TranscriptStore:
                 ':flagged': any(bool(v) for v in flags.values()),
                 ':zero': 0,
                 ':one': 1,
+                # Charge the turn being appended, not the whole write: the
+                # item-level fields are SET fresh each turn, never accumulated.
+                ':turnBytes': turn_bytes,
+                ':budget': session_byte_budget(turn_bytes),
             },
         )
 
@@ -144,11 +203,26 @@ class TranscriptStore:
             logger.exception("Failed to persist chat transcript id=%s", resolved_id)
             from app.alerts import fire_alert
 
-            fire_alert(
-                'chat_transcript_write_failed',
-                f'transcript persist failed for session {resolved_id}',
-                f'{type(exc).__name__}: {str(exc)[:240]} (session_id={resolved_id})',
-            )
+            detail = f'{type(exc).__name__}: {str(exc)[:240]} (session_id={resolved_id})'
+            # Two different operational facts, so two event TYPES (ADR-0020
+            # 5.13): a budget refusal means writes are healthy and ONE session
+            # is full (P2); anything else means writes are broken (P1).
+            # alerts.py throttles per event type, so sharing one type would let
+            # the frequent benign refusal suppress a real outage for the whole
+            # cooldown window. Discriminate by class NAME, not a botocore
+            # import: this module must survive boto3 being absent.
+            if type(exc).__name__ == 'ConditionalCheckFailedException':
+                fire_alert(
+                    'chat_transcript_session_full',
+                    f'transcript session {resolved_id} hit its byte budget',
+                    detail,
+                )
+            else:
+                fire_alert(
+                    'chat_transcript_write_failed',
+                    f'transcript persist failed for session {resolved_id}',
+                    detail,
+                )
 
 
 def build_transcript_store() -> TranscriptStore | None:

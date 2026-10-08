@@ -423,6 +423,91 @@ async def test_caller_cannot_choose_the_timestamp_the_turn_is_stored_under(
 
 
 @pytest.mark.asyncio
+async def test_public_transcript_post_bounds_persisted_text_in_bytes_not_code_points(
+    client, stub_store
+) -> None:
+    """Invariant #17 / ADR-0020 §5 A2, at the SINK: what the public
+    `/api/live/transcript` route persists is bounded in UTF-8 **bytes** — the
+    unit DynamoDB charges — `userText` at 8 000 and `assistantText` at 16 000.
+
+    `clamp_text` already truncates on a byte budget at a code-point boundary and
+    is pinned at helper level (`test_turn_input.py::
+    test_clamped_text_fits_the_byte_budget_without_splitting_a_character`).
+    Nothing calls it: the two `.strip()` expressions in `live_transcript`
+    (`main.py:1207-1208`; ADR-0020 §5.13 clears them as 1208-1209) still hand the
+    raw text to `persist_turn`, so a correct helper proves nothing about the
+    sink. Hence route level, asserted on the row the store actually receives —
+    "the sanitizer is right but unwired" is precisely the gap, and a per-FIELD
+    budget can only be observed where the fields are.
+
+    Why it matters: a maximal turn measures ~116 KB, so the 4th write into a
+    session's single DynamoDB item is the one the 400 KB item limit refuses,
+    after which `transcript_store.py:140-144` swallows the failure and the owner
+    silently loses every later turn of that session. (A2 takes the worst case to
+    ~44 KB: necessary, not sufficient — the per-item bound is A3.2.)
+    """
+    # Arrange: text that is LEGAL to the outer guard and over the inner one. The
+    # Pydantic `max_length` at `main.py:172-173` counts CODE POINTS, so the
+    # fixture has to DEFEAT that bound rather than trip it — astral-plane
+    # characters are 4 UTF-8 bytes each, so 3 000 of them are 3 000 code points
+    # (well inside the 8 000 cap) yet 12 000 bytes (half again over the 8 000
+    # byte budget); the assistant side is 5 000 code points / 20 000 bytes
+    # against its own 16 000-byte budget.
+    #
+    # The single leading ASCII character is load-bearing, not decoration: it
+    # shifts every 4-byte character off a multiple-of-4 offset, so BOTH budgets
+    # fall inside a character. Without it, 8 000 and 16 000 are exact character
+    # boundaries and nothing here could tell a clamp that drops the severed tail
+    # from one that keeps half a character (or a U+FFFD stand-in for it). The
+    # two fields also start with different letters, so a swapped assignment
+    # fails the prefix assertions below instead of passing them.
+    spoken = 'a' + '🛸🪐🌍🚀' * 750
+    answered = 'b' + '🛸🪐🌍🚀' * 1250
+    assert len(spoken) == 3_001                     # code points — Pydantic's unit
+    assert len(spoken.encode('utf-8')) == 12_001    # bytes — DynamoDB's unit
+    assert len(answered) == 5_001
+    assert len(answered.encode('utf-8')) == 20_001
+
+    # Act: one fire-and-forget beacon, exactly as js/chat-live.js:671-702 sends it.
+    await client.post(
+        "/api/live/transcript",
+        json={
+            "sessionId": "byte-budget-probe",
+            "userText": spoken,
+            "assistantText": answered,
+        },
+    )
+
+    # Assert: the turn still persists (clamp, don't reject — the beacon never
+    # reads the response), and each free-text field is charged within its own
+    # byte budget.
+    assert len(stub_store.calls) == 1
+    turn = stub_store.calls[0]["turn"]
+    stored_user = turn["requestMessages"][0]["content"]
+    stored_reply = turn["reply"]
+    assert len(stored_user.encode('utf-8')) <= 8_000
+    assert len(stored_reply.encode('utf-8')) <= 16_000
+
+    # ...and what lands in the row is still whole text: a prefix of what was
+    # posted (nothing invented, reordered, or replaced by U+FFFD) that
+    # round-trips through UTF-8 (no half character or lone surrogate), and
+    # non-empty — truncated, not deleted. The truncation index is deliberately
+    # not asserted; that it truncates rather than drops the field is.
+    assert spoken.startswith(stored_user)
+    assert answered.startswith(stored_reply)
+    assert stored_user.encode('utf-8').decode('utf-8') == stored_user
+    assert stored_reply.encode('utf-8').decode('utf-8') == stored_reply
+    assert stored_user
+    assert stored_reply
+
+    # ...and the two budgets are DIFFERENT, which one clamp applied twice would
+    # not be: the reply keeps more than the user text's entire 8 000-byte
+    # budget. A lower bound, not a length — it fences the copy-paste that passes
+    # the `userText` budget to both call sites.
+    assert len(stored_reply.encode('utf-8')) > 8_000
+
+
+@pytest.mark.asyncio
 async def test_non_stream_success_persists_one_ok_row(client, stub_store) -> None:
     # Arrange: leave the real mock chain in place so the non-streaming ainvoke
     # path succeeds (mirrors test_transcript_store's non-error setup); the

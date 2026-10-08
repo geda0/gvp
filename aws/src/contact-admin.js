@@ -322,10 +322,15 @@ function normalizeChatItem(item) {
   let firstTokenSumMs = 0
   let firstTokenSamples = 0
   let outputCharSum = 0
-  const errorsByCode = {}
+  // Counters are null-prototype on purpose (ADR-0020 A7b). `h[k] = (h[k] || 0) + 1` on a plain {} finds an inherited
+  // Object.prototype FUNCTION for k like "toString" (truthy), so `function + 1` concatenates and a STRING lands where
+  // the dashboard renders a number ("__proto__" is silently dropped instead). Not pollution, a key collision.
+  // toolHistogram is keyed on a caller-supplied tool name from the public transcript sink; transports/errorsByCode
+  // are defence in depth. The summary counters below need the same, since they are bumped from these items own keys.
+  const errorsByCode = Object.create(null)
   const recentTurnErrors = []     // pushed only when status != 'ok'
-  const transports = {}            // 'relay' | 'direct_google' | 'live' -> count
-  const toolHistogram = {}          // tool name -> invocation count
+  const transports = Object.create(null)            // 'relay' | 'direct_google' | 'live' -> count
+  const toolHistogram = Object.create(null)          // tool name -> invocation count
   for (const t of turns) {
     if (!t || typeof t !== 'object') continue
     const modality = t.modality === 'text' || t.modality === 'voice'
@@ -609,8 +614,9 @@ async function getChatSummary() {
       voiceTurns: 0,
       textTurns: 0,
       toolCalls: 0,
-      toolHistogram: {},
-      transports: {},
+      // Null-prototype for the same reason as the item counters in normalizeChatItem: these are bumped from item keys, so a plain {} here would still be corruptible.
+      toolHistogram: Object.create(null),
+      transports: Object.create(null),
       interruptedTurns: 0,
       audioInBytes: 0,
       audioOutBytes: 0,
@@ -632,7 +638,7 @@ async function getChatSummary() {
       fallbackTurns: 0,             // primary -> secondary swap
       avgFirstTokenLatencyMs: 0,
       avgOutputChars: 0,
-      errorsByCode: {},
+      errorsByCode: Object.create(null),
       // Most recent N error turns across the table (newest first), so the
       // admin can spot a regression without paging through every transcript.
       recentFailures: [],

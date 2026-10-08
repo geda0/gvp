@@ -5,7 +5,19 @@
 function resolveApiUrl(metaName, localFallback) {
   const m = document.querySelector(`meta[name="${metaName}"]`)
   const raw = (m && m.getAttribute('content') || '').trim()
-  const cleaned = raw.replace(/\/+$/, '')
+  // Normalise to ONE spelling (project invariant 18). Trailing slashes AND interior
+  // slash runs, because `//api/chat` misses CloudFront's exact `/api/chat` behavior
+  // exactly as `/api/chat/` does and falls through to the buffered default origin:
+  // still 200, still text/event-stream, still the right text, delivered all at once
+  // with streaming silently dead. Two base-join idioms that produce it already exist
+  // in aws/*.yaml, and scripts/sync-site-api-urls.mjs writes its argument in verbatim.
+  // The scheme's own `//` is preserved by splitting it off first rather than with a
+  // `(?<!:)` lookbehind: Safari gained lookbehind only in 16.4, and an unsupported one
+  // is a parse-time SyntaxError that would take this whole module down with it.
+  const trimmed = raw.replace(/\/+$/, '')
+  const scheme = trimmed.match(/^[a-z][a-z0-9+.-]*:\/\//i)
+  const prefix = scheme ? scheme[0] : ''
+  const cleaned = prefix + trimmed.slice(prefix.length).replace(/\/{2,}/g, '/')
   const host = (typeof window !== 'undefined' && window.location && window.location.hostname) || ''
   const isLocal = host === 'localhost' || host === '127.0.0.1'
   return cleaned || (isLocal ? localFallback : '')

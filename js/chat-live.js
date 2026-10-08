@@ -678,7 +678,6 @@ export function bindChatLiveVoice(opts) {
       sessionId: typeof getSessionId === 'function' ? getSessionId() : null,
       userText: trimmedUser,
       assistantText: trimmedAssistant,
-      capturedAt: new Date().toISOString(),
       transport: lastLiveVoiceTransport || 'live',
       toolCalls: Array.isArray(toolCalls) ? toolCalls : [],
       intent: typeof telemetry.intent === 'string' ? telemetry.intent : sessionIntent,

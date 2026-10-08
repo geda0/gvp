@@ -467,9 +467,22 @@ proves it comes FIRST.
       docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
 
 14. **Operational alerting is best-effort: an instant alert can never raise into — or
-    delay — a chat turn.** `[chat]` `fire_alert` is fire-and-forget: it is a no-op when
-    unconfigured (ships **dark** — needs `CHAT_ALERT_EMAIL`/`CONTACT_REPORT_EMAIL` +
-    `RESEND_API_KEY`), it never raises in a sync (no-running-loop) context, it is throttled
+    delay — a chat turn.** `[chat]`
+    **AMENDED 2026-10-07 by ADR-0022 §25.4a — read this with #19.** This invariant is a **safety**
+    contract (what alerting may do *to a turn*), **not a liveness** one (whether an event reaches a
+    human). "Best-effort" bounds the failure **mode**, not the failure **rate**: it licenses
+    occasional loss on a configured host; it does **not** license a production host on which the
+    gate is unconditionally `False`, which is *certainty* of non-delivery. **MEASURED 2026-10-07:**
+    `alerts_enabled()` is `False` on both deployed stage Lambda chat hosts. Delivery is covered by
+    **#19**; no word of #14 below is superseded.
+    `fire_alert` is fire-and-forget: it is a no-op when
+    unconfigured (ships **dark**). **Correction, 2026-10-07:** the gate is **three conjuncts over
+    five names**, not two — a destination (`CHAT_ALERT_EMAIL` **or** `CONTACT_REPORT_EMAIL`,
+    `alerts.py:34-39`) **AND** a from-address (`CHAT_ALERT_FROM_EMAIL` **or** `CONTACT_FROM_EMAIL`,
+    `:42-46`) **AND** `RESEND_API_KEY` (`:50`). This invariant previously listed only
+    `CHAT_ALERT_EMAIL`/`CONTACT_REPORT_EMAIL` + `RESEND_API_KEY`, as the module docstring
+    (`:10-12`) still does, so a reader who configured exactly those got a silent no-op anyway.
+    It never raises in a sync (no-running-loop) context, it is throttled
     to one email per event type per cooldown window (`CHAT_ALERT_COOLDOWN_SECONDS`, default
     3600s), and the actual `_send` swallows EVERY exception. The request path schedules the
     send as a detached task and returns immediately, so a broken or slow alert provider can
@@ -788,12 +801,46 @@ proves it comes FIRST.
          astral-plane code points persist 32 000 bytes. Decision **A2**: `clamp_text` on a UTF-8
          byte budget (8 000 / 16 000 bytes), clamping not rejecting.
       6. **The item has no size bound.** Decision **A3.2**: a `bytesStored` counter in the item
-         plus `ConditionExpression`, budget 380 KiB.
+         plus `ConditionExpression`. **The 380 KiB budget originally shipped here was DEFECTIVE and
+         is corrected (2026-10-07, `5620bd8`)** — its 20_480 bytes of headroom were smaller than one
+         turn (42_848 route-clamped), so an over-limit item was reachable by arithmetic alone.
+         MEASURED on stage 2026-10-07 (the ADR-0022 §25.3-M probe): `bytesStored` read **387_824**
+         over 16 turns, DynamoDB refused with `ValidationException: Item size to update has
+         exceeded the maximum allowed size`, and **two turns (17 and 18) were lost** — two
+         `CHAT_ALERT event=chat_transcript_write_failed` lines, independently re-counted. The
+         threshold is now computed per write as `limit - turn_bytes - margin`.
+         **A SECOND claim was filed here and is RETRACTED 2026-10-07 by the architect, because its
+         inference does not hold and it contradicted the derivation four paragraphs up.** The
+         retracted wording was *"`bytesStored` undercounts the real item by ≥5.6% because it counts
+         only the turn's JSON"*, inferred from "the counter said 387_824 and DynamoDB refused,
+         therefore the real item was already ≥ 409_600". **The refusal is evaluated against the item
+         AFTER the update**, so it bounds `stored + turn`, never `stored` alone. And defect 1
+         explains the refusal on its own: slack was `409_600 − 387_824 = 21_776` against a mean
+         stored turn of `387_824 / 16 = 24_239`, so `387_824 + 24_239 = 412_063 > 409_600` — the
+         next average turn overflows unaided. No undercount is needed to produce what was seen, so
+         none is evidenced by it. It also had the **wrong sign**: this invariant's own `10 × 2000`
+         bound rests on DynamoDB's accounting of a JSON value being **≤** its `json.dumps`
+         character count, type by type — which makes `bytesStored` an **over**count of the turns'
+         DynamoDB contribution. What is genuinely uncounted is the item-level scaffolding (the
+         thirteen attributes `_persist_sync` SETs fresh each turn, plus the `turns` list's
+         per-element overhead): a constant of order **hundreds of bytes**, which does **not** grow
+         with turn count. **The fix in `5620bd8` stands and must not be reverted** — subtracting
+         `turn_bytes` per write is the correct repair for the real defect; only the *margin's
+         stated justification* was wrong, and the margin errs safe. Full reasoning: ADR-0022 §29.6.
+         Note what A3.2 does and does not deliver: it made the
+         failure **loud** (that is A3.1, and it is real) but it did not **bound** the item until
+         this correction, so ADR-0020's "A3.2 makes the invariant true" was false as written.
       7. **The admin tool histogram collides on `Object.prototype` keys.** Verified in node:
          `contact-admin.js:374` on a plain `{}` turns a tool named `toString` into the string
          `"function toString() { [native code] }11"`, compounding through the merge at
          `:697-699`; `__proto__` silently drops the bucket. Not prototype pollution. Decision
-         **A7b**: `Object.create(null)` at `:327`, `:328`, `:612`, `:613`.
+         **A7b**: `Object.create(null)` at **six** sites, verified at this commit — `:330`, `:332`,
+         `:333` (the per-item counters) and `:618`, `:619`, `:641` (the summary counters).
+         **This list said four.** The architect's clearance scoped it to four; the test-writer found
+         the summary objects are bumped from keys arriving as OWN properties of an
+         already-null-prototype item object, so fixing only the item side left `errorsByCode`
+         corruptible through `summary.stream.errorsByCode`. Six shipped, and the widening was
+         recorded in the clearance at the time rather than justified afterwards.
 
 18. **The streaming chat route is reachable by exactly one spelling, and every spelling the
     frontend can emit lands on a streaming behavior — a silent fall-through to a buffered origin
@@ -837,10 +884,58 @@ proves it comes FIRST.
     trade stated). This is also the general form: **any** `30x` the chat app builds from the `Host`
     header is unfollowable under OAC, because `AllViewerExceptHostHeader` means that header is the
     *origin's* name, not ours.
-    **CONFORMANCE, stated plainly: this invariant is NOT proven, and nothing in the suite catches
-    its violation today** — it is recorded now, ahead of its test, because the hole is live in
-    infrastructure that is about to carry production traffic (ADR-0022 §24.7). What is true at this
-    commit: the frontend is **already** a one-spelling emitter, but **incidentally, not by
+    **CONFORMANCE — PIN 1 IS NOW PROVEN, 2026-10-07. The paragraph that stood here said the
+    opposite** ("this invariant is NOT proven, and nothing in the suite catches its violation
+    today"), which was true when written and is superseded rather than deleted, because it is what
+    explains why the pin was written.
+    `test/frontend-api-config.test.mjs::every chat-api-url meta spelling derives exactly
+    <base>/api/chat` asserts **18 derivations** — three bases, including both real committed hosts,
+    times six spellings (clean, one trailing slash, three, surrounded by whitespace, and whitespace
+    plus slashes) — through a **fresh cache-busted import** of `js/site-config.js` per case with a
+    stubbed `document`, since that module reads `document` at import time and static imports hoist
+    above a stub. `hostname` is deliberately not `localhost`, so the local fallback can never be
+    what makes a case pass. It asserts the derivation's OUTPUT, not the source text: a regex over
+    `js/` would keep passing the moment someone rewrote the normalisation into something
+    equivalent-looking that no longer normalised.
+    **MUTATION-VERIFIED, both halves independently, each applied under an assertion that its anchor
+    matched** (a mutation that silently fails to apply reads as a survivor, and this project has
+    already published one wrong "SURVIVED" that way): removing `.replace(/\/+$/, '')` fails the
+    test with **exactly 12 of 18** cells gaining a trailing slash — `.trim()` is a separate call
+    and survives that edit, so the clean and whitespace-only spellings still match — and removing
+    `.trim()` instead fails the whitespace spellings. Both counts matched the hand-derived
+    prediction before the run, and `js/site-config.js` was restored to an empty diff after each.
+    **THE "no doubled separator" CLAUSE — over-claimed when first marked PROVEN hours earlier,
+    now actually implemented and pinned (`b0f0a4a`).** Caught by the `tdd-critic`, and the finding
+    stands recorded rather than quietly fixed because the over-claim is instructive: the paragraph
+    above this one asserted PROVEN for an invariant whose *headline* names two spellings, while
+    `js/site-config.js` normalised only one. VERIFIED before fixing: a meta of
+    `https://h.example//api/chat` derived that string verbatim. `//api/chat` misses CloudFront's
+    exact `/api/chat` behavior exactly as `/api/chat/` does, so it falls through to the buffered
+    default origin — the identical silent 200. Of the six spellings originally pinned, five varied
+    one property and **none** varied the property the invariant headline names.
+    The critic's sharpest point was my own argument turned around: the trailing slash was pinned to
+    guard against "the next edit that joins a base to a path", and that edit is **already in the
+    tree twice, in opposite styles** — `aws/chat-stream-template.yaml` joins `${Base}api/chat` with
+    no separator *because* a Function URL ends in `/`, while `aws/chat-template.yaml` and
+    `aws/chat-express-template.yaml` expose bases with none, and
+    `scripts/sync-site-api-urls.mjs` writes its argument into the meta verbatim. So the **less**
+    protected spelling was the one scoped out.
+    Now a 7th spelling, and mutation-verified twice: removing the interior collapse fails, and
+    collapsing *everything* (so `https://` becomes `https:/`) also fails — the second mutant is
+    what proves the test guards scheme preservation and not merely the collapse. The scheme is
+    preserved by splitting it off rather than with a `(?<!:)` lookbehind, because Safari gained
+    lookbehind only in 16.4 and an unsupported one is a parse-time `SyntaxError` that takes the
+    whole module down instead of degrading.
+    **Still unproven, and not closed by pin 1:** that either spelling is unreachable from anywhere
+    other than `js/chat.js` — both remain reachable from curl, the docs, and the deploy scripts,
+    which is why the edge rewrite in `aws/chat-stream-cdn-template.yaml` carries the other half of
+    this invariant. **And one claim above is weaker than it reads:** "both real committed hosts" are
+    two string *literals* in the test, not values derived from `index.html`, so when ADR-0022 moves
+    prod off the ECS host those cells keep passing against hosts that no longer ship. Deriving one
+    base from the committed meta — the shape `test/frontend-api-url-env-guard.test.mjs` already
+    uses — is the open follow-up.
+    What pin 1 converts is the *incidental* property into a contract: the frontend was **already** a
+    one-spelling emitter, but **incidentally, not by
     contract** — `js/site-config.js:9` strips trailing slashes from the meta content
     (`raw.replace(/\/+$/, '')`), `js/chat.js:338` uses the result verbatim as the POST endpoint
     (`:1149`), and `js/chat-live.js:247` / `js/admin.js:26` re-strip before deriving their own
@@ -882,6 +977,178 @@ proves it comes FIRST.
          belongs in ADR-0022 §18's acceptance list and the admin smoke rather than `node --test` —
          but it is the only check that catches the actual user-visible symptom, a correct-looking
          configuration that still buffers.
+
+19. **An operational alert reaches a durable channel on every host that can emit it — alerting is a
+    property of the APPLICATION, not of the host it happens to run on.** `[chat]` Recorded
+    2026-10-07 by **ADR-0022 §25 (DECISION 5)**; the complement of **#14**, which bounds what
+    alerting may do *to a turn* but says nothing about whether an event reaches a human.
+    **Two tiers, and the split is the invariant:**
+    **Tier 1 — emission (application, host-independent, mandatory).** Every `fire_alert` call writes
+    one structured, stably-prefixed line to stdout/stderr at **WARNING or above** — event type, env
+    label, summary — **unconditionally, before and independently of any delivery attempt**, whether
+    or not `alerts_enabled()` is true. The per-type cooldown may suppress the *email*; it must not
+    suppress the *line*. A log line cannot raise and cannot block, so Tier 1 satisfies #14 **by
+    construction** rather than by budget — which is why it is a log line and not an awaited network
+    call. **Tier 2 — delivery (host capability, at least one per host).** On a long-lived process
+    (ECS Express) the in-process Resend send is the delivery tier. On Lambda it is a **CloudWatch
+    Logs metric filter on the Tier-1 line → alarm → SNS**, because log delivery is the *runtime's*
+    obligation and completes with the invocation, whereas an in-process HTTP POST is the *process's*
+    obligation and the process is not guaranteed to run again.
+    **Corollary — env parity.** Every host running `docker/chat/app` carries the env the alert gate
+    reads: a destination (`CHAT_ALERT_EMAIL` **or** `CONTACT_REPORT_EMAIL`) **AND** a from-address
+    (`CHAT_ALERT_FROM_EMAIL` **or** `CONTACT_FROM_EMAIL`) **AND** `RESEND_API_KEY` — three conjuncts
+    over five names (`alerts.py:33-54`) — plus `CHAT_ENV`, without which `_env_label()` is
+    `'unknown'` (`:97-103`) and an alert cannot be attributed to stage or prod. **Scope is the
+    APPLICATION, not the route:** the six event types fire from `gemini_routing.py` (4 types, 10
+    sites) *and* `transcript_store.py:180,186` (2 types), and the latter persists **voice** turns
+    too — so a host that serves only `POST /api/live/session` can still emit. Scoping this to
+    `POST /api/chat` is the mistake that produced the 2026-10-07 finding.
+    **WHY THIS IS AN INVARIANT AND NOT A PREFERENCE, measured:** on 2026-10-07
+    `get-function-configuration` showed `alerts_enabled()` `False` and `_env_label()` `'unknown'` on
+    **both** deployed stage Lambda chat hosts (`…ChatStreamFunction-48hA0gOKhVzC`, 7 env keys;
+    `gvp-chat-stage-ChatFunction-e9cDGaRVL5II`, 11 keys), while the ECS Express template
+    (`aws/chat-express-template.yaml:160-176`, 17 vars) is the only host configured. Stage's
+    committed meta points at the CloudFront front door (commit `046563d`) whose two origins are both
+    Lambda — so stage chat is **serving traffic with the alarm bell disconnected**, across all six
+    event types, on an upstream that ADR-0023 exists because it was failing roughly 1 request in 3.
+    Alerting had silently become a property of one host.
+    **AND IT WAS THEN OBSERVED FIRING, not inferred** (ADR-0022 §25.1a, same day): a real stage turn
+    through the front door returned a healthy-looking `200 text/event-stream`, while the log group
+    showed the primary model timing out on a **six-token** prompt, demoting itself for the day
+    (`note_primary_timed_out()`, `gemini_limit_state.py:55-63`), and the visitor waiting **13.2 s**
+    for first token. `fire_alert('chat_primary_timeout', …)` was called and returned at
+    `alerts.py:86`: **no log line, no email, no record of any kind.** Note what makes this the
+    decisive case rather than an unlucky one — **the fallback WORKED**, so the degradation is
+    invisible at the HTTP layer by design. No error code, no 5xx, no truncated stream, nothing an
+    uptime check or a CloudFront metric can see. **When the only symptom is latency and the recovery
+    is automatic, the alert is not one channel among several; it is the only one.**
+    **Measured support for the two-tier split, from a controlled comparison inside one invocation:**
+    `logger.warning(…)` (`gemini_routing.py:376-380`) and `fire_alert(…)` (`:387-390`) are in the
+    **same `except` branch, eleven lines apart** — the synchronous line reached CloudWatch, the
+    fire-and-forget alert did not. Tier 1 is therefore *demonstrated viable* on a RESPONSE_STREAM
+    Lambda behind LWA, not merely argued. **Limits, stated so they are not over-claimed:** that
+    probe exercised a **mid-turn** line, not a post-response one; it does **not** measure the freeze
+    question (~~ADR-0022 §25.3-M stays owed~~ — **§25.3-M COMPLETED 2026-10-07**, see the CLOSED
+    paragraph below); and n = 1 bounds any claim about rate.
+    - Implemented by: **Tier 1 yes; the corollary in the TEMPLATES but not yet on the DEPLOYED
+      hosts; Tier 2 on Lambda not at all.** Updated 2026-10-07 after the slices landed, because the
+      previous wording ("nothing yet, on either tier") was written while they were in flight and was
+      false within the hour.
+      **Tier 1 — `39e2033`.** `fire_alert` now emits
+      `logger.warning('CHAT_ALERT event=%s env=%s %s', ...)` as its first statement, above the gate,
+      so an unconfigured host leaves a durable record instead of returning in silence.
+      **Corollary — `f59f863`**, which added `RESEND_API_KEY`, `CHAT_ALERT_EMAIL`,
+      `CHAT_ALERT_FROM_EMAIL` and `CHAT_ENV` to the `Environment:` block of both
+      `aws/chat-template.yaml` and `aws/chat-stream-template.yaml` (one satisfier per conjunct is
+      enough, so the `CONTACT_*` alternates are deliberately not declared).
+      **STAGE IS NOW LIT — MEASURED 2026-10-07 after the deploy**, and this paragraph previously
+      said the opposite, which was true when written and false within the hour. Read back from
+      `get-function-configuration` on both hosts:
+      `…ChatStreamFunction-48hA0gOKhVzC` 7 → **11 env keys**, `alerts_enabled()` **True**,
+      `_env_label()` **`stage`**; `gvp-chat-stage-ChatFunction-e9cDGaRVL5II` 11 → **15 env keys**,
+      `alerts_enabled()` **True**, `_env_label()` **`stage`**. `ReservedConcurrentExecutions` is
+      **5** and survived the deploy, and the committed `gvp:chat-api-url` metas were untouched, so
+      invariant 11 still holds. **PROD is NOT lit** — it remains on `gvp-chat-express-prod`, which
+      was already configured, so prod alerting never broke; the gap was stage and the two Lambda
+      hosts the prod roll targets.
+      **WIRED IS STILL NOT LIT, as a standing property:** all three parameters default to `''`, so
+      a deploy can no longer omit a *key* but can still pass an empty *value*. The suite pins key
+      presence only, deliberately, so liveness is never provable from the repo. That is why
+      ADR-0022 §27.1 keeps **B-5** (one post-deploy liveness check) as a blocker in its own right
+      rather than folding it into B-1 — and this deploy is the first time that check has actually
+      been run.
+      **Still unimplemented:** Tier 2 on Lambda (metric filter on the Tier-1 line, alarm, SNS) and
+      the startup announcement — ADR-0022 §26.5 items **E6** and **G5**. Note `:92-93` still logs
+      the no-loop exit at DEBUG, below the default level; DECISION 5 moves it to WARNING and that is
+      a separate slice.
+    - Proven by: **partially — the corollary only.** `test/chat-alert-gate-env.test.mjs` asserts
+      that every template which can run `docker/chat/app` passes the alert gate, **deriving** the
+      five legal names from `alerts.py` rather than hardcoding them (which is how the `CONTACT_*`
+      fallbacks were found), and scoping its parse to the `Environment:` block so a
+      declared-but-never-passed `Parameters:` entry does **not** satisfy it. Its independently
+      parsed counts (11 and 7) match the deployed functions exactly. **It asserts key PRESENCE,
+      never values** — values are deploy-time parameters and asserting them would make the test a
+      secret-shaped liability.
+      **Tier 1 is now proven too**, by
+      `docker/chat/tests/test_alerts.py::test_emits_tier1_warning_line_even_when_gate_is_disabled`,
+      which deletes all five gate names, asserts `alerts_enabled() is False` as a precondition so it
+      cannot pass vacuously, and then requires exactly one record at WARNING or above carrying the
+      stable `CHAT_ALERT` prefix, the event type and the env label — presence, never values.
+      **Mutation-verified four ways**, each caught: demoting the call to DEBUG, dropping the env
+      label from the format, changing the prefix, and — the one that matters, since it is the actual
+      defect — moving the line back BELOW the gate. The reordering mutant was applied under an
+      assertion that its anchor matched, because a mutation that silently fails to apply reads as a
+      survivor and this project has already published one wrong "SURVIVED" that way.
+      **Still unproven: Tier 2 on Lambda** (that a metric filter exists and alarms — a template
+      assertion; `describe-metric-filters` returns **0** account-wide as of 2026-10-07) and the
+      **startup announcement**. Those are ADR-0022 §26.5 items **G5** and **E6** plus a runtime
+      check that no unit test can stand in for.
+      **END-OF-TURN Tier-1 delivery is no longer an inference — but only on ONE of the two Lambda
+      hosts, and the distinction is load-bearing.** This formerly read "post-response Tier-1
+      delivery on Lambda" as unproven, on the grounds that §25.1a observed a MID-TURN line while the
+      two transcript event types fire at the END of a turn from `_persist_text_turn`. §25.3-M
+      attempt 2 observed exactly that: two `CHAT_ALERT event=chat_transcript_write_failed` lines
+      reached CloudWatch from `_persist_text_turn`, 442 ms and 2 ms before their own `REPORT`. **But
+      that host is `gvp-chat-stage-ChatFunction-e9cDGaRVL5II` — the HttpApi function, built from
+      `Dockerfile.lambda` and BUFFERED behind API Gateway — not the RESPONSE_STREAM host**, whose
+      invocation completes when the stream closes and whose adapter configuration differs. So:
+      **OBSERVED on the buffered HttpApi host; still a short inference on
+      `…ChatStreamFunction-48hA0gOKhVzC`.** Do not let the two be collapsed; the freeze derivation
+      leaned specifically on RESPONSE_STREAM completion semantics, which this probe did not touch.
+    - **CLOSED — the freeze question is now MEASURED, and the answer makes Tier 2 the whole of
+      delivery on Lambda.** This paragraph previously read *"Open, labelled honestly: DERIVED, NOT
+      MEASURED"* and said the invariant did not depend on the answer. Both halves were right: it was
+      honestly labelled, it did not depend on the answer, and **the answer came back confirming the
+      derivation.** Recorded 2026-10-07, ADR-0022 **§25.3-M attempt 2**.
+      **What was measured**, on `gvp-chat-stage-ChatFunction-e9cDGaRVL5II`, by filling one stage
+      transcript session through the public sink until a write was refused: `CHAT_ALERT` (Tier 1,
+      synchronous) **2** lines; `alert sent event` **0**; `alert send failed` **0**;
+      `alert send errored` **0**. All three of `_send`'s terminal branches are zero, so "it ran and
+      threw" is excluded, not just "it ran and succeeded". The success branch is `logger.info`
+      (`alerts.py:148`), and the claim that `main.py:45`'s `logging.basicConfig(level=logging.INFO)`
+      made that zero meaningful is **RETRACTED (2026-10-08)**: `basicConfig` configures the root
+      logger only when it has no handlers, and the managed Lambda runtime installs one first, so the
+      effective level stays WARNING. MEASURED over 24 h — the Mangum host emitted **0** INFO lines
+      against 2 WARNING and 2 ERROR, where the uvicorn host emitted **125** INFO. The success
+      branch was therefore invisible and its zero proved nothing.
+      **What does carry the verdict:** the owner confirms **no alert email arrived** for that window
+      while the gate held a live key, which is an external oracle independent of logging; and
+      `alert send failed` / `alert send errored` are both WARNING, both visible on that host, and
+      both zero across 48 h, so `_send` neither failed nor threw.
+      **The defect behind the retraction is decided, not just filed:** ADR-0022 **§31 (DECISION 10)**
+      adds `logging.getLogger().setLevel(logging.INFO)` and **keeps** the inert `basicConfig` call,
+      rather than `force=True`, which would discard *and close* the runtime's handler and retire the
+      `[LEVEL]\t<ts>\t<RequestId>` framing this very measurement reads request-id correlation off.
+      Pinned by a test that installs a root handler first — asserting the level alone passes on a
+      broken host *and* passes for `force=True` — plus a post-deploy INFO count (§31.5), because a
+      `WARNING`-level **handler** would produce the same 0 and candidate B would not fix it.
+      **Timing, which refutes the alternative quantitatively rather than by absence:** the first
+      alert's Tier-1 line precedes its own `REPORT` by **442 ms** with no outcome line between them;
+      the second by **2 ms**. A 10 s-timeout `httpx` POST to a third-party API does not complete in
+      2 ms. The execution environment thawed exactly **once** more (**48.5 ms** of billed duration)
+      and was never invoked again — **0** invocations on the function in the following 21 minutes.
+      **The general claim, stated at the width the evidence supports:** a detached `loop.create_task`
+      (`alerts.py:107`) wrapping an awaited 10 s httpx POST (`:141-142`) **is not a delivery
+      mechanism on Lambda** — its outcome is *delay* or *loss*, never guaranteed delivery, and which
+      one you get is a property of your **traffic**, not of your code. On a busy host the alert
+      arrives late and attributed to an unrelated request's log stream; on a quiet host it is lost.
+      Note the direction of that trap: **the quieter the host, the more certainly the alert is
+      lost** — so this fails hardest exactly where no other signal would have caught the problem
+      either. On ECS the process is long-lived and the task simply completes, which is why this was
+      invisible for the life of the feature.
+      **Consequence for the two tiers above: Tier 2 on Lambda is no longer a belt over a working
+      in-process send — it is the ENTIRE delivery path.** A Lambda chat host without the metric
+      filter emits a durable *record* and no *notification*. That is better than the 2026-10-07
+      state of nothing at all, and it is still not alerting. The log-group ownership that the metric
+      filter needs is ruled in ADR-0022 **§29 (DECISION 8)**; ADR-0022 §27.1 **B-3** is widened to
+      carry it as a prod-roll blocker.
+      **Still open, and labelled honestly in its turn: "an alarm exists" is not "an alarm delivers."**
+      MEASURED the same day, us-east-2: `gvp-chat-stage-ChatErrorTopic-wRMWQy6I5qiR`'s only
+      subscription is literally `PendingConfirmation`, so `gvp-chat-stage-ChatLambdaErrorsAlarm`
+      has never been able to deliver; and `page-ContactAlarmTopic-CDrjLAHILdwB` has **zero**
+      subscriptions while three **prod** contact alarms target it. Tier 2 is not satisfied by a
+      declared subscription, only by a verified one — ADR-0022 §29.5 gives the one-call check and
+      folds it into B-5.
 
 ## Out of scope / explicitly allowed
 

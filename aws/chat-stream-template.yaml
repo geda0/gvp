@@ -1,11 +1,46 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
+# ─────────────────────────────────────────────────────────────────────────────────
+# WHY THIS PROSE IS IN COMMENTS AND NOT IN `Description`: CloudFormation caps the
+# template `Description` at 1024 characters, and a changeset fails outright with
+# "'Description' length is greater than 1024" when it is exceeded. MEASURED
+# 2026-10-07: it had grown to 1892. `aws cloudformation validate-template` accepts
+# an over-long Description, so only a real deploy catches it. Comments have no such
+# limit and no deploy cost, so durable rationale belongs here.
+#
+# NO LONGER A MEASUREMENT CANDIDATE ON STAGE. This stack still runs SIDE BY SIDE
+# with gvp-chat-express-{stage,prod} and must not disturb them, but as of commit
+# 046563d the committed STAGE gvp:chat-api-url meta points at the CloudFront front
+# door in aws/chat-stream-cdn-template.yaml, whose exact /api/chat behavior targets
+# THIS stack's Function URL. Stage browser traffic is therefore served from here and
+# invariant 11 does bind this host. The original wording ("nothing here is
+# referenced by the committed meta") was true when written and is now false. PROD is
+# still on gvp-chat-express-prod and is unaffected by this stack.
+#
+# ALERTING IS WIRED BUT NOT NECESSARILY LIT, and the distinction is the point. This
+# stack DECLARES the three env vars docker/chat/app/alerts.py gates on
+# (RESEND_API_KEY, CHAT_ALERT_EMAIL, CHAT_ALERT_FROM_EMAIL) plus CHAT_ENV, pinned by
+# test/chat-alert-gate-env.test.mjs. But all three parameters default to '', so
+# alerts_enabled() is still False unless the DEPLOY passes real values. A deploy can
+# no longer omit a key; it can still pass an empty one and silently reproduce the
+# state measured on 2026-10-07, when this host dropped all six chat alert types with
+# no log line. The test pins KEY PRESENCE only, deliberately — asserting the values
+# would make it a secret-shaped liability. So presence is enforced by the suite and
+# liveness is not: verify liveness on the deployed function after any deploy, per
+# ADR-0022 §27.1 B-5.
+#
+# CHAT_ENV takes StageName, which DEFAULTS TO 'stage'. A prod deploy that forgets to
+# override it labels prod alerts '[chat alert · stage]' — worse than the 'unknown' it
+# replaced, because it is confidently wrong. scripts/integrate-and-deploy.sh passes
+# StageName=${DEPLOY_ENV} for exactly this reason; a hand-deploy must too.
+# ─────────────────────────────────────────────────────────────────────────────────
+
 Description: >
-  ADR-0022 spike — portfolio chat on Lambda RESPONSE STREAMING via the AWS Lambda
-  Web Adapter, behind a Lambda Function URL (InvokeMode RESPONSE_STREAM).
-  Measurement candidate ONLY: it runs SIDE BY SIDE with gvp-chat-express-{stage,prod}
-  and must not replace or disturb them. Nothing here is referenced by the committed
-  gvp:chat-api-url meta (invariant 11) — testing is against the raw Function URL.
+  ADR-0022 — portfolio chat on Lambda RESPONSE STREAMING via the AWS Lambda Web
+  Adapter, behind a Function URL (InvokeMode RESPONSE_STREAM). Serves STAGE browser
+  traffic through the CloudFront front door in aws/chat-stream-cdn-template.yaml;
+  prod is still on gvp-chat-express-prod. Alerting is wired here but only LIT when
+  the deploy passes real values — see the comments above this field.
 
 Parameters:
   StageName:
@@ -44,6 +79,23 @@ Parameters:
       Existing STAGE transcripts table, reused so persistence is measurable.
       This stack only ever writes to it; the table itself belongs to page-staging
       and is NOT managed here.
+  ResendApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: 'Resend API key for instant chat-degradation alerts. Empty leaves alerts dark (no-op).'
+  ChatAlertEmail:
+    Type: String
+    Default: ''
+    Description: 'Recipient for instant chat alerts (model switch / timeout / rate-limit / breakage). Empty leaves alerts dark.'
+  ChatAlertFromEmail:
+    Type: String
+    Default: ''
+    Description: 'From address for instant chat alerts (a verified Resend sender). Empty leaves alerts dark.'
+  ChatAlertAlarmEmail:
+    Type: String
+    Default: ''
+    Description: 'Email for the Tier-1 alert-line alarm topic (ADR-0022 §29.4). An address, not a secret. Empty skips the topic and alarm; the log group and metric are still created.'
   FunctionUrlAuthType:
     Type: String
     Default: NONE
@@ -63,31 +115,50 @@ Parameters:
       is lifted (or until a CloudFront + OAC front end signs for the browser).
   ReservedConcurrency:
     Type: Number
-    Default: 0
+    Default: 5
     MinValue: 0
     Description: >
       ADR-0022 M-4 hard ceiling. A Function URL has NO API Gateway in front of it,
       so the 5 rps / burst 10 throttle at aws/chat-template.yaml:67-69 does not
       apply here. Unthrottled public endpoint + per-invocation billing + a paid
       upstream model is a cost-amplification tail; reserved concurrency is the
-      enforceable cap, and the intended value is 5.
-      MEASURED FACT, account 429844072978, 2026-10-06: ANY reserved concurrency is
-      currently REJECTED. The account limit is ConcurrentExecutions=10 with
-      UnreservedConcurrentExecutions=10, and PutFunctionConcurrency answers
+      enforceable cap, and 5 is the intended value.
+      MEASURED FACT, account 429844072978, 2026-10-07: reserving is now ACCEPTED.
+      Service Quotas request e66ca23fbf8047e8bf9f358007990859q8kiaTuI (quota
+      L-B99A9384, "Concurrent executions") is CASE_CLOSED and APPLIED at 1000;
+      get-account-settings reports ConcurrentExecutions=1000 /
+      UnreservedConcurrentExecutions=1000, and PutFunctionConcurrency with
+      ReservedConcurrentExecutions=5 on this stack's function returns
+      {"ReservedConcurrentExecutions": 5}. Reserving 5 leaves 995 unreserved, far
+      above the minimum-unreserved floor. This closes ADR-0022 gate E1 and §23.2
+      (M-7), which named this quota as a gate on the prod roll.
+      SUPERSEDED, kept because it explains why the default used to be 0 — measured
+      2026-10-06, before the increase: the account limit was ConcurrentExecutions=10
+      with UnreservedConcurrentExecutions=10, and PutFunctionConcurrency answered
       "Specified ReservedConcurrentExecutions for function decreases account's
-      UnreservedConcurrentExecution below its minimum value of [10]." — for 5 AND
-      for 1. Hence default 0 (= do not reserve), which deploys; 0 is only honest
-      because the ACCOUNT-WIDE limit of 10 is itself a hard concurrency ceiling
-      today. Caution: that ceiling is SHARED with the page / page-staging contact
-      functions, so it bounds cost but does not isolate this function.
-      Set this to 5 the moment the account concurrency limit is raised above the
-      minimum-unreserved floor (floor is 10 on this account, 100 on a standard
-      one). Reserved concurrency is NOT a substitute for an invocation/billing
-      alarm — M-4 asks for both.
+      UnreservedConcurrentExecution below its minimum value of [10]." for 5 AND
+      for 1, so no reservation of any size could be made. 0 (= do not reserve) was
+      honest then only because the account-wide limit of 10 was itself a hard
+      ceiling; at 1000 that incidental ceiling is GONE, which is precisely why an
+      explicit reservation is now load-bearing rather than cosmetic.
+      Reserved concurrency is NOT a substitute for an invocation/billing alarm —
+      M-4 asks for both, and the alarm half (E2-E5) is still owed.
+      THIS PARAMETER OVERLOADS 0, AND THE TWO MEANINGS ARE OPPOSITES. Here, 0 means
+      "do not reserve" (the HasReservedConcurrency condition below omits the property
+      entirely), which leaves the function drawing on the 1000-wide unreserved pool —
+      i.e. UNBOUNDED. The Lambda API's 0 means the opposite: reserve zero, which
+      DISABLES the function. So ADR-0022 §18.E4's kill switch, phrased as "set it to
+      0", must NOT be thrown through this template: a deploy with
+      ReservedConcurrency=0 gives you unbounded concurrency when you were trying to
+      stop the function. The kill switch is out-of-band and immediate:
+        aws lambda put-function-concurrency --function-name <fn> \
+          --reserved-concurrent-executions 0 --region us-east-2
+      Never a deploy parameter.
 
 Conditions:
   HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
   IsPublicUrl: !Equals [!Ref FunctionUrlAuthType, NONE]
+  HasChatAlertAlarm: !Not [!Equals [!Ref ChatAlertAlarmEmail, '']]
 
 Resources:
   # Explicit execution role: logs + DynamoDB writes to ONE table ARN. Nothing wider.
@@ -114,6 +185,20 @@ Resources:
                   - dynamodb:UpdateItem
                 Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChatTranscriptsTableName}
 
+  # ADR-0022 §29 (DECISION 8) — Tier 2 of invariant 19 needs a log group THIS STACK
+  # owns: a MetricFilter cannot attach to a group that does not exist, and Lambda's
+  # auto-created /aws/lambda/<fn> does not exist until the first invocation, so a
+  # fresh PROD stack would fail. A NEW name (not /aws/lambda/<fn>) also avoids the
+  # "already exists" collision on the deployed stage stack and leaves its logs
+  # intact. No IAM change needed: AWSLambdaBasicExecutionRole already allows
+  # CreateLogStream and PutLogEvents on Resource "*". RetentionInDays is chosen on
+  # EVIDENCE, not cost (§29.2) — Logs bills ingestion, which retention never cuts.
+  ChatStreamLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/gvp/chat-stream/${StageName}'
+      RetentionInDays: 30
+
   ChatStreamFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -121,11 +206,27 @@ Resources:
       Dockerfile: docker/chat/Dockerfile.lambda-stream
     Properties:
       PackageType: Image
+      LoggingConfig:
+        LogGroup: !Ref ChatStreamLogGroup
       Architectures:
         - x86_64
       # Matches the existing Lambda chat stack (aws/chat-template.yaml Globals).
       Timeout: 60
-      MemorySize: 1536
+      # 512, not the 1536 the other chat stacks use. MEASURED on this stack, not guessed:
+      # a real streaming turn reports `Max Memory Used: 162 MB` (a trivial /health request
+      # reports 130 MB), so 512 leaves 3.2x headroom. 256 was rejected: 1.6x headroom is too
+      # thin for a Python app whose allocation is spiky mid-stream.
+      #
+      # Cold start is NOT the cost of going lower - init measured 2118 ms at 512 MB, within
+      # noise of 1024 and 1536. The only penalty is handler CPU: 65 ms at 1536 vs 108 ms at
+      # 512, which is irrelevant beside 19-31 s of model latency.
+      #
+      # Lambda bills GB-seconds, so this is a flat 3x cost cut. That matters more here than it
+      # looks: response streaming bills WALL-CLOCK, including every second spent waiting on
+      # Gemini, and measured turns run 19-31 s. On ECS a slow model cost nothing extra; on
+      # Lambda it is a line item. At 512 MB and 20 s turns, a container only becomes cheaper
+      # past roughly 8,000 chat turns/day (lifetime traffic to date: 77 sessions).
+      MemorySize: 512
       Role: !GetAtt ChatStreamFunctionRole.Arn
       ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref 'AWS::NoValue']
       Environment:
@@ -137,6 +238,10 @@ Resources:
           GEMINI_LIVE_MODEL: !Ref GeminiLiveModel
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
+          RESEND_API_KEY: !Ref ResendApiKey
+          CHAT_ALERT_EMAIL: !Ref ChatAlertEmail
+          CHAT_ALERT_FROM_EMAIL: !Ref ChatAlertFromEmail
+          CHAT_ENV: !Ref StageName
       Tags:
         Project: gvp
         Component: chat-lambda-stream
@@ -171,6 +276,66 @@ Resources:
       # the public endpoint it is standing in for).
       Principal: !If [IsPublicUrl, '*', !Ref 'AWS::AccountId']
       FunctionUrlAuthType: !Ref FunctionUrlAuthType
+
+
+  # ADR-0022 §29.4 — Tier 2 for this host. QUOTED-TERM pattern, prefix only. The
+  # CHAT_ALERT line can arrive CONCATENATED behind a traceback tail inside ONE
+  # CloudWatch event, so a space-delimited pattern would match neither measured
+  # event; a quoted term matches anywhere in the event. That rules out per-type
+  # metric Dimensions, hence ONE metric for all six event types. MetricName carries
+  # host+env because a metric filter cannot set a STATIC dimension: a name shared
+  # with aws/chat-template.yaml (or across stage/prod) makes each alarm fire on the
+  # other's alert lines. The log group and this filter are UNCONDITIONAL: the record
+  # and the metric are always wanted; only the notification needs a destination.
+  ChatAlertMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ChatStreamLogGroup
+      FilterPattern: '"CHAT_ALERT event="'
+      MetricTransformations:
+        - MetricNamespace: GvpChat
+          MetricName: !Sub 'ChatAlertLines-stream-${StageName}'
+          MetricValue: '1'
+          # Publishes 0 for a NON-matching ingested event, so OK means the filter
+          # ran and saw none, instead of INSUFFICIENT_DATA which is
+          # indistinguishable from a broken filter. Limit: on an IDLE function
+          # there is no event at all, so this is not a heartbeat.
+          DefaultValue: 0
+
+  # This stack has its own topic rather than importing aws/chat-template.yaml's
+  # ChatErrorTopic ARN: cross-stack reuse would couple this stack's alerting to the
+  # other stack's lifecycle, so deleting one would silently darken the other (§29.4).
+  # PRECONDITION: SNS confirmation is per (topic, endpoint). A new topic mints a new
+  # UNCONFIRMED subscription that delivers nothing until the address confirms it —
+  # verify with the list-subscriptions check in §29.5.
+  ChatStreamAlertTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasChatAlertAlarm
+    Properties:
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref ChatAlertAlarmEmail
+
+  ChatAlertLinesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatAlertAlarm
+    Properties:
+      AlarmName: !Sub 'gvp-chat-stream-${StageName}-tier1-alert-line'
+      AlarmDescription: >
+        A CHAT_ALERT Tier-1 line was written (invariant 19 Tier 2, ADR-0022 §29).
+        Says THAT one of six alert types fired, never WHICH — read the type from
+        the log group: aws logs filter-log-events --log-group-name /gvp/chat-stream/<env>
+        --filter-pattern '"CHAT_ALERT event="' --start-time <epoch-ms>
+      Namespace: GvpChat
+      MetricName: !Sub 'ChatAlertLines-stream-${StageName}'
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatStreamAlertTopic
 
 Outputs:
   ChatStreamFunctionUrlAuthType:

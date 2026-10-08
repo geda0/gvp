@@ -36,6 +36,26 @@ def clamp_transport(value: object) -> str:
     return value if isinstance(value, str) and value in _KNOWN_TRANSPORTS else 'live'
 
 
+def clamp_text(value: object, max_bytes: int) -> str:
+    """Truncate free text to `max_bytes` of UTF-8, never splitting a character.
+
+    ADR-0020 §5 A2. Pydantic's `max_length` on `userText` / `assistantText`
+    counts CODE POINTS, while DynamoDB charges UTF-8 BYTES: 8 000 astral-plane
+    code points persist as 32 000 bytes. That is why one maximal turn measures
+    ~116 KB and four of them breach DynamoDB's 400 KB item limit, silently
+    losing every later turn of the session.
+
+    Clamps rather than rejects: these are telemetry values, so a truncated
+    transcript is a truthful weaker fact where a lost turn is not. The Pydantic
+    bounds stay as a cheap outer guard, so no caller sees a new 400.
+
+    Cutting the encoded bytes can sever at most the final character, and
+    `ignore` drops exactly that incomplete tail — so the result is a prefix of
+    the input and keeps every whole character that fits the budget.
+    """
+    return value.encode('utf-8')[:max_bytes].decode('utf-8', 'ignore')
+
+
 def sanitize_tool_calls(value: list[dict]) -> list[dict]:
     bounded = (_bound_entry(entry) for entry in value[:_MAX_TOOL_CALLS])
     return [entry for entry in bounded if entry is not None]
