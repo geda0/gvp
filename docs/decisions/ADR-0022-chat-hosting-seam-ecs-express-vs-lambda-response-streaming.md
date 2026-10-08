@@ -3654,6 +3654,48 @@ ONE test, `docker/chat/tests/test_root_log_level.py` (off `SECURITY_GLOB` — no
 
 ### 31.5 The one thing NOT to over-claim, and the post-deploy check that closes it
 
+**RESULT — MEASURED 2026-10-08, after `380def6` deployed. DECISION 10 CLOSES; it does not reopen.**
+Three invocations against the HttpApi host, then a per-level count on `/gvp/chat/stage`:
+**INFO 9** (it was **0** across the preceding 24 h), WARNING 0. So the mechanism was the **root
+logger's level**, which `setLevel` fixes — not the runtime **handler's** own level, under which this
+fix would have been a second no-op. That was the live uncertainty and it is now settled by the
+number rather than by argument.
+
+**The framing survived, which is the other half of why (A) was refused:**
+
+```
+[INFO]	2026-10-08T17:14:16.131Z	8ed6e29d-1c2c-460a-b85e-0125af3ef030	alert gate ready env=stage
+```
+
+`[LEVEL]\t<ts>\t<RequestId>\t<message>` — the runtime's own handler, intact, request id included.
+Under `force=True` this line would have read `INFO:app.alerts:alert gate ready env=stage` with no
+timestamp and no request id.
+
+**It also settles a diagnosis that was open: Mangum's lifespan WAS running all along.**
+`Waiting for application startup` / `Application startup complete` are present, so
+`log_alert_gate_status()` had been firing and being *filtered*, not failing to fire. The earlier
+guess that lifespan might not run under Mangum was wrong.
+
+#### 31.5a — NEW, found by this measurement: the "startup" line is per-INVOCATION on Mangum
+
+Same window: **`START RequestId` 3, `Init Duration` 1** (one cold start) — but
+**`Waiting for application startup` 3** and **`alert gate ready` 3**. Mangum runs the ASGI lifespan
+on **every invocation**, so on that host this is not a startup line at all.
+
+Consequences, stated rather than waved at:
+- **The name, the docstring and §26.5 G5 all say "once at startup". That is false on the Mangum
+  host** and true only on uvicorn. The drift detector still works — it is if anything more
+  insistent — but the record describes behaviour it does not have.
+- **The DARK branch is `logger.warning`, so a misconfigured host emits a WARNING per invocation.**
+  CloudWatch bills *ingestion*, which retention never reduces (§29.2), so the noisy case is the
+  billed case. Harmless at 25 turns/day; worth knowing before this reaches a host with traffic.
+- **It cannot fire the Tier-2 alarm**, because the line does not contain the metric filter's term —
+  which is exactly what §30.4's reviewer check 2 existed to guarantee. The check earned its keep
+  here, notwithstanding that it was mis-specified as a `grep -c` over source rather than over
+  emitted strings.
+- Not fixed in this slice. Making it genuinely once would mean module-level state or an
+  `@lru_cache`, which is a behaviour change outside DECISION 10's one authorized line.
+
 **The unit test pins in-process semantics. It does not prove the real host emits INFO,** and the
 reason is specific rather than ceremonial: **two mechanisms are consistent with the 0-INFO
 measurement** — the *root logger's* level is `WARNING` (candidate B fixes it), or the *runtime
