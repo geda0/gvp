@@ -44,6 +44,18 @@ from app.upstream_errors import upstream_error_body
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+# ADR-0022 §31 — the line ABOVE is a NO-OP on the managed Lambda runtime and STAYS anyway.
+# `basicConfig` configures the root logger ONLY when root has no handlers; the runtime installs
+# one before this module imports, so it returns early having set NOTHING — not even the level,
+# which stays WARNING. MEASURED 2026-10-08 over 24 h: the Mangum host emitted 0 INFO lines
+# against 2 WARNING and 2 ERROR, where the uvicorn host — on which the call above DOES take
+# effect — emitted 125. The line below lowers the THRESHOLD only, so the runtime's handler and
+# its "[LEVEL] ts RequestId" tab framing survive. Do NOT "simplify" this to
+# basicConfig(..., force=True): it REPLACES that handler, so the record goes to a fresh stderr
+# handler with Python's default format, and §25.3-M read request-id correlation off that
+# framing. Pinned by tests/test_root_log_level.py: it asserts the record ARRIVES at a
+# pre-existing handler, because asserting the LEVEL would pass for force=True too.
+logging.getLogger().setLevel(logging.INFO)
 
 
 async def mint_live_session_async(system_instruction: str) -> Any:
