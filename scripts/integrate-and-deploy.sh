@@ -138,6 +138,32 @@ else
   CHAT_STACK_RESOLVED="${CHAT_SAM_STACK_NAME_PROD:-${CHAT_SAM_STACK_NAME:-}}"
 fi
 
+# FAIL CLOSED when the two environments would resolve to the SAME chat stack. The comment
+# above says the per-environment vars exist "to avoid prod/stage overwriting the same stack",
+# and that intent was silently defeated: the legacy CHAT_SAM_STACK_NAME is a FALLBACK for BOTH
+# arms, so setting only it makes both arms resolve to one name.
+# MEASURED 2026-10-08 on this checkout: .secrets/chat-deploy.env sets
+# CHAT_SAM_STACK_NAME=gvp-chat-stage and neither per-env var, so `integrate-and-deploy.sh prod`
+# resolved the chat HttpApi stack to gvp-chat-stage and would have deployed PROD parameters
+# into the STAGE stack — repointing stage's chat at the PROD transcripts table, stamping
+# CHAT_ENV=prod onto stage, and creating no prod stack at all. Nothing downstream could have
+# caught it: the stack name is not an output anyone asserts.
+# Compared rather than pattern-matched: a name is only wrong relative to the OTHER arm, so
+# guessing from substrings like "stage" would be a heuristic where an equality check is exact.
+CHAT_STACK_OTHER_ARM="$([[ "${DEPLOY_ENV}" == "stage" ]] \
+  && printf '%s' "${CHAT_SAM_STACK_NAME_PROD:-${CHAT_SAM_STACK_NAME:-}}" \
+  || printf '%s' "${CHAT_SAM_STACK_NAME_STAGE:-${CHAT_SAM_STACK_NAME:-}}")"
+if [[ -n "${CHAT_STACK_RESOLVED}" && "${CHAT_STACK_RESOLVED}" == "${CHAT_STACK_OTHER_ARM}" ]]; then
+  echo "error: the chat HttpApi stack resolves to '${CHAT_STACK_RESOLVED}' for BOTH prod and stage." >&2
+  echo "  Deploying ${DEPLOY_ENV} would write ${DEPLOY_ENV} parameters into the stack the other" >&2
+  echo "  environment uses — including its transcripts table and its CHAT_ENV label." >&2
+  echo "  Set BOTH per-environment names explicitly and stop relying on the legacy fallback:" >&2
+  echo "    export CHAT_SAM_STACK_NAME_PROD=gvp-chat-prod" >&2
+  echo "    export CHAT_SAM_STACK_NAME_STAGE=gvp-chat-stage" >&2
+  echo "  (CHAT_SAM_STACK_NAME remains supported, but only when it cannot collide.)" >&2
+  exit 1
+fi
+
 require() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
