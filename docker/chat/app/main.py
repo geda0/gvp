@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
+from app.alerts import log_alert_gate_status
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
 from app.turn_input import clamp_text, clamp_transport, sanitize_tool_calls
@@ -377,6 +378,10 @@ def _build_flags(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ADR-0022 §26.5 G5 — FIRST statement in lifespan on purpose: the knowledge
+    # branch below has its own `yield` + `return`, so anything placed later is
+    # skipped on exactly the degraded start where the gate matters most.
+    log_alert_gate_status()
     pack_dir = default_pack_dir()
     prompt_path = default_system_prompt_path()
     logger.info("Loading knowledge pack from %s", pack_dir)

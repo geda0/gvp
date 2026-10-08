@@ -54,6 +54,38 @@ def alerts_enabled() -> bool:
     return bool(_dest_email() and _from_email() and _api_key())
 
 
+def log_alert_gate_status() -> None:
+    """Announce Tier-2 (email) readiness once at startup — ADR-0022 §26.5 G5.
+
+    This is the DRIFT DETECTOR: invariant 19 is a property of the APPLICATION,
+    so the next host added to this seam must fail LOUDLY rather than silently,
+    the way both stage Lambda hosts did on 2026-10-07. It names the missing
+    conjuncts, because knowing the gate is shut is useless without knowing why.
+
+    MUST NOT contain the literal that §29.4's metric filter matches on; a startup
+    line matching it would fire the Tier-2 alarm on every cold start. Tier 1 is
+    for EVENTS; this line is CONFIGURATION. (The literal is deliberately not
+    quoted here either, so a grep for it over this file finds only the one
+    legitimate emitter below.)
+    """
+    missing = [
+        names
+        for names, value in (
+            ('CHAT_ALERT_EMAIL|CONTACT_REPORT_EMAIL', _dest_email()),
+            ('CHAT_ALERT_FROM_EMAIL|CONTACT_FROM_EMAIL', _from_email()),
+            ('RESEND_API_KEY', _api_key()),
+        )
+        if not value
+    ]
+    if missing:
+        logger.warning(
+            'alert gate DARK env=%s missing=%s - Tier 1 lines still emit, email does not',
+            _env_label(), ','.join(missing),
+        )
+    else:
+        logger.info('alert gate ready env=%s', _env_label())
+
+
 def _cooldown_seconds() -> float:
     raw = os.environ.get('CHAT_ALERT_COOLDOWN_SECONDS')
     try:
