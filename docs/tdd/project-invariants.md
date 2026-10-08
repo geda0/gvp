@@ -1105,9 +1105,16 @@ proves it comes FIRST.
       synchronous) **2** lines; `alert sent event` **0**; `alert send failed` **0**;
       `alert send errored` **0**. All three of `_send`'s terminal branches are zero, so "it ran and
       threw" is excluded, not just "it ran and succeeded". The success branch is `logger.info`
-      (`alerts.py:148`) and `main.py:45` sets `logging.basicConfig(level=logging.INFO)`, so the zero
-      is a real absence and not a level filter — a confound worth naming because it would have made
-      the whole measurement vacuous.
+      (`alerts.py:148`), and the claim that `main.py:45`'s `logging.basicConfig(level=logging.INFO)`
+      made that zero meaningful is **RETRACTED (2026-10-08)**: `basicConfig` configures the root
+      logger only when it has no handlers, and the managed Lambda runtime installs one first, so the
+      effective level stays WARNING. MEASURED over 24 h — the Mangum host emitted **0** INFO lines
+      against 2 WARNING and 2 ERROR, where the uvicorn host emitted **125** INFO. The success
+      branch was therefore invisible and its zero proved nothing.
+      **What does carry the verdict:** the owner confirms **no alert email arrived** for that window
+      while the gate held a live key, which is an external oracle independent of logging; and
+      `alert send failed` / `alert send errored` are both WARNING, both visible on that host, and
+      both zero across 48 h, so `_send` neither failed nor threw.
       **Timing, which refutes the alternative quantitatively rather than by absence:** the first
       alert's Tier-1 line precedes its own `REPORT` by **442 ms** with no outcome line between them;
       the second by **2 ms**. A 10 s-timeout `httpx` POST to a third-party API does not complete in

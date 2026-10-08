@@ -1979,10 +1979,31 @@ The two Tier-1 lines, quoted so the record does not depend on a log group:
 **Three things the architect added to the filing, two of which strengthen it and one of which
 corrects it.**
 
-1. **A confound the filing left open is now closed.** `alert sent event=` is `logger.info`, so a
-   zero count would be *vacuous* if the effective level were WARNING — the line would be absent
-   whether or not the task ran. `docker/chat/app/main.py:45` is
-   `logging.basicConfig(level=logging.INFO)`, so INFO **is** emitted. The zero is real.
+1. ~~**A confound the filing left open is now closed.**~~ **THIS CLAIM IS FALSE AND IS RETRACTED
+   (2026-10-08). The confound was NOT closed; it was real.** The claim as written was: `alert sent
+   event=` is `logger.info`, so a zero count would be vacuous if the effective level were WARNING,
+   but `main.py:45` is `logging.basicConfig(level=logging.INFO)`, so INFO is emitted and the zero
+   is real.
+   **`basicConfig` is a NO-OP on this host.** It configures the root logger *only when the root has
+   no handlers*, and the managed Lambda runtime installs one before the app imports — so the
+   effective level stays WARNING and INFO is discarded. MEASURED 2026-10-08 over 24 h, by filter
+   pattern on each level: the Mangum/HttpApi host emitted **0** INFO lines against **2** WARNING and
+   **2** ERROR, while the uvicorn/stream host — which configures its own logging — emitted **125**
+   INFO. So `alert sent event=` was *invisible* on the probe host, and its zero was never evidence
+   of anything. The orchestrator propagated this reasoning into the filing before checking it;
+   recorded rather than quietly deleted, because it is the second time in this ADR that a claim
+   about what a log line proves has had to be withdrawn.
+   **The verdict is UNCHANGED and is now better supported, on three legs that do not include the
+   retracted one:**
+   (a) **An external oracle.** The owner confirms **no alert email was received** for the probe
+   window. The gate was configured with a live Resend key at that moment, so a completed `_send`
+   would have produced one. This is decisive and does not depend on any log level.
+   (b) **The two WARNING branches are visible on this host and both are zero** across 48 h, so
+   `_send` neither failed with a status nor threw.
+   (c) **The timing below**, which is quantitative rather than an argument from absence.
+   **Filed as drift: `logging.basicConfig` silently does nothing on the managed runtime, so
+   INFO-level application logging is discarded on the host that serves the public transcript sink.
+   That is a defect in its own right, independent of this measurement.**
 2. **The filing checked two of the three outcome branches; all three are zero.** `_send` has
    exactly three terminal log statements — success (INFO), HTTP-error (WARNING) and a bare
    `except Exception` (WARNING, `exc_info=True`). Checking only the first two leaves the reading
