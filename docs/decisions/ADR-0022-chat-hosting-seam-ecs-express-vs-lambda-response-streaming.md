@@ -2492,8 +2492,9 @@ Two further notes, because "not a blocker" must not read as "fine":
 
 ## 28. New drift found by this amendment — for the loop, not the architect (continues §24.9 at 18)
 
-*Items 18–24 are the third amendment's. **Items 25–28 are the fourth amendment's (§29)** and are
-listed here rather than under §29 so there stays exactly one drift list in this ADR.*
+*Items 18–24 are the third amendment's. **Items 25–28 are the fourth amendment's (§29)** and
+**items 29–32 are the fifth amendment's (§30)**; all are listed here rather than under their own
+sections so there stays exactly one drift list in this ADR.*
 
 18. **`aws/chat-stream-template.yaml`'s `ReservedConcurrency` parameter overloads `0`** (§26.4): `0`
     means "do not reserve / unbounded" to the template and "disable the function" to the Lambda API,
@@ -2566,9 +2567,46 @@ listed here rather than under §29 so there stays exactly one drift list in this
     instead of the raw value; or drop the line, since it carries no diagnostic the response does not.
     `main.py` **IS** on `SECURITY_GLOB`, so this one needs its own clearance — do not fold it into
     the §29.7 clearance, which is scoped to `aws/chat-template.yaml` only.
+    **RULED 2026-10-07 — DECISION 9 (§30.1): fixed at the IDENTITY, not at the log site, and the
+    clearance is §30.4.** The "smallest sufficient fix" proposed in this item (a hash or a
+    character-class-restricted slice *at the log site*) is **rejected**: §30.2's AST sweep found the
+    same value reaching **four** sinks (this one plus `transcript_store.py:203`, `:215`, `:221`), so a
+    log-site fix needs four applications today and a fifth whenever a sink is added — and N grew twice
+    in one day. An anchored `pattern` on the three `sessionId` fields closes all four at one point.
+    `main.py:1046` is therefore left **unchanged**. This item's diagnosis was right and its prescription
+    was too narrow, which is why both are kept.
 28. **`docker/chat/app/transcript_store.py:27-41` carries the retracted A3.2 "undercount" reasoning**
     (§29.6). Prose only; the constant and all behaviour stay. Not on `SECURITY_GLOB`. Detail and the
     replacement justification are in ADR-0020's A3.2 correction.
+29. **`transcript_store.py:203` is a FOURTH caller-text log sink, and it was not filed** (§30.2).
+    `logger.exception("Failed to persist chat transcript id=%s", resolved_id)` sits in the SAME
+    `except` branch as the two `fire_alert` summaries at `:215`/`:221`, so the deterministic
+    byte-budget path through the public sink reaches it too — and because `resolved_id` lands
+    unescaped it can carry `CHAT_ALERT event=` and fire the §29.4 alarm, making it an instance of
+    item 27's class rather than the summary-forging class. **CLOSED BY DECISION 9** (§30.1) at the
+    model, with no edit to this file; listed because the sweep that found it is the record that the
+    earlier `logger\.`-only greps were not exhaustive. The shape that finds all four is in §30.2:
+    two sinks (`logger.*` AND `fire_alert`'s `summary`), walked with an AST, not a regex.
+30. **`/api/live/probe` can in principle echo the caller's `?greet=` into a logged field** —
+    `main.py:1181` logs the probe `result`, and `live_gemini.py:399` builds `result['error']` from an
+    exception raised around the WS send that carries `greet_text` (`main.py:1160`). Requires Google to
+    reflect request content into an exception string: **NOT demonstrated**. Contained today — the route
+    needs `CHAT_READY_VERBOSE=1` or the verbose secret, and `CHAT_READY_VERBOSE=1` is set only on
+    `aws/chat-express-template.yaml:170` (stage ECS), a host with no metric filter, while both Lambda
+    hosts return `404`. **It becomes live the moment `CHAT_READY_VERBOSE=1` reaches a Lambda host** —
+    which is also item 23's orbit, so decide the two together. Not in DECISION 9's scope.
+31. **The Tier-1 line is safe but not parseable** (§30.3a). `CHAT_ALERT event=%s env=%s %s` puts free
+    prose in the third field, so `transcript session <id> hit its byte budget` gives a parser no way
+    to extract the id. DECISION 9 makes the id safe to print; it does **not** make the line legible.
+    The fix — the id as its own structured field — is a change to the Tier-1 line **contract**, pinned
+    by invariant 19 and watched by the metric filter deployed in `e2b7083`, so it **needs its own ADR
+    and a migration note** and was deliberately kept out of DECISION 9's clearance. Open legibility
+    debt; do not report it as part of the security finding.
+32. **Invariant #19's citation of the `transcript_store.py` alert sites is stale** —
+    `project-invariants.md` says *"`transcript_store.py:180,186` (2 types)"*; the actual `fire_alert`
+    calls are at **`:215` and `:221`**. The claim is still true, only the line refs drifted. Prose
+    only, and `transcript_store.py` is not on `SECURITY_GLOB`. Fold into the same pass as items 21
+    and 26, which are also invariant/docstring prose in this file's orbit.
 
 ---
 
@@ -3062,3 +3100,418 @@ complete, queryable Tier-1 record — a strictly better degraded state than toda
 >   `list-subscriptions` check and the per-alarm `≥1 subscription` check; and do not run B-5's
 >   liveness check inside the §29.1(4) cutover window.
 
+
+---
+
+## 30. Fifth amendment, 2026-10-07 — **DECISION 9: bound the `sessionId` identity, not the four sinks that print it; and the startup announcement (G5)**
+
+Context: Tier 2 (E6) is **built, mutation-verified, deployed to stage and verified on the deployed
+resources** — commits `e2b7083` (both templates; the gated file took §29.7's blocks verbatim, 69
+lines inside the 75/0/0 budget) and `93c9233` (deploy wiring). Confirmed on AWS rather than inferred
+from stack events: `/gvp/chat/stage` and `/gvp/chat-stream/stage` both exist at `RetentionInDays: 30`,
+both functions' `LoggingConfig.LogGroup` point at them, both metric filters carry
+`FilterPattern: "CHAT_ALERT event="` with distinct metrics (`ChatAlertLines-httpapi-stage`,
+`ChatAlertLines-stream-stage`), and both alarms exist wired to topics. Suites green: app 211/210/0/1,
+chat 144.
+
+**E6 having shipped is what promotes §28 item 27 from a finding to an open window**, and it is the
+reason this amendment exists.
+
+### 30.0 Two deployed observations folded into the record
+
+**(a) §29.5's subscription check is now load-bearing, and the account is worse than when it was
+written.** Measured 2026-10-07, per topic: `gvp-chat-stage-ChatErrorTopic` **PENDING**;
+`gvp-chat-lambda-stream-stage-ChatStreamAlertTopic` **PENDING** (new — created by this very deploy);
+`page-ContactAlarmTopic` (**prod**) **NO SUBSCRIBERS** (§28 item 25); `page-staging-ContactAlarmTopic`
+confirmed. **Three of four chat/contact topics cannot deliver, and the two alarms E6 just shipped are
+among them until the owner clicks the confirmation link.** This is not a defect in E6 — it is the
+precondition §29.7 listed, now measured as unmet. Recorded here so that no later reader mistakes
+"alarm exists and is wired to a topic" for "a human gets told". **The owner has been informed; it is
+an owner action, not a loop action, and it does not block anything in this amendment.**
+
+**(b) The stream alarm reads `INSUFFICIENT_DATA`, not `OK` — as designed, and now measured rather
+than predicted.** §29.4's `DefaultValue: 0` reasoning is correct *and* its stated limit is the
+operative case: a zero is published for a non-matching **ingested** event, and an idle function
+ingests nothing, so there is **no datapoint at all**. The §29.4 caveat *"on an IDLE function there is
+no event at all, so this is not a heartbeat"* is therefore **confirmed in the deployed state**.
+`INSUFFICIENT_DATA` on a quiet stream host is the expected reading and must not be filed as a defect.
+With `TreatMissingData: notBreaching` it also cannot raise a false alarm.
+
+### 30.1 DECISION 9 (Slice A) — **bound the identity with an anchored `pattern` on all THREE models. The log sites change not at all.**
+
+The brief offered three shapes (sanitize at the log site / stop logging caller text / constrain the
+model) and the mid-task correction added a fourth (restructure the Tier-1 line into parsed fields).
+**The ruling is the third, and the reason is what the sweep found rather than a preference between
+styles.**
+
+**The finding that decides it: there are four sinks, and all four print the SAME value.** It is not
+four defects; it is **one unbounded identity reaching four sinks**. That is visible in the history of
+this very investigation — the log-site diagnosis found sink 1, the mid-task sweep found sinks 3 and 4,
+and this amendment's AST sweep (§30.2) found sink 2, which nobody had filed. A fix applied at the
+sinks must be applied N times and re-applied whenever N grows, and N grew twice in one day. A fix
+applied at the identity is applied once and is complete by construction.
+
+**It is continuous with already-pinned policy, not a new posture.** Invariant #17 already rules that
+`sessionId` is an identity — *"`max_length=128`, rejected not clamped"* — pinned by two tests
+(`test_api.py::test_over_long_session_id_is_rejected_and_persists_nothing` and its
+`/api/live/transcript` sibling) and a third (`test_live_session.py::test_live_session_session_id_too_long_400`).
+`turn_input.py:117-118` already describes the id as *"bounded separately by rejection at
+main.py:163"*. A `pattern` is the **character-space half of the bound the project already enforces in
+length**. That makes Slice A **additive to an existing contract**, and per this architect's own rule
+the design step would normally be skipped — it is written up only because the file is gated and the
+anchoring detail below is a trap.
+
+**THE ANCHORS ARE LOAD-BEARING — measured, because this is the way the fix ships and does nothing.**
+Pydantic applies `pattern` with `re.search` semantics, not `fullmatch`. Measured on pydantic 2.13.3
+(the version resolved from `fastapi==0.115.6`; pydantic is **not pinned** in either
+`requirements.txt` or `requirements-lambda.txt`):
+
+| input | `pattern=r'[A-Za-z0-9._-]+'` | `pattern=r'^[A-Za-z0-9._-]{1,128}$'` |
+|---|---|---|
+| `'CHAT_ALERT event=x env=prod'` | **ACCEPT** | reject (`string_pattern_mismatch`) |
+| `'x env=prod event=chat_upstream_unavailable'` | **ACCEPT** | reject |
+| `'abc\n'` | **ACCEPT** | reject |
+| `'abc\nCHAT_ALERT event=x'` | **ACCEPT** | reject |
+| `'0f8e7d6c-1a2b-3c4d-5e6f-708192a3b4c5'` (`randomUUID`) | ACCEPT | **ACCEPT** |
+| `'chat-1760000000000-1a2b3c4d5e6f'` (js fallback) | ACCEPT | **ACCEPT** |
+| `'chat-0f8e7d6c-…'` (server `uuid4` fallback) | ACCEPT | **ACCEPT** |
+| `'x' * 200` | reject (`string_too_long`) | reject (`string_too_long`) |
+
+**An unanchored pattern is a no-op against the attack.** Anything the implementer writes without
+`^…$` passes review by looking like a fix and changes nothing. This is why the authorized text is
+published verbatim in §30.4 rather than described.
+
+*(Engine note, so the reasoning is not over-claimed: `'abc\n'` is rejected because pydantic v2's Rust
+regex engine does not match `$` before a trailing newline, where Python's `re` would. The ruling does
+not rest on that — the character class excludes both the space and the `=` that
+`CHAT_ALERT event=` requires, so the filter term is unreachable under **any** anchoring semantics.
+The anchors are what stop the attack; the engine nuance only affects a lone trailing newline.)*
+
+**It is not lossy — verified against every producer, not assumed.** The brief rightly flagged that a
+`pattern` "could reject an existing client's ids", so the producers were enumerated:
+`js/chat.js:187-188` `crypto.randomUUID()` (charset `[0-9a-f-]`, 36 chars); `js/chat.js:191`
+`` `chat-${Date.now()}-${Math.random().toString(16).slice(2)}` `` (charset `[a-z0-9-]`);
+`transcript_store.py:182` `f"chat-{uuid4()}"`. All three conform. **The decisive fact is storage:**
+the id is held in `sessionStorage` (`js/chat.js:194-196`), which is per-tab and does not outlive the
+tab — so **there is no population of legacy ids that a new bound could begin rejecting.** The named
+risk is real in general and empirically absent here. Rows already in DynamoDB are unaffected: the
+bound gates **writes**, and the admin panel reads by exact key.
+
+**It is sufficient — verified at the other end too.** Both `persist_turn` call sites pass
+`payload.sessionId` from a validated model (`main.py:798` `ChatRequest`, `main.py:1250`
+`LiveTranscriptTurn`), and the only other value `resolved_id` can take is the store's own
+`chat-{uuid4()}`. So bounding the three models leaves the store unable to receive an unvalidated id.
+**No change is needed in `transcript_store.py` and none is authorized** — including at `:203`, the
+sink this amendment discovered.
+
+**It creates no new echo path — checked, because a validator that reflects the attack string would be
+a self-own.** `request_validation_handler` (`main.py:1268-1285`) returns `errs[0].get("msg")` **only**,
+and for `string_pattern_mismatch` that msg is `"String should match pattern '^[A-Za-z0-9._-]{1,128}$'"`
+— the pattern, never the input. Pydantic's error dict *does* carry `'input': 'CHAT_ALERT event=x env=prod'`,
+and the handler never touches it. The handler also **logs nothing at all**. So the rejected hostile
+string reaches neither the response body nor the log group.
+
+**One deliberate behaviour change, named rather than discovered later.** `{1,128}` makes an explicit
+`sessionId: ""` a 400 where today it is accepted and then replaced by the store's `chat-{uuid4()}`.
+That is correct — an identity that is present-but-empty is not an identity, and `null` remains
+allowed (`str | None`, default `None`), which is the case the uuid fallback exists for. **No producer
+emits `""`:** `getOrCreateSessionId` skips falsy values (`if (existing) return existing`) and its
+catch path mints a fresh id; `js/chat-live.js:678` sends `null`, not `''`, when no getter is present.
+The loop must still **pin this explicitly**, because an unflagged behaviour change is exactly the
+defect class this amendment is trying not to add.
+
+**Why the three rejected shapes were rejected.**
+- **Sanitize at the log site** — fixes instances, leaves the identity unbounded, needs four
+  applications today and a fifth whenever a sink is added. It also leaves a value in **storage** (the
+  partition key) that we would simultaneously be declaring unfit to **print**: incoherent.
+- **Log a hash or a length** — discards the diagnostic, and does not address sinks 3 and 4 at all,
+  which exist precisely to tell an operator *which* session filled its budget. A hash there is
+  useless.
+- **A helper in `turn_input.py`** (the brief's own suggestion, to shrink the gated surface) — the
+  instinct was right and is **superseded by something smaller**: the gated surface of this ruling is
+  three field declarations plus one comment block, which is less code and less indirection than a
+  helper plus four call sites, one of them gated. **No `turn_input.py` change is authorized.**
+- **Restructuring the Tier-1 line into parsed fields** (the mid-task correction's Q1 alternative) —
+  **the right long-term shape, and explicitly NOT authorized now.** See §30.3a.
+
+### 30.2 The sink sweep — the shape to grep for, and the exhaustive answer
+
+The brief asked for the shape rather than another guess, since a grep over
+`payload.`/`request.`/`session_id`/`userText` found sink 1 and missed the rest. **The shape is: two
+sinks, not one, and the second is indirect.**
+
+1. `logger.(debug|info|warning|error|exception|critical|log)` — the direct sink.
+2. **`fire_alert(event_type, summary, …)` — `summary` is interpolated into `alerts.py:97`'s
+   `logger.warning`, so every `fire_alert` call site is a log call site.** This is the one a
+   `logger\.` grep structurally cannot find. `detail=` is **not** a log sink: it reaches only
+   `_send`'s email subject/body and never a log line.
+
+Greping that reliably needs an **AST walk, not a regex**, because 9 of the calls span multiple lines
+and a line-oriented grep sees only the format string. Done that way, **56 sink calls** across
+`docker/chat/app/*.py` were enumerated and classified. **Exactly four carry caller-controlled
+characters, and all four carry the same value:**
+
+| # | site | expression | status |
+|---|---|---|---|
+| 1 | `main.py:1046` | `payload.sessionId[:48]` | §28 item 27, as filed |
+| 2 | `transcript_store.py:203` | `logger.exception("… id=%s", resolved_id)` | **NEW — found by this sweep, filed below as item 29** |
+| 3 | `transcript_store.py:215` | `f'transcript session {resolved_id} hit its byte budget'` | mid-task correction's "path 2" |
+| 4 | `transcript_store.py:221` | `f'transcript persist failed for session {resolved_id}'` | mid-task correction's "path 2" |
+
+Sink 2 matters and had not been filed: it is reached in the **same `except` branch** as sinks 3 and 4,
+so the deterministic byte-budget path through the public sink hits it too — and because `resolved_id`
+lands inside the string unescaped, it can carry `CHAT_ALERT event=` and **fire the alarm**, making it
+an instance of path 1's class, not path 2's. **All four are closed by DECISION 9 at a single point,
+which is the argument for DECISION 9 in one sentence.**
+
+**The near-misses, recorded so the loop does not "fix" them.** `main.py:430`/`:1089`/`:395` and
+`knowledge_context.py:131` interpolate exception text — upstream, filesystem or env derived, not
+caller derived. `main.py:151` logs only `len(s)`. `gemini_routing.py`'s ten `fire_alert` summaries are
+built from `model_id`, `self.fallback_id` and `type(e).__name__` — all server-side. `providers.py:37`
+and `main.py:393` log env values (operator-controlled, not caller-controlled).
+
+**The one residual, stated rather than claimed closed.** `main.py:1181` logs the probe `result`, and
+`live_gemini.py:399` sets `result['error'] = f'upstream_failed: {type(exc).__name__}: {exc}'` from an
+exception raised around the WS send that carries the caller-supplied `?greet=` query param
+(`main.py:1160`). An echo therefore requires Google to reflect request content into an exception
+string — **not demonstrated.** Containment is better than the path: `/api/live/probe` requires
+`_live_probe_allowed` (`CHAT_READY_VERBOSE=1` or the verbose secret), and `CHAT_READY_VERBOSE=1` is set
+on **`aws/chat-express-template.yaml:170` (stage ECS) only** — a host with **no metric filter** — while
+both Lambda hosts, the ones E6 watches, leave it unset and return `404`. **So the residual cannot fire
+Tier 2 today.** It becomes live the moment `CHAT_READY_VERBOSE=1` reaches a Lambda host, which is also
+§28 item 23's orbit. Filed as item 30, not fixed, not in scope.
+
+### 30.3 Slice B (G5) — confirmed, with one correction to the shape and one prohibition
+
+Confirmed as scoped: the helper belongs in **`alerts.py`** (not on `SECURITY_GLOB`), which owns the
+gate predicate it reports on, and **`main.py` carries only the import and the call**. Verified there
+is no import cycle: `alerts.py` imports stdlib only (`asyncio`, `logging`, `os`, `threading`, `time`,
+`typing`), so a module-scope import in `main.py` is safe and the lazy in-function imports used by
+`gemini_routing.py` and `transcript_store.py` need not be imitated.
+
+**CORRECTION to the earlier scoping — placement is load-bearing, and the obvious placement is wrong.**
+`lifespan` has **two `yield`s**: `main.py:407` (inside the `if app.state.knowledge_pack is None …`
+branch, followed by `return`) and `main.py:431`. An announcement placed near the end of `lifespan` is
+therefore **skipped on exactly the degraded startup where knowing the alert gate's state matters
+most**. It must be the **first statement of the `lifespan` body**, before `pack_dir = …` — which also
+puts it ahead of every `try`/`except`, so no initialisation failure can suppress the drift detector.
+*The earlier "~2 lines in `lifespan`" scoping did not account for the second `yield`; this corrects it.*
+
+**PROHIBITION — the announcement MUST NOT contain the literal `CHAT_ALERT event=`.** That is the
+§29.4 metric filter's pattern. A startup line matching it would fire the Tier-2 alarm **on every cold
+start**, and on Lambda cold starts are frequent — turning E6 into a self-inflicted alarm storm on its
+first day. The natural instinct ("be consistent with the Tier-1 prefix") produces exactly this bug.
+**Tier 1 is for EVENTS; this line is CONFIGURATION, and they must not share a prefix.** Checked
+against the authorized text: the DARK line contains `CHAT_ALERT_EMAIL`, where `CHAT_ALERT` is followed
+by `_` and not by a space, so `grep -c "CHAT_ALERT event="` returns **0**. Verified, not reasoned.
+
+**What it must say.** Three conjuncts over five names (`alerts.py:33-54`), reported as the
+**conjuncts** — `A|B` for the either/or pairs — because naming five flat names would imply all five
+are required and send the owner to set two addresses they do not need. Plus the **env label**, since
+invariant 19's corollary makes `CHAT_ENV` part of the gate and an alert attributed to `'unknown'` is
+nearly unusable. **Level: `WARNING` when dark, `INFO` when configured** — one line either way, as G5
+requires. WARNING-when-dark because that is the condition a human must act on; not WARNING always,
+because a healthy start must not add noise to the stream operators scan for warnings (the distinction
+§28 item 26 was about).
+
+#### 30.3a NOT authorized now — the Tier-1 line's field structure
+
+The mid-task correction's instinct is right: `CHAT_ALERT event=%s env=%s %s` with free prose in the
+third field is **unparseable by construction** — `transcript session <id> hit its byte budget` gives a
+parser no way to extract the id, so sanitizing the id makes the line *safe* without making it
+*readable*. **That is a change to the Tier-1 line contract**, which invariant 19 pins and the metric
+filter deployed in `e2b7083` watches. It therefore needs its own ADR and a migration note, and it is
+**not needed to close the vulnerability** once the identity is bounded. **Folding it into this window
+would be exactly the seam change this architect's rules say must not ride along in a clearance.** Filed
+as item 31. Treat 30.1 as closing the security finding and item 31 as an open legibility debt — they
+are different claims and must not be reported as one.
+
+### 30.4 The authorized edit — exact blocks, counted, and the SECURITY CLEARANCE
+
+Two files change. **`docker/chat/app/alerts.py` is NOT on `SECURITY_GLOB`** (verified against
+`.claude/tdd.config:68`, whose ERE lists `docker/chat/app/(main|lambda_handler|live_env|live_gemini)\.py`
+only) — Block B1 needs no clearance and is not covered by the one below. **`docker/chat/app/main.py`
+IS on `SECURITY_GLOB`.** Blocks A1, A2, B2 and B3 are the authorized edit, written out so the count is
+verifiable rather than asserted; the budget is a count of this text, produced with `wc -l`.
+
+**EDIT BOTTOM-UP, or anchor on the quoted text.** Line numbers are as at commit `93c9233`, where
+`main.py` is **1285 lines**; inserting Block B2 at line 23 shifts every later number by one.
+
+**Block A1 — INSERT at line 160, immediately before `class ChatRequest(BaseModel):`. 17 lines (15 comment + 1 constant + 1 trailing blank).**
+
+```python
+# ADR-0022 §30.1 — `sessionId` is an IDENTITY, so its CHARACTER space is bounded
+# like its length already is (invariant #17, "rejected not clamped"). It is the
+# DynamoDB partition key AND it reaches four log/alert sinks: main.py:1046,
+# transcript_store.py:203, and the two `fire_alert` summaries (:215, :221) that
+# alerts.py:97 interpolates into the Tier-1 line. Unbounded, an anonymous caller
+# could plant `CHAT_ALERT event=` and fire the §29.4 alarm on demand, or forge
+# `env=`/`event=` INSIDE a real alert line so a stage write failure reads as a
+# prod outage. Bounded HERE, at the one identity, not at the four sinks.
+# THE ANCHORS ARE LOAD-BEARING: pydantic matches with re.search semantics, so an
+# unanchored `[A-Za-z0-9._-]+` ACCEPTS 'CHAT_ALERT event=x env=prod' — measured
+# on pydantic 2.13.3. Without `^...$` this bound is a silent no-op.
+# NOT LOSSY, verified: every id the app mints conforms — `crypto.randomUUID()`
+# and `chat-${Date.now()}-${hex}` (js/chat.js:187-191) and the store's own
+# `chat-{uuid4()}` (transcript_store.py:182) — and ids live in sessionStorage,
+# which does not outlive the tab, so there is no legacy id population to reject.
+SESSION_ID_PATTERN = r'^[A-Za-z0-9._-]{1,128}$'
+
+```
+
+**Block A2 — MODIFY lines 163, 167 and 171. 3 lines modified, 0 added.** All three are byte-identical
+today, and all three take the byte-identical replacement, so this is one `replace_all` edit — which is
+also the only safe way to do it, since the strings are not individually unique.
+
+from (×3):
+```python
+    sessionId: str | None = Field(default=None, max_length=128)
+```
+to (×3):
+```python
+    sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
+```
+91 characters; the file already carries 32 lines longer than 88 and a maximum of 109, so it does not
+wrap. **If a fourth `sessionId` field exists or appears, this clearance does not cover it — come back.**
+
+**Block B2 — INSERT at line 23, immediately before `from app.gemini_routing import GeminiRoutingChain`. 1 line.**
+
+```python
+from app.alerts import log_alert_gate_status
+```
+
+**Block B3 — INSERT as the FIRST statement of the `lifespan` body: at line 363, immediately before `    pack_dir = default_pack_dir()` (line 363 at this commit; 364 after Block B2). 4 lines.**
+
+```python
+    # ADR-0022 §26.5 G5 — FIRST statement in lifespan on purpose: the knowledge
+    # branch below has its own `yield` + `return` (:407-408), so anything placed
+    # later is skipped on exactly the degraded start where the gate matters most.
+    log_alert_gate_status()
+```
+
+**Block B1 — `docker/chat/app/alerts.py`, UNGATED, no clearance needed. INSERT after line 54 (`    return bool(_dest_email() and _from_email() and _api_key())`), i.e. between `alerts_enabled()` and `_cooldown_seconds()`. 30 lines (1 leading blank + 28 + 1 trailing blank).**
+
+```python
+
+def log_alert_gate_status() -> None:
+    """Announce Tier-2 (email) readiness once at startup — ADR-0022 §26.5 G5.
+
+    This is the DRIFT DETECTOR: invariant 19 is a property of the APPLICATION,
+    so the next host added to this seam must fail LOUDLY rather than silently,
+    the way both stage Lambda hosts did on 2026-10-07. It names the missing
+    conjuncts, because knowing the gate is shut is useless without knowing why.
+
+    MUST NOT contain the literal 'CHAT_ALERT event=' — that is the §29.4 metric
+    filter's pattern, and a startup line matching it would fire the Tier-2 alarm
+    on every cold start. Tier 1 is for EVENTS; this line is CONFIGURATION.
+    """
+    missing = [
+        names
+        for names, value in (
+            ('CHAT_ALERT_EMAIL|CONTACT_REPORT_EMAIL', _dest_email()),
+            ('CHAT_ALERT_FROM_EMAIL|CONTACT_FROM_EMAIL', _from_email()),
+            ('RESEND_API_KEY', _api_key()),
+        )
+        if not value
+    ]
+    if missing:
+        logger.warning(
+            'alert gate DARK env=%s missing=%s - Tier 1 lines still emit, email does not',
+            _env_label(), ','.join(missing),
+        )
+    else:
+        logger.info('alert gate ready env=%s', _env_label())
+
+```
+
+`_env_label()` is defined at `alerts.py:110`, below this insertion point; Python resolves it at call
+time, so the order is fine and must not be "fixed" by moving anything.
+
+> ## SECURITY CLEARANCE — granted 2026-10-07, ADR-0022 DECISION 9
+>
+> - **File:** `docker/chat/app/main.py` (on `SECURITY_GLOB` via
+>   `(^|/)docker/chat/app/(main|lambda_handler|live_env|live_gemini)\.py`).
+>   **This clearance covers that file and nothing else.** `docker/chat/app/alerts.py` (Block B1) is
+>   off the glob and needs no clearance; it is published above so its shape is fixed, not blessed here.
+> - **Scope: ONE window, TWO slices** (§30.5). Slice A = Blocks A1 + A2. Slice B = Blocks B2 + B3.
+> - **Insertion / modification points, at commit `93c9233` where `main.py` is 1285 lines:** insert at
+>   **160** (before `class ChatRequest(BaseModel):`); modify **163**, **167**, **171** (the three
+>   byte-identical `sessionId` fields, one `replace_all`); insert at **23** (before
+>   `from app.gemini_routing import …`); insert at **363** (before `    pack_dir = default_pack_dir()`).
+>   **Edit bottom-up or anchor on text — Block B2 shifts every later line by one.**
+> - **Line budget, counted from the blocks above with `wc -l`, not estimated:** **22 lines added**
+>   (A1 17 + B2 1 + B3 4), **3 lines modified** (A2), **0 removed**.
+>   **Budget: 26 added / 0 removed / 3 modified.** The 4-line cushion is named, not padding: comment
+>   reflow in Block A1 at the file's wrap width, and the Block B2 import possibly sorting to a
+>   different position in the `from app.*` group. **`modified` is exact at 3 — if the edit needs a
+>   4th line modified, or ANY line removed, this clearance does not cover it; come back.**
+> - **Why it is safe at this size:** the edit adds a module constant, tightens three existing
+>   validation bounds in the same direction they already point (narrower, never wider), adds one
+>   import, and adds one startup call. It touches **no** authentication, **no** secret or credential
+>   read, **no** CORS configuration, **no** token minting, **no** IAM, and **no** request handler
+>   body. Slices A and B touch **disjoint regions** of the file (160-171 vs 23 and 363) and share no
+>   symbol, so neither can affect the other.
+> - **Four checks the reviewer must make, all specific to this edit:**
+>   1. **The pattern is anchored.** `^` and `$` must both be present. Pydantic matches with
+>      `re.search` semantics, so an unanchored class **accepts** `CHAT_ALERT event=x env=prod`
+>      (measured, §30.1) and the fix becomes a silent no-op that still reviews as a fix.
+>   2. **The announcement does not contain `CHAT_ALERT event=`.** Run
+>      `grep -c 'CHAT_ALERT event=' ` over the added text; it must be 0 outside `alerts.py:97`. A
+>      match fires the §29.4 alarm on every cold start.
+>   3. **Block B3 is the FIRST statement of the `lifespan` body**, not merely "early" and not near the
+>      end — `lifespan` has a second `yield` at `:407` whose branch `return`s, and anything after it
+>      is skipped on the degraded start.
+>   4. **Nothing in `transcript_store.py` changes**, including `:203`, `:215`, `:221`. The identity is
+>      bounded upstream; a redundant sink-side sanitizer is not authorized and would re-introduce the
+>      per-sink maintenance this decision exists to avoid.
+> - **Explicitly NOT cleared by this:** restructuring the Tier-1 line's fields (§30.3a / item 31);
+>   any change to `alerts.py:97`; a helper in `turn_input.py`; `aws/template.yaml`;
+>   `aws/chat-template.yaml` (that was §29.7's window, now closed); anything in `aws/src/`;
+>   `lambda_handler.py`, `live_env.py`, `live_gemini.py`.
+> - **The three existing tests stay green and must not be edited:**
+>   `test_api.py::test_over_long_session_id_is_rejected_and_persists_nothing`, its
+>   `/api/live/transcript` sibling, and `test_live_session.py::test_live_session_session_id_too_long_400`
+>   — all assert `400` + `code == "validation_error"`, which the handler returns for any non-`json_invalid`
+>   error, so `string_too_long` → `string_pattern_mismatch` does not disturb them. Every `sessionId`
+>   literal in the chat suite (`sess-unit`, `sess-timeout`, `session-abc`, `s-maximal`,
+>   `hostile-probe`, `byte-budget-probe`, `sort-key-probe`, `voice-telemetry`) conforms to the pattern.
+> - **Two things the loop must pin as new tests** (not optional — they are the acceptance for this
+>   window): (1) a hostile `sessionId` of `CHAT_ALERT event=x env=prod` is rejected `400` on **all
+>   three** routes and persists nothing; (2) the deliberate behaviour change in §30.1 — an explicit
+>   `sessionId: ""` is now `400`, while `sessionId: null` still succeeds.
+> - **Operating notes:** layer must be `chat` (not `app`) for these edits. **Land Slice A and Slice B
+>   as two separate commits** so a revert is per-slice even though the window is shared. **Delete
+>   `.claude/state/security-clearance` the moment the last authorized edit lands** — the hook exports
+>   `SECURITY_REVIEW=1` for as long as that file is non-empty and is not path-scoped, so a stale file
+>   disarms the guard for edits nobody reviewed.
+
+### 30.5 One window, not two — and the reason, since the brief asked for it
+
+**One window.** The brief asked whether two slices in one gated file need separate clearances and
+asked for the reason either way. They do not, and the reason is a property of the hook rather than a
+judgement about the slices: `.claude/hooks/local.d/security-clearance.sh` exports `SECURITY_REVIEW=1`
+while the clearance file is non-empty, and its own header records that the file is **"deliberately NOT
+path-scoped"** because `lib.sh` is sourced before the guard knows which path is being edited. Two
+sequential windows would therefore grant **exactly the same permission twice** and buy **no
+additional containment** — the containment comes from the written budget and the check list, not from
+the number of files written. Splitting would cost a round trip and purchase nothing.
+
+What makes it safe here is specific, not general: same file, same commit, **disjoint line regions**
+(160-171 vs 23 and 363), no shared symbol, and both slices narrow or add rather than widen. **Two
+windows would be right if the slices overlapped, if either removed a line, or if one of them touched
+auth/secret/CORS/IAM** — none of which holds. The per-slice budgets above preserve the only property
+a split would have given: a reviewer can still tell which lines belong to which slice.
+
+### 30.6 Process note on this amendment
+
+Two clearances earlier in this session carried defects the orchestrator caught — one budgeted four
+lines where six were needed, one cited ADR sections that did not yet exist. Countermeasures actually
+applied here, rather than promised: every block above was written to a file and counted with `wc -l`;
+the pydantic anchoring table is measured output from pydantic 2.13.3, not recalled behaviour; the
+sink census is an AST walk, not a regex; the line length of the modified field was measured (`wc -c`
+→ 91) against the file's existing maximum (109); the `CHAT_ALERT event=` non-match of the DARK line
+was checked with `grep -c`; the second `yield` in `lifespan` was found by reading the function rather
+than trusting the earlier scoping, and it **falsified** this architect's own prior "~2 lines in
+`lifespan`" note, which §30.3 corrects in place rather than quietly restating. Every section
+cross-referenced above (§26.5 G5, §28 item 27, §29.1-29.7, invariants #14/#17/#19) was read in this
+pass and exists.
