@@ -543,6 +543,24 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     CHAT_STREAM_PO+=("$(sam_param_override ChatAlertEmail "${CHAT_ALERT_TO}")")
     CHAT_STREAM_PO+=("$(sam_param_override ChatAlertFromEmail "${CHAT_ALERT_FROM}")")
   fi
+
+  # Tier 2 (ADR-0022 §29.4, invariant 19). SEPARATE from the three above and not gated on
+  # CHAT_ALERTS_LIT, because the two tiers fail independently: those three feed the in-process
+  # Resend send, which §25.3-M MEASURED as LOST on Lambda, while this one feeds the metric
+  # filter alarm that is the only path which actually delivers there. Gating Tier 2 on the
+  # Tier-1 email config would make the working channel depend on the broken one.
+  # The log group and the metric filter deploy unconditionally; an empty value here skips only
+  # the topic and the alarm, leaving a complete, queryable Tier-1 record.
+  # Reuses the same resolved recipient as the email tier so it needs no extra setup.
+  CHAT_STREAM_ALARM_EMAIL="${CHAT_ALERT_ALARM_EMAIL:-${CHAT_ALERT_TO:-${ALARM_EMAIL:-}}}"
+  if [[ -n "${CHAT_STREAM_ALARM_EMAIL}" ]]; then
+    CHAT_STREAM_PO+=("$(sam_param_override ChatAlertAlarmEmail "${CHAT_STREAM_ALARM_EMAIL}")")
+    echo "chat tier-2 alert alarm [lambda-stream ${CHAT_STREAM_STACK}]: ON -> ${CHAT_STREAM_ALARM_EMAIL}"
+    echo "  NOTE: an SNS email subscription must be CONFIRMED before it delivers. Verify with:"
+    echo "    aws sns list-subscriptions --region ${REGION} --query \"Subscriptions[?SubscriptionArn=='PendingConfirmation'].[TopicArn,Endpoint]\" --output table"
+  else
+    echo "chat tier-2 alert alarm [lambda-stream ${CHAT_STREAM_STACK}]: no topic (set CHAT_ALERT_ALARM_EMAIL or ALARM_EMAIL) — log group and metric still created" >&2
+  fi
   # Reconciled against the template's Parameters: block. NOT passed, because it declares no such
   # parameter and an unknown parameter key fails the whole deploy: ChatAlertCooldownSeconds (ECS
   # Express only, refused here by the architect), ChatVoiceModel, SmokeProbeKey,
