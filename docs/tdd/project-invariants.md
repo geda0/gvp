@@ -1115,6 +1115,13 @@ proves it comes FIRST.
       while the gate held a live key, which is an external oracle independent of logging; and
       `alert send failed` / `alert send errored` are both WARNING, both visible on that host, and
       both zero across 48 h, so `_send` neither failed nor threw.
+      **The defect behind the retraction is decided, not just filed:** ADR-0022 **§31 (DECISION 10)**
+      adds `logging.getLogger().setLevel(logging.INFO)` and **keeps** the inert `basicConfig` call,
+      rather than `force=True`, which would discard *and close* the runtime's handler and retire the
+      `[LEVEL]\t<ts>\t<RequestId>` framing this very measurement reads request-id correlation off.
+      Pinned by a test that installs a root handler first — asserting the level alone passes on a
+      broken host *and* passes for `force=True` — plus a post-deploy INFO count (§31.5), because a
+      `WARNING`-level **handler** would produce the same 0 and candidate B would not fix it.
       **Timing, which refutes the alternative quantitatively rather than by absence:** the first
       alert's Tier-1 line precedes its own `REPORT` by **442 ms** with no outcome line between them;
       the second by **2 ms**. A 10 s-timeout `httpx` POST to a third-party API does not complete in

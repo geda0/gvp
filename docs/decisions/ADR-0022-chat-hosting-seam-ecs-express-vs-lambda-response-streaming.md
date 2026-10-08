@@ -3536,3 +3536,206 @@ than trusting the earlier scoping, and it **falsified** this architect's own pri
 `lifespan`" note, which §30.3 corrects in place rather than quietly restating. Every section
 cross-referenced above (§26.5 G5, §28 item 27, §29.1-29.7, invariants #14/#17/#19) was read in this
 pass and exists.
+
+## 31. Sixth amendment, 2026-10-08 — **DECISION 10: `basicConfig` is inert on the managed runtime. Lower the THRESHOLD, keep the runtime's handler.**
+
+The defect filed by §25.3-M's retraction, now decided. `docker/chat/app/main.py:46` is
+`logging.basicConfig(level=logging.INFO)`. `basicConfig` configures the root logger **only when the
+root has no handlers**; the managed runtime installs one before this module imports, so the call
+returns early and sets **nothing — not even the level**, which stays `WARNING`. Every application
+`INFO` line is discarded on the host that serves the public transcript sink.
+
+**Measured, 24 h window, by filter pattern per level:** Mangum/HttpApi host (`gvp-chat-stage-ChatFunction-*`)
+**0** INFO / **2** WARNING / **2** ERROR; uvicorn/stream host **125** INFO. The orchestrator then
+reproduced the mechanism in-process — a root handler installed, root level `WARNING`, then each
+candidate tried — and the three outcomes are first-hand, not recalled:
+
+| candidate | root level after | runtime handler kept | record reaches the ORIGINAL handler |
+| --- | --- | --- | --- |
+| `basicConfig(level=INFO)` | `WARNING` | yes | — (never emitted) |
+| `basicConfig(level=INFO, force=True)` | `INFO` | **no** | **nothing** |
+| `getLogger().setLevel(INFO)` | `INFO` | yes | `[INFO]\tRID\tprobe line\n` |
+
+### 31.1 DECISION 10 — candidate (B), `logging.getLogger().setLevel(logging.INFO)`
+
+Lower the threshold; install nothing; replace nothing. One executable line, appended after the
+existing call, authorized verbatim in the clearance below.
+
+### 31.2 Why (A) `force=True` is REFUSED — and one correction to the case against it
+
+The experiment stands and is not refuted. But the case against (A) was argued on a claim that is
+**overstated, and the record should not carry it**:
+
+- **REFUTED: "(A) could break the §29.4 metric filter."** It could not. The Tier-1 line is
+  `alerts.py:129`, `logger.warning('CHAT_ALERT event=%s env=%s %s', ...)` — the matched literal lives
+  in the **message body**, not in the framing. Under (A) the line becomes
+  `WARNING:app.alerts:CHAT_ALERT event=… env=…`, and a CloudWatch **quoted term** matches a substring
+  **anywhere** in the event, so `'"CHAT_ALERT event="'` still matches. §29.4 is framing-independent
+  **by construction**: its constraint 1 rejected the space-delimited positional form precisely
+  because the framing varies (the real events arrived concatenated behind a traceback tail). The
+  pattern that survived a traceback prefix also survives a `levelname:name:` prefix. Tier 2 would
+  have kept working under (A).
+- **CONFIRMED, and sufficient on its own: (A) breaks the request-id correlation.** The record never
+  reaches the runtime's handler at all; it goes to a fresh `StreamHandler(sys.stderr)` whose format
+  is Python's default `'%(levelname)s:%(name)s:%(message)s'` — **no timestamp and no RequestId**.
+  §25.3-M's load-bearing timing argument ("the second Tier-1 line precedes its own `REPORT` by 2 ms")
+  is read off that framing. (A) would silently retire the measurement technique this ADR has twice
+  depended on to decide what a log line proves.
+- **A second objection the experiment did not test, and it is the stronger one.** CPython's
+  `basicConfig` under `force=True` does not merely detach the existing handlers — it **closes** them:
+  `for h in root.handlers[:]: root.removeHandler(h); h.close()`. The runtime's handler wraps the
+  runtime's log sink. Closing a file object owned by the bootstrap, from application code, during
+  import, is an unbounded risk taken to save one line. Refused on that alone.
+- **Considered and not chosen: (C) set the level at the runtime** (`AWS_LAMBDA_LOG_LEVEL` /
+  `LoggingConfig.ApplicationLogLevel`). **Not measured, and not needed.** It fixes one host, leaves
+  every other host latent, costs a second gated file (`aws/chat-template.yaml`) plus a deploy to
+  change a log level, is invisible to a reader of `main.py:46`, and cannot be pinned by the chat
+  suite. Recorded so nobody re-derives it as the obvious missing option.
+
+**31.2b The existing `basicConfig(level=logging.INFO)` STAYS.** It is inert on Lambda and it is
+**load-bearing everywhere else**: on a host where the root has no handlers it is what installs one
+*and* sets the level. Delete it and keep only `setLevel` and a bare interpreter has a root logger at
+`INFO` with **no handler** — `logging.lastResort` then takes over, and its level is `WARNING`, so INFO
+is dropped again by a different mechanism. "Tidying up" the no-op would reintroduce the defect on the
+hosts where the line currently works. The two lines are a pair: line 46 handles *no handler*, line 47
+handles *handler already present*. Together they cover both, which is why the comment explains the
+first is deliberate rather than dead.
+
+### 31.3 The fix is GLOBAL, in `main.py` — not host-specific in `lambda_handler.py`
+
+The defect's precondition is **"something already installed a root handler"**, not "we are on
+Lambda". Mangum is today's instance, not the class — gunicorn, a different ASGI host, or any future
+startup-order change on the stream host reproduces it. Three reasons `main.py` wins:
+
+1. **`lambda_handler.py` would fix one host and leave the class open.** It imports `app.main`, so
+   `main.py:46` has already run and returned early by the time anything in the Lambda entry executes;
+   a `setLevel` there works, but only there.
+2. **It splits log configuration across two files.** The next reader of `main.py:46` still sees a line
+   that looks like the whole story. Keeping both lines adjacent is what makes the no-op legible.
+3. **It is cheaper in clearance surface.** `main.py` is already the gated file in the window;
+   `lambda_handler.py` is separately on `SECURITY_GLOB` and adding it widens the window for no gain.
+
+### 31.4 What PINS it — and the naive test is worse than none
+
+**The naive test does not work, and the orchestrator's instinct is right: the test MUST install a
+root handler first.** Asserting the root logger's effective level after importing the app passes
+locally today *without the fix*, because where no handler pre-exists `basicConfig` works. A test
+green on a broken host is worse than no test.
+
+**And "assert the level" is still the wrong assertion** — this is the part that matters. The level
+after (A) is also `INFO`, so a level assertion passes for the **refused** candidate: it discriminates
+the defect from a fix, but not the right fix from the wrong one. **Assert that a record ARRIVES at
+the pre-existing handler, framed.** That is the behaviour the §25.3-M technique depends on, and it is
+the only assertion that is red for the defect *and* red for `force=True`.
+
+ONE test, `docker/chat/tests/test_root_log_level.py` (off `SECURITY_GLOB` — no clearance needed):
+
+- **Precondition, reproducing what makes `basicConfig` inert:** attach a handler to the **root**
+  logger whose formatter owns the framing (`'[%(levelname)s]\tRID\t%(message)s'`) writing to an
+  in-memory buffer, and set the root level to `WARNING`. Then import `app.main`.
+- **Assertion 1 (load-bearing):** emit one INFO record through a child logger; the buffer contains
+  `[INFO]\tRID\tprobe line`. Red on the defect (filtered) **and** red on (A) (delivered elsewhere).
+- **Assertion 2 (pins the ruling, not just the symptom):** the handler object installed in the
+  precondition is still `in logging.getLogger().handlers` — identity, not count. This is what a later
+  "simplification" to `force=True` trips over, and it also catches the `h.close()`.
+- **Assertion 3, the control, so it cannot pass vacuously:** the same probe emitted **before** the
+  import, under root `WARNING`, produces nothing in the buffer. Without this the test can pass
+  because the buffer was never filtered at all.
+- **It MUST run in a subprocess** (`subprocess.run([sys.executable, '-c', …])`, env carrying
+  conftest's `CHAT_PROVIDER=mock` + knowledge-pack paths), for two concrete reasons: (i) by the time
+  any test body runs, `app.main` is already imported, and `importlib.reload` re-executes module top
+  level and rebinds `app` to a **new** `FastAPI` object while other tests hold `from app.main import
+  app`; (ii) **pytest's own logging plugin attaches a handler to the root logger**, so in-process the
+  root already has a handler and a level the harness controls — which confounds the precondition and
+  the assertion simultaneously. A bare interpreter removes both.
+- **Existing tests are undisturbed:** `test_alerts.py:151` forces its level with
+  `caplog.at_level(logging.WARNING, logger=alerts.__name__)`, so nothing in the suite depends on the
+  root level.
+
+### 31.5 The one thing NOT to over-claim, and the post-deploy check that closes it
+
+**The unit test pins in-process semantics. It does not prove the real host emits INFO,** and the
+reason is specific rather than ceremonial: **two mechanisms are consistent with the 0-INFO
+measurement** — the *root logger's* level is `WARNING` (candidate B fixes it), or the *runtime
+handler's own* level is `WARNING` (candidate B is a second no-op, since a handler filters
+independently of the logger). The simulation reproduced the first because it set the root level; it
+did not and could not rule out the second on the real runtime. **The post-deploy count is the only
+thing that discriminates them.**
+
+So: after deploy, re-run the §25.3-M per-level filter count on
+`gvp-chat-stage-ChatFunction-*` over a window with traffic and **record the INFO count as a number
+here**. `0` means the handler-level mechanism is the real one and DECISION 10 is reopened, not
+closed. Anything greater than `0` closes it. Until that number is written down, §31 is decided but
+**not verified on the host it was written for** — and this amendment exists because a claim about
+what a log line proves was accepted once without that step.
+
+> ## SECURITY CLEARANCE — granted 2026-10-08, ADR-0022 §31 (DECISION 10)
+>
+> Issued verbatim at `.claude/state/security-clearance`; this is the published copy.
+>
+> - **File: ONE.** `docker/chat/app/main.py` (on `SECURITY_GLOB` via
+>   `(^|/)docker/chat/app/(main|lambda_handler|live_env|live_gemini)\.py`). **Not cleared:**
+>   `lambda_handler.py` (§31.3 declines it on the merits, not for budget), `live_env.py`,
+>   `live_gemini.py`, `alerts.py`, `aws/chat-template.yaml` (§31.2's candidate C is NOT authorized),
+>   anything under `aws/src/`. The test needs no clearance — `docker/chat/tests/` is off the glob.
+> - **Insertion point, at commit `847d2e9` where `main.py` is 1307 lines (`wc -l`):** line **45** is
+>   `logger = logging.getLogger(__name__)`, line **46** is `logging.basicConfig(level=logging.INFO)`.
+>   **Insert immediately after line 46. Line 46 itself is NOT modified and NOT removed** (§31.2b).
+>   One insertion point; no other region of the file is in scope.
+> - **Authorized text:** the 11-line block in the clearance file — 10 comment lines at column 1 plus
+>   the single executable line `logging.getLogger().setLevel(logging.INFO)`.
+> - **Budget, counted with `wc -l` off the authorized text, not estimated:** **executable lines added
+>   EXACTLY 1**; comment lines 10 as written, **at most 11**; **total added at most 12**; **modified
+>   EXACTLY 0**; **removed EXACTLY 0**; **files EXACTLY 1**. The one-line cushion is comment reflow and
+>   nothing else — and it is **measured spare**, not an allowance: the widest authorized comment line is
+>   **96** characters against the file's existing maximum of **109**, so no reflow is needed and the
+>   expected exact outcome is **11 added / 0 modified / 0 removed**. Any line modified, any line removed, a second file, or a second executable line →
+>   this clearance does not cover it; come back. The comment may be shortened; the executable line may
+>   not change by one character.
+> - **Three reviewer checks, each RUN against the authorized text before this was issued** — the
+>   defect being designed out is an earlier clearance whose check forbade a literal its own authorized
+>   docstring contained:
+>   1. `grep -cx 'logging.getLogger().setLevel(logging.INFO)' docker/chat/app/main.py` **= 1**
+>      (whole-line, unindented, module level).
+>   2. `grep -cE '^[^#]*force=True' docker/chat/app/main.py` **= 0**. The pattern is anchored past the
+>      leading `#`, so the comment may — and does, once — name `force=True` without tripping its own
+>      prohibition. **Verified: run against the authorized block, check 2 returns 0 while a plain
+>      `grep -c 'force=True'` returns 1.**
+>   3. `grep -cx 'logging.basicConfig(level=logging.INFO)' docker/chat/app/main.py` **= 1** — the
+>      pre-existing no-op survived (§31.2b). It is **1** today, before the edit.
+>   No fourth check is specified. A comment is never emitted to the log group, so no
+>   `CHAT_ALERT event=` check applies here; §30.4's was about an emitted line, and importing it would
+>   be ceremony.
+> - **Why it is safe at this size:** the edit lowers one logging threshold. It touches no
+>   authentication, no secret or credential read, no CORS configuration, no token minting, no IAM, no
+>   validation bound, and no request-handler body. **One consequence named rather than assumed:**
+>   enabling INFO on the Mangum host makes `main.py`'s `live session request session=%s` line
+>   (§29.4's forgeable sink) *visible* on that host for the first time — it was unreachable there only
+>   because INFO was being discarded. That exposure is already closed by DECISION 9 (`cf80759`), which
+>   bounds `sessionId` to an anchored `[A-Za-z0-9._-]` character class, so no caller-supplied text can
+>   reach the log group through it. **The ordering is load-bearing: this clearance would not be safe to
+>   grant before `cf80759`.**
+> - **Operating notes:** layer `chat`. Implementer edit in **green**, after §31.4's test is red. **ONE
+>   commit.** **Delete `.claude/state/security-clearance` the moment the edit lands** — the hook
+>   exports `SECURITY_REVIEW=1` for as long as that file is non-empty and it is not path-scoped, so a
+>   stale file disarms the guard for edits nobody reviewed.
+
+### 31.6 Review of the retraction (`847d2e9`) — asked for, and one item is overstated
+
+The retraction is sound and the mechanism is now first-hand. Two notes:
+
+1. **Leg (a) is called "decisive"; it is decisive for the right claim but not for the one the sentence
+   sits next to.** "No alert email arrived" proves `_send` did not **complete a delivery**. It does
+   not by itself prove the task never **ran** — that comes from (b), both failure branches WARNING,
+   visible on this host, and zero. The three legs together are tight; leg (a) alone is not, and the
+   ADR should not let a reader take it as such.
+2. **The retraction's own mechanism claim inherits the gap §31.5 names.** "The effective level stays
+   WARNING" is inferred from the 0-INFO count plus known runtime behaviour, not measured in-process on
+   Lambda — and a `WARNING`-level *handler* produces the identical count. This does not weaken the
+   retraction (which only needs "INFO was not visible", and the count establishes that directly) but
+   it does mean the sentence asserting *why* is one inference deep. §31.5's post-deploy number is what
+   retires it.
+
+Everything else holds. Nothing in the retraction overstated the verdict: it was correct to say the
+verdict is unchanged and better supported, and correct that the ADR's second withdrawn claim about
+what a log line proves belonged in the record rather than deleted.
