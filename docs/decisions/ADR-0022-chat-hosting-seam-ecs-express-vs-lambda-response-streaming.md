@@ -3781,3 +3781,56 @@ The retraction is sound and the mechanism is now first-hand. Two notes:
 Everything else holds. Nothing in the retraction overstated the verdict: it was correct to say the
 verdict is unchanged and better supported, and correct that the ADR's second withdrawn claim about
 what a log line proves belonged in the record rather than deleted.
+
+## 32. THE PROD ROLL — executed 2026-10-08. Owner-confirmed in the browser. NOT yet complete.
+
+**Shape: IDENTICAL to stage, which is what §27.1 requires for the owner's stage browser pass to
+carry A2 and D2 to prod.** CloudFront + OAC; the exact `/api/chat` behavior to the RESPONSE_STREAM
+Lambda Function URL; the default behavior — the paid voice mint included — to the prod HttpApi
+(`63omz2jyqd.execute-api.us-east-2.amazonaws.com`). Stating it explicitly because §27.1 says a
+different shape voids the transfer and returns D2 to owed.
+
+Four stacks: `page` (prod contact, carrying the A7b fix, promoted deliberately rather than as a
+side effect — the owner chose promote-first when asked), plus new `gvp-chat-prod`,
+`gvp-chat-lambda-stream-prod`, `gvp-chat-stream-cdn-prod`. Front door
+**`dlkbine9cip5c.cloudfront.net`**.
+
+**Verified through that front door BEFORE the meta flip, not after:** `/health` 200; streaming
+returns `token` then `done`; a forged `sessionId` is rejected **400** by DECISION 9's pattern; the
+transcript sink answers 204; the voice mint returns `liveVoiceTransport=direct_google` with a
+Google `wss://` URL, so the browser still connects straight to Google and voice does not depend on
+this host. Voice was isolated deliberately: it lands on the DEFAULT behavior, so it could have
+broken independently of everything else tested.
+
+On the prod stacks: both Lambda hosts report `alerts_enabled` **True** with `CHAT_ENV=prod` and the
+**prod** transcripts table; `ReservedConcurrentExecutions` is **5** (closes **B-2**); the Tier-2
+chain exists on both with per-host, per-environment metric names. Two traps defused hours earlier
+would each have got this wrong — `CHAT_ENV` would have read `stage`, and the chat HttpApi stack
+would have been `gvp-chat-stage` carrying prod parameters into the stage stack.
+
+**A2 / D2: PASS.** The owner confirmed chat working in the browser on prod after the flip, and
+separately confirmed the starfield. That is the human pass §27.1 calls unsubstitutable.
+
+### 32.1 B-5 — PARTIAL PASS. Tier 1 live, Tier 2 undelivered. Say so rather than rounding up.
+
+- **Tier 1: PASS.** Gate true, `CHAT_ENV=prod`, on both prod hosts. An alert leaves a durable record.
+- **Tier 2: NOT PASSING.** `gvp-chat-prod-ChatErrorTopic` and
+  `gvp-chat-lambda-stream-prod-ChatStreamAlertTopic` are both **`PendingConfirmation`**. §25.3-M
+  measured the in-process send as LOST on Lambda, so on the prod stream host the metric filter is
+  the *entire* delivery path. **Prod can therefore record a degradation event and cannot tell
+  anyone about it.** Needs the owner's click; nothing in code can substitute, which is why §29.5
+  exists and why the zero-subscriber case on `page-ContactAlarmTopic` was worth finding.
+
+### 32.2 What is NOT done, and the money is in it
+
+`gvp-chat-prod-express` is **still running** (desired 1, running 1) and must stay through an
+observation window. §11 is unambiguous: `gv-<32 hex>.ecs.us-east-2.on.aws` is **not recoverable**,
+so Express-still-existing IS the rollback and reverting the flip is a one-line meta change for
+exactly as long as that holds.
+
+**The ~$40/mo is NOT released by this roll.** Measured 13-day run rate:
+`LoadBalancerUsage` $0.54/day, `PublicIPv4:InUseAddress` $0.48/day, Fargate $0.30/day. The ALB is
+`AmazonECSManaged` and releases only when the **last** Express service across both environments is
+**deleted** — not scaled to zero, which the Oct-2 stage scale-down proved by moving the daily total
+only $1.44 to $1.34. So the remaining steps are: observation window, delete stage Express, delete
+prod Express. Until then this roll has added cost, not removed it.
