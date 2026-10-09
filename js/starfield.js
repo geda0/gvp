@@ -11,6 +11,59 @@ import {
   starSpeedMultiplierForPreference,
   snowSpeedMultiplierForPreference
 } from './starfield-prefs.js'
+
+/**
+ * Depth guards (restored 2026-10-08). The projection is `size * (focalLength / z)` with
+ * focalLength = canvas.width, and a star aimed near the centre keeps closing on the camera,
+ * so its radius diverges without bound. MEASURED at width 1920: ~8px at z=0.15*W, ~42px at
+ * z=0.03*W, ~125px at z=0.01*W, ~417px at z=0.003*W. The night fade is `destination-out` at
+ * alpha 0.22, i.e. it RETAINS 78% of every frame, so successive frames of a disc growing from
+ * 8px to 400px composite into a wide flattened wing behind a bright head — the artifact the
+ * owner reported as a "manta ray". It is the radial GLOW, not the 1.5px streak.
+ *
+ * This is not new code. `1e06743` wrote and break-checked exactly these guards, calling the
+ * artifact "the beach ball"; `2d079aa` then reverted an entire aesthetic experiment chain and
+ * took this genuine bug fix — and its test suite — with it as collateral. The geometry has
+ * been live on prod ever since, through two promotions. Re-applied here against the CURRENT
+ * call sites, which differ from the ones `1e06743` patched, so this is a re-wire and not a
+ * cherry-pick.
+ *
+ * Three guards, bluntest last:
+ *   1. NEAR PLANE  — recycle the star before it can ever reach the camera.
+ *   2. DEPTH FADE  — dissolve it on the way in, so it never pops out of existence.
+ *   3. RADIUS CLAMP — a hard ceiling, so no arithmetic can produce a ball.
+ * Ratios are of the canvas width (z is seeded in [0, width) and focalLength = width).
+ */
+export const STAR_NEAR_PLANE_RATIO = 0.15;
+export const STAR_FADE_START_RATIO = 0.32;
+export const STAR_MAX_RADIUS = 9;
+
+export function starNearPlane(width) {
+  return width * STAR_NEAR_PLANE_RATIO;
+}
+
+export function starFadeStart(width) {
+  return width * STAR_FADE_START_RATIO;
+}
+
+/** 1 while far away, easing to 0 at the near plane. Never pops. */
+export function starDepthFade(z, width) {
+  const near = starNearPlane(width);
+  if (z <= near) return 0;
+  const start = starFadeStart(width);
+  if (z >= start) return 1;
+  return (z - near) / (start - near);
+}
+
+/** A star is retired at the near plane, or once it has drifted out of frame. */
+export function starShouldRecycle(z, x, y, width, height) {
+  return z <= starNearPlane(width) || x < 0 || x > width || y < 0 || y > height;
+}
+
+/** A star is a point of light, never a ball — whatever the projection returns. */
+export function clampStarRadius(radius) {
+  return Math.min(radius, STAR_MAX_RADIUS);
+}
 import { sceneParamsAt } from './theme-time.js'
 
 // WHY — the "star dust" fixed point.
@@ -205,7 +258,9 @@ export function initStarfield(canvasId, options = {}) {
   function Star() {
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
-    this.z = Math.random() * canvas.width;
+    // Seed in front of the near plane, so a fresh star is never recycled on frame 1.
+    const near = starNearPlane(canvas.width);
+    this.z = near + Math.random() * (canvas.width - near);
     this.color = paletteColor();
     this.size = Math.random() / 2;
     this.px = null;
@@ -217,7 +272,7 @@ export function initStarfield(canvasId, options = {}) {
         starSpeedScale;
       this.z = this.z - speed;
 
-      if (this.z <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+      if (starShouldRecycle(this.z, this.x, this.y, canvas.width, canvas.height)) {
         this.z = canvas.width;
         this.x = Math.random() * canvas.width;
         this.y = Math.random() * canvas.height;
@@ -268,13 +323,13 @@ export function initStarfield(canvasId, options = {}) {
       }
 
       // Draw the star
-      var gradient = c.createRadialGradient(x, y, 0, x, y, s * (1.5 + this.glow / 10));
+      var gradient = c.createRadialGradient(x, y, 0, x, y, clampStarRadius(s * (1.5 + this.glow / 10)));
       gradient.addColorStop(0, this.color);
       gradient.addColorStop(1, 'transparent');
 
       c.beginPath();
       c.fillStyle = gradient;
-      c.arc(x, y, s * (1.5 + this.glow / 10), 0, Math.PI * 2);
+      c.arc(x, y, clampStarRadius(s * (1.5 + this.glow / 10)), 0, Math.PI * 2);
       c.fill();
 
       // Update previous position for next frame
