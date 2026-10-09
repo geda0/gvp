@@ -28,10 +28,18 @@ const REPO = fileURLToPath(new URL('..', import.meta.url))
 const ENV_HOSTS = {
   prod: {
     contact: 'lwi0vmdpb5.execute-api.us-east-2.amazonaws.com',
-    // ADR-0007 Phase 4: prod chat migrated ECS+ALB -> ECS Express Mode (same managed successor
-    // as staging; App Runner is maintenance-mode). Browser-direct voice => plain HTTP, so the
-    // ECS-managed *.ecs.<region>.on.aws URL + TLS is all prod needs (no chat-api custom domain).
-    chat: 'gv-0277d83a39d54698a254a52e95dcd476.ecs.us-east-2.on.aws'
+    // ADR-0022: prod chat moved OFF the ECS Express host onto its OWN CloudFront distribution,
+    // 2026-10-08, after the same shape ran on stage. `/api/chat` goes to the response-streaming
+    // Lambda Function URL via OAC; everything else — the paid voice mint included — goes to the
+    // throttled prod HttpApi. VERIFIED through this front door before the flip: /health 200,
+    // streaming returns token then done, a forged sessionId is rejected 400, and the voice mint
+    // returns liveVoiceTransport=direct_google with a Google wss URL, so the browser still
+    // connects straight to Google.
+    // The PRIOR value was 'gv-0277d83a39d54698a254a52e95dcd476.ecs.us-east-2.on.aws' (ECS
+    // Express). That service is deliberately STILL RUNNING: per ADR-0022 §27.1 its hostname is
+    // unrecoverable once deleted, so Express-still-existing IS the rollback, and reverting this
+    // flip is a one-line meta change for as long as that holds. Do not delete it to tidy up.
+    chat: 'dlkbine9cip5c.cloudfront.net'
   },
   stage: {
     contact: 'fvfqpef8kb.execute-api.us-east-2.amazonaws.com',
