@@ -35,7 +35,18 @@ export const STARFIELD_DEFAULT_EASE_TOWARD_REDUCED = {
 
 export function calculateFullStarCount(width, height, coresCount, baseStars) {
   const area = width * height
-  const scaleFactor = coresCount / 4
+  // MEASURED IN A REAL BROWSER 2026-10-09: this multiplier, stacked on top of area
+  // scaling, took a 2560x1440 12-core desktop to 3292 stars at 29.6-31.6ms per frame —
+  // a ~32fps ceiling with no idle time left, which is why the chat response lagged too.
+  // The same page on a phone cost 1.8ms. Area scaling is correct and stays: it holds
+  // density per pixel constant, so the sky looks the same on a laptop and a monitor.
+  // Core count is not a reason to draw a DENSER sky, only a reason to draw the same sky
+  // more smoothly — so it is clamped at 1x and can now only scale DOWN, never up. A
+  // 4-core machine is the design point (1920x1080 => 646 stars); anything faster gets the
+  // same density, and anything slower still gets relief. Bounded by
+  // test/starfield-star-budget.test.mjs, which is the only part of the render budget a
+  // stubbed canvas can referee.
+  const scaleFactor = Math.min(coresCount / 4, 1)
   const stars = baseStars ?? STARFIELD_DEFAULT_EXPERIENCE.baseStars
   return Math.floor((area / (1920 * 1080)) * stars * scaleFactor)
 }
