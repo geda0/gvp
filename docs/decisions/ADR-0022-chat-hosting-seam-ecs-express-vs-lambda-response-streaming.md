@@ -3902,3 +3902,200 @@ scales wrong if traffic grows, and that 1536 is now the only memory figure in th
 measurement behind it — the stream host's 512 was argued from a measured working set and this was
 inherited. **It is one line in a file on `SECURITY_GLOB`, so it needs a clearance; not taken
 unilaterally.**
+
+---
+
+## 34. 2026-10-13 — **DECISION 11: the HttpApi host's `MemorySize` is 512 — and the clearance that authorizes it**
+
+§33.4 found the saving and deliberately stopped short of taking it: *"It is one line in a file on
+`SECURITY_GLOB`, so it needs a clearance; not taken unilaterally."* This section is that clearance,
+plus the three questions the owner attached to it, answered on evidence rather than on tidiness.
+
+### 34.1 **512, not 768** — because the rule that chose 512 on the stream host already exists, and this host meets it
+
+The owner offered 768 as the more honest number and said a defensible 768 beats a tidy 512. The
+answer is that **512 is the defensible one here, and 768 is the tidy one** — it looks cautious but no
+measurement names it.
+
+The sibling host's rationale (`aws/chat-stream-template.yaml:215-228`) states a *rule*, not just a
+value: size to roughly **3x a measured working set**, and 256 was rejected because **1.6x is too thin
+for a Python app whose allocation is spiky**. Applied to this host's measurement — **166 MB peak over
+83 prod invocations (§33.4)** — the rule yields 512 at **3.08x**. 768 would be **4.6x**: a third
+ratio, chosen by neither measurement nor stated rule. The entire point of this change is to delete an
+inherited number; replacing it with an unargued one keeps the defect and only shrinks it.
+(The stream host's headroom reads **3.2x** in its template comment, computed off 162 MB on stage,
+and **3.1x** in §33.3, computed off 163 MB on prod. Same figure, two samples — not a discrepancy.)
+
+Two things make the 3.08x real rather than nominal:
+
+1. **`Max Memory Used` in the `REPORT` line is a high-water mark for the execution environment's
+   whole lifetime, not an average.** 166 MB is therefore already the worst moment of 83 invocations
+   *including* init, not a figure a spike hides behind.
+2. **The buffered path's spike mechanism is bounded in the source, and the bound is tiny.** The
+   owner's worry is the right one to raise — Mangum buffers the entire response where the stream host
+   does not — so here is the arithmetic. Request size is capped at `CHAT_MAX_MESSAGES` 32 ×
+   `CHAT_MAX_CONTENT_LEN` 8000 chars (`docker/chat/app/main.py:74-75`) for the chat body, and at
+   `userText` 8 000 + `assistantText` 16 000 bytes for the transcript sink
+   (`main.py:202-203`, re-clamped by `clamp_text` at `main.py:1241-1242`) — consistent with the
+   ~42 KB/turn M0 bound cited in the brief. Even allowing ten live copies of the largest body through
+   API Gateway base64, Mangum, Pydantic and DynamoDB marshalling, that is **single-digit MB**. The
+   change removes **1024 MB**. The named spike mechanism cannot consume one percent of the margin
+   being given up, so paying 256 MB more to absorb it is not caution, it is decoration.
+
+**Not claimed:** that the largest *possible* payload was exercised in the measured window. Voice and
+text turns both persist through the sink, so the path was exercised; the 42 KB extreme may not have
+been. The bound in (2) is what covers it, and §34.5 re-checks the high-water mark after the change.
+
+### 34.2 Q2 — yes, `MemorySize` also buys CPU. The trade is acceptable, and the bound is arithmetic, not optimism
+
+Lambda allocates vCPU in proportion to memory (~1 vCPU at 1769 MB), so this drops the host from
+~0.87 to ~0.29 vCPU — a **3x CPU cut**. The only measurement of what that costs *this application* is
+on the stream host: **handler CPU 65 ms at 1536 vs 108 ms at 512** — a **1.66x** wall-clock penalty
+from a 3x CPU cut, because the handler is not CPU-bound.
+
+Apply 1.66x **pessimally**, to the host's *entire* duration rather than to its CPU share:
+
+| measured at 1536 (§33.2, §33.4, brief) | pessimal at 512 | budget |
+|---|---|---|
+| median duration 52 ms | 86 ms | — |
+| max duration 1767 ms | 2.93 s | `Timeout: 60` — no exposure |
+| **voice mint median 223 ms** | **370 ms** | §18 **D1**: p95 < 3 s |
+| worst observed mint 1729 ms | 2.87 s | §18 **D1**: p95 < 3 s |
+
+**No plausible arithmetic breaks D1**, and the transform above overstates the damage, because the
+mint's time is dominated by an *outbound* dependency, not by local compute:
+`mint_live_session_async` is one `auth_tokens.create()` HTTPS round trip to Google, and
+`live_gemini.py:170-187` records that the body was deliberately kept tiny so the mint stays fast.
+Network latency does not scale with vCPU. The genuinely CPU-shaped work per mint is
+`build_live_system_instruction` assembling ≤14 000 chars (`CHAT_LIVE_SYSTEM_MAX_CHARS`,
+`knowledge_context.py:430`) — string assembly measured in low milliseconds, not hundreds.
+
+So: **accepted — but as a prediction, which means it gets checked.** The paid path is the right thing
+to be protective of, and the protection that fits is a measurement after the fact (§34.5), not 256
+unmeasured megabytes before it. Note the 1729 ms mint outlier is the one row with real margin
+pressure under the pessimal transform; it is also a *cold* mint, and §33.1 already showed init is not
+memory-sensitive on this image.
+
+### 34.3 Q3 — the knowledge pack at init is **not** a reason to keep headroom. It is already measured at 512
+
+The "Loading knowledge pack from /var/task/chat-knowledge" line (`main.py:399`) is the same load, of
+the same files, at the same path, on a host already running at 512: `docker/chat/Dockerfile.lambda:12-14`
+and `docker/chat/Dockerfile.lambda-stream:33-35` both `COPY data/chat-knowledge` and set
+`CHAT_KNOWLEDGE_DIR=/var/task/chat-knowledge`. Init at 512 is **measured**, not inferred — 2118 ms on
+stage (`aws/chat-stream-template.yaml:220-221`) and **2059–3481 ms on prod** (§33.1), where §33.1's
+headline finding was that the two *fastest* turns of the window were cold starts. The pack itself is
+bounded at `CHAT_KNOWLEDGE_PACK_MAX_CHARS` 16 000 (`knowledge_context.py:522-524`).
+
+**The honest residual:** the two hosts are different images (Mangum vs LWA/uvicorn), so this is strong
+transferable evidence, not proof, and the pack is held in `app.state` for the sandbox's lifetime — which
+is precisely what the 166 MB high-water mark already includes. §34.5 closes the gap by measurement.
+
+### 34.4 Provenance correction — the sweep numbers are in the template, not in §15.3
+
+The brief attributes "162 MB real working set", the rejection of 256 at 1.6x, and "65 ms at 1536 vs
+108 ms at 512" to **§15.3**. They are not there. **§15.3 only commissioned the sweep** ("Re-measure
+M-1/M-2 at **1024 MB** … and **512 MB**"); the numbers that came back were recorded in the code, at
+**`aws/chat-stream-template.yaml:215-228`**. Cite that. (§15.3 also still points at
+`aws/chat-template.yaml:58` for the 1536 line, which has been line **75** since §29's insertions;
+§33.4 and this section use 75. Shipped sections are not edited — recorded here so no reader is sent
+to the wrong line.) Second stale line-pointer in this ADR, which is itself the argument for the
+authorized edit carrying its rationale **in the template comment**, where it cannot drift away from
+the value it explains.
+
+### 34.5 Post-deploy verification, and the revert trigger — stated now, so it is not improvised later
+
+Deploy stage first, then prod. None of these block the edit; all three are cheap.
+
+- **V1 — the high-water mark.** After one browser session (≥1 text turn, ≥2 voice mints), read the
+  `REPORT` lines:
+  `aws logs filter-log-events --log-group-name /gvp/chat/prod --filter-pattern '"Max Memory Used"' --start-time <epoch-ms>`.
+  **Pass: ≤ 256 MB** (i.e. ≥2x headroom retained) and no OOM. A value above 256 MB means the working
+  set was mis-measured, not that 512 is wrong — re-read §34.1 with the new number.
+- **V2 — the paid path's latency, which is the real question in Q2.** Median of ≥5 mints must stay
+  **≤ 400 ms** (34.2's pessimal bound is 370 ms). **Revert trigger: if it exceeds 400 ms, raise the
+  value — to 1024, NOT back to 1536** — under a new clearance that quotes the mint number which
+  triggered it. 1536 never had a measurement and does not get to come back by default.
+- **V3 — know whether the OOM backstop is real.** An OOM kill surfaces as a Lambda `Errors` datapoint,
+  which `ChatLambdaErrorsAlarm` (`aws/chat-template.yaml:160-177`, Sum ≥ 1 / 5 min) notifies through
+  `ChatErrorTopic`. Two conditions gate that: `HasChatErrorAlarm` skips the alarm entirely when
+  `ChatErrorAlarmEmail` is empty, and **§29.5 MEASURED that topic's only subscription as
+  `PendingConfirmation`**. Run §29.5's `list-subscriptions` check. If it is still unconfirmed the
+  change is still safe — 3.08x headroom is the safety, not the alarm — but **the backstop is
+  decorative, and that should be known rather than assumed.**
+
+### 34.6 The authorized edit, counted — and the SECURITY CLEARANCE
+
+**`aws/chat-template.yaml` IS on `SECURITY_GLOB`** (`.claude/tdd.config:68`, which lists
+`(^|/)aws/(template|chat-template)\.yaml`). The clearance is live at
+`.claude/state/security-clearance` and is reproduced here verbatim-equivalent; the file is the
+operative copy and **is deleted the moment the edit lands**.
+
+**REPLACE line 75 (`    MemorySize: 1536`) with exactly this — 19 lines, 18 comment + 1 value:**
+
+```yaml
+    # 512, not the inherited 1536. MEASURED on PROD over 7 days of real owner
+    # traffic (ADR-0022 §33.4): 83 invocations, peak `Max Memory Used: 166 MB`
+    # — 9.2x headroom. 512 leaves 3.1x, the ratio the stream host was deliberately
+    # tuned to (aws/chat-stream-template.yaml:215-228, where 256 was rejected at
+    # 1.6x). The buffered Mangum path cannot spike past it: request size is bounded
+    # at 32 x 8000 chars of chat body and 8000 + 16000 bytes of transcript text
+    # (docker/chat/app/main.py:74-75 and :202-203) — tens of KB against the 1 GB
+    # removed here.
+    #
+    # Cold start is not the cost of going lower: the same image loads the same
+    # knowledge pack at 512 on the stream host (init 2118 ms stage, 2059-3481 ms
+    # prod, §33.1). The only penalty is handler CPU — 65 ms at 1536 vs 108 ms at
+    # 512 on this same app — against a 52 ms median here, and the 223 ms voice
+    # mint is dominated by the outbound auth_tokens.create() round trip, so §18's
+    # D1 (3 s p95) holds even if the whole duration is scaled by that 1.66x.
+    #
+    # Globals, and ChatFunction is this stack's only function. A function added
+    # here inherits 512 and must set its own MemorySize from its own measurement.
+    MemorySize: 512
+```
+
+> ## SECURITY CLEARANCE — granted 2026-10-13, ADR-0022 DECISION 11
+>
+> - **File:** `aws/chat-template.yaml`, 242 lines at commit `3d253be`. **This clearance covers that
+>   file and nothing else.**
+> - **Edit:** REPLACE line **75** with the 19-line block above, verbatim.
+> - **Budget, counted off that block, not estimated: 19 added / 1 removed / 0 other lines modified.
+>   No cushion** — the text is authorized verbatim, so a reflow is a deviation, not slack. Any other
+>   line added, removed or modified is **outside** this clearance: come back.
+> - **Reviewer checks — all five were RUN against the authorized text before issuing** (candidate
+>   assembled in a scratchpad copy), so every expected value below is **observed, not predicted**:
+>   1. `grep -cE '^ {4}MemorySize: 512$' aws/chat-template.yaml` → **1**
+>   2. `grep -cE '^ *MemorySize: 1536' aws/chat-template.yaml` → **0** — the authorized comment does
+>      contain the characters `1536` twice ("the inherited 1536", "65 ms at 1536"); neither matches
+>      this anchored pattern, which is why the pattern is anchored.
+>   3. `grep -cE '^ *MemorySize:' aws/chat-template.yaml` → **1** (no stray second key)
+>   4. `git diff --numstat -- aws/chat-template.yaml` → ``19	1	aws/chat-template.yaml``
+>   5. `sam validate --template aws/chat-template.yaml --region us-east-2` → *"is a valid SAM
+>      Template"* (runs offline; it passed on the candidate)
+> - **Why it is safe at this size:** one scalar in `Globals.Function`, plus comment. No `NoEcho`
+>   parameter, no CORS origin, no key, no IAM policy or role, no event route, no alarm, no resource.
+>   The only runtime effect is the memory/CPU allocation — cost and latency, not a security property.
+>   Nothing becomes reachable that was not reachable before.
+> - **Explicitly NOT cleared:** `aws/template.yaml`; `aws/chat-stream-template.yaml` (its 512 is
+>   already measured — do not touch it); anything under `docker/chat/app/` or `aws/src/`;
+>   `scripts/integrate-and-deploy.sh`; `.claude/tdd.config`.
+> - **Delete `.claude/state/security-clearance` as soon as the edit is made.** While it exists the
+>   sensitive-surface guard is disarmed for *every* edit, not just this one
+>   (`.claude/hooks/local.d/security-clearance.sh`).
+
+### 34.7 Consequences
+
+- **Both Lambda chat stacks now carry a measured memory figure, and each states its own evidence in
+  the file.** The inherited number is gone. *Scope: the ECS task sizing in `gvp-chat-ecs-*` is a
+  separate question and is not touched or blessed here.*
+- **The value is in `Globals`, and `ChatFunction` is this stack's only function** (verified: the other
+  resources are an HttpApi, a log group, a metric filter, two alarms and a topic). The comment
+  therefore binds the next person too: a function added to this stack inherits 512 and must argue its
+  own `MemorySize` from its own measurement.
+- **Cost:** this host's GB-s drops 3x; at today's traffic that is ~$0.0007/week, i.e. nothing. The
+  reason on the record is that Lambda bills GB-seconds, so the figure scales wrong if traffic grows —
+  not the current bill. §33.3's ~31,300 turns/day crossover was computed for the **stream** host at
+  512 and is unchanged by this.
+- **A prediction is now on the record and will be scored:** mint median ≤ 400 ms and high-water mark
+  ≤ 256 MB after the change (§34.5). If V2 fails, the next value is 1024 with the triggering number
+  quoted — never 1536 by default.

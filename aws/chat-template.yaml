@@ -72,7 +72,25 @@ Conditions:
 Globals:
   Function:
     Timeout: 60
-    MemorySize: 1536
+    # 512, not the inherited 1536. MEASURED on PROD over 7 days of real owner
+    # traffic (ADR-0022 §33.4): 83 invocations, peak `Max Memory Used: 166 MB`
+    # — 9.2x headroom. 512 leaves 3.1x, the ratio the stream host was deliberately
+    # tuned to (aws/chat-stream-template.yaml:215-228, where 256 was rejected at
+    # 1.6x). The buffered Mangum path cannot spike past it: request size is bounded
+    # at 32 x 8000 chars of chat body and 8000 + 16000 bytes of transcript text
+    # (docker/chat/app/main.py:74-75 and :202-203) — tens of KB against the 1 GB
+    # removed here.
+    #
+    # Cold start is not the cost of going lower: the same image loads the same
+    # knowledge pack at 512 on the stream host (init 2118 ms stage, 2059-3481 ms
+    # prod, §33.1). The only penalty is handler CPU — 65 ms at 1536 vs 108 ms at
+    # 512 on this same app — against a 52 ms median here, and the 223 ms voice
+    # mint is dominated by the outbound auth_tokens.create() round trip, so §18's
+    # D1 (3 s p95) holds even if the whole duration is scaled by that 1.66x.
+    #
+    # Globals, and ChatFunction is this stack's only function. A function added
+    # here inherits 512 and must set its own MemorySize from its own measurement.
+    MemorySize: 512
     Architectures:
       - x86_64
 
