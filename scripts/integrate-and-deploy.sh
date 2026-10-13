@@ -96,7 +96,42 @@ if [[ "${SKIP_SECRETS_MANAGER:-0}" != "1" && -f "$SECRETS_DIR/manifest.json" && 
     source "$SECRETS_DIR/deploy.generated.env"
   fi
   set +a
+  gvp_restore_operator_intent
 fi
+
+
+# OPERATOR INTENT WINS OVER THE SECRETS FILES. Snapshot any behaviour flag the caller set
+# BEFORE sourcing .secrets/*, then restore it after.
+# MEASURED 2026-10-13, and it had already fired: `.secrets/deploy.env` carries
+# `export SYNC_API_URLS=1`, the blocks below `source` it with `set -a`, and that CLOBBERED a
+# caller-supplied `SYNC_API_URLS=0`. So a prod deploy run with the meta-sync guard explicitly
+# OFF still rewrote index.html + admin/index.html — to `chat-api.marwanelgendy.link`, from
+# `.secrets/chat-deploy.env`'s CHAT_PROD_CHAT_API_URL, a host that DOES NOT EXIST. Prod was
+# spared only because the rewrite was never committed; committing and pushing it would have
+# pointed every visitor's chat at a dead hostname.
+# These are flags that say WHAT TO DO, not credentials. A secrets file may supply a default for
+# them, but it must never override an operator who passed one on the command line.
+_GVP_INTENT_VARS='SYNC_API_URLS SKIP_SECRETS_MANAGER SKIP_CHAT_TESTS CHAT_ALWAYS_BUILD CHAT_DEPLOY_TARGET CHAT_SAM_STACK_NAME_PROD CHAT_SAM_STACK_NAME_STAGE CHAT_STREAM_RESERVED_CONCURRENCY CHAT_STREAM_FUNCTION_URL_AUTH_TYPE CHAT_PROD_CHAT_API_URL CHAT_STAGE_CHAT_API_URL'
+for _v in $_GVP_INTENT_VARS; do
+  if [[ -n "${!_v+x}" ]]; then
+    eval "_GVP_CALLER_${_v}=\${${_v}}"
+    eval "_GVP_CALLER_SET_${_v}=1"
+  fi
+done
+
+gvp_restore_operator_intent() {
+  local v set_marker
+  for v in $_GVP_INTENT_VARS; do
+    set_marker="_GVP_CALLER_SET_${v}"
+    if [[ -n "${!set_marker:-}" ]]; then
+      local saved="_GVP_CALLER_${v}"
+      if [[ "${!v:-}" != "${!saved}" ]]; then
+        echo "note: keeping caller's ${v}=${!saved} (a .secrets file tried to set ${v}=${!v:-})" >&2
+      fi
+      export "${v}=${!saved}"
+    fi
+  done
+}
 
 # When not already exported (e.g. GitHub Actions exports secrets), load local .secrets/deploy.env
 if [[ -z "${RESEND_API_KEY:-}" && -f "$SECRETS_DIR/deploy.env" ]]; then
@@ -113,6 +148,7 @@ if [[ -z "${RESEND_API_KEY:-}" && -f "$SECRETS_DIR/deploy.env" ]]; then
     source "$SECRETS_DIR/deploy.generated.env"
   fi
   set +a
+  gvp_restore_operator_intent
 fi
 
 if [[ -f "${SECRETS_DIR}/chat-deploy.env" ]]; then
@@ -121,6 +157,7 @@ if [[ -f "${SECRETS_DIR}/chat-deploy.env" ]]; then
   # shellcheck source=/dev/null
   source "${SECRETS_DIR}/chat-deploy.env"
   set +a
+  gvp_restore_operator_intent
 fi
 
 REGION="${AWS_REGION:-us-east-2}"
