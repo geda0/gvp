@@ -4099,3 +4099,68 @@ operative copy and **is deleted the moment the edit lands**.
 - **A prediction is now on the record and will be scored:** mint median ≤ 400 ms and high-water mark
   ≤ 256 MB after the change (§34.5). If V2 fails, the next value is 1024 with the triggering number
   quoted — never 1536 by default.
+
+## 35. MIGRATION COMPLETE — 2026-10-13. The ALB is released. This ADR is discharged.
+
+**Both Express services are DELETED and the ALB is GONE.** Executed in §27.1's order: stage first
+(proving the mechanics where it did not matter), then prod. Measured after the second deletion:
+ECS services **0**, target groups **0**, load balancers **0**, CloudWatch alarms **26 → 20** (the
+four autoscaling and two rollback alarms died with the services, as predicted).
+
+**The ~$40/mo is released.** Pre-deletion run rate, 13-day measured: `LoadBalancerUsage` $0.54/day,
+`PublicIPv4:InUseAddress` $0.48/day, Fargate $0.30/day. For contrast, the replacement cost
+**$0.00146** for a week of real traffic (§33.3).
+
+**The rollback is deliberately gone.** `gv-d7fa1a51ec09445caf0d435348131479…` and
+`gv-0277d83a39d54698a254a52e95dcd476…` are unrecoverable per §11, so the one-line meta revert no
+longer exists. That is why it was held until the owner had exercised prod with real voice and text
+(§33) and confirmed the browser. Verified immediately after the teardown: `/health` 200, streaming
+returns SSE events, voice mint returns `liveVoiceTransport=direct_google`.
+
+**Stage Express had drifted back to `desiredCount: 1`.** The earlier scale-to-zero was undone by the
+stage deploys run during this work, so it had been billing Fargate again. Recorded because it is the
+general lesson: scaling to zero is not a durable cost control when a deploy script sets
+`MinTaskCount`.
+
+### 35.1 DECISION 11's three verifications — all three PASS
+
+Separated by configured memory, because a naive window mixes pre- and post-deploy invocations and
+blends the two configurations. My first pass did exactly that and reported a 512 figure against
+`Memory Size: 1536`; corrected here.
+
+| | at **512 MB** (n=7) | at 1536 MB (n=4) |
+|---|---|---|
+| duration median | **95 ms** | 1219 ms |
+| peak `Max Memory Used` | **136 MB — 3.8x headroom** | 135 MB — 11.4x |
+| cold starts | 1/7 | 2/4 |
+
+- **V1 PASS** — peak 136 MB against the ≤256 MB criterion, no OOM.
+- **V2 PASS** — mint duration median 95 ms against the ≤400 ms criterion, so the revert trigger
+  (raise to 1024, never back to 1536) is not armed.
+- **V3 PASS** — §29.5's check returns **0** pending subscriptions. Every chat and contact topic now
+  delivers, so the OOM backstop alarm is no longer the decorative one §34.5 warned it might be.
+
+**NOT CLAIMED: that 512 is faster than 1536.** The table looks that way and the architect's predicted
+1.66x slowdown did not appear, but the two groups differ in cold-start mix (1/7 versus 2/4) and n is
+tiny on both sides. This is a criterion check, not an A/B. The honest statement is that V2 passes
+with a wide margin and the predicted regression is not visible at this sample size.
+
+### 35.2 What this ADR set out to decide, and what actually decided it
+
+The hosting question is closed: prod chat runs on CloudFront + OAC in front of a RESPONSE_STREAM
+Lambda, with the throttled HttpApi on the default behavior, and Express is gone. But the measured
+record is worth keeping straight about *why* the migration was worth doing, because it was not the
+reason stated at the outset.
+
+- **Latency was never the argument.** §33.1 measured TTFT as model-dominated on the browser path:
+  the two fastest turns of the window were **cold starts** (927 ms, 1124 ms) while both warm turns
+  were slower. Lambda init at 2–3.5 s is invisible against a model spanning 0.9–14 s.
+- **Cost was the argument, and it holds by a wider margin than estimated.** Measured mean billed per
+  turn is 5.07 s, not the 20 s §15.3 assumed, so the crossover against Express is ~31,300 turns/day
+  rather than ~8,000.
+- **The real risk was never capacity; it was observability.** The migration would have silently
+  disabled every chat alert (§25.1), and the in-process email path is **measured LOST** on Lambda
+  (§25.3-M). That is what the two-tier invariant 19 and the Tier-2 metric filter exist for, and the
+  chain proved itself on a real `chat_primary_rate_limit` event on 2026-10-08 — publishing to a
+  topic whose subscription was still unconfirmed, which is precisely why §29.5 is a blocker and not
+  a nicety.
