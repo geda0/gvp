@@ -3834,3 +3834,71 @@ exactly as long as that holds.
 **deleted** — not scaled to zero, which the Oct-2 stage scale-down proved by moving the daily total
 only $1.44 to $1.34. So the remaining steps are: observation window, delete stage Express, delete
 prod Express. Until then this roll has added cost, not removed it.
+
+## 33. B1 MEASURED on the browser path — 2026-10-13. DECISION 7's waiver is discharged.
+
+§18's **B1** (interleaved latency A/B) was **WAIVED** as DECISION 7, with the consequence stated
+explicitly: *"the browser-path latency claim is UNMEASURED."* The owner has now exercised prod with
+real voice and text, so it is measured. **Sample is small — n=5 text turns, n=11 voice mints over 7
+days — so read directions, not percentiles.**
+
+### 33.1 The finding that inverts the intuition: cold start is NOT the dominant term
+
+Per-turn on the stream host, cold/warm attributed by walking the log stream in order (an
+`Init Duration` line marks the next invocation cold):
+
+| | fallback | model | first token | total | chunks |
+|---|---|---|---|---|---|
+| warm | **fell back** | gemma | 5661 ms | 5663 | 7 |
+| **COLD** | — | flash-lite | **927 ms** | 1189 | 6 |
+| **COLD** | — | flash-lite | **1124 ms** | 1608 | 8 |
+| COLD | **fell back** | gemma | 14066 ms | 16244 | 33 |
+| warm | — | flash-lite | 5456 ms | 6024 | 9 |
+
+**The two FASTEST turns were COLD starts (927 ms, 1124 ms). Both WARM turns were slower (5456,
+5661 ms).** Lambda init measured 2059–3481 ms (median ~2190), and it is simply not visible against
+model latency that ranges 927 ms to 14 s. This confirms on the browser path what §24.1 found by SDK:
+**TTFT here is model-dominated.** It also retires the worry that a low-traffic host would be
+punished by cold starts — at 6 cold starts in 10 invocations, nearly every turn pays init, and the
+turns still came back in about a second when the primary answered.
+
+**What DOES dominate is which model answers.** Fallback turns cost 5.7 s and 14.1 s; primary turns
+cost 0.9 s and 1.1 s (and one 5.5 s). Fallback rate was **2/5**. So the lever on perceived latency is
+the upstream's reliability, not the hosting — consistent with ADR-0023's existence and with the
+`chat_primary_rate_limit` alert that fired on 2026-10-08.
+
+### 33.2 Voice — D1 comfortably met
+
+11 mints through the prod front door's default behavior: **median 223 ms**, warm 118–147 ms, cold
+222–636 ms, one outlier at 1729 ms. §18's **D1** asked for p95 under 3 s. Met with a wide margin, and
+this is the *paid* path, so it is the one that mattered.
+
+### 33.3 Cost — and the crossover is 4x more favourable than estimated
+
+Seven days of real use, from `REPORT` billed durations:
+
+| host | invocations | billed | GB-s | cost |
+|---|---|---|---|---|
+| stream (512 MB) | 10 | 50.7 s | 25.4 | $0.000425 |
+| HttpApi (1536 MB) | 83 | 40.6 s | 60.9 | $0.001032 |
+| | | | | **$0.00146 total** |
+
+Measured mean billed per text turn is **5.07 s**, not the 20 s §15.3 assumed, so at 512 MB a turn
+costs **$0.0000425** and the break-even against ECS Express's ~$1.33/day is **~31,300 turns/day** —
+against the ADR's earlier ~8,000 estimate. Response streaming does bill wall-clock including the
+model wait, and that remains true; the measured wait is just far shorter than assumed.
+
+**512 MB on the stream host is confirmed by prod data**, not just stage: max memory used 163 MB of
+512, a 3.1x headroom, matching the 162 MB measured on stage.
+
+### 33.4 A saving the measurement found: the HttpApi host is 9.2x over-provisioned
+
+`aws/chat-template.yaml:75` sets `MemorySize: 1536`. Prod peak across 83 invocations is **166 MB** —
+**9.2x headroom**, against the 3.1x the stream host was deliberately tuned to. Dropping it to 512
+cuts that host's GB-s by **3x**.
+
+At today's traffic that is $0.0007 a week, i.e. nothing. The reasons to do it anyway are that cost
+scales wrong if traffic grows, and that 1536 is now the only memory figure in the chat stacks with no
+measurement behind it — the stream host's 512 was argued from a measured working set and this was
+inherited. **It is one line in a file on `SECURITY_GLOB`, so it needs a clearance; not taken
+unilaterally.**
