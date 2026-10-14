@@ -30,23 +30,31 @@ SYNONYMS: dict[str, set[str]] = {
         'sam',
         'serverless',
     },
-    'platform architecture': {'platform architecture', 'service boundaries', 'system design'},
     'subscriptions': {'subscription', 'subscriptions', 'billing', 'entitlement'},
     'identity': {'identity', 'auth', 'authentication', 'directory', 'iam'},
     'data pipelines': {'data pipeline', 'data pipelines', 'ingestion', 'etl', 'reporting'},
     'saas': {'saas', 'software as a service'},
-    'frontend': {'frontend', 'front end', 'ui', 'ux'},
+    # 'react' / 'typescript' ride here as VALUES rather than keys on purpose: no record
+    # declares them as a relevance_tag, and a key nothing uses emits a tag that matches
+    # nothing — indistinguishable from emitting none. React and TS work IS frontend work.
+    'frontend': {
+        'frontend', 'front end', 'ui', 'ux',
+        'react', 'reactjs', 'react.js', 'typescript', 'ts',
+    },
     'python': {'python'},
     'java': {'java', 'jvm'},
     'node.js': {'node', 'nodejs', 'node.js'},
-    'typescript': {'typescript', 'ts'},
     'operations': {'on-call', 'on call', 'observability', 'alerts', 'runbooks', 'operability'},
     'spark': {'spark', 'emr', 'apache spark', 'scala spark', 'databricks'},
     'graphql': {'graphql', 'graph ql', 'apollo'},
-    'kubernetes': {'kubernetes', 'k8s', 'kube'},
+    'kubernetes': {'kubernetes', 'k8s', 'kube', 'docker', 'containers', 'containerization'},
     'mongodb': {'mongodb', 'mongo db', 'mongo'},
-    'microservices': {'microservices', 'microservice', 'service oriented', 'soa'},
-    'mentoring': {'mentoring', 'mentor', 'leadership', 'led teams', 'team lead'},
+    # 'microservices' was a key no record used; folded in as values here, where the
+    # records that discuss service boundaries actually live.
+    'platform architecture': {
+        'platform architecture', 'service boundaries', 'system design',
+        'microservices', 'microservice', 'service oriented', 'soa',
+    },
     # AI / this-site retrieval — lets visitors asking "how does this chat work"
     # or "tell me about the assistant" pull the chatbot project entry up.
     'ai': {'ai', 'gen ai', 'genai', 'llm', 'llms', 'gemini', 'chatbot', 'agent', 'assistant', 'gpt', 'claude'},
@@ -54,7 +62,62 @@ SYNONYMS: dict[str, set[str]] = {
     # Category tags used as relevance_tags in the data — make them reachable from natural
     # queries so "side projects" / "his experience" surface the items tagged with them.
     'playground': {'playground', 'side project', 'side projects', 'experiment', 'experiments', 'hobby project', 'personal build', 'personal builds', 'labs'},
-    'portfolio': {'portfolio', 'work history', 'past roles', 'career', 'resume', 'cv', 'work experience', 'professional experience'},
+    # 'mentoring' was a key no record used. Its phrases live here instead: "did he lead
+    # teams" is a work-history question, and these are the records that answer it.
+    'portfolio': {
+        'portfolio', 'work history', 'past roles', 'career', 'resume', 'cv',
+        'work experience', 'professional experience',
+        # Both tenses, because "did he LEAD teams" and "he LED teams" are the same
+        # question and `extract_tags` is plain substring matching, not a stemmer.
+        'mentoring', 'mentor', 'leadership', 'led teams', 'lead teams', 'leading teams',
+        'team lead', 'managed', 'managing people', 'direct reports',
+    },
+    # The rest of the relevance_tags the DATA declares, made reachable — same reason as
+    # the playground/portfolio pair above, which is where this pattern started.
+    #
+    # Measured 2026-10-13: 20 of the 39 tags the records use had no key here, so no
+    # question could ever produce them and the records behind them were unreachable by
+    # topic. `_is_relevant` then fell through to `roles_all[:2]` / `projects_all[:2]` —
+    # the first two entries by ARRAY POSITION — and the visitor got a confident answer
+    # built from arbitrary records, with nothing in the transcript showing the miss.
+    # "what about security?", "has he done any backend work?" and "any mobile
+    # experience?" all retrieved NOTHING. test_tag_reachability.py keeps the two
+    # vocabularies a closed set so this cannot drift again: adding a tag to a record is
+    # a JSON content edit by someone with no reason to open this file.
+    #
+    # NOTE 'serverless' needs its own key even though it is already an 'aws' value: a
+    # value only helps a QUERY reach the 'aws' tag, while three records declare the
+    # literal tag 'serverless'. Both now resolve.
+    'serverless': {'serverless', 'faas', 'serverless architecture'},
+    'backend': {'backend', 'back end', 'back-end', 'server side', 'server-side', 'golang', 'go lang'},
+    'security': {'security', 'secure', 'appsec', 'hardening', 'zero trust', 'vulnerability', 'compliance'},
+    'apis': {'apis', 'api', 'rest', 'rest api', 'restful', 'openapi', 'grpc'},
+    'cloud': {'cloud', 'cloud computing', 'cloud native', 'multi cloud', 'multi-cloud'},
+    'infrastructure': {
+        'infrastructure', 'infra', 'provisioning', 'iac', 'infrastructure as code',
+        'terraform', 'cloudformation', 'jenkins', 'chef',
+    },
+    'networks': {'networks', 'network', 'networking', 'vpn', 'routing', 'firewall', 'dns'},
+    'linux': {'linux', 'unix', 'ubuntu', 'debian', 'bash', 'shell scripting'},
+    'mobile': {'mobile', 'ios', 'android', 'mobile app', 'mobile apps', 'react native'},
+    'games': {'games', 'game', 'gaming', 'game dev', 'game development', 'unity'},
+    'embedded': {'embedded', 'embedded systems', 'firmware', 'microcontroller', 'raspberry pi', 'arduino'},
+    'hardware': {'hardware', 'electronics', 'robotics', 'sensors', 'pcb'},
+    # Deliberately NOT abbreviated to 'cv' — that already means résumé under 'portfolio'
+    # above, and the collision would pull vision records into every resume question.
+    'computer vision': {'computer vision', 'image recognition', 'object detection', 'opencv'},
+    'data systems': {
+        'data systems', 'data system', 'data platform', 'data warehouse',
+        'database', 'databases', 'postgresql', 'postgres', 'mysql', 'redshift', 'snowflake',
+    },
+    'query systems': {'query systems', 'query system', 'query engine', 'indexing', 'query optimization'},
+    'high-scale systems': {
+        'high-scale systems', 'high scale', 'scalability', 'scale', 'high throughput', 'high traffic',
+    },
+    'full-stack': {'full-stack', 'full stack', 'fullstack', 'end to end', 'end-to-end'},
+    'finops': {'finops', 'cost management', 'cloud cost', 'cloud spend', 'cost optimization'},
+    'cloudability': {'cloudability'},
+    'startups': {'startups', 'startup', 'early stage', 'founding team'},
 }
 
 
