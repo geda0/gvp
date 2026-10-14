@@ -196,6 +196,7 @@ fi
 resolve_gemini_key "${DEPLOY_ENV}"
 GEMINI_API_KEY="${GEMINI_API_KEY_RESOLVED:-${GEMINI_API_KEY:-}}"
 export GEMINI_API_KEY
+export GEMINI_API_KEY_SECRET_ARN_RESOLVED
 
 CHAT_STACK_OTHER_ARM="$([[ "${DEPLOY_ENV}" == "stage" ]] \
   && printf '%s' "${CHAT_SAM_STACK_NAME_PROD:-${CHAT_SAM_STACK_NAME:-}}" \
@@ -582,7 +583,14 @@ fi
 if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   CHAT_STREAM_STACK="${CHAT_STREAM_STACK_NAME:-gvp-chat-lambda-stream-${DEPLOY_ENV}}"
   CHAT_STREAM_CDN_STACK="${CHAT_STREAM_CDN_STACK_NAME:-gvp-chat-stream-cdn-${DEPLOY_ENV}}"
-  require GEMINI_API_KEY
+  # Either a key OR a Secrets Manager ARN. With an ARN the key can be left EMPTY, which
+  # is the whole point: it then never enters the function environment, where
+  # lambda:GetFunctionConfiguration would return it in plaintext. Requiring both would
+  # make the secret an addition rather than a replacement.
+  if [[ -z "${GEMINI_API_KEY:-}" && -z "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}" ]]; then
+    echo "error: set GEMINI_API_KEY or GEMINI_API_KEY_SECRET_ARN (per-env variants honoured)." >&2
+    exit 1
+  fi
 
   # aws/chat-stream-template.yaml defaults ChatTranscriptsTableName to a STAGE-SPECIFIC table
   # name, so an unresolved value would silently point PROD at the staging table (and the IAM
@@ -604,6 +612,9 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     # default is `stage`; omitting it on a prod deploy labels prod alerts as stage.
     "$(sam_param_override StageName "${DEPLOY_ENV}")"
     "$(sam_param_override GeminiApiKey "${GEMINI_API_KEY}")"
+    # When set, the app resolves the key from Secrets Manager at startup and it never lands
+    # in the function environment (app/secret_resolver.py). Empty keeps the env-var path.
+    "$(sam_param_override GeminiApiKeySecretArn "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}")"
     "$(sam_param_override GeminiModel "${GEMINI_MODEL:-gemini-3.1-flash-lite}")"
     "$(sam_param_override GeminiFallbackModel "${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}")"
     "$(sam_param_override GeminiLiveModel "${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}")"

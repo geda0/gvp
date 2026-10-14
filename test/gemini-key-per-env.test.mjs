@@ -122,6 +122,42 @@ test('distinct keys produce no warning, so the signal stays meaningful', () => {
   )
 })
 
+// The Secrets Manager ARN follows the SAME per-environment shape as the key, because the
+// whole point is that stage and prod stop sharing one credential — putting them both behind
+// one secret would re-create the coupling in a new place.
+const shArn = (env, deployEnv) => execFileSync(
+  '/bin/bash',
+  ['-c', `set -euo pipefail; . "${LIB}"; resolve_gemini_key "${deployEnv}" 2>/dev/null; printf '%s' "$GEMINI_API_KEY_SECRET_ARN_RESOLVED"`],
+  { env: { PATH: process.env.PATH, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+)
+
+test('the secret ARN resolves per environment too', () => {
+  const env = {
+    GEMINI_API_KEY_SECRET_ARN_PROD: 'arn:prod',
+    GEMINI_API_KEY_SECRET_ARN_STAGE: 'arn:stage',
+    GEMINI_API_KEY_SECRET_ARN: 'arn:shared',
+  }
+  assert.equal(shArn(env, 'prod'), 'arn:prod')
+  assert.equal(shArn(env, 'stage'), 'arn:stage')
+})
+
+test('a shared secret ARN still works as a fallback', () => {
+  assert.equal(shArn({ GEMINI_API_KEY_SECRET_ARN: 'arn:shared' }, 'stage'), 'arn:shared')
+})
+
+test('no ARN configured resolves empty, so the env-var path still applies', () => {
+  assert.equal(shArn({ GEMINI_API_KEY: 'plain' }, 'stage'), '')
+})
+
+test('integrate-and-deploy.sh passes the secret ARN to the stream stack', () => {
+  const script = readFileSync(join(REPO, 'scripts/integrate-and-deploy.sh'), 'utf8')
+  assert.match(
+    script, /GeminiApiKeySecretArn/,
+    'the deploy script must pass GeminiApiKeySecretArn, or the template parameter is ' +
+    'unreachable and the resolver never has an ARN to read'
+  )
+})
+
 test('integrate-and-deploy.sh uses the helper rather than GEMINI_API_KEY directly', () => {
   const script = readFileSync(join(REPO, 'scripts/integrate-and-deploy.sh'), 'utf8')
   assert.match(

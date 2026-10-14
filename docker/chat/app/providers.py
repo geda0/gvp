@@ -8,8 +8,18 @@ from typing import Any, AsyncIterator
 
 from app.knowledge_context import build_context, compact_history, serialize_context_xml
 from app.messages import Msg
+from app.secret_resolver import resolve_gemini_key_into_env
 
 logger = logging.getLogger(__name__)
+
+# Bootstrap the Gemini key from Secrets Manager (no-op unless GEMINI_API_KEY_SECRET_ARN is
+# set) BEFORE anything reads it. Deliberately at import time, and this is the load-bearing
+# detail: the key is read in six places across four modules, two of them on SECURITY_GLOB
+# (main.py, live_gemini.py). Resolving into os.environ here means every one of those read
+# sites works unchanged and the gated files are not touched at all. main.py imports
+# app.providers at module scope and reads the key only inside functions, so the ordering
+# holds. Never raises — see the availability note in app/secret_resolver.py.
+resolve_gemini_key_into_env()
 
 
 def _get_provider_name() -> str:

@@ -51,9 +51,21 @@ Parameters:
   GeminiApiKey:
     Type: String
     NoEcho: true
+    Default: ''
     Description: >
       Google AI Studio / Gemini API key. Passed at deploy time from
       .secrets/chat-deploy.env — NEVER a template default, never echoed.
+      NoEcho protects it in CloudFormation but NOT in the function environment, where
+      lambda:GetFunctionConfiguration returns it in plaintext. Prefer
+      GeminiApiKeySecretArn and leave this empty.
+  GeminiApiKeySecretArn:
+    Type: String
+    Default: ''
+    Description: >
+      Secrets Manager ARN holding the Gemini key. When set, the app resolves the key at
+      startup (app/secret_resolver.py) and it never appears in the function environment.
+      The app falls back to GeminiApiKey on any failure, so a Secrets Manager problem
+      degrades key hygiene rather than taking chat down.
   GeminiModel:
     Type: String
     Default: gemini-3.1-flash-lite
@@ -158,6 +170,7 @@ Parameters:
 Conditions:
   HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
   IsPublicUrl: !Equals [!Ref FunctionUrlAuthType, NONE]
+  HasGeminiSecret: !Not [!Equals [!Ref GeminiApiKeySecretArn, '']]
   HasChatAlertAlarm: !Not [!Equals [!Ref ChatAlertAlarmEmail, '']]
 
 Resources:
@@ -184,6 +197,19 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                 Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChatTranscriptsTableName}
+        # Scoped to the ONE secret by ARN, and only present when an ARN is configured.
+        # A wildcard here would trade a plaintext env var for read access to every secret
+        # in the account, which is a worse position than the one being fixed.
+        - !If
+          - HasGeminiSecret
+          - PolicyName: chat-stream-gemini-secret-read
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource: !Ref GeminiApiKeySecretArn
+          - !Ref AWS::NoValue
 
   # ADR-0022 §29 (DECISION 8) — Tier 2 of invariant 19 needs a log group THIS STACK
   # owns: a MetricFilter cannot attach to a group that does not exist, and Lambda's
@@ -233,6 +259,7 @@ Resources:
         Variables:
           CHAT_PROVIDER: gemini
           GEMINI_API_KEY: !Ref GeminiApiKey
+          GEMINI_API_KEY_SECRET_ARN: !Ref GeminiApiKeySecretArn
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
           GEMINI_LIVE_MODEL: !Ref GeminiLiveModel

@@ -42,6 +42,15 @@ resolve_gemini_key() {
 
   GEMINI_API_KEY_RESOLVED="${mine}"
 
+  # The Secrets Manager ARN follows the SAME per-environment shape, deliberately: putting
+  # both environments behind one secret would re-create the shared-credential coupling in a
+  # new place. Empty is normal and means "keep using the plaintext env var".
+  if [[ "${deploy_env}" == "stage" ]]; then
+    GEMINI_API_KEY_SECRET_ARN_RESOLVED="${GEMINI_API_KEY_SECRET_ARN_STAGE:-${GEMINI_API_KEY_SECRET_ARN:-}}"
+  else
+    GEMINI_API_KEY_SECRET_ARN_RESOLVED="${GEMINI_API_KEY_SECRET_ARN_PROD:-${GEMINI_API_KEY_SECRET_ARN:-}}"
+  fi
+
   if [[ -n "${mine}" && "${mine}" == "${other}" ]]; then
     echo "warning: prod and stage resolve to the SAME Gemini API key." >&2
     echo "  The free-tier quota (16,000 input tokens per minute) is per PROJECT per MODEL, so" >&2
