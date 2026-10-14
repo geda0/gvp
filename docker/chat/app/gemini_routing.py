@@ -128,6 +128,64 @@ def _to_contents(messages: list[Any]) -> tuple[list[Any], str]:
     return contents, '\n\n'.join(system_parts)
 
 
+def usage_telemetry(usage: Any) -> dict[str, Any] | None:
+    """Cache-effectiveness numbers from a google-genai ``usage_metadata``, or None.
+
+    The one number that matters is ``cached_pct``: the share of the prompt Gemini served
+    from its implicit cache. Cached input tokens do NOT count against the free tier's
+    16,000-input-tokens-per-minute-per-model quota (measured 2026-10-13), so that share
+    IS the throughput headroom — and it depends on a byte-identical prefix that an
+    innocent content edit can break. ``cached_pct`` quietly going to 0 is the only signal
+    that happened, since answers stay correct and latency barely moves.
+
+    ``billable_prompt_tokens`` is what still counts, i.e. 16000 / that ~= turns per
+    minute before a 429.
+
+    Returns None rather than raising on anything unusable: this feeds a log line, and no
+    turn may ever fail because its telemetry could not be computed.
+    """
+    prompt = getattr(usage, 'prompt_token_count', None)
+    if not isinstance(prompt, int) or isinstance(prompt, bool) or prompt <= 0:
+        return None
+
+    def _count(name: str) -> int:
+        value = getattr(usage, name, None)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return 0
+        return value
+
+    # A cold call reports None here. That is a real zero, not missing data — reporting it
+    # as 0 keeps "cache is cold" distinguishable from "no telemetry" in the log.
+    cached = min(_count('cached_content_token_count'), prompt)
+    return {
+        'prompt_tokens': prompt,
+        'cached_tokens': cached,
+        'cached_pct': round(100.0 * cached / prompt),
+        'billable_prompt_tokens': prompt - cached,
+        'output_tokens': _count('candidates_token_count'),
+    }
+
+
+def _log_usage(model_id: str, usage: Any) -> None:
+    """Emit the per-turn usage line. PER MODEL on purpose: the cache is per model, so a
+    fallback to the secondary always starts cold, and an aggregate would hide that."""
+    try:
+        stats = usage_telemetry(usage)
+        if stats is None:
+            return
+        logger.info(
+            'gemini usage model=%s prompt=%s cached=%s cached_pct=%s billable=%s output=%s',
+            model_id,
+            stats['prompt_tokens'],
+            stats['cached_tokens'],
+            stats['cached_pct'],
+            stats['billable_prompt_tokens'],
+            stats['output_tokens'],
+        )
+    except Exception:  # noqa: BLE001 - telemetry must never break a turn
+        logger.debug('usage telemetry failed for model=%s', model_id, exc_info=True)
+
+
 class _GeminiAdapter:
     """Per-model google-genai adapter exposing ``.ainvoke`` / ``.astream``."""
 
@@ -175,6 +233,7 @@ class _GeminiAdapter:
             contents=contents,
             config=gen_config,
         )
+        _log_usage(self._model_id, getattr(resp, 'usage_metadata', None))
         tool_calls = _tool_calls_from_function_calls(getattr(resp, 'function_calls', None))
         return Msg(
             role='ai',
@@ -197,12 +256,20 @@ class _GeminiAdapter:
         # assembled (will_continue partials are not exposed here), so emitting
         # them per chunk and collecting in main's accumulator neither drops nor
         # duplicates a call. chunk.text may be "" for those chunks — fine.
+        # Usage arrives on a LATE chunk (normally the last), so keep the newest one seen
+        # and log once the stream closes. Streaming is the path prod actually serves, so
+        # omitting it here would leave the real traffic unmeasured.
+        last_usage: Any = None
         async for chunk in stream:
+            chunk_usage = getattr(chunk, 'usage_metadata', None)
+            if chunk_usage is not None:
+                last_usage = chunk_usage
             text = getattr(chunk, 'text', None) or ''
             tool_calls = _tool_calls_from_function_calls(
                 getattr(chunk, 'function_calls', None)
             )
             yield MsgChunk(text=text, tool_calls=tool_calls or None)
+        _log_usage(self._model_id, last_usage)
 
 
 class GeminiRoutingChain:
