@@ -2,12 +2,8 @@
 
 **Architecture (diagrams):** [`docs/architecture.md`](docs/architecture.md) — system overview, frontend modules, contact/chat flows, deploy topology.
 
-> **Stale on chat hosting.** `docs/architecture.md` still describes chat as running on
-> **ECS Express Mode** in both environments, with the Lambda stack as a "dev/degraded
-> fallback". That is now inverted: the ECS services were **deleted on 2026-10-13** and
-> chat runs entirely on the container Lambdas described under [Chat](#chat-cloudfront--two-container-lambdas)
-> below. Its contact-pipeline and frontend diagrams are still accurate; its chat diagrams
-> are not.
+Chat hosting is summarised under [Chat](#chat-cloudfront--two-container-lambdas) below;
+`docs/architecture.md` has the full diagrams and the ADR-0022 migration history.
 
 ## Local Docker
 
