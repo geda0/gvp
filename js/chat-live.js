@@ -6,6 +6,7 @@ import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { shouldRevealResumeButton } from './voice-resume-button.js'
+import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
 
 const INPUT_RATE = 16000
 
@@ -589,6 +590,7 @@ export function bindChatLiveVoice(opts) {
   let turnAudioInBytes = 0
   let turnAudioOutBytes = 0
   let turnInterrupted = false
+  let turnGate = freshTurnGate()
   const markTurnStart = () => {
     if (!turnStartedAt) turnStartedAt = Date.now()
   }
@@ -666,6 +668,11 @@ export function bindChatLiveVoice(opts) {
     turnAudioInBytes = 0
     turnAudioOutBytes = 0
     turnInterrupted = false
+    // The gate re-opens here too, not just at turnComplete. stopVoiceInternal is the
+    // one place a session can end with a turn still cancelled, and this closure
+    // outlives the session — so without this the NEXT session starts gated shut and
+    // drops its first model turn, audio and transcript, in silence.
+    turnGate = freshTurnGate()
   }
 
   const persistVoiceTurn = (userText, assistantText, toolCalls, telemetry = {}) => {
@@ -910,12 +917,13 @@ export function bindChatLiveVoice(opts) {
       userSpokeAfterGreeting = true
       clearWarmFollowupTimer()
     }
-    if (rootOut) patchAssistantText(rootOut)
+    if (rootOut && acceptsTurnOutput(turnGate)) patchAssistantText(rootOut)
 
     const sc = msg.serverContent || msg.server_content
     if (sc) {
       if (sc.interrupted) {
         turnInterrupted = true
+        turnGate = nextTurnGate(turnGate, 'interrupted')
         player?.interrupt()
       }
 
@@ -924,7 +932,7 @@ export function bindChatLiveVoice(opts) {
         userSpokeAfterGreeting = true
         clearWarmFollowupTimer()
       }
-      if (sc.outputTranscription?.text) patchAssistantText(sc.outputTranscription.text)
+      if (sc.outputTranscription?.text && acceptsTurnOutput(turnGate)) patchAssistantText(sc.outputTranscription.text)
 
       const parts = sc.modelTurn?.parts
       if (Array.isArray(parts)) {
@@ -932,18 +940,19 @@ export function bindChatLiveVoice(opts) {
           const inline = part.inlineData || part.inline_data
           const mime = inline?.mimeType || inline?.mime_type || ''
           const data = inline?.data
-          if (mime.includes('audio/pcm') && data && player) {
+          if (mime.includes('audio/pcm') && data && player && acceptsTurnOutput(turnGate)) {
             // Approximate decoded byte count from the base64 string length
             // (~3 bytes per 4 base64 chars). Cheap, off by a few bytes at most.
             turnAudioOutBytes += Math.floor((String(data).length * 3) / 4)
             const { floats, rate } = decodePcmBase64(data, mime)
             player.enqueue(floats, rate).catch(() => {})
           }
-          if (part.text) patchAssistantText(part.text)
+          if (part.text && acceptsTurnOutput(turnGate)) patchAssistantText(part.text)
         }
       }
 
       if (sc.turnComplete || sc.turn_complete) {
+        turnGate = nextTurnGate(turnGate, 'turnComplete')
         finalizeTurn()
         // First turnComplete after the greeting = the greeting finished playing.
         // For warm sessions where the visitor hasn't spoken yet, schedule the
