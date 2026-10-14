@@ -30,6 +30,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AWS_DIR="${ROOT}/aws"
+
+# Per-environment Gemini key resolution + the shared-key warning. Sourced rather than
+# inlined so a test can drive resolve_gemini_key without executing a deploy.
+# shellcheck source=scripts/lib/gemini-key.sh
+. "${ROOT}/scripts/lib/gemini-key.sh"
 CHAT_DIR="${ROOT}/docker/chat"
 SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
 
@@ -187,6 +192,11 @@ fi
 # caught it: the stack name is not an output anyone asserts.
 # Compared rather than pattern-matched: a name is only wrong relative to the OTHER arm, so
 # guessing from substrings like "stage" would be a heuristic where an equality check is exact.
+# Resolve the Gemini key for THIS environment (warns if prod and stage share one).
+resolve_gemini_key "${DEPLOY_ENV}"
+GEMINI_API_KEY="${GEMINI_API_KEY_RESOLVED:-${GEMINI_API_KEY:-}}"
+export GEMINI_API_KEY
+
 CHAT_STACK_OTHER_ARM="$([[ "${DEPLOY_ENV}" == "stage" ]] \
   && printf '%s' "${CHAT_SAM_STACK_NAME_PROD:-${CHAT_SAM_STACK_NAME:-}}" \
   || printf '%s' "${CHAT_SAM_STACK_NAME_STAGE:-${CHAT_SAM_STACK_NAME:-}}")"
