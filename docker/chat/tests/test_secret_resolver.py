@@ -192,3 +192,46 @@ def test_providers_resolves_at_import_so_gated_read_sites_need_no_edit():
         'and live_gemini.py (both SECURITY_GLOB) stay untouched.'
     )
     assert 'resolve_gemini_key_into_env' in body
+
+
+def test_the_bootstrap_outcome_survives_the_unconfigured_root_logger(monkeypatch, capsys):
+    """The one-time outcome must be visible even though it happens before logging is set up.
+
+    MEASURED on the deployed stage host 2026-10-14: after wiring this module, a cold start
+    produced NO secret_resolver output whatsoever. The resolver runs at `providers.py` IMPORT
+    time, which is before `main.py`'s lifespan raises the root logger to INFO, so the INFO
+    line was emitted into an unconfigured root logger and dropped.
+
+    That left the migration unverifiable: with GEMINI_API_KEY still present in the function
+    environment, "read the secret successfully" and "silently fell back to the env var" look
+    identical from outside. An unobservable security change is one you cannot defend — the
+    same trap that made the cache fix unmeasurable until per-turn token telemetry was added.
+
+    So the bootstrap outcome goes to stderr, which Lambda and the Web Adapter capture into
+    CloudWatch regardless of the logging configuration. Exactly one line, and never the key.
+    """
+    monkeypatch.setenv('GEMINI_API_KEY_SECRET_ARN', 'arn:aws:secretsmanager:::secret:gvp/gemini')
+    secret = 'AIza-should-never-be-printed'
+    _install(monkeypatch, _FakeClient(payload=secret))
+
+    secret_resolver.resolve_gemini_key_into_env()
+    err = capsys.readouterr().err
+
+    assert 'GEMINI_API_KEY' in err, (
+        'the bootstrap outcome must reach stderr, or a cold start leaves no trace that the '
+        f'key came from Secrets Manager rather than the env var. stderr was: {err!r}'
+    )
+    assert secret not in err, 'the key itself must never be printed'
+
+
+def test_a_fallback_also_announces_itself_on_stderr(monkeypatch, capsys):
+    """Silent fallback is the dangerous case: chat keeps working and nobody knows why."""
+    monkeypatch.setenv('GEMINI_API_KEY_SECRET_ARN', 'arn:aws:secretsmanager:::secret:gvp/gemini')
+    monkeypatch.setenv('GEMINI_API_KEY', 'fallback-env-key')
+    _install(monkeypatch, _FakeClient(error=RuntimeError('AccessDeniedException')))
+
+    secret_resolver.resolve_gemini_key_into_env()
+    err = capsys.readouterr().err
+
+    assert err.strip(), 'a fallback must be announced, not silent'
+    assert 'fallback-env-key' not in err, 'and it must not print the key it fell back to'

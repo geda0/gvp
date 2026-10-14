@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import threading
 from typing import Any
 
@@ -42,6 +43,26 @@ JSON_FIELD = 'GEMINI_API_KEY'
 
 _lock = threading.Lock()
 _resolved: bool | None = None
+
+
+def _announce(message: str) -> None:
+    """Report the one-time bootstrap outcome on stderr as well as via the logger.
+
+    MEASURED on the deployed stage host 2026-10-14: a cold start produced NO output from
+    this module at all. It runs at `providers.py` IMPORT time, which is before `main.py`'s
+    lifespan raises the root logger to INFO, so the INFO record went to an unconfigured
+    root logger and was dropped. That made the migration unverifiable - with GEMINI_API_KEY
+    still present in the environment, "read the secret" and "silently fell back to the env
+    var" look identical from outside.
+
+    Lambda and the Web Adapter capture stderr into CloudWatch regardless of logging
+    configuration, so stderr is the only channel guaranteed to work this early. One line,
+    and never the key.
+    """
+    try:
+        print('[secret_resolver] ' + message, file=sys.stderr, flush=True)
+    except Exception:  # noqa: BLE001 - observability must never break the bootstrap
+        pass
 
 
 def _build_client() -> Any:
@@ -99,6 +120,8 @@ def _resolve_once() -> bool:
             'could not read %s from Secrets Manager (%s); keeping the existing %s',
             ARN_ENV, type(exc).__name__, KEY_ENV,
         )
+        _announce('could not read ' + ARN_ENV + ' from Secrets Manager ('
+                  + type(exc).__name__ + '); keeping the existing ' + KEY_ENV)
         return False
 
     key = _extract(response.get('SecretString') if isinstance(response, dict) else None)
@@ -107,12 +130,16 @@ def _resolve_once() -> bool:
             'the secret named by %s held no usable %s; keeping the existing env value',
             ARN_ENV, KEY_ENV,
         )
+        _announce('the secret named by ' + ARN_ENV + ' held no usable '
+                  + KEY_ENV + '; keeping the env value')
         return False
 
     os.environ[KEY_ENV] = key
     # Length only. Never the value, and never a prefix — CloudWatch is readable by anyone
     # with logs:FilterLogEvents, which is the disclosure surface this module exists to shrink.
     logger.info('resolved %s from Secrets Manager (%d chars)', KEY_ENV, len(key))
+    _announce('resolved ' + KEY_ENV + ' from Secrets Manager ('
+              + str(len(key)) + ' chars)')
     return True
 
 
