@@ -302,6 +302,8 @@ def build_context(
         # name them all on a "list everything" query without bloating the detailed blocks.
         'project_index': [_index_entry(p, 'name') for p in projects_all],
         'role_index': [_index_entry(r, 'company') for r in roles_all],
+        # The whole FAQ, unfiltered — static, so it rides in the cacheable prefix.
+        'faq_all': list(pack.get('faq') or []),
         'faq_match': faq_match,
         'tags': sorted(tags),
         'retrieval_fallback': retrieval_fallback,
@@ -468,11 +470,22 @@ def serialize_context_xml(context: dict[str, Any]) -> str:
     faq_match = context.get('faq_match')
     tags = context.get('tags') or []
 
-    # head: always-present grounding (bio + retrieval tags).
+    # head: always-present grounding (bio).
+    #
+    # ORDER IS LOAD-BEARING, and not for readability. Gemini's implicit cache matches an
+    # identical PREFIX, and cached input tokens do not count against the free tier's
+    # 16,000-input-tokens-per-minute-per-model quota (measured 2026-10-13: a repeat call
+    # reported cached=8170 of prompt=11220, and two such calls inside one minute — 22,440
+    # prompt tokens — did not 429). So every byte that is identical across turns must come
+    # BEFORE the first byte that varies, or it is paid for on every single turn.
+    #
+    # `<retrieval_tags>` used to sit here, and it varies per question. That truncated the
+    # cacheable prefix to ~2,988 tokens — under the 4,096 minimum for the 3.x Flash family,
+    # so caching never engaged and the site was capped at ~2.7 turns/minute. It now lives in
+    # the dynamic body. Anything added here must be byte-identical across turns.
     head: list[str] = [
         '<knowledge_pack>',
         '<bio>', _xml_safe(json.dumps(bio, ensure_ascii=False)), '</bio>',
-        '<retrieval_tags>', _xml_safe(', '.join(tags)), '</retrieval_tags>',
     ]
 
     # index: lightweight roster of every project/role — the enumeration aid. Dropped FIRST
@@ -494,8 +507,27 @@ def serialize_context_xml(context: dict[str, Any]) -> str:
             index.append(f'<p id="{pid}">{_xml_safe(p.get("name", ""))} — {_xml_safe(p.get("one_liner", ""))}</p>')
         index.append('</project_index>')
 
-    # body: the detailed retrieved roles/projects + FAQ suggestion + closing tag.
-    body: list[str] = ['<relevant_roles>']
+    # The FAQ set never varies, so it belongs in the cached prefix rather than being
+    # keyword-matched per turn. Shipping all of it is also a better answer than shipping
+    # one match: the model sees every question it might be asked. `<suggested_response>`
+    # below still highlights the closest match when there is one.
+    faq_all = context.get('faq_all') or []
+    if faq_all:
+        index.append('<faq>')
+        for row in faq_all:
+            fid = _xml_safe(row.get('id', ''))
+            questions = row.get('q') or []
+            question = _xml_safe(str(questions[0]) if questions else '')
+            answer = _xml_safe(str(row.get('a', '')))
+            index.append(f'<qa id="{fid}"><q>{question}</q><a>{answer}</a></qa>')
+        index.append('</faq>')
+
+    # body: everything that VARIES with the question. Must come after every static
+    # section above — see the ordering note on `head`.
+    body: list[str] = [
+        '<retrieval_tags>', _xml_safe(', '.join(tags)), '</retrieval_tags>',
+        '<relevant_roles>',
+    ]
     for role in roles:
         rid = _xml_safe(role.get('id', 'unknown'))
         body.append(f'<role id="{rid}">{_xml_safe(json.dumps(role, ensure_ascii=False))}</role>')
@@ -518,16 +550,29 @@ def serialize_context_xml(context: dict[str, Any]) -> str:
         body.append('</suggested_response>')
     body.append('</knowledge_pack>')
 
+    # Raised from 16000 because the static prefix now carries the full FAQ. Caching
+    # changes the economics the old number was chosen under: the static sections are
+    # paid for once and then served from cache, so a bigger prefix is close to free,
+    # while the part that actually recurs per turn is the dynamic body.
     try:
-        max_chars = int((os.environ.get('CHAT_KNOWLEDGE_PACK_MAX_CHARS') or '16000').strip())
+        max_chars = int((os.environ.get('CHAT_KNOWLEDGE_PACK_MAX_CHARS') or '26000').strip())
     except ValueError:
-        max_chars = 16000
+        max_chars = 26000
     max_chars = max(4000, min(max_chars, 50000))
 
     full = ''.join(head + index + body)
     if len(full) <= max_chars:
         return full
-    reduced = ''.join(head + body)  # drop the enumeration index first — XML stays well-formed
+    # Under pressure, shed the DYNAMIC detail and keep the static prefix intact. The old
+    # order dropped the index first, which is backwards now: the index is static and
+    # cached, so dropping it saves almost nothing per turn while destroying the cache
+    # prefix for every later turn and costing ~2.8x throughput.
+    trimmed_body = [
+        '<retrieval_tags>', _xml_safe(', '.join(tags)), '</retrieval_tags>',
+        '<!-- detail omitted for length; see the index and faq above -->',
+        '</knowledge_pack>',
+    ]
+    reduced = ''.join(head + index + trimmed_body)
     if len(reduced) <= max_chars:
         return reduced
     logger.warning(
