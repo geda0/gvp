@@ -1,9 +1,38 @@
 # ADR-0011 — IA merge: one projects-first "Work" showcase + inline experience section
 
-Status: Accepted
+Status: **Reverted** (was Accepted 2026-06-17; reverted in `f454481`, confirmed 2026-10-14)
 Date: 2026-06-17
-Supersedes: the Portfolio/Labs split established in `test/labs-restructure.test.mjs`
-References: ADR-0010 (agent navigation/tour uses this section vocabulary)
+Superseded by: nothing — the pre-existing Portfolio/Labs split simply stands
+References: ADR-0010 (whose §1 vocabulary was conditional on this merge — see below)
+
+## Resolution — 2026-10-14
+
+**This ADR was built and then deliberately reverted. It never shipped.** Commit `f454481`
+("lead with the work — résumé demote, hero, agent navigation guide") states it outright:
+*"Portfolio+Labs kept; IA-merge ADR-0011 reverted"*. The owner kept the parts that stood on
+their own — the résumé demotion, the hero, the agent navigation guide — and dropped the
+section merge.
+
+What actually ships, verified in code on 2026-10-14:
+
+- `js/section-names.js` resolves **three** buckets, `home | portfolio | labs`, with legacy
+  `playground` → `labs`. There is no `work` and no `experience` section.
+- `test/labs-restructure.test.mjs` pins that split and **passes 4/4**.
+
+**The `Supersedes:` line above was the live hazard and is now void.** It claimed authority
+over `test/labs-restructure.test.mjs`, so for ~4 months an `Accepted` ADR said a green test
+pinned obsolete behaviour. It did not: the test is correct and the ADR is the stale artifact.
+Anyone "fixing" that test to match this document would have broken shipped navigation.
+
+Kept rather than deleted because the context and trade-off analysis below are still the best
+write-up of the IA question, and a future attempt should start from it — with the knowledge
+that it was tried once and pulled back. If the merge is revived it needs a **new** ADR that
+supersedes this one explicitly, not a status flip on this one.
+
+Note for anyone reviving it: ADR-0015 §2.1 moves the section registry to data
+(`SECTION_IDS` + `SECTION_ALIASES` in `js/section-names.js`), which makes a rename a data
+edit rather than a code change spread across the text and voice tool declarations. Do that
+first and the IA merge becomes much cheaper than it was here.
 
 ## Context
 

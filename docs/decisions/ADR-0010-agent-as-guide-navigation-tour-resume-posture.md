@@ -1,8 +1,35 @@
 # ADR-0010 — Agent as guide: navigation parity, guided tour, and résumé posture
 
-Status: Accepted
+Status: Accepted — **§1 amended 2026-10-14** (its vocabulary was conditional on ADR-0011, which was reverted)
 Date: 2026-06-17
 Supersedes: none (extends the chat tool surface from ADR-0007; references the IA in ADR-0011)
+
+## Amendment — 2026-10-14: §1's vocabulary is void, §2 shipped
+
+§1 below fixes the section enum at `{ home, work, experience, contact }`, and says so
+explicitly **"After the Portfolio+Labs merge"** — i.e. conditional on ADR-0011. That merge
+was reverted in `f454481` and never shipped, so **§1's enum does not describe this site.**
+
+The shipped vocabulary is the one in `js/section-names.js`:
+
+```
+section ∈ { 'home', 'portfolio', 'labs' }      legacy: 'playground' → 'labs'
+```
+
+The rest of this ADR stands, and §2 (navigation parity on the text path) **has shipped** —
+`providers.py` `chat_tools()` now exposes `navigate_to_section`. Read §1's *seam* as still
+correct and only its *values* as wrong: tool declarations narrow over time, the FE handler
+stays tolerant of legacy input. That design survived; the `work`/`experience` ids did not.
+
+Two drift items this amendment does not fix, left for the M2 slice that touches these files:
+
+- `live_gemini.py` still declares `enum=['home','portfolio','playground']` while
+  `providers.py` declares `['home','portfolio','labs']`. The voice model is told the site has
+  a "Playground" it no longer has and cannot emit `labs` at all — it only works via the
+  legacy alias.
+- ADR-0015 §2.1 rules that M2 does **not** re-own this vocabulary: it becomes data
+  (`SECTION_IDS` + `SECTION_ALIASES`), so a future rename is a data edit rather than a third
+  competing list. Do not introduce a fourth.
 
 ## Context
 

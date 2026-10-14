@@ -6,7 +6,19 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ---
 
-## MILESTONE — Work-showcase reframe + agent guide (ACTIVE)
+## MILESTONE — Work-showcase reframe + agent guide (PARTLY SHIPPED; IA merge REVERTED)
+
+> **Resolved 2026-10-14.** The IA half of this milestone — merging Portfolio+Labs into one
+> "Work" showcase with an inline Experience section (ADR-0011) — was **built and reverted** in
+> `f454481` ("Portfolio+Labs kept; IA-merge ADR-0011 reverted"). The shipped vocabulary is
+> still `home | portfolio | labs`, and `test/labs-restructure.test.mjs` pins it (4/4 green).
+> ADR-0011 is now marked Reverted and ADR-0010 §1 amended, so no Accepted ADR claims authority
+> over that test any more.
+>
+> What DID ship from this milestone: the résumé demotion, the hero, and agent navigation
+> parity on the text path (`providers.chat_tools()` declares `navigate_to_section`). Items
+> phrased in terms of **Work / Experience** destinations are moot as written — reviving them
+> needs a new ADR, not a status flip.
 
 > **Owner direction (firm, 2026-06-17).** The site should feel like a **portfolio, not a résumé**,
 > and the chat agent should **guide visitors around the site**. Three direction calls:
@@ -101,12 +113,18 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 5. **Text agent has navigation parity with voice** — `[chat pytest]` `[frontend-manual]` —
    _owner #3: the text agent can move the visitor around the site like voice already can._
-   - [ ] The text-chat tool surface includes a navigation tool (parity with voice's
-         `navigate_to_section`), targeting the new Work / Experience / Home destinations.
+   - [x] ~~The text-chat tool surface includes a navigation tool (parity with voice's
+         `navigate_to_section`)~~ — **SHIPPED**; `providers.chat_tools()` declares it. The
+         "Work / Experience / Home destinations" wording is moot: the IA merge was reverted,
+         so the shipped enum is `home | portfolio | labs`.
    - [ ] When the visitor asks to "go to / show me your work / experience / projects," the text agent
          navigates the page to that section (the page actually moves), not just describes it in text.
-   - [ ] A chat pytest pins that the text tool surface now declares the navigation tool (closes the
-         `providers.chat_tools()` gap vs `live_gemini` having `navigate_to_section`).
+   - [x] ~~A chat pytest pins that the text tool surface now declares the navigation tool~~ —
+         the `providers.chat_tools()` gap is ALREADY closed. Still OPEN and worth a slice: the
+         two declarations have DRIFTED — `live_gemini.py` says
+         `['home','portfolio','playground']` while `providers.py` says
+         `['home','portfolio','labs']`, so the voice model cannot emit `labs` at all and only
+         works via the legacy alias. Pin enum EQUALITY, not presence.
    - [ ] qa-verifier confirms in a browser that a text request to navigate actually scrolls/switches
          the page.
    - _Decision (design-notes): the navigation enum must be updated to the new section ids (work /
