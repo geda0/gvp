@@ -131,7 +131,19 @@ gvp_restore_operator_intent() {
     if [[ -n "${!set_marker:-}" ]]; then
       local saved="_GVP_CALLER_${v}"
       if [[ "${!v:-}" != "${!saved}" ]]; then
-        echo "note: keeping caller's ${v}=${!saved} (a .secrets file tried to set ${v}=${!v:-})" >&2
+        local saved_val="${!saved}" other_val="${!v:-}"
+        # MASK secret-ish values. This note used to echo both sides verbatim, which printed
+        # GEMINI_API_KEY in full into the deploy log — and into CI logs, which are readable by
+        # anyone with the repo. A note explaining that a secret was overridden must not
+        # disclose the secret to do it.
+        case "${v}" in
+          *KEY|*KEY_*|*SECRET*|*TOKEN*|*PASSWORD*|*PEPPER*)
+            echo "note: keeping caller's ${v} (${#saved_val} chars; a .secrets file tried to set a different ${#other_val}-char value)" >&2
+            ;;
+          *)
+            echo "note: keeping caller's ${v}=${!saved} (a .secrets file tried to set ${v}=${!v:-})" >&2
+            ;;
+        esac
       fi
       export "${v}=${!saved}"
     fi
