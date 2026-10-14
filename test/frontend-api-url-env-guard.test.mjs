@@ -59,7 +59,18 @@ function resolveExpectedEnv (env) {
   if (explicit === 'prod' || explicit === 'production') return 'prod'
   if (explicit === 'stage' || explicit === 'staging') return 'stage'
   if (explicit) return null // explicit but unrecognized -> do not guess an environment
-  const branch = String(env.GITHUB_REF_NAME || '').trim()
+  // Branch inference, so the guard ARMS ITSELF wherever it runs:
+  //   GITHUB_REF_NAME — GitHub Actions
+  //   AWS_BRANCH      — AWS Amplify (set by the build; needs no console configuration)
+  //
+  // AWS_BRANCH added 2026-10-14 after measuring that GVP_EXPECTED_ENV is unset on EVERY
+  // Amplify app and branch, so this guard resolved nothing and SKIPPED on every Amplify build
+  // it has ever run in — it was decoration. The miss was real: merging main into agent carried
+  // PROD hosts onto the staging branch and three consecutive stage builds reported SUCCEED.
+  //
+  // A guard whose arming depends on someone remembering a console variable is unarmed exactly
+  // when it matters. Do not reduce this back to GVP_EXPECTED_ENV alone.
+  const branch = String(env.GITHUB_REF_NAME || env.AWS_BRANCH || '').trim()
   if (branch === 'main') return 'prod'
   if (branch === 'agent') return 'stage'
   return null
