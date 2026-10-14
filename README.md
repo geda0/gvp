@@ -2,6 +2,13 @@
 
 **Architecture (diagrams):** [`docs/architecture.md`](docs/architecture.md) — system overview, frontend modules, contact/chat flows, deploy topology.
 
+> **Stale on chat hosting.** `docs/architecture.md` still describes chat as running on
+> **ECS Express Mode** in both environments, with the Lambda stack as a "dev/degraded
+> fallback". That is now inverted: the ECS services were **deleted on 2026-10-13** and
+> chat runs entirely on the container Lambdas described under [Chat](#chat-cloudfront--two-container-lambdas)
+> below. Its contact-pipeline and frontend diagrams are still accurate; its chat diagrams
+> are not.
+
 ## Local Docker
 
 Run the static site plus mock APIs on a single origin (`http://localhost:8080`).
@@ -35,6 +42,103 @@ PYTHONPATH=. .venv/bin/python -m pytest tests -v
 
 **Environment:** The local stack does not require secrets. Optional compose overrides can live in a gitignored `.env` at the repo root; see [`docker/.env.example`](docker/.env.example) for a placeholder. Production and SAM variable names live in [`secrets.example/deploy.env.example`](secrets.example/deploy.env.example).
 
+## Chat (CloudFront + two container Lambdas)
+
+There is no "Lambda vs container" split: **both chat functions are container images**
+(`PackageType: Image`) running the **same** FastAPI app, `app.main:app`. One codebase,
+three Dockerfiles, differing only in how the app is spoken to.
+
+| image | entry | adapter | serves |
+|---|---|---|---|
+| [`docker/chat/Dockerfile.lambda-stream`](docker/chat/Dockerfile.lambda-stream) | `uvicorn app.main:app` | **Lambda Web Adapter** extension, `AWS_LWA_INVOKE_MODE=response_stream` | `POST /api/chat` (SSE) |
+| [`docker/chat/Dockerfile.lambda`](docker/chat/Dockerfile.lambda) | `app.lambda_handler.handler` | **Mangum**, event → ASGI (buffered) | everything else |
+| [`docker/chat/Dockerfile`](docker/chat/Dockerfile) | `uvicorn app.main:app` | none — plain server | local compose only |
+
+Mangum turns a Lambda event into an ASGI call, so no server runs and the whole response
+must be assembled before returning — inherently buffered. LWA instead keeps the real
+`uvicorn` running inside the container and proxies each invocation to `localhost:8000`,
+which is what lets bytes leave as they are produced. Note the streaming image and the
+plain image have **identical CMDs**: with LWA the app cannot tell it is on Lambda, which
+is why moving off ECS needed no application change.
+
+**Why two functions.** Streaming needs a Lambda **Function URL** — HttpApi buffers, so SSE
+through it arrives all at once. But a Function URL has no routing, and anonymous Function
+URLs are blocked account-wide here (measured; see the rationale in
+[`aws/chat-stream-template.yaml`](aws/chat-stream-template.yaml)), so it must be
+`AWS_IAM`. **CloudFront + OAC** (`OriginAccessControlOriginType: lambda`) solves both at
+once — it SigV4-signs to the Function URL *and* gives path routing:
+
+- `/api/chat` (and `/api/chat/`) → the streaming Function URL
+- default behaviour → the HttpApi on the chat stack
+
+So the split is **streaming vs not**, not Lambda vs container. One consequence: the OAC
+signature covers the body hash, so a request must carry `x-amz-content-sha256` — which is
+what [`js/chat-payload-hash.js`](js/chat-payload-hash.js) computes in the browser. A
+hand-rolled `curl` without that header gets a 403, and anything that serializes the body
+twice breaks the front door the same way.
+
+**Voice never touches AWS.** Lambda cannot hold a WebSocket, so it does not try.
+`POST /api/live/session` mints a short-lived Gemini **ephemeral token**, and the browser
+then opens `wss://generativelanguage.googleapis.com/…BidiGenerateContentConstrained`
+**directly** to Google (`liveVoiceTransport = "direct_google"`, hardcoded in
+`docker/chat/app/main.py`). The `Constrained` endpoint exists for exactly this
+ephemeral-token case. The relay code (`WS /api/live/relay/{id}`) still exists but is
+dormant — nothing selects it. This is why ECS Express could be deleted without breaking
+voice.
+
+### Deploying chat
+
+The stream target is **not** the default, and the chat stack name must be set **per
+environment** or the script refuses:
+
+```bash
+CHAT_DEPLOY_TARGET=stream SYNC_API_URLS=0 \
+  CHAT_SAM_STACK_NAME_PROD=gvp-chat-prod CHAT_SAM_STACK_NAME_STAGE=gvp-chat-stage \
+  bash scripts/integrate-and-deploy.sh stage
+```
+
+- **`CHAT_DEPLOY_TARGET=stream`** — `express` is still the default and now deploys nothing
+  useful (the ECS services are deleted). An unrecognised value exits 1 rather than
+  silently deploying nothing.
+- **Both per-env stack names** — the legacy `CHAT_SAM_STACK_NAME` is the fallback for
+  *both* arms, so setting only it resolves prod and stage to the same stack. The script
+  refuses that rather than writing prod parameters into the stage stack.
+- **`SYNC_API_URLS=0`** unless you intend a meta change. The stream target never repoints
+  `gvp:chat-api-url` on its own (invariant 11), but an explicit override still reaches the
+  committed HTML.
+
+This deploy builds a container image, so it needs a healthy Docker daemon. A wedged Docker
+shows up as `sam build` sitting at 0% CPU with no output — restart Docker rather than
+waiting.
+
+### Token quota and telemetry
+
+The binding constraint on the free tier is
+`GenerateContentInputTokensPerModelPerMinute-FreeTier` = **16,000 input tokens per minute,
+per model**. Every turn logs what it spent:
+
+```
+gemini usage model=… prompt=7165 cached=4070 cached_pct=57 billable=3095 output=128
+```
+
+`billable` is what counts against the quota, so **`16000 / billable` is turns-per-minute**.
+Cached input tokens are free, which is why the knowledge blob is ordered so Gemini's
+implicit cache can match an identical **prefix** — all static sections (bio, indexes, FAQ)
+precede every dynamic one in `serialize_context_xml`. Measured: ordering alone took a turn
+from ~6,600 billable to ~2,525.
+
+Two operational traps worth knowing:
+
+- **`cached_pct` dropping to 0 is the alarm.** The prefix sits near the ~4,096-token
+  minimum for implicit caching, so a content edit to the bio or indexes can silently push
+  it under the floor. Answers stay correct and only the 429 rate moves, so nothing else
+  reveals it. `docker/chat/tests/test_cache_prefix.py` pins both the prefix length and the
+  static-before-dynamic ordering.
+- **The cache is per model, and stage shares prod's API key.** A fallback to
+  `GEMINI_FALLBACK_MODEL` always starts cold and pays full price from its own separate
+  16,000, and because the quota is per *project*, **load-testing stage degrades prod
+  chat**. Separate keys are the fix; there is currently no isolation seam on the model side.
+
 ## Contact form (Amplify + AWS durable pipeline)
 
 This repo is a static site hosted on Amplify, with an AWS-native durable contact pipeline used to receive and deliver contact messages.
@@ -48,7 +152,7 @@ This repo is a static site hosted on Amplify, with an AWS-native durable contact
 - **Public site analytics**: events go to **Google Analytics** from the browser (`js/analytics.js` + gtag in `index.html`). The private **admin** page has tabs for **Contact** (queue health, retries) and **Transcripts** (chat sessions with stream/voice rollups, activity sparkline, recent failures).
 - **Contact API URL** is in HTML **`<meta name="gvp:contact-api-url">`**. After deploy, run [`scripts/sync-site-api-urls.mjs`](scripts/sync-site-api-urls.mjs) (or the workflow with **sync_api_urls**) to patch that meta from stack output `ContactApiUrl`.
 - Optional chat URL sync uses the same script: `node scripts/sync-site-api-urls.mjs <contactApiUrl> <chatApiUrl>`. The second argument patches **`<meta name="gvp:chat-api-url">`** where present (`index.html`, and `admin/index.html` if that meta exists). **`chatApiUrl`** is the **chat API** (FastAPI `POST /api/chat`), not the staging **site** at **`chat.marwanelgendy.link`** unless that host reverse-proxies `/api/chat` to the container.
-- **Browser voice (Gemini Live):** mic UI is **always rendered** in the FE — no meta flag. Voice transport needs a **WebSocket-capable** chat host with **`CHAT_LIVE_RELAY=1`** (default in [`docker/chat/Dockerfile`](docker/chat/Dockerfile) for ECS images). API Gateway HTTP API + Lambda uses **`CHAT_LIVE_RELAY=0`** in [`aws/chat-template.yaml`](aws/chat-template.yaml); the browser client **does not** open a **`direct_google`** Live socket by default (avoids Google **1011**); use ECS/ALB for real voice. `integrate-and-deploy.sh` warns when the resolved `gvp:chat-api-url` points at a Lambda execute-api host (text chat works, voice will fail there). Optional **`CHAT_LIVE_VOICE_STRICT=1`** on the API makes **`POST /api/live/session`** return **503** when relay is off (no token mint). **`integrate-and-deploy.sh`** patches **`gvp:chat-api-url`** from **`CHAT_PROD_CHAT_API_URL`** / **`CHAT_STAGE_CHAT_API_URL`** or ECS ALB discovery (opt out **`CHAT_ECS_AUTO_SYNC_CHAT_URL=0`**). Repo variables for Actions: **`CHAT_VOICE_ECS_BOOTSTRAP`**, **`CHAT_ECS_AUTO_SYNC_CHAT_URL`**, **`CHAT_LIVE_VOICE_STRICT`** (optional).
+- **Browser voice (Gemini Live):** mic UI is **always rendered** in the FE — no meta flag. Voice is **browser-direct** and needs **no WebSocket-capable host**: `POST /api/live/session` mints an ephemeral token and the browser opens Google's Live socket itself (`liveVoiceTransport = "direct_google"`, hardcoded). See [Chat](#chat-cloudfront--two-container-lambdas) above. The relay path (`CHAT_LIVE_RELAY`, `WS /api/live/relay/{id}`) is **dormant** — nothing selects it — and the ECS Express services it was written for were **deleted on 2026-10-13**, so the old "use ECS/ALB for real voice" guidance no longer applies. Optional **`CHAT_LIVE_VOICE_STRICT=1`** still makes **`POST /api/live/session`** return **503** when relay is off. The `CHAT_ECS_*` / `CHAT_VOICE_ECS_BOOTSTRAP` variables below are retained for history only; a stream deploy ignores them.
 
 ### What “success” means
 
