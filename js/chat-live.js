@@ -668,6 +668,11 @@ export function bindChatLiveVoice(opts) {
     turnAudioInBytes = 0
     turnAudioOutBytes = 0
     turnInterrupted = false
+    // The gate re-opens here too, not just at turnComplete. stopVoiceInternal is the
+    // one place a session can end with a turn still cancelled, and this closure
+    // outlives the session — so without this the NEXT session starts gated shut and
+    // drops its first model turn, audio and transcript, in silence.
+    turnGate = freshTurnGate()
   }
 
   const persistVoiceTurn = (userText, assistantText, toolCalls, telemetry = {}) => {
