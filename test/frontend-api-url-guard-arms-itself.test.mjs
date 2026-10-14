@@ -62,6 +62,12 @@ const summarize = (out) => ({
   fail: Number((out.match(/# fail (\d+)/) || [, '0'])[1])
 })
 
+// NOTE ON WHAT THESE ASSERT, because getting it wrong twice is what prompted this comment.
+// Every test below checks ARMING and PRECEDENCE only, never a pass/fail verdict. A verdict
+// depends on which branch the suite is run from — checked out on `agent` the tree carries
+// STAGE hosts, on `main` PROD hosts — so `assert.ok(pass > 0)` silently encodes "run from
+// agent" and breaks the moment a promotion runs the suite on main. It did exactly that.
+
 test('the guard arms itself from AWS_BRANCH, with no console variable to forget', () => {
   // Exactly what Amplify provides for the staging app: the branch, and nothing else.
   const r = runGuard({ AWS_BRANCH: 'agent' })
@@ -73,7 +79,10 @@ test('the guard arms itself from AWS_BRANCH, with no console variable to forget'
     'green no matter which hosts are committed. It must resolve "stage" from the branch ' +
     `Amplify is building. Output:\n${r.out}`
   )
-  assert.ok(s.pass > 0, `the guard must actually assert something. Output:\n${r.out}`)
+  assert.ok(
+    s.pass + s.fail > 0,
+    `the guard must actually evaluate the hosts, not just resolve an env. Output:\n${r.out}`
+  )
 })
 
 test('AWS_BRANCH=main resolves prod, so the production app is covered too', () => {
@@ -96,15 +105,21 @@ test('AWS_BRANCH=main resolves prod, so the production app is covered too', () =
 
 test('an explicit GVP_EXPECTED_ENV still wins over the branch', () => {
   // The deploy workflows set it deliberately; branch inference must not override that.
-  const r = runGuard({ AWS_BRANCH: 'agent', GVP_EXPECTED_ENV: 'prod' })
-  const s = summarize(r.out)
-  assert.equal(s.skipped, false, 'an explicit value must still arm the guard')
-  // On the agent branch the working tree carries STAGE hosts, so asking for prod must FAIL.
-  // That is the assertion that proves precedence: if the branch won, this would pass.
-  assert.ok(
-    s.fail > 0,
-    'GVP_EXPECTED_ENV=prod on a stage-hosts tree must FAIL. It passed, which means branch ' +
-    `inference overrode the explicit value — wrong precedence. Output:\n${r.out}`
+  //
+  // Precedence is proved by DIFFERENCE, not by a verdict: the tree can only match one
+  // environment at a time, so a run that resolves `stage` and a run that resolves `prod`
+  // must disagree — on whichever branch this executes. If the branch won, both runs would
+  // resolve `stage` and the verdicts would match.
+  const fromBranch = summarize(runGuard({ AWS_BRANCH: 'agent' }).out)
+  const explicitWins = summarize(runGuard({ AWS_BRANCH: 'agent', GVP_EXPECTED_ENV: 'prod' }).out)
+
+  assert.equal(explicitWins.skipped, false, 'an explicit value must still arm the guard')
+  assert.notEqual(
+    fromBranch.fail > 0, explicitWins.fail > 0,
+    'adding GVP_EXPECTED_ENV=prod did not change the verdict, so branch inference overrode ' +
+    'the explicit value — wrong precedence. The two runs must disagree because the committed ' +
+    `hosts can only be right for ONE environment. branch=${JSON.stringify(fromBranch)} ` +
+    `explicit=${JSON.stringify(explicitWins)}`
   )
 })
 
