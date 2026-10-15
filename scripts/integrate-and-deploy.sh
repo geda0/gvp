@@ -44,7 +44,8 @@ usage() {
   echo "  stage — staging contact stack; optional CHAT_SAM_STACK_NAME_STAGE (or CHAT_SAM_STACK_NAME) + GEMINI_API_KEY for Lambda chat (Gemini)" >&2
   echo "  Auto-runs Secrets Manager seed/push when .secrets/manifest.json + config.manifest.json exist (SKIP_SECRETS_MANAGER=1 to skip)." >&2
   echo "  Voice is browser-direct (POST /api/live/session mints a token; the browser opens Google's Live API) — any HTTPS chat host works." >&2
-  echo "  CHAT_DEPLOY_TARGET=express (default) — ECS Express Mode, aws/chat-express-template.yaml → gvp-chat-express-<env>; the host serving prod today." >&2
+  echo "  CHAT_DEPLOY_TARGET=stream (default) — Lambda RESPONSE_STREAM + CloudFront/OAC (ADR-0022), aws/chat-stream-template.yaml → gvp-chat-lambda-stream-<env>; the host serving BOTH environments." >&2
+  echo "  CHAT_DEPLOY_TARGET=express           — ECS Express Mode (retired; re-creates the stacks and restarts ~\$41/mo). Rollback only, must be asked for by name." >&2
   echo "  CHAT_DEPLOY_TARGET=stream            — Lambda RESPONSE_STREAM + CloudFront/OAC (ADR-0022), aws/chat-stream-template.yaml → gvp-chat-lambda-stream-<env> then aws/chat-stream-cdn-template.yaml → gvp-chat-stream-cdn-<env>." >&2
   echo "  Any other CHAT_DEPLOY_TARGET value exits 1 — it never silently deploys nothing. The stream target never repoints gvp:chat-api-url (invariant 11)." >&2
   exit 1
@@ -66,12 +67,22 @@ fi
 # Validated HERE, before the sam/docker builds and the ECR push — not at the deploy branch — so an
 # unimplemented target costs nothing. Until now anything but `express` fell through the branch at
 # the bottom of this script and deployed NO chat host at all while exiting 0 (ADR-0022 drift 19).
-CHAT_DEPLOY_TARGET="$(printf '%s' "${CHAT_DEPLOY_TARGET:-express}" | tr '[:upper:]' '[:lower:]')"
+# DEFAULT IS `stream`, changed 2026-10-15. It was `express`, and that default kept
+# resurrecting the host ADR-0022 retired: any deploy omitting the flag took the express
+# arm, re-created gvp-chat-express-{stage,prod}, and MinTaskCount scaled the service back
+# to 1. MEASURED on 2026-10-15, two days after the services were recorded as deleted: two
+# ACTIVE services, three running tasks, an ECS-managed ALB, a flat ~$1.13/day across the
+# supposed deletion (~$41/mo reported as recovered and never was), and the leaked Gemini
+# key still in each task environment. A retired host that rebuilds itself when someone
+# forgets a variable is not retired.
+# `express` remains selectable BY NAME - it is the documented rollback path, and deleting
+# the arm is a separate decision from changing which one you get by accident.
+CHAT_DEPLOY_TARGET="$(printf '%s' "${CHAT_DEPLOY_TARGET:-stream}" | tr '[:upper:]' '[:lower:]')"
 case "${CHAT_DEPLOY_TARGET}" in
   express|stream) ;;
   *)
     echo "error: unsupported CHAT_DEPLOY_TARGET='${CHAT_DEPLOY_TARGET}' (accepted: express, stream)" >&2
-    echo "  express — ECS Express Mode (aws/chat-express-template.yaml); the default and the prod chat host." >&2
+    echo "  express — ECS Express Mode (aws/chat-express-template.yaml); RETIRED by ADR-0022, rollback only." >&2
     echo "  stream  — Lambda RESPONSE_STREAM + CloudFront/OAC (aws/chat-stream-template.yaml + aws/chat-stream-cdn-template.yaml, ADR-0022)." >&2
     exit 1
     ;;
