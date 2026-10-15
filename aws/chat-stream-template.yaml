@@ -61,6 +61,16 @@ Parameters:
   GeminiApiKeySecretArn:
     Type: String
     Default: ''
+    # The 6-char suffix is load-bearing: a name-only ARN does not match the IAM policy
+    # Resource, so the grant DENIES and the resolver falls back - which reads as a config
+    # problem rather than a typo. Refuse it at the parameter instead.
+    # DEPLOY-TIME PRECONDITION: the ARN must match StageName. Passing the prod ARN to the
+    # stage stack would give the stage role read access to the prod secret, and
+    # CloudFormation has no string-contains intrinsic to catch it.
+    AllowedPattern: '^$|^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+-[A-Za-z0-9]{6}$'
+    ConstraintDescription: >
+      Must be empty, or a FULL Secrets Manager ARN including its 6-character suffix
+      (e.g. arn:aws:secretsmanager:us-east-2:123456789012:secret:name-AbCdEf).
     Description: >
       Secrets Manager ARN holding the Gemini key. When set, the app resolves the key at
       startup (app/secret_resolver.py) and it never appears in the function environment.
@@ -258,7 +268,21 @@ Resources:
       Environment:
         Variables:
           CHAT_PROVIDER: gemini
-          GEMINI_API_KEY: !Ref GeminiApiKey
+          # Omitted ENTIRELY when an ARN is configured, so the function environment
+          # carries no key for lambda:GetFunctionConfiguration to return. Adding the
+          # secret path alone did NOT close the disclosure: measured 2026-10-14, this
+          # host held the freshly ROTATED key in plaintext while already reading the
+          # secret. The deploy script cannot fix it either - SAM rejects a bare `Key=`
+          # for this PackageType: Image stack, and CloudFormation reuses the previous
+          # value of an omitted parameter. So the template decides, declaratively.
+          #
+          # Consequence, accepted on purpose: secret_resolver's fail-open fallback is
+          # unreachable while an ARN is set. The fallback only has value when a
+          # plaintext key is present, and a plaintext key present IS the disclosure.
+          # Failure stays loud (resolver stderr, 503 gemini_key_missing on the voice
+          # mint, 503 /ready, Tier-1 alert filter); break-glass is a redeploy with
+          # GeminiApiKeySecretArn=''.
+          GEMINI_API_KEY: !If [HasGeminiSecret, !Ref 'AWS::NoValue', !Ref GeminiApiKey]
           GEMINI_API_KEY_SECRET_ARN: !Ref GeminiApiKeySecretArn
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
