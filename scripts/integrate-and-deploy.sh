@@ -364,7 +364,14 @@ fi
 run_chat_sam=false
 if [[ -n "${CHAT_STACK_RESOLVED}" ]]; then
   run_chat_sam=true
-  require GEMINI_API_KEY
+  # Key OR Secrets Manager ARN. This used to be a hard \, which made
+  # an empty key impossible — and an empty key is precisely what lets the secret REPLACE the
+  # plaintext env var rather than sit alongside it (ADR-0025 decision 2). The buffered block
+  # below repeats the check with a fuller message; this one fires first, so it must agree.
+  if [[ -z "${GEMINI_API_KEY:-}" && -z "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}" ]]; then
+    echo "error: set GEMINI_API_KEY or GEMINI_API_KEY_SECRET_ARN (per-env variants honoured)." >&2
+    exit 1
+  fi
 fi
 
 test_pid=""
