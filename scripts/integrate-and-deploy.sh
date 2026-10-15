@@ -116,7 +116,7 @@ fi
 # pointed every visitor's chat at a dead hostname.
 # These are flags that say WHAT TO DO, not credentials. A secrets file may supply a default for
 # them, but it must never override an operator who passed one on the command line.
-_GVP_INTENT_VARS='SYNC_API_URLS SKIP_SECRETS_MANAGER SKIP_CHAT_TESTS CHAT_ALWAYS_BUILD CHAT_DEPLOY_TARGET CHAT_SAM_STACK_NAME_PROD CHAT_SAM_STACK_NAME_STAGE CHAT_STREAM_RESERVED_CONCURRENCY CHAT_STREAM_FUNCTION_URL_AUTH_TYPE CHAT_PROD_CHAT_API_URL CHAT_STAGE_CHAT_API_URL'
+_GVP_INTENT_VARS='SYNC_API_URLS SKIP_SECRETS_MANAGER SKIP_CHAT_TESTS CHAT_ALWAYS_BUILD CHAT_DEPLOY_TARGET CHAT_SAM_STACK_NAME_PROD CHAT_SAM_STACK_NAME_STAGE CHAT_STREAM_RESERVED_CONCURRENCY CHAT_STREAM_FUNCTION_URL_AUTH_TYPE CHAT_PROD_CHAT_API_URL CHAT_STAGE_CHAT_API_URL GEMINI_API_KEY GEMINI_API_KEY_PROD GEMINI_API_KEY_STAGE GEMINI_API_KEY_SECRET_ARN GEMINI_API_KEY_SECRET_ARN_PROD GEMINI_API_KEY_SECRET_ARN_STAGE'
 for _v in $_GVP_INTENT_VARS; do
   if [[ -n "${!_v+x}" ]]; then
     eval "_GVP_CALLER_${_v}=\${${_v}}"
@@ -131,7 +131,19 @@ gvp_restore_operator_intent() {
     if [[ -n "${!set_marker:-}" ]]; then
       local saved="_GVP_CALLER_${v}"
       if [[ "${!v:-}" != "${!saved}" ]]; then
-        echo "note: keeping caller's ${v}=${!saved} (a .secrets file tried to set ${v}=${!v:-})" >&2
+        local saved_val="${!saved}" other_val="${!v:-}"
+        # MASK secret-ish values. This note used to echo both sides verbatim, which printed
+        # GEMINI_API_KEY in full into the deploy log — and into CI logs, which are readable by
+        # anyone with the repo. A note explaining that a secret was overridden must not
+        # disclose the secret to do it.
+        case "${v}" in
+          *KEY|*KEY_*|*SECRET*|*TOKEN*|*PASSWORD*|*PEPPER*)
+            echo "note: keeping caller's ${v} (${#saved_val} chars; a .secrets file tried to set a different ${#other_val}-char value)" >&2
+            ;;
+          *)
+            echo "note: keeping caller's ${v}=${!saved} (a .secrets file tried to set ${v}=${!v:-})" >&2
+            ;;
+        esac
       fi
       export "${v}=${!saved}"
     fi
@@ -196,6 +208,7 @@ fi
 resolve_gemini_key "${DEPLOY_ENV}"
 GEMINI_API_KEY="${GEMINI_API_KEY_RESOLVED:-${GEMINI_API_KEY:-}}"
 export GEMINI_API_KEY
+export GEMINI_API_KEY_SECRET_ARN_RESOLVED
 
 CHAT_STACK_OTHER_ARM="$([[ "${DEPLOY_ENV}" == "stage" ]] \
   && printf '%s' "${CHAT_SAM_STACK_NAME_PROD:-${CHAT_SAM_STACK_NAME:-}}" \
@@ -582,7 +595,14 @@ fi
 if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   CHAT_STREAM_STACK="${CHAT_STREAM_STACK_NAME:-gvp-chat-lambda-stream-${DEPLOY_ENV}}"
   CHAT_STREAM_CDN_STACK="${CHAT_STREAM_CDN_STACK_NAME:-gvp-chat-stream-cdn-${DEPLOY_ENV}}"
-  require GEMINI_API_KEY
+  # Either a key OR a Secrets Manager ARN. With an ARN the key can be left EMPTY, which
+  # is the whole point: it then never enters the function environment, where
+  # lambda:GetFunctionConfiguration would return it in plaintext. Requiring both would
+  # make the secret an addition rather than a replacement.
+  if [[ -z "${GEMINI_API_KEY:-}" && -z "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}" ]]; then
+    echo "error: set GEMINI_API_KEY or GEMINI_API_KEY_SECRET_ARN (per-env variants honoured)." >&2
+    exit 1
+  fi
 
   # aws/chat-stream-template.yaml defaults ChatTranscriptsTableName to a STAGE-SPECIFIC table
   # name, so an unresolved value would silently point PROD at the staging table (and the IAM
@@ -604,6 +624,9 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     # default is `stage`; omitting it on a prod deploy labels prod alerts as stage.
     "$(sam_param_override StageName "${DEPLOY_ENV}")"
     "$(sam_param_override GeminiApiKey "${GEMINI_API_KEY}")"
+    # When set, the app resolves the key from Secrets Manager at startup and it never lands
+    # in the function environment (app/secret_resolver.py). Empty keeps the env-var path.
+    "$(sam_param_override GeminiApiKeySecretArn "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}")"
     "$(sam_param_override GeminiModel "${GEMINI_MODEL:-gemini-3.1-flash-lite}")"
     "$(sam_param_override GeminiFallbackModel "${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}")"
     "$(sam_param_override GeminiLiveModel "${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}")"

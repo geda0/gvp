@@ -10,7 +10,14 @@
 #   1. GVP_EXPECTED_ENV  — explicit, wins when set (the deploy workflows set it)
 #   2. GITHUB_REF_NAME   — GitHub Actions
 #   3. AWS_BRANCH        — Amplify's own build variable: main -> prod, agent -> stage
-# Amplify always provides AWS_BRANCH, so NOTHING needs configuring in the console.
+# Amplify always provides AWS_BRANCH, so nothing NEEDS configuring in the console.
+#
+# Belt and braces: GVP_EXPECTED_ENV is also set explicitly, PER BRANCH, as of 2026-10-14:
+#   gvp /agent  = stage        home/agent = stage        home/main = prod
+# Per BRANCH and not per APP on purpose — the `home` app serves main (prod) AND agent
+# (chat./ai., stage), so a single app-level value would be wrong for one of them, and since
+# the explicit value WINS over branch inference it would fail that branch's builds. Verified
+# after setting: all three branches rebuilt SUCCEED and every live site serves its own hosts.
 #
 # This used to depend on GVP_EXPECTED_ENV alone, and that variable was measured UNSET on every
 # Amplify app and branch — so the guard resolved nothing and SKIPPED on every build it ever ran
