@@ -661,9 +661,7 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     # StageName → CHAT_ENV → the "[chat alert · {env}]" subject (alerts.py:97-103). The template
     # default is `stage`; omitting it on a prod deploy labels prod alerts as stage.
     "$(sam_param_override StageName "${DEPLOY_ENV}")"
-    # When an ARN is set, the app resolves the key from Secrets Manager at startup and the
-    # template omits GEMINI_API_KEY from the function environment entirely (ADR-0025).
-    "$(sam_param_override GeminiApiKeySecretArn "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}")"
+
     "$(sam_param_override GeminiModel "${GEMINI_MODEL:-gemini-3.1-flash-lite}")"
     "$(sam_param_override GeminiFallbackModel "${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}")"
     "$(sam_param_override GeminiLiveModel "${GEMINI_LIVE_MODEL:-gemini-3.1-flash-live-preview}")"
@@ -678,6 +676,14 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   # that stored value in the environment.
   if [[ -n "${GEMINI_API_KEY:-}" ]]; then
     CHAT_STREAM_PO+=("$(sam_param_override GeminiApiKey "${GEMINI_API_KEY}")")
+  fi
+  # CONDITIONAL for the same reason, and this one broke CI: it was a plain array element, so
+  # an unset ARN reached sam deploy as a bare `GeminiApiKeySecretArn=` and the staging deploy
+  # died with exit 2 after the whole container build. When set, the app resolves the key from
+  # Secrets Manager at startup and the template omits GEMINI_API_KEY from the function
+  # environment entirely (ADR-0025).
+  if [[ -n "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}" ]]; then
+    CHAT_STREAM_PO+=("$(sam_param_override GeminiApiKeySecretArn "${GEMINI_API_KEY_SECRET_ARN_RESOLVED}")")
   fi
   if [[ "${CHAT_ALERTS_LIT}" == "true" ]]; then
     CHAT_STREAM_PO+=("$(sam_param_override ResendApiKey "${RESEND_API_KEY}")")
