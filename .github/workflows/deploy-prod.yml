@@ -78,7 +78,15 @@ jobs:
       # App Runner was maintenance-mode; ECS Express Mode is AWS's managed successor (image+port
       # -> HTTPS on Fargate, ECS-managed ALB/TLS/autoscaling). Prod chat now AUTO-deploys on chat
       # changes (was manual). Express provisions networking itself — no VPC/subnet/cert config.
-      CHAT_DEPLOY_TARGET: express
+      # STREAM, not express. Both workflows hardcoded `express` and fire on every push,
+      # so each push re-created the ECS Express stacks that ADR-0022 retired and
+      # MinTaskCount scaled them back to 1. Measured 2026-10-15: the services were never
+      # gone for more than minutes, the ELB+ECS cost line stayed flat at ~$1.13/day across
+      # a deletion reported as saving ~$41/mo, and a delete-stack attempt failed because a
+      # CI update was in flight. Set EXPLICITLY rather than omitted: relying on the script
+      # default is the coupling that hid this for two days.
+      CHAT_DEPLOY_TARGET: stream
+      # Retained for the express rollback path only; ignored by the stream target.
       CHAT_EXPRESS_STACK_NAME: gvp-chat-express-prod
       CHAT_ECR_REPOSITORY_URI: 429844072978.dkr.ecr.us-east-2.amazonaws.com/gvp-chat
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

@@ -78,7 +78,15 @@ jobs:
       # container, so integrate-and-deploy.sh just runs `cloudformation deploy` of
       # aws/chat-express-template.yaml. STAGING ONLY: the prod workflow reads the empty vars.*
       # and stays contact-only; prod chat stays on ECS+ALB until a Phase 4 prod cutover.
-      CHAT_DEPLOY_TARGET: express
+      # STREAM, not express. Both workflows hardcoded `express` and fire on every push,
+      # so each push re-created the ECS Express stacks that ADR-0022 retired and
+      # MinTaskCount scaled them back to 1. Measured 2026-10-15: the services were never
+      # gone for more than minutes, the ELB+ECS cost line stayed flat at ~$1.13/day across
+      # a deletion reported as saving ~$41/mo, and a delete-stack attempt failed because a
+      # CI update was in flight. Set EXPLICITLY rather than omitted: relying on the script
+      # default is the coupling that hid this for two days.
+      CHAT_DEPLOY_TARGET: stream
+      # Retained for the express rollback path only; ignored by the stream target.
       CHAT_EXPRESS_STACK_NAME: gvp-chat-express-stage
       CHAT_ECR_REPOSITORY_URI: 429844072978.dkr.ecr.us-east-2.amazonaws.com/gvp-chat
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
