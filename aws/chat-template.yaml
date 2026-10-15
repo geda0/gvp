@@ -6,7 +6,29 @@ Parameters:
   GeminiApiKey:
     Type: String
     NoEcho: true
-    Description: Google AI Studio / Gemini API key (required for real traffic; pass via deploy — no template default).
+    Default: ''
+    Description: >
+      Google AI Studio / Gemini API key. NoEcho protects CloudFormation but NOT the function
+      environment, where lambda:GetFunctionConfiguration returns it in plaintext - which is
+      how the prod key leaked on 2026-10-14. Prefer GeminiApiKeySecretArn and leave this
+      empty; see ADR-0025.
+  GeminiApiKeySecretArn:
+    Type: String
+    Default: ''
+    # The 6-char suffix is load-bearing: a name-only ARN does not match the IAM policy
+    # Resource, so the grant DENIES and the resolver falls back - which reads as a config
+    # problem rather than a typo. Refuse it at the parameter instead.
+    # DEPLOY-TIME PRECONDITION: the ARN must match StageName. Passing the prod ARN to the
+    # stage stack would give the stage role read access to the prod secret, and
+    # CloudFormation has no string-contains intrinsic to catch it (ADR-0025).
+    AllowedPattern: '^$|^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+-[A-Za-z0-9]{6}$'
+    ConstraintDescription: >
+      Must be empty, or a FULL Secrets Manager ARN including its 6-character suffix.
+    Description: >
+      Secrets Manager ARN holding the Gemini key. When set, the app resolves it at startup
+      (app/secret_resolver.py) and GEMINI_API_KEY is NOT placed in the function environment
+      at all. Uses the AWS-managed aws/secretsmanager key, so no kms:Decrypt grant is
+      needed; a customer-managed key would require one here AND in the key policy.
   GeminiModel:
     Type: String
     Default: gemini-3.1-flash-lite
@@ -66,6 +88,7 @@ Parameters:
     Description: Environment label (surfaced as CHAT_ENV in alert subjects).
 
 Conditions:
+  HasGeminiSecret: !Not [!Equals [!Ref GeminiApiKeySecretArn, '']]
   HasChatTranscriptsTable: !Not [!Equals [!Ref ChatTranscriptsTableName, '']]
   HasChatErrorAlarm: !Not [!Equals [!Ref ChatErrorAlarmEmail, '']]
 
@@ -136,10 +159,28 @@ Resources:
                   - dynamodb:UpdateItem
                 Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ChatTranscriptsTableName}
           - !Ref AWS::NoValue
+        # Read-only, on the ONE !Ref'd secret, and only when an ARN is configured. A
+        # wildcard would trade a plaintext env var for read access to every secret in the
+        # account - worse than the problem being fixed. SAM `Statement:` form, per above.
+        - !If
+          - HasGeminiSecret
+          - Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref GeminiApiKeySecretArn
+          - !Ref AWS::NoValue
       Environment:
         Variables:
           CHAT_PROVIDER: gemini
-          GEMINI_API_KEY: !Ref GeminiApiKey
+          # Omitted ENTIRELY when an ARN is configured, so the function environment
+          # carries no key for lambda:GetFunctionConfiguration to return. Adding the
+          # secret path alone does NOT close the disclosure - measured on the sibling
+          # stream host, which held the freshly ROTATED key in plaintext while already
+          # reading the secret. The deploy script cannot fix it either: SAM rejects a
+          # bare `Key=` for this PackageType: Image stack, and CloudFormation reuses
+          # the previous value of an omitted parameter. ADR-0025 decision 2.
+          GEMINI_API_KEY: !If [HasGeminiSecret, !Ref 'AWS::NoValue', !Ref GeminiApiKey]
+          GEMINI_API_KEY_SECRET_ARN: !Ref GeminiApiKeySecretArn
           GEMINI_MODEL: !Ref GeminiModel
           GEMINI_FALLBACK_MODEL: !Ref GeminiFallbackModel
           GEMINI_LIVE_MODEL: !Ref GeminiLiveModel

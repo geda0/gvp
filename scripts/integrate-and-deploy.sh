@@ -445,13 +445,20 @@ echo "ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME:-}"
 
 CHAT_SAM_CHAT_URL=""
 if [[ "${run_chat_sam}" == "true" ]]; then
+  # Either a key OR a Secrets Manager ARN, same rule as the stream block. With an ARN the
+  # key is left EMPTY and aws/chat-template.yaml omits GEMINI_API_KEY from the function
+  # environment entirely (ADR-0025 decision 2) - which is the whole point, since
+  # lambda:GetFunctionConfiguration would otherwise return it in plaintext.
+  if [[ -z "${GEMINI_API_KEY:-}" && -z "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}" ]]; then
+    echo "error: set GEMINI_API_KEY or GEMINI_API_KEY_SECRET_ARN (per-env variants honoured)." >&2
+    exit 1
+  fi
   CHAT_PO=(
     # StageName is NOT cosmetic: aws/chat-template.yaml maps it to CHAT_ENV, which _env_label()
     # (docker/chat/app/alerts.py:97-103) puts in every alert subject as "[chat alert · {env}]".
     # The template default is `stage`, so a prod deploy that omits it labels PROD alerts as stage —
     # confidently wrong, and worse than the 'unknown' it replaced.
     "$(sam_param_override StageName "${DEPLOY_ENV}")"
-    "GeminiApiKey=${GEMINI_API_KEY}"
     "ChatCorsOrigins=${CHAT_CORS_ORIGINS:-https://chat.marwanelgendy.link,https://marwanelgendy.link,https://www.marwanelgendy.link}"
     "GeminiModel=${GEMINI_MODEL:-gemini-3.1-flash-lite}"
     "GeminiFallbackModel=${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}"
@@ -464,6 +471,19 @@ if [[ "${run_chat_sam}" == "true" ]]; then
   # unset in this repo's .secrets/*, so passing it unconditionally fails the whole deploy.
   if [[ -n "${SMOKE_PROBE_KEY:-}" ]]; then
     CHAT_PO+=("SmokeProbeKey=${SMOKE_PROBE_KEY}")
+  fi
+  # Conditional for exactly the SMOKE_PROBE_KEY reason above: `sam deploy` rejects a bare
+  # `GeminiApiKey=` for this PackageType: Image stack, so an empty value must be OMITTED
+  # rather than passed. Omitting it is also what lets the secret REPLACE the env var:
+  # CloudFormation keeps the previous value of an omitted parameter, and the template's
+  # !If on HasGeminiSecret means that stored value is never placed in the environment.
+  if [[ -n "${GEMINI_API_KEY:-}" ]]; then
+    CHAT_PO+=("GeminiApiKey=${GEMINI_API_KEY}")
+  fi
+  # Without this the new parameter is unreachable: the template default wins, the ARN
+  # deploys empty, and secret_resolver returns having done nothing - a silent no-op.
+  if [[ -n "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}" ]]; then
+    CHAT_PO+=("GeminiApiKeySecretArn=${GEMINI_API_KEY_SECRET_ARN_RESOLVED}")
   fi
   if [[ -n "${CHAT_TRANSCRIPTS_TABLE_NAME:-}" ]]; then
     CHAT_PO+=("ChatTranscriptsTableName=${CHAT_TRANSCRIPTS_TABLE_NAME}")
