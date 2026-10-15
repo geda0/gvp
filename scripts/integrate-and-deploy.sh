@@ -650,9 +650,8 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     # StageName → CHAT_ENV → the "[chat alert · {env}]" subject (alerts.py:97-103). The template
     # default is `stage`; omitting it on a prod deploy labels prod alerts as stage.
     "$(sam_param_override StageName "${DEPLOY_ENV}")"
-    "$(sam_param_override GeminiApiKey "${GEMINI_API_KEY}")"
-    # When set, the app resolves the key from Secrets Manager at startup and it never lands
-    # in the function environment (app/secret_resolver.py). Empty keeps the env-var path.
+    # When an ARN is set, the app resolves the key from Secrets Manager at startup and the
+    # template omits GEMINI_API_KEY from the function environment entirely (ADR-0025).
     "$(sam_param_override GeminiApiKeySecretArn "${GEMINI_API_KEY_SECRET_ARN_RESOLVED:-}")"
     "$(sam_param_override GeminiModel "${GEMINI_MODEL:-gemini-3.1-flash-lite}")"
     "$(sam_param_override GeminiFallbackModel "${GEMINI_FALLBACK_MODEL:-gemma-4-26b-a4b-it}")"
@@ -661,6 +660,14 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     "$(sam_param_override ChatTranscriptsTableName "${CHAT_TRANSCRIPTS_TABLE_NAME}")"
     "$(sam_param_override FunctionUrlAuthType "${CHAT_STREAM_AUTH_TYPE}")"
   )
+  # CONDITIONAL, not part of the array above: sam_param_override emits a bare `Key=` for an
+  # empty value, and `sam deploy` rejects that outright (exit 2, "is not a valid format").
+  # An empty key must therefore be OMITTED - which is also what lets the secret replace the
+  # env var, since CloudFormation keeps an omitted parameter and the template never places
+  # that stored value in the environment.
+  if [[ -n "${GEMINI_API_KEY:-}" ]]; then
+    CHAT_STREAM_PO+=("$(sam_param_override GeminiApiKey "${GEMINI_API_KEY}")")
+  fi
   if [[ "${CHAT_ALERTS_LIT}" == "true" ]]; then
     CHAT_STREAM_PO+=("$(sam_param_override ResendApiKey "${RESEND_API_KEY}")")
     CHAT_STREAM_PO+=("$(sam_param_override ChatAlertEmail "${CHAT_ALERT_TO}")")
