@@ -3,6 +3,74 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+
+- **2026-10-15 — M2 STARTED (slice 1 in flight). M0 + M1 done. A long credential/cost
+  detour between them is finished and verified.** `main` @ `33a514c`, `agent` @ `4617d27`.
+  App suite 255/254/1-skip, chat 174.
+
+  **M2 (`docs/plan-2026-09-port.md:118`, ADR-0015) — unblocked and begun.**
+  - ADR-0015 is now TRACKED (`4617d27`, 816 lines). It corrects the plan in four places and
+    adds a fifth cause. **Two corrections change how M2 must be tested:** (a) the plan's "on
+    every navigation" is FALSE — `js/app.js:243` guards the teardown with
+    `state === 'portfolio' || state === 'labs'`, so navigating HOME does not tear down and a
+    journey exercising only `→ home` passes against unfixed code; (b) `open_contact_form` and
+    `navigate_to_section` fail DIFFERENTLY — contact closes the panel synchronously so the
+    toolResponse is DROPPED, while navigation queues `hashchange` so the response IS sent and
+    then the socket dies mid-sentence. Do not merge them.
+  - ADR-0015 §2's BLOCKER is RESOLVED: ADR-0011 → `Reverted` (its `Supersedes:` line claimed
+    authority over a GREEN test — `test/labs-restructure.test.mjs`, 4/4 — which is how an
+    Accepted ADR came to say a passing test pinned obsolete behaviour); ADR-0010 §1 amended,
+    its enum having been explicitly conditional on that reverted merge. Shipped vocabulary
+    stays `home | portfolio | labs`; **M2 must not add a third** (§2.1: the registry becomes
+    data in `js/section-names.js`).
+  - ADR-0015 §6.7 is the SCOPED SECURITY_GLOB review for M2's chat half — it clears exactly
+    four edits on `main.py` / `live_gemini.py` and nothing else.
+  - **Slice 1 (in flight):** invariant #20, "a site-layout or navigation change never
+    terminates a live voice session", as a plain `node --test` with a `stopVoice` spy —
+    deliberately NOT inside the browser journey harness the plan buried it in. Root cause
+    verified in code: site event → `collapseChatDialog()` / `EV_COLLAPSE` →
+    `closePanel({immediate:true})` → `snapClose` → `js/chat.js:908 stopVoice`.
+  - Architect's slice reordering (ADR-0015 §11): the `stopVoice` spy goes FIRST; ADD a slice
+    aligning the `live_gemini.py` enum with `providers.py` (they have drifted —
+    `['home','portfolio','playground']` vs `['home','portfolio','labs']`, so the voice model
+    cannot emit `labs` at all and works only via the legacy alias); DROP
+    `inferPromisedNavigation` in favour of a `chat_nav_promise_gap` counter; SPLIT "confirmed
+    but never executed" into the five causes actually found; MOVE the journey harness to the
+    END and let no acceptance bullet depend on it alone (there is no browser E2E in this repo
+    and zero test dependencies).
+
+  **M1 — DONE and on prod.** Dust GC dropped, baked sprites restored, star count clamped
+  (a faster CPU is not a reason to draw a denser sky), manta-ray depth fix. See
+  [[starfield-revert-collateral]].
+
+  **The detour, all verified — see `docs/decisions/ADR-0025-...md` and the memory entries:**
+  - 429s were a measured ~3-turns/min *input-token* ceiling (per-MODEL quota), fixed by
+    ordering the knowledge blob so Gemini's implicit cache matches an identical PREFIX:
+    **2.4 → 5.3 turns/min measured ON PROD** (57% cached). Trimming was measured and REJECTED.
+  - Per-model token telemetry added, because the fix was otherwise unobservable:
+    `16000/billable` IS turns-per-minute, and `cached_pct` → 0 is the alarm.
+  - Voice barge-in: `interrupted` was a one-shot flush, not a cancellation. Turn-epoch gate
+    landed; it also caught a regression that would have left the NEXT session completely dead.
+  - Retrieval vocabulary closed: 20 of 39 record tags were unreachable by any question.
+  - Gemini key now resolves from Secrets Manager; **no chat function carries it in env**. The
+    leaked key is REVOKED (verified HTTP 400) and purged from AWS, including 69 ECS
+    task-definition revisions.
+  - **ECS Express is actually gone this time.** It kept returning because BOTH deploy
+    workflows hardcoded `CHAT_DEPLOY_TARGET: express` and fire on every push — so the
+    ~$41/mo I reported as saved on 2026-10-13 was never saved, and the cost line proved it
+    (flat ~$1.13/day across the "deletion"). Teardown now survives a CI run.
+  - `SECURITY_GLOB` widened from two of five credential surfaces to all of them.
+
+  **Open, not blocking M2:** `.secrets/chat-deploy.env` still holds the dead key (inert, should
+  become `GEMINI_API_KEY_SECRET_ARN_{PROD,STAGE}`); ECR Public rate-limits the Lambda Web
+  Adapter pull on shared runners (mirror it); ADR-0025's filed-forward list (lazy
+  re-resolution, dead `ADMIN_API_KEY`/`SMOKE_PROBE_KEY` diagnostics, deploys running as
+  account ROOT while a scoped CI role exists).
+
+---
+
+## Older entries (historical)
+
 - **2026-07-13 — night-trail fade fix on top of the prod-restored starfield (app, suite 194/0/1). UNCOMMITTED.**
   Navigator: "once the star is out of the view and gone, the trails should fade... preferably back to front."
   MEASURED on the restored prod build: `destination-out` rgba(0,0,0,0.22) fades ALPHA, which rounds at the bottom

@@ -888,7 +888,7 @@ export function initChat() {
     document.body.classList.toggle('chat-dialog-open', visible)
   }
 
-  const snapClose = ({ restoreFocus = true } = {}) => {
+  const snapClose = ({ restoreFocus = true, keepVoice = false } = {}) => {
     clearPanelAnimation()
     clearPlaceholderHighlightTimer()
     dialogSuggestions?.querySelector(`button[${PLACEHOLDER_DIALOG_CHIP_ATTR}]`)
@@ -899,11 +899,26 @@ export function initChat() {
     // Also catches the connecting window — without this, X-ing the dialog
     // while the WS handshake is still in flight let the session establish
     // server-side and idle until the no-mic timer fired.
+    //
+    // keepVoice: project invariant #20 (ADR-0015 §8) - a site-layout or navigation change
+    // must NEVER end a live voice session. The reason above is sound for the VISITOR closing
+    // the dialog, and is kept for that. But a navigation, a project dialog or the contact
+    // dialog is not the visitor closing the chat: it is the assistant being asked to move the
+    // site, often by its OWN navigate_to_section / open_contact_form call - which tore down
+    // the very session that had just promised the action (ADR-0015 §9.1).
+    //
+    // Gating only the stopVoice, deliberately: the rest of snapClose still runs, so the panel
+    // still collapses and this is not a no-op. ADR-0015 §4 later replaces the collapse with a
+    // stage reducer (docked / minimized rather than closed); this keeps the voice session
+    // alive in the meantime without pre-empting that design.
     if (
-      liveVoice?.isSessionOpen?.()
-      || liveUi.connecting
-      || liveUi.active
-      || voiceStartRequested
+      !keepVoice
+      && (
+        liveVoice?.isSessionOpen?.()
+        || liveUi.connecting
+        || liveUi.active
+        || voiceStartRequested
+      )
     ) {
       liveVoice?.stopVoice?.({ silent: true })
     }
@@ -980,18 +995,18 @@ export function initChat() {
     })
   }
 
-  const closePanel = ({ restoreFocus = true, immediate = false } = {}) => {
+  const closePanel = ({ restoreFocus = true, immediate = false, keepVoice = false } = {}) => {
     if (!isOpen()) return
     clearPanelAnimation()
     if (immediate || prefersReducedMotion()) {
-      snapClose({ restoreFocus })
+      snapClose({ restoreFocus, keepVoice })
       return
     }
 
     const token = ++panelAnim.token
     const seedRect = readSeedRect()
     if (!seedRect) {
-      snapClose({ restoreFocus })
+      snapClose({ restoreFocus, keepVoice })
       return
     }
 
@@ -1005,7 +1020,7 @@ export function initChat() {
 
     const finish = () => {
       if (token !== panelAnim.token) return
-      snapClose({ restoreFocus })
+      snapClose({ restoreFocus, keepVoice })
     }
 
     panelAnim.endHandler = (event) => {
@@ -1017,10 +1032,12 @@ export function initChat() {
     panel.style.transform = toTransform
   }
 
-  collapseChat = () => closePanel({ restoreFocus: false, immediate: true })
+  // Site-initiated: js/app.js:243 on a portfolio/labs navigation. keepVoice per invariant #20.
+  collapseChat = () => closePanel({ restoreFocus: false, immediate: true, keepVoice: true })
 
   const openContactFromChat = (prefill) => {
-    closePanel({ restoreFocus: false, immediate: true })
+    // Site-initiated, and often the assistant's OWN open_contact_form call.
+    closePanel({ restoreFocus: false, immediate: true, keepVoice: true })
     openContactDialog()
     if (!prefill || typeof prefill !== 'object') return
 
@@ -1431,7 +1448,10 @@ export function initChat() {
   })
 
   window.addEventListener(EV_COLLAPSE, () => {
-    closePanel({ restoreFocus: false, immediate: true })
+    // Site-initiated: js/projects.js:228 and js/contact.js:77 dispatch this when a project
+    // or the contact dialog opens. keepVoice per invariant #20 — the same reasoning as
+    // collapseChat, and this listener is the third of the three paths §9.1 names.
+    closePanel({ restoreFocus: false, immediate: true, keepVoice: true })
   })
 
   dialog.addEventListener('click', (event) => {
