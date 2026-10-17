@@ -98,11 +98,15 @@ def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
 
 
 def chat_tools() -> list[Any]:
-    """Function-call declarations for the Gemini text path: open_resume and
-    open_contact_form (the same two declarations Live uses, minus
-    navigate_to_section). Returned as a list of ``types.Tool`` for
-    ``GenerateContentConfig.tools``. Imported lazily so importing providers in
-    the mock path never requires google-genai."""
+    """Function-call declarations for the Gemini text path: open_resume,
+    open_contact_form and navigate_to_section - the SAME THREE Live declares
+    (ADR-0010 §2 shipped navigation parity on the text path; this docstring
+    formerly denied that the text path had the navigation tool at all, and was
+    contradicted by the function fifty lines below). The enum must stay equal to
+    live_gemini.py's; see docker/chat/tests/test_guide_tool_contract.py.
+    Returned as a list of ``types.Tool`` for ``GenerateContentConfig.tools``.
+    Imported lazily so importing providers in the mock path never requires
+    google-genai."""
     from google.genai import types
 
     return [

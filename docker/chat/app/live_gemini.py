@@ -70,15 +70,27 @@ _LIVE_TOOLS = types.Tool(
             name='navigate_to_section',
             description=(
                 "Navigate to a top-level section of the site. Call this for hands-free movement "
-                "when the user asks to go to Home, Portfolio, or Playground/Experiments."
+                "when the user asks to go to Home, Portfolio (professional work), or Labs "
+                "(personal builds and experiments)."
             ),
             parameters=types.Schema(
                 type=types.Type.OBJECT,
                 properties={
                     'section': types.Schema(
                         type=types.Type.STRING,
-                        enum=['home', 'portfolio', 'playground'],
-                        description='Section id to navigate to.',
+                        # MUST equal providers.py's text-path enum. They had drifted:
+                        # this said ['home', 'portfolio', 'playground'] while the text path
+                        # said ['home', 'portfolio', 'labs'], so the voice model was told the
+                        # site has a Playground it no longer has and could NOT emit `labs` at
+                        # all - it only appeared to work because js/section-names.js:6 maps
+                        # the legacy `playground` onto the Labs bucket. Drop that alias and
+                        # voice navigation breaks silently while text keeps working.
+                        # `playground` stays a legacy INPUT the frontend resolves; it is
+                        # never advertised here. Pinned by
+                        # docker/chat/tests/test_guide_tool_contract.py as EQUALITY, because
+                        # mere presence is satisfiable while the contract is broken.
+                        enum=['home', 'portfolio', 'labs'],
+                        description='Section id: home, portfolio (professional work), or labs (personal builds).',
                     ),
                 },
                 required=['section'],
