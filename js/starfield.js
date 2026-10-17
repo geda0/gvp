@@ -1,4 +1,5 @@
 // starfield.js - Theme-aware canvas (starfield | snow)
+import { starIsOffCanvas } from './starfield-geom.js';
 import {
   STARFIELD_DEFAULT_EXPERIENCE,
   calculateFullStarCount,
@@ -310,21 +311,47 @@ export function initStarfield(canvasId, options = {}) {
       // Glow radius drives the star sprite and the streak width.
       const radius = clampStarRadius(s * (1.5 + this.glow / 10) * starGlowScale);
 
+      // Where this frame's streak would start, computed BEFORE the cull so the cull can
+      // see the whole comet rather than just the head.
+      let streakTailX, streakTailY, streakDx, streakDy, streakDist, streakLen;
+      const streaking =
+        !prefersReducedMotion && this.px !== null && this.py !== null;
+      if (streaking) {
+        streakDx = x - this.px;
+        streakDy = y - this.py;
+        streakDist = Math.hypot(streakDx, streakDy);
+        streakLen = streakLength(streakDist, starTailFrames);
+        if (streakLen >= STREAK_MIN_DIST) {
+          streakTailX = x - (streakDx / streakDist) * streakLen;
+          streakTailY = y - (streakDy / streakDist) * streakLen;
+        }
+      }
+
+      // CULL. The projection throws stars outward as z shrinks and ~25-36% of them land
+      // entirely off-canvas, where the canvas clipped every pixel anyway - so this is exact,
+      // not approximate. `px`/`py` are still updated below: the streak is drawn from the
+      // PREVIOUS projected position, so returning without updating it would make a star that
+      // wanders off and comes back smear from wherever it left.
+      if (starIsOffCanvas(
+        { x: x, y: y, radius: radius, tailX: streakTailX, tailY: streakTailY },
+        canvas.width, canvas.height
+      )) {
+        this.px = x;
+        this.py = y;
+        return;
+      }
+
       // Everything this star draws this frame is scaled by its depth fade.
       const layerAlpha = c.globalAlpha;
       c.globalAlpha = layerAlpha * fade;
 
       // Motion streaks: default only (reduced-motion users get stars without streaks).
       // The baked strip sprite carries the tail→head fade, so no gradient per frame.
-      if (
-        !prefersReducedMotion &&
-        this.px !== null &&
-        this.py !== null
-      ) {
-        const dx = x - this.px;
-        const dy = y - this.py;
-        const dist = Math.hypot(dx, dy);
-        const tail = streakLength(dist, starTailFrames);
+      if (streaking) {
+        const dx = streakDx;
+        const dy = streakDy;
+        const dist = streakDist;
+        const tail = streakLen;
         if (tail >= STREAK_MIN_DIST) {
           // Draw the whole comet each frame, tail-end `tail` px behind the star,
           // so the sprite's transparent→colour fade lands head-on at (x, y).
