@@ -153,6 +153,45 @@ export function setVoiceActive (active, opts) {
   commit('voiceActive', Boolean(active), origin)
 }
 
+// ------------------------------------------------------------------ the wire shape (§6.1)
+//
+// Caps live here as module-private constants and are asserted from the OUTSIDE as behaviour
+// (test/site-state-wire.test.mjs), the discipline turn_input.py uses under invariant #17: a
+// bound and the test that pins it cannot then be changed in one edit.
+const MAX_SECTION = 32
+const MAX_PROJECT_ID = 64
+const MAX_PROJECT_TITLE = 120
+
+/**
+ * The five flat keys the server sees. ONE conversion, in the module that owns the state —
+ * the tool-result echo (§5.1), the /api/chat body and the /api/live/session request all call
+ * this. Each caller flattening the store itself is how `providers.py` and `live_gemini.py`
+ * came to declare two different section enums.
+ *
+ * Flat and depth 1 BY CONSTRUCTION, so the server needs no recursive walk to bound the
+ * shape. `chatStage` is deliberately absent: no model action depends on whether its own
+ * window is docked or minimized.
+ *
+ * #17's rule — CLAMP VALUES, REJECT IDENTITIES — decides the caps. `projectTitle` is the one
+ * free-text value, so it truncates. `section` and `projectId` are identities (an enum key
+ * and a record key M4 wants as an admin facet), so an over-long one is DROPPED rather than
+ * shortened: a shortened id is a plausible id for a different record, which the server would
+ * accept as real. Dropping loses a fact; truncating invents one.
+ */
+export function getSiteStateForWire () {
+  const section = typeof state.section === 'string' && state.section.length <= MAX_SECTION
+    ? state.section
+    : null
+  const id = state.project && state.project.id
+  return {
+    section,
+    projectId: typeof id === 'string' && id.length <= MAX_PROJECT_ID ? id : null,
+    projectTitle: state.project ? String(state.project.title ?? '').slice(0, MAX_PROJECT_TITLE) : null,
+    contactOpen: state.contactOpen,
+    voiceActive: state.voiceActive
+  }
+}
+
 /** Test-only reset. Mandatory — see the module note on module isolation. */
 export function __resetSiteStateForTests () {
   state = initial()

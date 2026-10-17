@@ -4,7 +4,13 @@ import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { normalizeSection } from './section-names.js'
 import { requestNavigation } from './navigation.js'
-import { subscribe as subscribeSiteState, setChatStage, setVoiceActive } from './site-state.js'
+import {
+  subscribe as subscribeSiteState,
+  getSiteState,
+  getSiteStateForWire,
+  setChatStage,
+  setVoiceActive
+} from './site-state.js'
 import { nextChatStage, stageChrome } from './chat-stage.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
@@ -1623,8 +1629,23 @@ export function initChat() {
   // knows, since a hashchange cannot say who caused it.
   const navigateToSection = (raw) => {
     const target = requestNavigation(raw, { origin: 'agent' })
-    if (target.error) return { error: `unknown_section: ${raw}`, received: raw }
-    return { result: 'navigated', section: target.id }
+    if (target.error) {
+      return { error: `unknown_section: ${raw}`, received: raw, siteState: getSiteStateForWire() }
+    }
+    // READ BACK, never the argument spelled twice (ADR-0015 ss5.1, invariant #21). An echo
+    // built from the request agrees with it by construction, which is precisely the property
+    // a self-verification contract must not have - and the no-op hash write (ss9.4) is the
+    // measured case where it would have lied outright.
+    //
+    // Synchronous, where the ADR specified a 250ms wait: that wait existed because the old
+    // code moved the page by assigning window.location.hash and waited for the hashchange to
+    // come back round. requestNavigation calls applySection directly, so the store is
+    // already settled here. The error case stays - that is the half #21 is about.
+    const settled = getSiteState()
+    if (settled.section !== target.id) {
+      return { error: 'navigation_did_not_apply', section: target.id, siteState: getSiteStateForWire() }
+    }
+    return { result: 'navigated', section: settled.section, siteState: getSiteStateForWire() }
   }
 
   const applyVoiceToolCall = (name, args) => {
@@ -1647,7 +1668,10 @@ export function initChat() {
             message: typeof args.message === 'string' ? args.message : '' }
         : null
       openContactFromChat(prefill)
-      return { result: 'opened_contact_form' }
+      // Same read-back: this is what proves the form OPENED, rather than that the handler
+      // was called. The whole state travels, not just the field the tool touched - the model
+      // should not have to remember where the visitor was to know where they still are.
+      return { result: 'opened_contact_form', siteState: getSiteStateForWire() }
     }
     if (name === 'navigate_to_section') {
       const section = args && typeof args.section === 'string' ? args.section : ''

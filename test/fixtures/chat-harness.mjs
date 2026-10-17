@@ -303,6 +303,13 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
   // which looks exactly like the byte-exact bug this milestone just fixed.
   const nav = await import('../../js/navigation.js')
   nav.initNavigation({ onStateChange: (section) => { chat.syncChatLaunchers(section) } })
+
+  // The CONTACT FORM, for the same reason: `open_contact_form` reaches
+  // js/contact.js's openContactDialog, which is a no-op until initContactForm has assigned
+  // its impl — so without this the tool runs, reports success, and contactOpen stays false.
+  // Not cache-busted, same argument as navigation above.
+  const contact = await import('../../js/contact.js')
+  contact.initContactForm()
   await settle()
 
   // `voice: false` stops here, with the modules initialised and NOTHING opened — the state
@@ -312,7 +319,7 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
   // closing the panel afterwards to "get back" to closed is a different state, and a row
   // asserting the boot contract against it proves nothing.
   if (!voice) {
-    return { chat, nav, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
+    return { chat, nav, contact, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
   }
 
   api.openPanel()
@@ -326,6 +333,6 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
   socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) })
   await settle()
 
-  return { chat, nav, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
+  return { chat, nav, contact, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
 }
 export { DEAD_RECT, makeListeners, makeEl, defineGlobal, settle, makeWebSocketClass, bootChatWithLiveVoice }

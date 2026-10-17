@@ -156,6 +156,52 @@ test('open_contact_form gets its toolResponse delivered, on a socket still open'
   )
 })
 
+test('the tool result carries the state READ BACK, never the argument spelled twice', async (t) => {
+  // ADR-0015 §5.1, and invariant #21. Without the read-back the echo is worth nothing: it
+  // would agree with the request by construction, which is exactly the property a
+  // self-verification contract must not have. The no-op hash write (§9.4) is the MEASURED
+  // case where constructing it from the arguments would have lied outright.
+  //
+  // DEVIATION FROM THE ADR, recorded rather than quietly taken: §5.1 specifies subscribing
+  // and resolving when the store reports the target, with a 250 ms
+  // `navigation_did_not_apply` fallback. That wait existed because the old implementation
+  // moved the page by assigning window.location.hash and waited for the hashchange to come
+  // back round. Routing now lives in js/navigation.js and calls applySection SYNCHRONOUSLY,
+  // so by the time requestNavigation returns the store is already settled and there is
+  // nothing to wait for. The ERROR CASE is kept — a read-back that disagrees with the target
+  // still fails — because that is the part #21 is about; the timer is not.
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'toolres-echo' })
+  t.after(() => api.disposeChatLiveVoice())
+  const siteState = await import('../js/site-state.js')
+
+  await callTool(socket, 'navigate_to_section', { section: 'Labs' })
+  const [nav] = toolResponses(socket)
+  assert.deepEqual(
+    nav.response.siteState, siteState.getSiteStateForWire(),
+    'the echo must be the store\'s own wire snapshot, taken after the change settled'
+  )
+  assert.equal(
+    nav.response.siteState.section, 'labs',
+    'and it must carry the RESOLVED id — the model asked for "Labs" and the site calls it ' +
+    '`labs`, which is the vocabulary it should learn'
+  )
+
+  socket.sent.length = 0
+  await callTool(socket, 'open_contact_form', { subject: 'Hi' }, 'call-c')
+  const [contact] = toolResponses(socket)
+  assert.equal(contact.response.result, 'opened_contact_form')
+  assert.equal(
+    contact.response.siteState.contactOpen, true,
+    'open_contact_form echoes state too, and the read-back is what proves the form actually ' +
+    'opened rather than that the handler was merely called'
+  )
+  assert.equal(
+    contact.response.siteState.section, 'labs',
+    'the WHOLE state travels, not just the field the tool touched: the model should not have ' +
+    'to remember where the visitor was to know where they still are'
+  )
+})
+
 test('the TEXT path stops discarding the navigation result', async (t) => {
   // Cause (c). `navigateToSection(actionEl.dataset.section || '')` at js/chat.js:1480 threw
   // the return value away, so a visitor tapping an assistant-rendered button for a section
