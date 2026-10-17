@@ -2345,6 +2345,14 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     align-items: flex-end;
     justify-content: flex-end;
     padding: clamp(0.75rem, 2vw, 1.25rem);
+    /* BELOW the site's dialogs. .chat-dialog is 1095 so an OPEN chat sits above
+     * .contact-dialog (1090) and .project-dialog (1100) — which is right for a modal and
+     * wrong for a yielded one. MEASURED in a browser: with the chat minimised and the
+     * contact form open, the pill floated over the form the visitor was filling in. It
+     * happens not to overlap at 1024x768, which is why nothing caught it; on a taller
+     * viewport the form reaches the corner and the pill lands on top of it. "Yielded" that
+     * still covers the thing you are typing into is not yielded (invariant #22). */
+    z-index: 1085;
 }
 
 /* The panel takes its own pointer events back — the shell's `none` is what frees the page. */
