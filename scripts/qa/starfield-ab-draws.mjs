@@ -69,11 +69,19 @@ function makeHarness (log) {
       fillStyle: '', strokeStyle: '', lineWidth: 1, lineCap: 'butt',
       createRadialGradient: gradient, createLinearGradient: gradient,
       fillRect () {}, clearRect () {}, stroke () {}, beginPath () {}, arc () {}, fill () {},
-      moveTo () {}, lineTo () {}, scale () {}, setTransform () {},
+      moveTo () {}, lineTo () {}, scale () {},
       save () { stack.push({ ...state }) },
       restore () { const s = stack.pop(); if (s) Object.assign(state, s) },
       translate (x, y) { state.tx += x; state.ty += y },
       rotate (r) { state.rot += r },
+      // Modelled, not ignored: the renderer may express the same streak placement either
+      // as translate+rotate or as one setTransform, and a harness that only understood the
+      // first would report that swap as a rendering change.
+      setTransform (a, b, _c2, _d, e, f) {
+        state.tx = e
+        state.ty = f
+        state.rot = Math.atan2(b, a)
+      },
       drawImage (img, dx, dy, dw, dh) {
         // The RAW transform and the RAW destination box, kept apart so the true quad can be
         // reconstructed. Rounded so float noise cannot masquerade as a difference.

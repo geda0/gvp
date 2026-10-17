@@ -274,8 +274,13 @@ export function initStarfield(canvasId, options = {}) {
     this.size = Math.random() / 2;
     this.px = null;
     this.py = null;
+  }
 
-    this.move = function () {
+  // ON THE PROTOTYPE, not assigned per instance. The constructor used to create two closures
+  // for every star - at the 4-core design point that is 717 stars x 2 function objects, all
+  // identical, allocated on every resize. They still close over initStarfield's scope
+  // (`canvas`, `c`, `fl`, the sprites), because `Star` itself lives inside it.
+  Star.prototype.move = function () {
       var speed =
         (config.baseSpeed + (canvas.width - this.z) / canvas.width * 4) *
         starSpeedScale;
@@ -289,9 +294,9 @@ export function initStarfield(canvasId, options = {}) {
         this.px = null;
         this.py = null;
       }
-    };
+  };
 
-    this.show = function () {
+  Star.prototype.show = function () {
       var x, y, s;
       x = (this.x - centerX) * (fl / this.z);
       x = x + centerX;
@@ -355,14 +360,24 @@ export function initStarfield(canvasId, options = {}) {
         if (tail >= STREAK_MIN_DIST) {
           // Draw the whole comet each frame, tail-end `tail` px behind the star,
           // so the sprite's transparent→colour fade lands head-on at (x, y).
-          c.save();
-          c.translate(x - (dx / dist) * tail, y - (dy / dist) * tail);
-          c.rotate(Math.atan2(dy, dx));
+          //
+          // ONE setTransform instead of save/translate/rotate/restore. The pair guarded only
+          // the transform - globalAlpha is set above it and restored below, outside this
+          // block - and the matrix for `translate(tx,ty)` then `rotate(θ)` is exactly
+          // [cos, sin, -sin, cos, tx, ty]. The canvas carries no base transform (no DPR
+          // scale anywhere in this file), so resetting to the identity is equivalent to the
+          // restore it replaces. Four calls per streaking star per frame become two.
+          const cos = dx / dist;
+          const sin = dy / dist;
+          c.setTransform(
+            cos, sin, -sin, cos,
+            x - cos * tail, y - sin * tail
+          );
           c.drawImage(
             streakSprites[this.colorIndex],
             0, -STREAK_THICKNESS / 2, tail, STREAK_THICKNESS
           );
-          c.restore();
+          c.setTransform(1, 0, 0, 1, 0, 0);
         }
       }
 
@@ -381,8 +396,7 @@ export function initStarfield(canvasId, options = {}) {
       // Update previous position for next frame
       this.px = x;
       this.py = y;
-    };
-  }
+  };
 
   /** Elegant night-sky palette: mostly cool whites + soft periwinkles, rare warm
    *  sparks. Saturation kept low (~35–55%) so stars feel like distant suns, not
