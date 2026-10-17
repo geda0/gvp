@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.alerts import log_alert_gate_status
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
+from .site_state import SiteStateIn, format_site_state_line
 from app.turn_input import clamp_text, clamp_transport, sanitize_tool_calls
 from app.knowledge_context import (
     build_context,
@@ -191,10 +192,17 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessageIn] = Field(default_factory=list)
     stream: bool = False
     sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
+    # ADR-0015 ss6. Optional by contract: ABSENT means the caller asserts nothing about the
+    # site, and the prompt line is omitted entirely rather than defaulted - so an older
+    # frontend against a newer server keeps working unchanged. ONE shared sub-model with
+    # LiveSessionRequest below, because two classes for one wire shape is how providers.py
+    # and live_gemini.py came to declare two different section enums.
+    siteState: SiteStateIn | None = None
 
 
 class LiveSessionRequest(BaseModel):
     sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
+    siteState: SiteStateIn | None = None
 
 
 class LiveTranscriptTurn(BaseModel):
@@ -223,6 +231,24 @@ def _to_lc_messages(rows: list[ChatMessageIn]) -> list[Msg]:
         else:
             out.append(Msg(role="system", content=row.content))
     return out
+
+
+def _with_site_state(payload: ChatRequest, messages: list[Msg]) -> list[Msg]:
+    """Prepend the site-state line as a SYSTEM message, when there is one.
+
+    System role, not a user turn, because `gemini_routing._to_contents` folds every system
+    message OUT of the turn list and onto the END of the system instruction - so the static
+    prompt stays the identical PREFIX and the volatile line lands after it. That ordering is
+    load-bearing: Gemini's implicit cache matches an identical prefix, and cached tokens do
+    not count against the free tier's 16,000-input-tokens-per-minute-per-model quota
+    (measured 2026-10-13, the reason tests/test_cache_prefix.py exists). A volatile line
+    placed ahead of the pack truncates the cache prefix to nothing and silently costs ~2.8x
+    throughput - correct answers, green tests, and only the 429 rate moves.
+    """
+    line = format_site_state_line(payload.siteState)
+    if not line:
+        return messages
+    return [Msg(role='system', content=line), *messages]
 
 
 def _reply_text_from_result(result: Any) -> str:
@@ -820,6 +846,13 @@ async def _persist_text_turn(
         'outputCharCount': len(reply_text or ''),
         'fallbackUsed': bool(fallback_used),
     }
+    # ss6.4: the MODEL's dump, never `payload` raw - the precedent is `requestMessages`
+    # above. Useful (the admin panel can see what the visitor was looking at when a turn
+    # failed) and already bounded. NOTE: if any admin rollup ever keys a histogram or facet
+    # by `section` or `projectId`, that is a new CARDINALITY sink and needs its own slice
+    # (invariant #17's residual; contact-admin.js:373 is the precedent). Filed forward.
+    if payload.siteState is not None:
+        turn['siteState'] = payload.siteState.model_dump()
     if first_token_ms is not None:
         turn['firstTokenLatencyMs'] = int(first_token_ms)
     if chunk_count is not None:
@@ -881,6 +914,7 @@ async def chat(payload: ChatRequest) -> Any:
         )
 
     lc_messages = _to_lc_messages(payload.messages)
+    lc_messages = _with_site_state(payload, lc_messages)
 
     if payload.stream:
         return StreamingResponse(
@@ -1102,9 +1136,13 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
     mint_timeout = float(os.environ.get('GEMINI_LIVE_MINT_TIMEOUT_SEC', '50'))
     try:
         prompt_src = app.state.voice_system_prompt or app.state.system_prompt
+        # The line goes INTO the builder, never appended to its result: ss6.6's pack budget
+        # has to reserve for it, or the final truncate eats the tail of the portfolio XML
+        # and the voice agent quietly forgets part of it.
         instruction = build_live_system_instruction(
             prompt_src,
             app.state.knowledge_pack,
+            site_state_line=format_site_state_line(payload.siteState),
         )
         session_payload = await asyncio.wait_for(
             mint_live_session_async(instruction),
