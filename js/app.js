@@ -20,7 +20,7 @@ import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
 import { initSpacemanProjectContext } from './spaceman-project-context.js'
-import { initChat, collapseChatDialog, syncChatLaunchers, EV_OPEN_CHAT } from './chat.js'
+import { initChat, syncChatLaunchers, EV_OPEN_CHAT } from './chat.js'
 import { initAgentNode } from './agent-node.js'
 import { timeControlMode, timeTriggerLabel, TIME_TRIGGER_ICON_HTML } from './time-switcher-mode.js'
 
@@ -240,9 +240,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (spacemanPosition) {
         spacemanPosition.updatePosition()
       }
-      if (state === 'portfolio' || state === 'labs') {
-        collapseChatDialog()
-      }
+      // Was: `if (state === 'portfolio' || state === 'labs') collapseChatDialog()`.
+      // That was the first link in the ADR-0015 ss9.1 teardown, and ss3.2 is explicit that
+      // app.js writes nothing and commands nothing - it wires. js/navigation.js now writes
+      // the section to the store and js/chat.js decides what that means for its own stage.
+      // (The guard above is also why "the chat collapses on every navigation" was false:
+      // navigating HOME never collapsed anything, so any test exercising only -> home would
+      // have been green against the broken code.)
       syncChatLaunchers(state)
     }
   })

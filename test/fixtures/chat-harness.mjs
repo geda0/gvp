@@ -91,6 +91,12 @@ function makeEl(tag = 'div') {
       el.children.push(child)
       return child
     },
+    append(...kids) { for (const k of kids) el.appendChild(k) },
+    replaceChildren(...kids) {
+      el.children.length = 0
+      for (const k of kids) el.appendChild(k)
+    },
+    insertBefore(child) { return el.appendChild(child) },
     remove() {
       const parent = el.parent
       if (!parent) return
@@ -200,22 +206,35 @@ async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
   // the only observable analytics surface from a test, and js/analytics.js:6-8 only needs it
   // to be a function on window.
   const gtagCalls = []
+  const location = {
+    protocol: 'http:',
+    hostname: 'portfolio.test',
+    pathname: '/',
+    search: '',
+    hash: '',
+    origin: 'http://portfolio.test'
+  }
   defineGlobal('window', {
     isSecureContext: true,
     gtag: (...args) => { gtagCalls.push(args) },
-    location: {
-      protocol: 'http:',
-      hostname: 'portfolio.test',
-      pathname: '/',
-      hash: '',
-      origin: 'http://portfolio.test'
-    },
+    location,
+    scrollY: 0,
+    innerWidth: 1280,
+    innerHeight: 800,
+    scrollTo () {},
     matchMedia: () => ({ matches: false, addEventListener() {} }),
     addEventListener: (type, fn) => winEvents.add(type, fn),
     removeEventListener: (type, fn) => winEvents.remove(type, fn),
     dispatchEvent: (event) => {
       winEvents.fire(String(event?.type || ''), event)
       return true
+    }
+  })
+  // js/navigation.js writes the URL through history, so the stub has to move the same
+  // `location` object the modules read back.
+  defineGlobal('history', {
+    replaceState (_state, _title, url) {
+      if (typeof url === 'string') location.hash = url.startsWith('#') ? url : ''
     }
   })
   defineGlobal('navigator', {
@@ -272,6 +291,20 @@ async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
     'harness: initChat() must expose the live voice handle, or the spy cannot sit in the call path'
   )
 
+  // The ROUTER, in the same order js/app.js wires it (chat first, so the first
+  // navigateByHash sync reaches the real launcher impl). It is not optional any more:
+  // navigate_to_section goes through js/navigation.js's requestNavigation, which exists only
+  // once initNavigation has run — routing moved out of js/chat.js so that resolving a
+  // section, moving the URL and labelling the store write all happen in one place
+  // (ADR-0015 §5.1, §9.4).
+  // NOT cache-busted, unlike chat.js above. The busted chat.js resolves its own
+  // `./navigation.js` import to the UNBUSTED specifier, so busting it here would hand the
+  // test a second module instance whose requestNavigationImpl hook nothing ever reaches —
+  // which looks exactly like the byte-exact bug this milestone just fixed.
+  const nav = await import('../../js/navigation.js')
+  nav.initNavigation({ onStateChange: (section) => { chat.syncChatLaunchers(section) } })
+  await settle()
+
   api.openPanel()
   await settle()
   void api.liveVoice.startVoice({ intent: 'cold' })
@@ -283,6 +316,6 @@ async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
   socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) })
   await settle()
 
-  return { chat, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
+  return { chat, nav, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
 }
 export { DEAD_RECT, makeListeners, makeEl, defineGlobal, settle, makeWebSocketClass, bootChatWithLiveVoice }

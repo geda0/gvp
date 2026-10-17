@@ -2,7 +2,10 @@ import { trackEvent } from './analytics.js'
 import { openContactDialog } from './contact.js'
 import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
-import { normalizeSection, resolveNavTarget } from './section-names.js'
+import { normalizeSection } from './section-names.js'
+import { requestNavigation } from './navigation.js'
+import { subscribe as subscribeSiteState, setChatStage, setVoiceActive } from './site-state.js'
+import { nextChatStage, stageChrome } from './chat-stage.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
@@ -163,7 +166,6 @@ function replaceSectionPresetChips(container, chips, chipClassName) {
   })
 }
 
-const EV_COLLAPSE = 'gvp:site-chat-collapse'
 /** Open chat dialog from decoupled surfaces (e.g. spaceman) without importing chat from those modules. */
 export const EV_OPEN_CHAT = 'gvp:open-chat'
 const SESSION_KEY = 'gvp-chat-session-id'
@@ -180,7 +182,6 @@ function readChipLabel(el) {
   return String(el?.textContent || '').trim()
 }
 
-let collapseChat = () => {}
 let syncChatLaunchersImpl = () => {}
 
 function createSessionId() {
@@ -234,10 +235,6 @@ function isFinePointer() {
 
 function launcherReadOnlyForDevice() {
   return !isFinePointer()
-}
-
-export function collapseChatDialog() {
-  collapseChat()
 }
 
 export function syncChatLaunchers(section = 'home') {
@@ -882,11 +879,87 @@ export function initChat() {
     reconcileComposerControls()
   }
 
-  const setDialogVisible = (visible) => {
-    dialog.hidden = !visible
-    dialog.setAttribute('aria-hidden', visible ? 'false' : 'true')
-    document.body.classList.toggle('chat-dialog-open', visible)
+  // ---------------------------------------------------------------- the stage (ADR-0015 ss4)
+  //
+  // The chat has four stages, and a site event no longer COMMANDS it to close - it reports
+  // what changed, and the pure reducer in js/chat-stage.js decides what that means. The old
+  // chain (js/app.js -> collapseChatDialog -> closePanel -> snapClose -> stopVoice) is gone:
+  // it is why the assistant's own navigate_to_section tore down the session that had just
+  // promised the move (ss9.1).
+  //
+  // The 768px query lives HERE and nowhere in the reducer: ctx.wide is injected, so the
+  // reducer stays pure and testable without a DOM (ss4.2).
+  let chatStage = 'closed'
+  const isWideViewport = () => (
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 768px)').matches
+      : true
+  )
+
+  // stageChrome returns the accessibility contract as DATA; this is the only place that
+  // turns it into attributes. Each field is a defect that shipped or nearly did:
+  //  - backdropHidden: the backdrop is a real inset:0 element with backdrop-filter
+  //    (index.html:299). Fading it would leave the site visually operable and dead to clicks.
+  //  - scrollLock: body.chat-dialog-open sets overflow:hidden (css/chat.css:1-3).
+  //  - ariaModal: STATIC "true" in the markup (index.html:300). A yielded card still
+  //    claiming it tells a screen reader the rest of the page does not exist.
+  const applyStageChrome = (stage) => {
+    const chrome = stageChrome(stage)
+    dialog.hidden = chrome.dialogHidden
+    dialog.setAttribute('aria-hidden', chrome.dialogHidden ? 'true' : 'false')
+    dialog.dataset.chatStage = stage
+    if (backdrop) {
+      backdrop.hidden = chrome.backdropHidden
+      backdrop.setAttribute('aria-hidden', 'true')
+    }
+    document.body.classList.toggle('chat-dialog-open', chrome.scrollLock)
+    panel?.setAttribute('aria-modal', chrome.ariaModal)
+    dialog.style.pointerEvents = chrome.pointerEventsOnShell
   }
+
+  /** Apply a stage: chrome, local field, store. Never routes through closePanel. */
+  const applyStage = (stage, origin) => {
+    chatStage = stage
+    applyStageChrome(stage)
+    setChatStage(stage, { origin })
+  }
+
+  /**
+   * Feed one event to the reducer and land wherever it says.
+   *
+   * `closed` is the one stage that goes through closePanel, because closing is more than
+   * chrome (animation, focus restore, the voice stop the VISITOR is entitled to). Everything
+   * else is chrome only - which is the whole point: a yield must not touch the session.
+   */
+  const dispatchStage = (event, origin) => {
+    const next = nextChatStage(chatStage, event, { wide: isWideViewport() })
+    if (next === chatStage) return
+    if (next === 'closed') {
+      closePanel({ restoreFocus: origin === 'visitor', immediate: true })
+      return
+    }
+    applyStage(next, origin)
+  }
+
+  // Which store field means which reducer event. chatStage and voiceActive are js/chat.js's
+  // OWN fields (ss3.2), so they map to nothing - that is what keeps the subscription from
+  // feeding its own writes back into the reducer.
+  const stageEventForChange = (change) => {
+    if (change.field === 'section') return 'navigate'
+    if (change.field === 'project') return change.to ? 'project-open' : 'project-close'
+    if (change.field === 'contactOpen') return change.to ? 'contact-open' : 'contact-close'
+    return null
+  }
+
+  subscribeSiteState((_snapshot, change) => {
+    if (!change) return
+    const event = stageEventForChange(change)
+    if (!event) return
+    // 'system': a layout-driven stage change is neither the visitor moving the chat nor the
+    // agent doing it (ss3.3). Mislabelling it would make ss7's live note either announce
+    // something the visitor did not do, or dedupe away a note the agent does need.
+    dispatchStage(event, 'system')
+  })
 
   const snapClose = ({ restoreFocus = true, keepVoice = false } = {}) => {
     clearPanelAnimation()
@@ -924,7 +997,7 @@ export function initChat() {
     }
     clearVoiceAwaitingStart()
     dockMode = 'voice'
-    setDialogVisible(false)
+    applyStage('closed', 'visitor')
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
     agentInput.blur()
@@ -968,7 +1041,7 @@ export function initChat() {
     state.lastFocus = document.activeElement
     clearPanelAnimation()
     state.agentNodeApi?.setState?.('modal')
-    setDialogVisible(true)
+    applyStage('modal', 'visitor')
     agentInput.readOnly = true
     agentInput.blur()
 
@@ -1032,12 +1105,12 @@ export function initChat() {
     panel.style.transform = toTransform
   }
 
-  // Site-initiated: js/app.js:243 on a portfolio/labs navigation. keepVoice per invariant #20.
-  collapseChat = () => closePanel({ restoreFocus: false, immediate: true, keepVoice: true })
-
   const openContactFromChat = (prefill) => {
-    // Site-initiated, and often the assistant's OWN open_contact_form call.
-    closePanel({ restoreFocus: false, immediate: true, keepVoice: true })
+    // No closePanel here any more. js/contact.js writes contactOpen, the subscription above
+    // feeds `contact-open` to the reducer, and the panel MINIMISES. The old version closed
+    // the panel synchronously, which is what dropped the tool response for the assistant's
+    // own open_contact_form call: stopVoice nulled chat-live's `ws` before the send-guard
+    // ran, so the model waited forever on a function response (ADR-0015 ss9.3 c1).
     openContactDialog()
     if (!prefill || typeof prefill !== 'object') return
 
@@ -1447,13 +1520,6 @@ export function initChat() {
     closePanel({ immediate: hasActiveTransition })
   })
 
-  window.addEventListener(EV_COLLAPSE, () => {
-    // Site-initiated: js/projects.js:228 and js/contact.js:77 dispatch this when a project
-    // or the contact dialog opens. keepVoice per invariant #20 — the same reasoning as
-    // collapseChat, and this listener is the third of the three paths §9.1 names.
-    closePanel({ restoreFocus: false, immediate: true, keepVoice: true })
-  })
-
   dialog.addEventListener('click', (event) => {
     const switchEl = event.target.closest('[data-dock-switch]')
     if (switchEl && dialog.contains(switchEl)) {
@@ -1522,26 +1588,16 @@ export function initChat() {
   // knows the action ran.
   // Move the page to a top-level section so the agent can SHOW the visitor around
   // (text and voice share this one routine). Returns a tool-response-shaped result.
-  // Resolution lives in js/section-names.js (ADR-0015 §2.1). It used to be a chain of
-  // byte-exact `===` here, so "Portfolio" — the capitalisation a model naturally writes for
-  // a page called Portfolio — fell through to unknown_section.
+  // Routing belongs to the router. This used to be a chain of byte-exact `===` plus its own
+  // URL writes, which is how two defects got in: "Portfolio" fell through to
+  // unknown_section (ADR-0015 ss9.2), and assigning the fragment the document already has
+  // dispatches no hashchange, so the section was never applied while the tool still reported
+  // `navigated` (ss9.4). js/navigation.js's requestNavigation resolves through the shared
+  // registry, moves the page, and labels the store write `agent` - which only the caller
+  // knows, since a hashchange cannot say who caused it.
   const navigateToSection = (raw) => {
-    const target = resolveNavTarget(raw)
+    const target = requestNavigation(raw, { origin: 'agent' })
     if (target.error) return { error: `unknown_section: ${raw}`, received: raw }
-    if (target.id === 'home') {
-      history.replaceState(null, '', './')
-      window.dispatchEvent(new HashChangeEvent('hashchange'))
-    } else if (window.location.hash === target.hash) {
-      // THE NO-OP HASH WRITE (ADR-0015 §5.1). Per the HTML spec, assigning the fragment the
-      // document already has dispatches no hashchange, so navigateByHash
-      // (js/navigation.js:62) never ran — and this function still reported `navigated`.
-      // Benign while the visitor is already there, a lie under a self-verification contract.
-      // Only in the unchanged case: the browser fires its own event otherwise, and a second
-      // one would double-count the virtual page view.
-      window.dispatchEvent(new HashChangeEvent('hashchange'))
-    } else {
-      window.location.hash = target.hash
-    }
     return { result: 'navigated', section: target.id }
   }
 

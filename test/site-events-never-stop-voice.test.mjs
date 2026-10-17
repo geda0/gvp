@@ -67,60 +67,67 @@ import assert from 'node:assert/strict'
 // suite (the post-mortem is the comment block in test/starfield-depth-wiring.test.mjs).
 // So the snapshot also carries: the session was open before the first site event and
 // after the last; the panel was open each time a site event fired (closePanel returns
-// early at js/chat.js:984 when it is not, which would eat the stimulus silently);
-// 'gvp:site-chat-collapse' has a listener at all; an explicit visitor act (Start over,
-// js/chat.js:1044-1049 — named in invariant #20 as a path that MAY end voice) DOES reach
-// the spy; and a real stopVoice DOES close the fake socket.
+// early at js/chat.js:984 when it is not, which would eat the stimulus silently); an
+// explicit visitor act (Start over, js/chat.js:1044-1049 — named in invariant #20 as a path
+// that MAY end voice) DOES reach the spy; and a real stopVoice DOES close the fake socket.
 //
 // WHAT THIS TEST CANNOT CATCH, stated so nobody over-reads a green:
-//  - It drives the two calls js/app.js:243-246 makes, not app.js itself. A NEW chat call
-//    added to that navigation callback is invisible here; that is the journey harness's
-//    job at the end of M2 (ADR-0015 §11.6).
-//  - When ADR-0015 §3.6 removes 'gvp:site-chat-collapse' and §3.2 deletes the app.js
-//    call, this file must be RE-POINTED at the replacement writers (setSection /
-//    setProject / setContactOpen and the stage reducer) — NOT deleted. The invariant
-//    outlives the seam. It fails loudly on removal (missing export, zero listeners)
-//    rather than going quietly green, which is the intended behaviour.
+//  - It drives the store writes the site modules make, not those modules. That they make
+//    them is test/site-state-writers.test.mjs's job; that js/app.js adds no new chat call
+//    of its own is the journey harness's, at the end of M2 (ADR-0015 §11.6).
+//  - The old listener-count precondition is gone with the event it counted. Its job — "the
+//    stimulus reached something" — now belongs to panelOpenWhenSiteEventFired plus the
+//    stage assertions in test/chat-stage-wiring.test.mjs, which check that each of these
+//    writes actually MOVES the panel rather than passing through unnoticed. A version of
+//    this file with no such check would go quietly green against a chat that had simply
+//    stopped subscribing.
 
 // The stub-DOM boot lives in test/fixtures/chat-harness.mjs — it was built here first and
 // moved out once the later M2 slices needed the same boot. The notes on why it is a stub
 // rather than jsdom, and on every-lookup-answers-with-a-node, travelled with it.
 import { makeEl, settle, bootChatWithLiveVoice } from './fixtures/chat-harness.mjs'
 
-const NAV_PORTFOLIO = 'navigate -> portfolio (js/app.js:243-246)'
-const NAV_LABS = 'navigate -> labs (js/app.js:243-246)'
-const NAV_HOME = 'navigate -> home (js/app.js:246 only; CONTROL, green today)'
-const DIALOG_COLLAPSE = 'project or contact dialog opens (js/projects.js:228 / js/contact.js:77)'
+// RE-POINTED at the replacement writers, exactly as the note above says this file must be
+// when ADR-0015 §3.6 removes the event. The invariant outlives the seam: what used to be
+// `chat.collapseChatDialog()` and a 'gvp:site-chat-collapse' dispatch is now a write to
+// js/site-state.js, which the chat reads and reduces. The rows are the same site events.
+const NAV_WORK = 'setSection(portfolio) — js/navigation.js applySection'
+const NAV_LABS = 'setSection(labs) — js/navigation.js applySection'
+const NAV_HOME = 'setSection(home) — CONTROL: was never guarded, so always green'
+const PROJECT_OPEN = 'setProject(...) — js/projects.js openDialog'
+const CONTACT_OPEN = 'setContactOpen(true) — js/contact.js openDialog'
+const RETURN_PATH = 'the dialogs closing again — setContactOpen(false) + setProject(null)'
 
 test('no navigation or site dialog can end a live voice session', async (t) => {
   // Arrange — a live voice session, panel open, with a spy standing exactly where
   // js/chat.js calls stopVoice.
-  const { chat, api, socket, getEl, winEvents } = await bootChatWithLiveVoice({ tag: 'sitevoice' })
+  const siteState = await import('../js/site-state.js')
+  siteState.__resetSiteStateForTests()
+  const { api, socket, getEl } = await bootChatWithLiveVoice({ tag: 'sitevoice' })
   t.after(() => api.disposeChatLiveVoice())
 
   const realStopVoice = api.liveVoice.stopVoice
   const stopVoiceCalls = []
   api.liveVoice.stopVoice = (opts) => { stopVoiceCalls.push(opts || {}) }
 
-  // Exactly what js/app.js's onStateChange does per section, and exactly what the two
-  // dialog emitters dispatch. No branching here — the table IS the production mapping.
+  // Exactly the writes the site modules make. No branching here — the table IS the
+  // production mapping, and `origin: 'agent'` on two rows is the case the whole milestone is
+  // about: the assistant's own navigate_to_section / open_contact_form used to tear down the
+  // session that had just promised the action.
   const siteEvents = [
-    [NAV_PORTFOLIO, () => {
-      chat.collapseChatDialog()
-      chat.syncChatLaunchers('portfolio')
-    }],
-    [NAV_LABS, () => {
-      chat.collapseChatDialog()
-      chat.syncChatLaunchers('labs')
-    }],
-    [NAV_HOME, () => {
-      chat.syncChatLaunchers('home')
-    }],
-    [DIALOG_COLLAPSE, () => winEvents.fire('gvp:site-chat-collapse', { type: 'gvp:site-chat-collapse' })]
+    [NAV_WORK, () => siteState.setSection('portfolio', { origin: 'agent' })],
+    [NAV_LABS, () => siteState.setSection('labs', { origin: 'visitor' })],
+    [NAV_HOME, () => siteState.setSection('home', { origin: 'visitor' })],
+    [PROJECT_OPEN, () => siteState.setProject(
+      { id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })],
+    [CONTACT_OPEN, () => siteState.setContactOpen(true, { origin: 'agent' })],
+    [RETURN_PATH, () => {
+      siteState.setContactOpen(false, { origin: 'visitor' })
+      siteState.setProject(null, { origin: 'visitor' })
+    }]
   ]
 
   const voiceSessionOpenBeforeSiteEvents = api.liveVoice.isSessionOpen()
-  const siteChatCollapseListeners = winEvents.count('gvp:site-chat-collapse')
   const panelOpenWhenSiteEventFired = {}
   const stopVoiceCallsBySiteEvent = {}
 
@@ -137,7 +144,6 @@ test('no navigation or site dialog can end a live voice session', async (t) => {
 
   const observed = {
     voiceSessionOpenBeforeSiteEvents,
-    siteChatCollapseListeners,
     panelOpenWhenSiteEventFired,
     stopVoiceCallsBySiteEvent,
     liveSocketCloseCallsDuringSiteEvents: socket.closeCalls,
@@ -166,19 +172,22 @@ test('no navigation or site dialog can end a live voice session', async (t) => {
     {
       // Preconditions: the probe is live.
       voiceSessionOpenBeforeSiteEvents: true,
-      siteChatCollapseListeners: 1,
       panelOpenWhenSiteEventFired: {
-        [NAV_PORTFOLIO]: true,
+        [NAV_WORK]: true,
         [NAV_LABS]: true,
         [NAV_HOME]: true,
-        [DIALOG_COLLAPSE]: true
+        [PROJECT_OPEN]: true,
+        [CONTACT_OPEN]: true,
+        [RETURN_PATH]: true
       },
       // Invariant #20: a site event may never end the conversation.
       stopVoiceCallsBySiteEvent: {
-        [NAV_PORTFOLIO]: 0,
+        [NAV_WORK]: 0,
         [NAV_LABS]: 0,
         [NAV_HOME]: 0,
-        [DIALOG_COLLAPSE]: 0
+        [PROJECT_OPEN]: 0,
+        [CONTACT_OPEN]: 0,
+        [RETURN_PATH]: 0
       },
       liveSocketCloseCallsDuringSiteEvents: 0,
       voiceSessionOpenAfterSiteEvents: true,

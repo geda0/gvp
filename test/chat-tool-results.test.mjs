@@ -94,28 +94,36 @@ test('an unresolvable section still round-trips as an error, with what was recei
 
 test('a navigation the router never performed is NOT reported as navigated', async (t) => {
   // Cause (e), the fifth cause the plan does not list. Per the HTML spec, assigning the
-  // fragment the document already has fires no hashchange, so navigateByHash never runs.
-  const { api, socket, winEvents } = await bootChatWithLiveVoice({ tag: 'toolres-noop' })
+  // fragment the document already has fires no hashchange, so navigateByHash never ran — and
+  // the tool reported `navigated` anyway.
+  //
+  // THIS ROW ASSERTS THE SECTION WAS APPLIED, not that a hashchange fired. Its first version
+  // counted hashchange events, which pinned the MECHANISM: the fix moved routing into
+  // js/navigation.js's requestNavigation, which calls applySection directly and synthesises
+  // no event at all. That is strictly better — the round trip through the URL was what made
+  // the no-op invisible in the first place — and a test that failed on it was asserting an
+  // implementation detail it had no business owning.
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'toolres-noop' })
   t.after(() => api.disposeChatLiveVoice())
+  const siteState = await import('../js/site-state.js')
 
-  const hashChanges = []
-  winEvents.add('hashchange', () => hashChanges.push(window.location.hash))
-
-  // Put the page where the model is about to send it.
-  window.location.hash = '#labs'
+  // Put the page where the model is about to send it, through the same door.
   await callTool(socket, 'navigate_to_section', { section: 'labs' })
+  assert.equal(siteState.getSiteState().section, 'labs', 'harness: the first move must land')
+  socket.sent.length = 0
+
+  await callTool(socket, 'navigate_to_section', { section: 'labs' }, 'call-2')
 
   const [response] = toolResponses(socket)
   assert.ok(response, 'the model must receive a toolResponse')
   assert.equal(
-    hashChanges.length, 1,
-    'the router must be driven even when the fragment is unchanged. Assigning the same hash ' +
-    'dispatches nothing (HTML spec), so js/navigation.js:62 never ran and the section was ' +
-    'never applied — while the tool claimed `navigated` unconditionally (ADR-0015 §5.1)'
+    siteState.getSiteState().section, 'labs',
+    'the section must still be applied when the fragment is unchanged — "we are already ' +
+    'there" is a true statement about the page, and the store is where §5.1 reads it back from'
   )
   assert.equal(
     response.response.result, 'navigated',
-    'and once the router HAS run, `navigated` is true rather than merely asserted'
+    'and `navigated` must be true rather than merely asserted (ADR-0015 §5.1)'
   )
   assert.equal(response.response.section, 'labs')
 })

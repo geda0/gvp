@@ -1,6 +1,7 @@
 import { contactApiUrl } from './site-config.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
 import { trackEvent } from './analytics.js'
+import { setContactOpen } from './site-state.js'
 
 /** Assigned in initContactForm; opens #contactDialog without synthetic button click. */
 let openContactDialogImpl = (_prefill) => {}
@@ -74,7 +75,10 @@ export function initContactForm() {
     lastFocus = document.activeElement
     setDialogVisibility(dialog, true)
     document.body.classList.add('contact-dialog-open')
-    window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'))
+    // Was: dispatch 'gvp:site-chat-collapse'. That event said "collapse the chat", so its
+    // one listener could only obey - and obeying reached stopVoice (ADR-0015 ss9.1). State
+    // says "the form is open" and lets the chat decide what that means for itself.
+    setContactOpen(true, { origin: 'visitor' })
     showFormView(true)
     applyContactPrefill(prefill)
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
@@ -85,6 +89,10 @@ export function initContactForm() {
   const closeDialog = () => {
     setDialogVisibility(dialog, false)
     document.body.classList.remove('contact-dialog-open')
+    // The close write is the RETURN PATH (ADR-0015 ss4.3): without it a visitor who opens the
+    // form and closes it again is left with a minimised pill and nowhere for an assistant
+    // mid-sentence to speak from.
+    setContactOpen(false, { origin: 'visitor' })
     if (lastFocus && typeof lastFocus.focus === 'function') {
       lastFocus.focus()
     }

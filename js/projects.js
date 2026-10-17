@@ -2,6 +2,7 @@
 import { trackProjectInteraction } from './analytics.js'
 import { isContactProjectLink } from './project-link.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
+import { setProject } from './site-state.js'
 // Detail cache keyed by project id. Bounded in practice by the project count
 // in data/projects.json (populated once per render, small N) — no eviction needed.
 const projectDetailsById = new Map();
@@ -147,6 +148,8 @@ export function initProjectDetailDialog() {
     setDialogVisibility(dialog, false);
     dialog.removeAttribute('data-project-id')
     document.body.classList.remove('project-dialog-open');
+    // The RETURN PATH (ADR-0015 ss4.3) - see the same note in js/contact.js.
+    setProject(null, { origin: 'visitor' });
     window.dispatchEvent(new CustomEvent('projectdialogclose'));
     if (lastFocus && typeof lastFocus.focus === 'function') {
       lastFocus.focus();
@@ -225,7 +228,11 @@ export function initProjectDetailDialog() {
 
     setDialogVisibility(dialog, true);
     document.body.classList.add('project-dialog-open');
-    window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'));
+    // Was: dispatch 'gvp:site-chat-collapse', whose one listener could only obey - and
+    // obeying reached stopVoice (ADR-0015 ss9.1), so a visitor tapping a project card ended
+    // the conversation they were having about it. The TITLE travels with the id because
+    // ss7's live note has to be sayable: "you are looking at Team Tactics" needs the words.
+    setProject({ id, title: data.title || '' }, { origin: 'visitor' });
     window.dispatchEvent(
       new CustomEvent('projectdialogopen', {
         detail: {
