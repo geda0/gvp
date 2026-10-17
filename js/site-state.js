@@ -1,0 +1,160 @@
+/**
+ * Observable site state (ADR-0015 §3) — the seam M2 is built on.
+ *
+ * Replaces the `gvp:site-chat-collapse` event. That event is how the assistant's own
+ * `navigate_to_section` / `open_contact_form` came to tear down the live voice session that
+ * had just promised the action: an event says "collapse the chat", so every listener could
+ * only obey. State says "the visitor is now on portfolio", and the chat decides what that
+ * means for itself.
+ *
+ * Three parts of this contract are load-bearing rather than stylistic:
+ *
+ * 1. NO GENERIC `set(patch)`. One narrow writer per field, and the writer IS the permission
+ *    (§3.2). With a generic setter, "who may change `voiceActive`?" has no answer — and
+ *    `voiceActive` is precisely the field whose spurious writes would resurrect the bug.
+ *
+ * 2. `origin` IS MANDATORY (§3.3). An agent-caused change and a visitor-caused one are
+ *    BYTE-IDENTICAL in the state, so no value-based comparison can separate them. `origin`
+ *    is the only discriminator, and §7's live-session notes need it: the agent already
+ *    learned about its own change from the tool result, so re-notifying it is a double-notify.
+ *
+ * 3. `subscribe` CALLS BACK IMMEDIATELY with `change === null`, matching the existing
+ *    `js/chat-bus.js` convention rather than inventing a second one.
+ *
+ * Module singleton, like `js/chat-bus.js`. `__resetSiteStateForTests()` is mandatory, not a
+ * convenience: this repo has zero test dependencies and `node --test` gives no per-file
+ * module isolation, so a singleton without a reset is untestable here.
+ */
+
+/** @typedef {'visitor' | 'agent' | 'system'} Origin */
+
+const ORIGINS = new Set(['visitor', 'agent', 'system'])
+
+/** The four stages the reducer (§4) is defined over. */
+export const CHAT_STAGES = ['closed', 'modal', 'docked', 'minimized']
+
+const initial = () => ({
+  section: 'home',
+  project: null,
+  contactOpen: false,
+  chatStage: 'closed',
+  voiceActive: false
+})
+
+let state = initial()
+let subscribers = []
+
+function assertOrigin (opts, writer) {
+  const origin = opts && opts.origin
+  if (!origin) {
+    throw new TypeError(
+      `${writer}: origin is required (visitor | agent | system). It is the only thing that ` +
+      'separates an agent-caused change from a visitor-caused one — they are identical in ' +
+      'the state — so an optional origin makes live-session dedupe impossible.'
+    )
+  }
+  if (!ORIGINS.has(origin)) {
+    throw new TypeError(
+      `${writer}: unknown origin ${JSON.stringify(origin)}; expected visitor | agent | system`
+    )
+  }
+  return origin
+}
+
+/** Frozen snapshot, nested project included, so a reader cannot mutate the store. */
+function snapshot () {
+  const project = state.project
+    ? Object.freeze({ id: state.project.id, title: state.project.title })
+    : null
+  return Object.freeze({ ...state, project })
+}
+
+export function getSiteState () {
+  return snapshot()
+}
+
+/**
+ * @param {(snapshot: object, change: null | {field: string, from: *, to: *, origin: Origin}) => void} fn
+ * @returns {() => void} unsubscribe
+ */
+export function subscribe (fn) {
+  if (typeof fn !== 'function') throw new TypeError('subscribe expects a function')
+  subscribers.push(fn)
+  // Immediate call with change === null, per chat-bus's convention.
+  notifyOne(fn, null)
+  return () => { subscribers = subscribers.filter((s) => s !== fn) }
+}
+
+function notifyOne (fn, change) {
+  try {
+    fn(snapshot(), change)
+  } catch (_) {
+    // A throwing subscriber must not break the write or starve the subscribers after it —
+    // the store would otherwise be hostage to its least reliable reader.
+  }
+}
+
+function commit (field, value, origin) {
+  const from = state[field]
+  // A same-value write is a no-op: no notify, no change record. This is the cheap half of
+  // dedupe; without it a live session is told about changes that did not happen.
+  if (sameValue(from, value)) return
+  state = { ...state, [field]: value }
+  const change = Object.freeze({ field, from, to: value, origin })
+  for (const fn of [...subscribers]) notifyOne(fn, change)
+}
+
+function sameValue (a, b) {
+  if (a === b) return true
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    return a.id === b.id && a.title === b.title
+  }
+  return false
+}
+
+export function setSection (id, opts) {
+  const origin = assertOrigin(opts, 'setSection')
+  if (typeof id !== 'string' || !id) throw new TypeError('setSection: section id must be a non-empty string')
+  commit('section', id, origin)
+}
+
+export function setProject (project, opts) {
+  const origin = assertOrigin(opts, 'setProject')
+  if (project !== null) {
+    if (!project || typeof project !== 'object') {
+      throw new TypeError('setProject: expected an object or null')
+    }
+    if (typeof project.id !== 'string' || !project.id) {
+      // Rejected, not clamped: §6.3 treats projectId as an IDENTITY (a record key M4 wants
+      // as an admin facet), and the rule is clamp values, reject identities.
+      throw new TypeError('setProject: project.id is required')
+    }
+  }
+  commit('project', project === null ? null : { id: project.id, title: String(project.title ?? '') }, origin)
+}
+
+export function setContactOpen (open, opts) {
+  const origin = assertOrigin(opts, 'setContactOpen')
+  commit('contactOpen', Boolean(open), origin)
+}
+
+export function setChatStage (stage, opts) {
+  const origin = assertOrigin(opts, 'setChatStage')
+  if (!CHAT_STAGES.includes(stage)) {
+    throw new TypeError(
+      `setChatStage: unknown stage ${JSON.stringify(stage)}; expected one of ${CHAT_STAGES.join(' | ')}`
+    )
+  }
+  commit('chatStage', stage, origin)
+}
+
+export function setVoiceActive (active, opts) {
+  const origin = assertOrigin(opts, 'setVoiceActive')
+  commit('voiceActive', Boolean(active), origin)
+}
+
+/** Test-only reset. Mandatory — see the module note on module isolation. */
+export function __resetSiteStateForTests () {
+  state = initial()
+  subscribers = []
+}
