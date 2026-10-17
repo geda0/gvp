@@ -103,3 +103,48 @@ export function snowSpeedMultiplierForPreference(prefersReducedMotion) {
   const b = STARFIELD_DEFAULT_EASE_TOWARD_REDUCED
   return 1 + b.speedTowardReduced * (b.speedTargetSnow - 1)
 }
+
+/**
+ * How many frames does a `destination-out` erase at `eraseAlpha` need to take an 8-bit
+ * alpha channel from `start` to fully transparent? `Infinity` when it never gets there.
+ *
+ * THIS IS A REGRESSION PREDICATE, not a renderer knob. Nothing calls it at runtime.
+ *
+ * The night sky used to build its tails by not clearing: an erase at alpha 0.22 kept 78% of
+ * the previous frame. Canvas alpha is 8 bits, so each frame is `round(a * 0.78)` — which has
+ * a FIXED POINT:
+ *
+ *     round(2 * 0.78) = round(1.56) = 2
+ *     round(1 * 0.78) = round(0.78) = 1
+ *
+ * Alpha 1-2/255 never reaches 0, so every pixel a star had ever crossed kept a permanent
+ * veil that accumulated screen-wide. That fix shipped, was silently reverted along with two
+ * other correct fixes, and the regression came back on prod months later. The arithmetic is
+ * the entire bug, so it is pinned as arithmetic: one call, no canvas, no frames, no flake,
+ * and it fails on a proposed alpha BEFORE the alpha is wired to anything.
+ *
+ * @param {number} eraseAlpha  the `destination-out` alpha, in (0, 1]
+ * @param {number} start       starting 8-bit alpha, 0-255
+ * @returns {number} frames to reach 0, or Infinity if it stalls
+ */
+export function trailFramesToClear8Bit(eraseAlpha, start) {
+  if (typeof eraseAlpha !== 'number' || !Number.isFinite(eraseAlpha)
+    || eraseAlpha <= 0 || eraseAlpha > 1) {
+    // Refused, not answered. An erase of 0 removes nothing and would loop forever; reporting
+    // Infinity for it would blur "this alpha stalls" into "this input was meaningless", and
+    // those two want different fixes.
+    throw new TypeError(`trailFramesToClear8Bit: eraseAlpha must be in (0, 1], got ${eraseAlpha}`)
+  }
+  const keep = 1 - eraseAlpha
+  let a = Math.max(0, Math.min(255, Math.round(Number(start) || 0)))
+  let frames = 0
+  while (a > 0) {
+    const next = Math.round(a * keep)
+    // No progress means no progress for every later frame too: the map is monotone, so a
+    // value that maps to itself is a fixed point and the erase never finishes.
+    if (next >= a) return Infinity
+    a = next
+    frames++
+  }
+  return frames
+}
