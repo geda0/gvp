@@ -16,6 +16,7 @@ import { nextChatStage, stageChrome } from './chat-stage.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
+import { hasNavPromiseGap } from './nav-promise-gap.js'
 import { buildChatRequest } from './chat-payload-hash.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
@@ -1412,6 +1413,14 @@ export function initChat() {
       // The model sometimes fires a tool (open résumé / navigate / contact) with no
       // prose — derive a useful line tied to the action instead of the bare fallback.
       const safeReply = deriveReplyText(reply, actions)
+      // RECORDED, NEVER ACTED ON (ADR-0015 §5.2). On the text path a navigate ACTION is the
+      // promise kept — the button is the affordance, and the assistant cannot move the page
+      // without a tap — so an action translates to the tool name the predicate knows.
+      if (hasNavPromiseGap(safeReply, actions.map((a) => ({
+        name: a && a.id === 'navigate' ? 'navigate_to_section' : (a && a.id)
+      })))) {
+        trackEvent('chat_nav_promise_gap', { modality: 'text' })
+      }
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
       finalizeAssistantMessage(pendingAssistant, safeReply, actions)
       setStatus('')

@@ -6,6 +6,7 @@ import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { shouldRevealResumeButton } from './voice-resume-button.js'
+import { hasNavPromiseGap } from './nav-promise-gap.js'
 import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
 import { subscribe as subscribeSiteState, getSiteStateForWire, siteStateWireIfNotable } from './site-state.js'
 import { createSiteStateNotifier } from './site-state-notes.js'
@@ -888,6 +889,13 @@ export function bindChatLiveVoice(opts) {
     if (userBubble) finalizeBubble(userBubble, userDraft.trim())
     if (assistantBubble) finalizeBubble(assistantBubble, assistantDraft.trim())
     maybeRevealPromisedResumeButton()
+    // RECORDED, NEVER ACTED ON (ADR-0015 ss5.2). The alternative - navigating on the
+    // strength of the model's prose - was rejected: a wrong reveal is a redundant button, a
+    // wrong navigation hijacks someone mid-paragraph. If this number turns out non-trivial
+    // on real traffic, THAT is the evidence for revisiting it.
+    if (hasNavPromiseGap(assistantDraft, turnToolCalls)) {
+      trackEvent('chat_nav_promise_gap', { modality: 'voice' })
+    }
     // Fire-and-forget persist before clearing drafts. Mirrors the text-chat
     // persistence path so the admin panel sees voice turns alongside text turns.
     persistVoiceTurn(userDraft, assistantDraft, turnToolCalls, {
