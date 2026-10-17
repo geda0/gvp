@@ -7,7 +7,8 @@ import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { shouldRevealResumeButton } from './voice-resume-button.js'
 import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
-import { siteStateWireIfNotable } from './site-state.js'
+import { subscribe as subscribeSiteState, getSiteStateForWire, siteStateWireIfNotable } from './site-state.js'
+import { createSiteStateNotifier } from './site-state-notes.js'
 
 const INPUT_RATE = 16000
 
@@ -536,6 +537,25 @@ export function bindChatLiveVoice(opts) {
   let active = false
   /** True after POST /api/live/session succeeds; ensures ws.onclose cleans partial setup. */
   let voiceSessionOpen = false
+
+  // ADR-0015 ss7: while the visitor is talking, the site keeps changing under the
+  // conversation. The session was minted with one snapshot of where they were, and without
+  // this it stays frozen at that snapshot for the whole call.
+  //
+  // Everything that touches the outside is injected, so the notifier itself has no way to
+  // end a session (invariant #20) - it is given a send and nothing else. voiceActive comes
+  // from `voiceSessionOpen` rather than the store so the gate is the socket's real state,
+  // not a flag something else might have written.
+  const siteStateNotifier = createSiteStateNotifier({
+    getWireState: () => (voiceSessionOpen ? { ...getSiteStateForWire(), voiceActive: true } : null),
+    isSessionOpen: () => voiceSessionOpen && ws != null && ws.readyState === WebSocket.OPEN,
+    send: (payload) => { ws.send(JSON.stringify(payload)) },
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (id) => clearTimeout(id)
+  })
+  const unsubscribeSiteState = subscribeSiteState((_snapshot, change) => {
+    if (change) siteStateNotifier.onChange(change)
+  })
   /** True while startVoice is past UI gates (blocks overlapping starts that orphan the WebSocket). */
   let voiceConnectInFlight = false
   /** Last POST /api/live/session `liveVoiceTransport` for close-message context. */
@@ -731,6 +751,7 @@ export function bindChatLiveVoice(opts) {
     clearVoiceTimers()
     clearNoMicIdleTimer()
     clearWarmFollowupTimer()
+    siteStateNotifier.reset()
     voiceSessionOpen = false
     wsOpened = false
     active = false
@@ -907,6 +928,9 @@ export function bindChatLiveVoice(opts) {
     if (setupPayload != null && setupPayload !== false) {
       setupDone = true
       voiceUnavailableOnHost = false
+      // A NEW session has been told nothing, so the dedupe memory starts empty - otherwise
+      // the first note of this call is swallowed because the last call already said it.
+      siteStateNotifier.reset()
       patchLiveUi({ sessionOpen: true })
       if (pendingSetupLatch) {
         if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
@@ -1430,6 +1454,10 @@ export function bindChatLiveVoice(opts) {
       delete btn.dataset.gvpChatLiveVoice
       btn.removeEventListener('click', onMicClick)
     }
+    // The store is a module singleton that outlives this binding, so a subscription left
+    // behind here keeps a dead session's notifier alive for the rest of the page — and, in
+    // a test file where each case boots its own chat, for the rest of the file.
+    unsubscribeSiteState()
     stopVoiceInternal({ silent: true })
   }
 

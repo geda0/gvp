@@ -1,0 +1,122 @@
+{
+  "_why": [
+    "The rendered 'Current site state' line, as a table BOTH suites assert against.",
+    "",
+    "The line is produced twice, in two languages: docker/chat/app/site_state.py renders it",
+    "into the system instruction, and js/site-state-notes.js renders it into the live",
+    "clientContent note (ADR-0015 §7). A live voice session therefore hears the same fact in",
+    "two voices, and if they drift it hears two DIFFERENT facts about the same site — the",
+    "model has no way to tell which is current.",
+    "",
+    "This file exists because that exact drift has already cost this project four months:",
+    "providers.py and live_gemini.py each declared navigate_to_section with its own section",
+    "enum, they diverged, and the voice model could not emit `labs` at all (ADR-0015 §9.3).",
+    "The fix there was a test asserting the two declarations are EQUAL. This is the same",
+    "move, made before the drift rather than after it: one table, two readers, and neither",
+    "renderer can change alone.",
+    "",
+    "Each case is the WIRE shape (§6.1) and the line it must render to. A renderer that",
+    "cannot produce a row fails its own suite; it cannot quietly disagree with the other one.",
+    "",
+    "voiceActive IS on the wire but is NOT rendered into the prose. On the live path the",
+    "model IS the voice session, so saying it is a tautology that costs a clause in every",
+    "note; on the text path the composer's modes are mutually exclusive, so it is never true",
+    "there. It stays on the wire because it is worth persisting on the turn (6.4) - the",
+    "admin panel wants to know a failed turn happened during a call."
+  ],
+  "cases": [
+    {
+      "name": "nothing asserted",
+      "wire": null,
+      "line": ""
+    },
+    {
+      "name": "default state says nothing worth a line",
+      "wire": {
+        "section": null,
+        "projectId": null,
+        "projectTitle": null,
+        "contactOpen": false,
+        "voiceActive": false
+      },
+      "line": ""
+    },
+    {
+      "name": "a section alone",
+      "wire": {
+        "section": "portfolio",
+        "projectId": null,
+        "projectTitle": null,
+        "contactOpen": false,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor is on the portfolio page."
+    },
+    {
+      "name": "a project open, named",
+      "wire": {
+        "section": "labs",
+        "projectId": "team-tactics",
+        "projectTitle": "Team Tactics",
+        "contactOpen": false,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor is on the labs page, with the \"Team Tactics\" project open."
+    },
+    {
+      "name": "a project with no title falls back to its id rather than an empty quote",
+      "wire": {
+        "section": "labs",
+        "projectId": "team-tactics",
+        "projectTitle": null,
+        "contactOpen": false,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor is on the labs page, with the \"team-tactics\" project open."
+    },
+    {
+      "name": "the contact form",
+      "wire": {
+        "section": "home",
+        "projectId": null,
+        "projectTitle": null,
+        "contactOpen": true,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor is on the home page, with the contact form open."
+    },
+    {
+      "name": "everything at once",
+      "wire": {
+        "section": "portfolio",
+        "projectId": "gvp",
+        "projectTitle": "This site",
+        "contactOpen": true,
+        "voiceActive": true
+      },
+      "line": "Current site state: the visitor is on the portfolio page, with the \"This site\" project open, with the contact form open."
+    },
+    {
+      "name": "a section the renderer has never heard of is passed through verbatim",
+      "wire": {
+        "section": "experience",
+        "projectId": null,
+        "projectTitle": null,
+        "contactOpen": false,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor is on the experience page."
+    },
+    {
+      "name": "a live voice session is not itself a site fact",
+      "wire": {
+        "section": "labs",
+        "projectId": null,
+        "projectTitle": null,
+        "contactOpen": false,
+        "voiceActive": true
+      },
+      "line": "Current site state: the visitor is on the labs page."
+    }
+  ]
+}

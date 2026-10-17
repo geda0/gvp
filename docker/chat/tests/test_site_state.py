@@ -153,3 +153,36 @@ def test_the_line_itself_is_bounded_so_a_caller_can_reserve_for_it():
         'the reserve has to be small enough to be worth reserving — if it approached the '
         'pack budget the trade would be the wrong way round'
     )
+
+
+# ---------------------------------------------------------------- the shared table
+
+def test_the_rendered_line_matches_the_shared_table_row_for_row():
+    """The SAME table `test/site-state-notes.test.mjs` asserts against.
+
+    The line is produced twice, in two languages: here into the system instruction, and in
+    `js/site-state-notes.js` into the live `clientContent` note (ADR-0015 §7). A live voice
+    session therefore hears the same fact in two voices, and if they drift it hears two
+    DIFFERENT facts about the same site with no way to tell which is current.
+
+    This project has already paid for that drift once: `providers.py` and `live_gemini.py`
+    each declared `navigate_to_section` with its own section enum, they diverged, and the
+    voice model could not emit `labs` at all for four months (§9.3). The fix there was a
+    test asserting the two declarations are EQUAL — this is the same move, made before the
+    drift instead of after it.
+    """
+    import json
+    from pathlib import Path
+
+    table = json.loads(
+        (Path(__file__).resolve().parents[3] / 'test' / 'fixtures' / 'site-state-lines.json')
+        .read_text()
+    )
+    wrong = []
+    for case in table['cases']:
+        wire = case['wire']
+        model = SiteStateIn(**wire) if wire is not None else None
+        got = format_site_state_line(model)
+        if got != case['line']:
+            wrong.append(f"{case['name']}: got {got!r}, expected {case['line']!r}")
+    assert not wrong, 'renderer disagrees with the shared table:\n  ' + '\n  '.join(wrong)

@@ -91,8 +91,11 @@ def format_site_state_line(site_state: SiteStateIn | None) -> str:
         parts.append(f'with the "{title}" project open')
     if site_state.contactOpen:
         parts.append('with the contact form open')
-    if site_state.voiceActive:
-        parts.append('talking to you by voice')
+    # `voiceActive` is on the wire but NOT in the prose: on the live path the model IS the
+    # voice session, so saying it is a tautology that costs a clause in every rendering, and
+    # on the text path the composer's two modes are mutually exclusive so it is never true
+    # there. It stays on the wire because it is worth persisting on the turn (§6.4) — the
+    # admin panel wants to know a failed turn happened during a call.
 
     if not parts:
         return ''
