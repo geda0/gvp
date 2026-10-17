@@ -2325,3 +2325,96 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     color: #a83333;
 }
 
+
+/* ================================================================ the stage (ADR-0015 §4)
+ *
+ * Four stages, set by js/chat.js as data-chat-stage on #chatDialog. `closed` is [hidden] and
+ * `modal` is everything above this block — the shipped look, unchanged. These two are the
+ * YIELDED stages: the assistant steps aside so the visitor can use the site, WITHOUT the
+ * conversation (or the live voice session) ending.
+ *
+ * The shell keeps `position: fixed; inset: 0`, so it still covers the viewport in the layout
+ * sense. What makes the site usable underneath is `pointer-events`, which js/chat.js sets
+ * inline from stageChrome — `none` on the shell for both stages here, with `auto` put back on
+ * the panel below. The backdrop is hidden outright rather than faded to 0: it is a real
+ * inset:0 element with backdrop-filter, and a transparent one still swallows every click.
+ */
+
+#chatDialog[data-chat-stage='docked'],
+#chatDialog[data-chat-stage='minimized'] {
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: clamp(0.75rem, 2vw, 1.25rem);
+}
+
+/* The panel takes its own pointer events back — the shell's `none` is what frees the page. */
+#chatDialog[data-chat-stage='docked'] .chat-dialog__panel,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__panel {
+    pointer-events: auto;
+    margin: 0;
+    align-self: flex-end;
+    /* UNDOES THE <=640px FULL-SCREEN RULE (css/chat.css:2183), which sets width/height to
+     * 100vw/100dvh and strips the radius and borders. A yielded panel is the opposite of
+     * full-screen, and the height is the one that bites: without `height: auto` the pill
+     * renders as a viewport-tall lozenge, because border-radius: 999px on a 812px-high box
+     * is exactly that. MEASURED in the browser, not reasoned about. */
+    height: auto;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-style: solid;
+}
+
+/* ---- docked: a real, usable card beside the content ---- */
+#chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
+    width: min(24rem, calc(100vw - 2rem));
+    max-width: min(24rem, calc(100vw - 2rem));
+    height: min(60vh, 34rem);
+    max-height: min(60vh, 34rem);
+    border-radius: 18px;
+    box-shadow:
+        0 10px 32px rgba(0, 0, 0, 0.42),
+        0 0 0 1px color-mix(in srgb, var(--chat-launcher-glow-chrome) 12%, transparent);
+}
+
+/* ---- minimized: the header alone, as a pill ---- */
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__panel {
+    width: auto;
+    max-width: min(20rem, calc(100vw - 2rem));
+    max-height: none;
+    overflow: visible;
+    border-radius: 999px;
+}
+
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__scroll,
+#chatDialog[data-chat-stage='minimized'] .chat-composer,
+#chatDialog[data-chat-stage='minimized'] .chat-status,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__footer,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__dock,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__subtitle {
+    display: none;
+}
+
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__header {
+    border-bottom: 0;
+    padding-block: 0.55rem;
+    border-radius: 999px;
+}
+
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__title {
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+
+/* The voice pane SURVIVES minimisation, deliberately: the whole point of the yielded stages
+ * is that a live conversation keeps going (project invariant #20), so the visitor must still
+ * see that it is live and still be able to mute or end it from the pill. */
+#chatDialog[data-chat-stage='minimized'] .chat-voice-pane {
+    padding: 0 0.6rem 0.55rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #chatDialog[data-chat-stage] .chat-dialog__panel {
+        transition: none;
+    }
+}

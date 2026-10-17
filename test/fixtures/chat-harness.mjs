@@ -176,7 +176,7 @@ function makeWebSocketClass(sockets) {
 // session stays open with no mic attached — one of the real prod states), then let
 // setupComplete land, which is what makes isSessionOpen() true and the teardown at
 // js/chat.js:902-909 reachable.
-async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
+async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
   const sockets = []
   const byId = new Map()
   const docEvents = makeListeners()
@@ -304,6 +304,16 @@ async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
   const nav = await import('../../js/navigation.js')
   nav.initNavigation({ onStateChange: (section) => { chat.syncChatLaunchers(section) } })
   await settle()
+
+  // `voice: false` stops here, with the modules initialised and NOTHING opened — the state
+  // the page is in between load and the visitor's first tap. Bringing a live session up
+  // requires openPanel (that is how startVoice gets a panel to render into), so a caller
+  // that wants the untouched boot state cannot also have voice, and must not pretend to:
+  // closing the panel afterwards to "get back" to closed is a different state, and a row
+  // asserting the boot contract against it proves nothing.
+  if (!voice) {
+    return { chat, nav, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
+  }
 
   api.openPanel()
   await settle()

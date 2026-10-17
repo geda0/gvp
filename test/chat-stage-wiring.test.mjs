@@ -60,7 +60,7 @@ function expectedChrome (stage) {
  * wrong: the first version of this file read `modal` as `closed` and read an openPanel()
  * no-op as a missing store write.
  */
-async function boot (tag, width = WIDE, { startClosed = false } = {}) {
+async function boot (tag, width = WIDE, { startClosed = false, voice = true } = {}) {
   // RESET BEFORE BOOT, in that order, and it is load-bearing. The store is a module
   // singleton (§3.5) while each test gets a cache-busted js/chat.js, so without the reset:
   // every earlier test's chat instance is still subscribed and still writing chatStage, and
@@ -71,7 +71,7 @@ async function boot (tag, width = WIDE, { startClosed = false } = {}) {
   const siteState = await import('../js/site-state.js')
   siteState.__resetSiteStateForTests()
 
-  const h = await bootChatWithLiveVoice({ tag })
+  const h = await bootChatWithLiveVoice({ tag, voice })
   window.innerWidth = width
   window.matchMedia = (query) => ({
     // The one media query the stage cares about. 768px is the shipped breakpoint
@@ -90,6 +90,30 @@ async function boot (tag, width = WIDE, { startClosed = false } = {}) {
   }
   return { ...h, siteState }
 }
+
+test('the DOM agrees with the stage from boot, before anything is opened', async (t) => {
+  // MEASURED in a browser: index.html:300 hard-codes aria-modal="true" on the panel and
+  // nothing sets data-chat-stage until the first openPanel. So between load and first open,
+  // the markup claimed a modal dialog that did not exist — harmless while [hidden] keeps it
+  // out of the accessibility tree, but it means the CSS has no stage to style and any code
+  // reading the attribute is reading a stale literal. The stage is a contract; it should
+  // hold from the first frame, not from the first interaction.
+  // voice:false, so NOTHING has been opened — this is the page between load and the first
+  // tap. Booting with voice and then closing would be a different state entirely, and a row
+  // asserting the boot contract against it is green no matter what init does. (It was: the
+  // first version of this row used startClosed and passed before the fix existed.)
+  const { api, getEl, siteState } = await boot('stage-boot', WIDE, { voice: false })
+  t.after(() => api.disposeChatLiveVoice())
+
+  assert.equal(api.isOpen(), false, 'harness: nothing may have been opened')
+  assert.equal(siteState.getSiteState().chatStage, 'closed')
+  assert.equal(
+    getEl('chatDialog').dataset.chatStage, 'closed',
+    'data-chat-stage must be set from init — it is the hook every stage rule in css/chat.css ' +
+    'is written against, and an unset one silently falls back to the modal styling'
+  )
+  assert.deepEqual(readChrome(getEl), expectedChrome('closed'))
+})
 
 test('a navigation while the panel is modal yields the stage instead of closing it', async (t) => {
   const { api, getEl, siteState } = await boot('stage-nav', WIDE)
@@ -257,5 +281,98 @@ test('the stage is written by chat.js with an honest origin', async (t) => {
     'would tell §7\'s live note the person had just moved the chat themselves, which they ' +
     'did not — and labelling it `agent` would be worse, since the dedupe would then swallow ' +
     'a note the agent does need'
+  )
+})
+
+test('a yielded panel can be brought back — the stage has a way home', async (t) => {
+  // THE TRAP THIS CLOSES. openPanel early-returns when isOpen() (js/chat.js), and isOpen()
+  // is `!dialog.hidden` — which stageChrome says is FALSE for docked and minimized. So
+  // without this, tapping a launcher while the chat sat minimised set the dock mode and
+  // returned, and nothing on screen moved. On a narrow viewport the pill is all that is left
+  // of the conversation, so that is a conversation with no way back: every entry point leads
+  // to a panel the visitor cannot see, with their transcript still in it.
+  const { api, siteState } = await boot('stage-restore', NARROW)
+  t.after(() => api.disposeChatLiveVoice())
+
+  siteState.setSection('portfolio', { origin: 'agent' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized', 'harness: must start yielded')
+
+  // Every launcher in the site funnels through here (the EV_OPEN_CHAT handler, the footer
+  // button, the spaceman, openPanelWithMessage).
+  api.openPanel()
+  await settle()
+  assert.equal(
+    siteState.getSiteState().chatStage, 'modal',
+    'openPanel from a yielded stage must PROMOTE to modal. The visitor asked for the chat; ' +
+    'an early return that only touches the dock mode leaves them tapping a launcher that ' +
+    'does nothing'
+  )
+
+  // And again through the draft entry point, which is the same visitor act.
+  siteState.setContactOpen(true, { origin: 'visitor' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized')
+  api.openPanelWithDraft('what else have you built?')
+  await settle()
+  assert.equal(
+    siteState.getSiteState().chatStage, 'modal',
+    'openPanelWithDraft / openPanelWithMessage must promote too'
+  )
+})
+
+test('tapping the minimised pill restores it; tapping the docked card does not', async (t) => {
+  // The pill IS the affordance. MEASURED in the browser: at the minimised size the panel
+  // renders as the header alone — a title and a close X — so a visitor whose only visible
+  // control is "close" can lose a live conversation to a mis-tap. The launcher is a way
+  // back, but it is somewhere else on the page; the thing in front of them has to work.
+  //
+  // DOCKED IS DELIBERATELY NOT INCLUDED. A docked card is a usable panel with a composer, a
+  // transcript and a voice pane in it. Promoting it on any click would mean the first tap
+  // inside the transcript yanked the visitor back into a full-screen modal — the reducer's
+  // `restore` is a visitor act, not a side effect of using what is already on screen.
+  const { api, getEl, siteState } = await boot('stage-pill', NARROW)
+  t.after(() => api.disposeChatLiveVoice())
+
+  // `closest` answers by the simulated element's own classes, not by returning the target
+  // for every selector. The blunt version (null for two known selectors, the target for the
+  // rest) made `.chat-dialog__close` match a header click, so the guard that protects the
+  // close button swallowed the restore — a stub that answered yes to everything, proving
+  // nothing about which element was tapped.
+  const clickDialog = (classes) => getEl('chatDialog').events.fire('click', {
+    target: {
+      className: classes,
+      closest: (sel) => (
+        sel.startsWith('.') && classes.split(/\s+/).includes(sel.slice(1))
+          ? { className: classes }
+          : null
+      )
+    }
+  })
+
+  siteState.setSection('portfolio', { origin: 'agent' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized', 'harness: must start as a pill')
+
+  clickDialog('chat-dialog__header')
+  await settle()
+  assert.equal(
+    siteState.getSiteState().chatStage, 'modal',
+    'a tap on the pill must bring the conversation back'
+  )
+
+  // From docked, the same click must change nothing.
+  window.innerWidth = WIDE
+  window.matchMedia = () => ({ matches: true, addEventListener () {}, removeEventListener () {} })
+  siteState.setSection('labs', { origin: 'visitor' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'docked', 'harness: must now be docked')
+
+  clickDialog('chat-dialog__scroll')
+  await settle()
+  assert.equal(
+    siteState.getSiteState().chatStage, 'docked',
+    'a click inside a docked card must NOT promote it — reading the transcript is not a ' +
+    'request for a full-screen modal'
   )
 })

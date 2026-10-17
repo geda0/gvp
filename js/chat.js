@@ -951,6 +951,13 @@ export function initChat() {
     return null
   }
 
+  // The DOM has to agree with the stage from the first frame, not from the first tap.
+  // index.html hard-codes aria-modal="true" on the panel and nothing set data-chat-stage
+  // until an open — so between load and first open the markup claimed a modal that did not
+  // exist, and every stage rule in css/chat.css had no hook to match. No store write here:
+  // 'closed' is already the initial value, so a write would be a same-value no-op anyway.
+  applyStageChrome('closed')
+
   subscribeSiteState((_snapshot, change) => {
     if (!change) return
     const event = stageEventForChange(change)
@@ -1023,6 +1030,12 @@ export function initChat() {
   const openPanel = ({ mode = 'text' } = {}) => {
     const wantVoice = mode === 'voice'
     if (isOpen()) {
+      // A yielded panel is still "open" — stageChrome keeps the dialog in the DOM for
+      // docked and minimized, so isOpen() (!dialog.hidden) is true for both. The visitor
+      // asking for the chat has to PROMOTE it, or tapping a launcher while it sits
+      // minimised would set the dock mode and return with nothing moving on screen, and on
+      // a narrow viewport that is a conversation with no way back to it.
+      if (chatStage !== 'modal') applyStage('modal', 'visitor')
       setDockMode(wantVoice ? 'voice' : 'text', {
         awaitingVoice: wantVoice
       })
@@ -1521,6 +1534,19 @@ export function initChat() {
   })
 
   dialog.addEventListener('click', (event) => {
+    // At the minimised size the panel renders as the header alone — a title and a close X
+    // (MEASURED in the browser) — so the pill itself has to be the way back, or a visitor
+    // whose only visible control says "close" can lose a live conversation to a mis-tap.
+    // Only when minimised: a docked card is a usable panel, and promoting it on any click
+    // would mean the first tap in the transcript yanked them into a full-screen modal.
+    // `restore` is a visitor act, not a side effect of using what is already on screen.
+    // Before the data-action/dock-switch checks, so the close X still closes.
+    if (chatStage === 'minimized'
+      && !event.target.closest('[data-action]')
+      && !event.target.closest('.chat-dialog__close')) {
+      dispatchStage('restore', 'visitor')
+      return
+    }
     const switchEl = event.target.closest('[data-dock-switch]')
     if (switchEl && dialog.contains(switchEl)) {
       const target = switchEl.dataset.dockSwitch
