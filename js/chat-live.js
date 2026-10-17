@@ -7,6 +7,7 @@ import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { shouldRevealResumeButton } from './voice-resume-button.js'
 import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
+import { siteStateWireIfNotable } from './site-state.js'
 
 const INPUT_RATE = 16000
 
@@ -83,10 +84,16 @@ async function postLiveVoiceSession(postUrl, sessionId, { onRetry } = {}) {
   let lastError = null
   const maxAttempts = LIVE_SESSION_MAX_RETRIES + 1
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // siteState rides along on the mint (ADR-0015 ss6). The voice path needs it MORE than
+    // the text path: a live session is minted once and then talks for minutes, so the
+    // system instruction is the only chance to tell it where the visitor already is. ss7
+    // keeps it current from there. Omitted when there is nothing worth saying - the server
+    // then leaves the line out rather than asserting the default.
+    const site = siteStateWireIfNotable()
     const fetchOpts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId })
+      body: JSON.stringify(site ? { sessionId, siteState: site } : { sessionId })
     }
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       fetchOpts.signal = AbortSignal.timeout(LIVE_SESSION_ATTEMPT_MS)

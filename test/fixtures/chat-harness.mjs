@@ -176,7 +176,7 @@ function makeWebSocketClass(sockets) {
 // session stays open with no mic attached — one of the real prod states), then let
 // setupComplete land, which is what makes isSessionOpen() true and the teardown at
 // js/chat.js:902-909 reachable.
-async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
+async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' } = {}) {
   const sockets = []
   const byId = new Map()
   const docEvents = makeListeners()
@@ -211,7 +211,11 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
     hostname: 'portfolio.test',
     pathname: '/',
     search: '',
-    hash: '',
+    // The URL the page LOADS at. initNavigation's boot read of it is what writes the
+    // starting section (origin 'system'), so a test that wants to start somewhere other
+    // than home sets it here rather than calling setSection before the boot — a pre-boot
+    // write is simply overwritten by that read, which is the real behaviour.
+    hash,
     origin: 'http://portfolio.test'
   }
   defineGlobal('window', {
@@ -269,15 +273,22 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
   })
   defineGlobal('requestAnimationFrame', (cb) => setTimeout(cb, 0))
   defineGlobal('cancelAnimationFrame', (id) => clearTimeout(id))
-  defineGlobal('fetch', async () => ({
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify({
-      websocketUrl: 'wss://chat.test/api/live/relay/no-site-kill',
-      handshake: { setup: {} },
-      liveVoiceTransport: 'relay'
-    })
-  }))
+  // Every request the page makes is RECORDED, not just stubbed. The live-session POST
+  // happens during boot, so a test that installed its own fetch afterwards could never see
+  // it — and a test that installed one before boot had it overwritten right here.
+  const fetchCalls = []
+  defineGlobal('fetch', async (url, opts = {}) => {
+    fetchCalls.push({ url: String(url), opts })
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        websocketUrl: 'wss://chat.test/api/live/relay/no-site-kill',
+        handshake: { setup: {} },
+        liveVoiceTransport: 'relay'
+      })
+    }
+  })
 
   const chat = await import('../../js/chat.js?' + tag + '=' + Math.random())
   const api = chat.initChat()
@@ -319,7 +330,7 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
   // closing the panel afterwards to "get back" to closed is a different state, and a row
   // asserting the boot contract against it proves nothing.
   if (!voice) {
-    return { chat, nav, contact, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
+    return { chat, nav, contact, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls }
   }
 
   api.openPanel()
@@ -333,6 +344,6 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true } = {}) {
   socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) })
   await settle()
 
-  return { chat, nav, contact, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
+  return { chat, nav, contact, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls }
 }
 export { DEAD_RECT, makeListeners, makeEl, defineGlobal, settle, makeWebSocketClass, bootChatWithLiveVoice }

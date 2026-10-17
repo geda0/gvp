@@ -192,6 +192,25 @@ export function getSiteStateForWire () {
   }
 }
 
+/**
+ * The wire snapshot, or null when it says nothing the model could not assume.
+ *
+ * ss6.2 makes ABSENT meaningful: the server omits the "Current site state" line entirely
+ * rather than defaulting it, so the model is never told a fact nobody asserted. Sending the
+ * default state on every turn would spend prompt tokens saying "the visitor is on home with
+ * nothing open" - which is what it would assume anyway.
+ *
+ * Here rather than at each call site, because /api/chat and /api/live/session must agree:
+ * two copies of "is this worth saying" is how two paths come to disagree about the same
+ * visitor.
+ */
+export function siteStateWireIfNotable () {
+  const wire = getSiteStateForWire()
+  const notable = (wire.section && wire.section !== 'home')
+    || wire.projectId || wire.contactOpen || wire.voiceActive
+  return notable ? wire : null
+}
+
 /** Test-only reset. Mandatory — see the module note on module isolation. */
 export function __resetSiteStateForTests () {
   state = initial()

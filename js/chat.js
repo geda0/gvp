@@ -8,6 +8,7 @@ import {
   subscribe as subscribeSiteState,
   getSiteState,
   getSiteStateForWire,
+  siteStateWireIfNotable,
   setChatStage,
   setVoiceActive
 } from './site-state.js'
@@ -1263,11 +1264,19 @@ export function initChat() {
       // InvalidSignatureException). Sent unconditionally: ECS and API Gateway ignore it.
       // The body MUST come from buildChatRequest and must not be re-serialized, or the
       // digest stops matching the bytes that go out.
+      //
+      // siteState goes INSIDE the object passed to buildChatRequest, never merged into the
+      // body afterwards - the digest covers the exact bytes, so a payload serialized twice
+      // is a 403 at the edge, i.e. the chat is down. Omitted entirely when there is nothing
+      // to say (ADR-0015 ss6.2): the server then omits the prompt line rather than telling
+      // the model the visitor is on the page it would have assumed anyway.
+      const site = siteStateWireIfNotable()
       const { body, headers } = await buildChatRequest({
         messages: history,
         stream: true,
         sessionId: state.sessionId,
-        language: currentLanguage
+        language: currentLanguage,
+        ...(site ? { siteState: site } : {})
       })
       response = await fetch(endpoint, {
         method: 'POST',
