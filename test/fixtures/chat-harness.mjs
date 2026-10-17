@@ -1,0 +1,274 @@
+import assert from 'node:assert/strict'
+
+// The stub-DOM harness that boots the REAL js/chat.js (and, through it, the real
+// js/chat-live.js over a fake WebSocket).
+//
+// Extracted from test/site-events-never-stop-voice.test.mjs, which built it first, because
+// every remaining M2 slice that asserts something about the chat panel needs the same boot:
+// the tool-result contract (ADR-0015 §5), the stage chrome (§4.4), the live-session context
+// notes (§7). Copying 250 lines of stub DOM per file is how the copies drift, and a drifted
+// harness is a test that proves something about a DOM nobody ships.
+//
+// WHY A STUB AND NOT jsdom: this repo has zero test dependencies (package.json), and the
+// browser journey harness is deliberately the LAST slice of M2 (§11.6) rather than a
+// prerequisite for any of it. The stub is small on purpose — it answers only the surface
+// chat.js and chat-live.js actually touch.
+//
+// node --test collects everything under test/, so this file also shows up in the run as a
+// zero-test entry. That is harmless and mildly useful: it is a free import-time smoke check.
+//
+// Every id lookup answers with a NODE, never null, so an unstubbed id cannot masquerade as a
+// missing element and quietly change a branch. `closest` is the one exception: chat.js reads
+// a null there as "no scroll container".
+
+const DEAD_RECT = { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }
+
+function makeListeners() {
+  const byType = new Map()
+  return {
+    add(type, fn) {
+      if (typeof fn !== 'function') return
+      if (!byType.has(type)) byType.set(type, [])
+      byType.get(type).push(fn)
+    },
+    remove(type, fn) {
+      const list = byType.get(type)
+      if (!list) return
+      const at = list.indexOf(fn)
+      if (at >= 0) list.splice(at, 1)
+    },
+    count(type) { return (byType.get(type) || []).length },
+    fire(type, event) {
+      const list = [...(byType.get(type) || [])]
+      for (const fn of list) fn(event)
+      return list.length
+    }
+  }
+}
+
+// Minimal DOM node: just the surface js/chat.js + js/chat-live.js touch. Every lookup
+// answers with a node (never null) so an unstubbed id cannot masquerade as a missing
+// element and quietly change a branch; `closest` is the one exception, since chat.js
+// treats a null there as "no scroll container".
+function makeEl(tag = 'div') {
+  const classes = new Set()
+  const queried = new Map()
+  const events = makeListeners()
+  const el = {
+    tagName: String(tag).toUpperCase(),
+    events,
+    className: '',
+    textContent: '',
+    value: '',
+    placeholder: '',
+    title: '',
+    type: '',
+    hidden: true,
+    disabled: false,
+    readOnly: false,
+    children: [],
+    options: [],
+    dataset: {},
+    attrs: {},
+    parent: null,
+    parentElement: null,
+    scrollHeight: 0,
+    scrollTop: 0,
+    clientHeight: 0,
+    offsetWidth: 0,
+    style: { setProperty() {}, removeProperty() {} },
+    setAttribute(name, value) { el.attrs[name] = String(value) },
+    getAttribute(name) { return name in el.attrs ? el.attrs[name] : null },
+    removeAttribute(name) { delete el.attrs[name] },
+    toggleAttribute(name, on) {
+      if (on) el.attrs[name] = ''
+      else delete el.attrs[name]
+      return Boolean(on)
+    },
+    appendChild(child) {
+      child.parent = el
+      child.parentElement = el
+      el.children.push(child)
+      return child
+    },
+    remove() {
+      const parent = el.parent
+      if (!parent) return
+      const at = parent.children.indexOf(el)
+      if (at >= 0) parent.children.splice(at, 1)
+      el.parent = null
+      el.parentElement = null
+    },
+    contains() { return false },
+    closest() { return null },
+    matches() { return false },
+    querySelector(selector) {
+      if (!queried.has(selector)) queried.set(selector, makeEl('div'))
+      return queried.get(selector)
+    },
+    querySelectorAll() { return [] },
+    getBoundingClientRect() { return { ...DEAD_RECT } },
+    scrollTo() {},
+    focus() {},
+    blur() {},
+    addEventListener(type, fn) { events.add(type, fn) },
+    removeEventListener(type, fn) { events.remove(type, fn) },
+    dispatchEvent(event) {
+      events.fire(String(event?.type || ''), event)
+      return true
+    }
+  }
+  el.classList = {
+    add(cls) { classes.add(cls) },
+    remove(cls) { classes.delete(cls) },
+    toggle(cls, on) {
+      const want = on === undefined ? !classes.has(cls) : Boolean(on)
+      if (want) classes.add(cls)
+      else classes.delete(cls)
+      return want
+    },
+    contains(cls) { return classes.has(cls) }
+  }
+  return el
+}
+
+function defineGlobal(name, value) {
+  Object.defineProperty(globalThis, name, { value, configurable: true, writable: true })
+}
+
+const settle = async (turns = 12) => {
+  for (let i = 0; i < turns; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+function makeWebSocketClass(sockets) {
+  return class FakeWebSocket {
+    static CONNECTING = 0
+    static OPEN = 1
+    static CLOSING = 2
+    static CLOSED = 3
+    constructor(url) {
+      this.url = url
+      this.readyState = 1
+      this.sent = []
+      this.closeCalls = 0
+      this.onopen = null
+      this.onmessage = null
+      this.onerror = null
+      this.onclose = null
+      sockets.push(this)
+    }
+    send(payload) { this.sent.push(payload) }
+    close() {
+      this.closeCalls += 1
+      this.readyState = 3
+    }
+  }
+}
+
+// Boots the real js/chat.js against the stub DOM and brings a real live voice session up
+// over a fake WebSocket: open the panel, start voice cold (the mic is NOT granted, so the
+// session stays open with no mic attached — one of the real prod states), then let
+// setupComplete land, which is what makes isSessionOpen() true and the teardown at
+// js/chat.js:902-909 reachable.
+async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
+  const sockets = []
+  const byId = new Map()
+  const docEvents = makeListeners()
+  const winEvents = makeListeners()
+
+  const getEl = (id) => {
+    if (!byId.has(id)) byId.set(id, makeEl('div'))
+    return byId.get(id)
+  }
+
+  defineGlobal('document', {
+    documentElement: makeEl('html'),
+    body: makeEl('body'),
+    activeElement: makeEl('div'),
+    visibilityState: 'visible',
+    getElementById: getEl,
+    createElement: (tag) => makeEl(tag),
+    // No <meta> tags: site-config.js resolves both API bases to '' on a non-local host,
+    // which keeps every network call in this file inside the stubs.
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: (type, fn) => docEvents.add(type, fn),
+    removeEventListener: (type, fn) => docEvents.remove(type, fn)
+  })
+  defineGlobal('window', {
+    isSecureContext: true,
+    location: {
+      protocol: 'http:',
+      hostname: 'portfolio.test',
+      pathname: '/',
+      hash: '',
+      origin: 'http://portfolio.test'
+    },
+    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    addEventListener: (type, fn) => winEvents.add(type, fn),
+    removeEventListener: (type, fn) => winEvents.remove(type, fn),
+    dispatchEvent: (event) => {
+      winEvents.fire(String(event?.type || ''), event)
+      return true
+    }
+  })
+  defineGlobal('navigator', {
+    mediaDevices: {
+      getUserMedia: async () => {
+        const err = new Error('mic not granted in harness')
+        err.name = 'NotAllowedError'
+        throw err
+      }
+    }
+  })
+  defineGlobal('AudioContext', class FakeAudioContext {
+    constructor() {
+      this.sampleRate = 24000
+      this.state = 'running'
+      this.currentTime = 0
+      this.destination = {}
+    }
+    async resume() {}
+    async close() {}
+    createBuffer(channels, length, rate) { return { duration: length / rate, copyToChannel() {} } }
+    createBufferSource() { return { buffer: null, onended: null, connect() {}, stop() {}, start() {} } }
+  })
+  defineGlobal('WebSocket', makeWebSocketClass(sockets))
+  defineGlobal('requestAnimationFrame', (cb) => setTimeout(cb, 0))
+  defineGlobal('cancelAnimationFrame', (id) => clearTimeout(id))
+  defineGlobal('fetch', async () => ({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify({
+      websocketUrl: 'wss://chat.test/api/live/relay/no-site-kill',
+      handshake: { setup: {} },
+      liveVoiceTransport: 'relay'
+    })
+  }))
+
+  const chat = await import('../../js/chat.js?' + tag + '=' + Math.random())
+  const api = chat.initChat()
+  assert.ok(
+    api,
+    'harness: initChat() returned null, so none of the production code under test ran'
+  )
+  assert.equal(
+    typeof api.liveVoice?.stopVoice,
+    'function',
+    'harness: initChat() must expose the live voice handle, or the spy cannot sit in the call path'
+  )
+
+  api.openPanel()
+  await settle()
+  void api.liveVoice.startVoice({ intent: 'cold' })
+  await settle()
+  const socket = sockets[0]
+  assert.ok(socket, 'harness: starting voice must open a WebSocket, or this probe is blind')
+  socket.onopen()
+  await settle()
+  socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) })
+  await settle()
+
+  return { chat, api, socket, sockets, getEl, byId, docEvents, winEvents }
+}
+export { DEAD_RECT, makeListeners, makeEl, defineGlobal, settle, makeWebSocketClass, bootChatWithLiveVoice }
