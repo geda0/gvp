@@ -195,8 +195,14 @@ async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
     addEventListener: (type, fn) => docEvents.add(type, fn),
     removeEventListener: (type, fn) => docEvents.remove(type, fn)
   })
+  // A gtag spy, because trackEvent's first-party mirror (js/site-events.js) buffers into a
+  // module-private array and flushes to an events API that resolves to '' in here. gtag is
+  // the only observable analytics surface from a test, and js/analytics.js:6-8 only needs it
+  // to be a function on window.
+  const gtagCalls = []
   defineGlobal('window', {
     isSecureContext: true,
+    gtag: (...args) => { gtagCalls.push(args) },
     location: {
       protocol: 'http:',
       hostname: 'portfolio.test',
@@ -234,6 +240,14 @@ async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
     createBufferSource() { return { buffer: null, onended: null, connect() {}, stop() {}, start() {} } }
   })
   defineGlobal('WebSocket', makeWebSocketClass(sockets))
+  // js/chat.js constructs one to drive the router; without it the home branch throws.
+  defineGlobal('HashChangeEvent', class FakeHashChangeEvent {
+    constructor(type, init = {}) {
+      this.type = type
+      this.oldURL = init.oldURL || ''
+      this.newURL = init.newURL || ''
+    }
+  })
   defineGlobal('requestAnimationFrame', (cb) => setTimeout(cb, 0))
   defineGlobal('cancelAnimationFrame', (id) => clearTimeout(id))
   defineGlobal('fetch', async () => ({
@@ -269,6 +283,6 @@ async function bootChatWithLiveVoice({ tag = 'harness' } = {}) {
   socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) })
   await settle()
 
-  return { chat, api, socket, sockets, getEl, byId, docEvents, winEvents }
+  return { chat, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls }
 }
 export { DEAD_RECT, makeListeners, makeEl, defineGlobal, settle, makeWebSocketClass, bootChatWithLiveVoice }

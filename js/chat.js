@@ -2,7 +2,7 @@ import { trackEvent } from './analytics.js'
 import { openContactDialog } from './contact.js'
 import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
-import { normalizeSection } from './section-names.js'
+import { normalizeSection, resolveNavTarget } from './section-names.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
@@ -1477,7 +1477,16 @@ export function initChat() {
       return
     }
     if (action === 'navigate') {
-      navigateToSection(actionEl.dataset.section || '')
+      // The return value used to be discarded here, so an assistant-rendered button for a
+      // section that did not resolve was a silent no-op: the visitor tapped and nothing
+      // happened, and neither they, nor the model, nor analytics learned it had failed
+      // (ADR-0015 §9.2 — the text path failed worse than the voice path, which at least
+      // round-tripped the error). It stays non-interrupting: a visitor who tapped a button
+      // does not need an error bubble, but the failure has to be countable.
+      const outcome = navigateToSection(actionEl.dataset.section || '')
+      if (outcome.error) {
+        trackEvent('chat_nav_unresolved', { section: String(actionEl.dataset.section || '') })
+      }
       return
     }
     if (action === 'open-contact') {
@@ -1513,18 +1522,27 @@ export function initChat() {
   // knows the action ran.
   // Move the page to a top-level section so the agent can SHOW the visitor around
   // (text and voice share this one routine). Returns a tool-response-shaped result.
-  const navigateToSection = (section) => {
-    if (section === 'home') {
+  // Resolution lives in js/section-names.js (ADR-0015 §2.1). It used to be a chain of
+  // byte-exact `===` here, so "Portfolio" — the capitalisation a model naturally writes for
+  // a page called Portfolio — fell through to unknown_section.
+  const navigateToSection = (raw) => {
+    const target = resolveNavTarget(raw)
+    if (target.error) return { error: `unknown_section: ${raw}`, received: raw }
+    if (target.id === 'home') {
       history.replaceState(null, '', './')
       window.dispatchEvent(new HashChangeEvent('hashchange'))
-    } else if (section === 'labs' || section === 'playground') {
-      window.location.hash = '#labs'
-    } else if (section === 'portfolio') {
-      window.location.hash = '#portfolio'
+    } else if (window.location.hash === target.hash) {
+      // THE NO-OP HASH WRITE (ADR-0015 §5.1). Per the HTML spec, assigning the fragment the
+      // document already has dispatches no hashchange, so navigateByHash
+      // (js/navigation.js:62) never ran — and this function still reported `navigated`.
+      // Benign while the visitor is already there, a lie under a self-verification contract.
+      // Only in the unchanged case: the browser fires its own event otherwise, and a second
+      // one would double-count the virtual page view.
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
     } else {
-      return { error: `unknown_section: ${section}` }
+      window.location.hash = target.hash
     }
-    return { result: 'navigated', section }
+    return { result: 'navigated', section: target.id }
   }
 
   const applyVoiceToolCall = (name, args) => {
