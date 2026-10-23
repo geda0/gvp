@@ -86,8 +86,14 @@ def _announce(message: str) -> None:
 def _build_client() -> Any:
     """Separated so tests can inject a fake without touching boto3 or the network."""
     import boto3  # imported lazily: absence must be survivable, not fatal at import
+    from botocore.config import Config
 
-    return boto3.client('secretsmanager')
+    # Bounded: this now also runs on the REQUEST path (chain factory, voice mint), so a slow
+    # Secrets Manager must cost seconds, not boto3's default 60 s read timeout x retries.
+    return boto3.client(
+        'secretsmanager',
+        config=Config(connect_timeout=2, read_timeout=3, retries={'max_attempts': 2}),
+    )
 
 
 def _extract(payload: Any) -> str:
