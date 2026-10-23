@@ -46,3 +46,27 @@ test('the stream function carries the three §15.3 cost alarms, wired to the ale
   }
   assert.deepEqual(broken, [], broken.join('\n'))
 })
+
+// §15.3's two budgets. A budget is ACCOUNT-wide, so it is created once — by the prod stack —
+// or stage and prod would each mint a copy and each email twice.
+test('the prod stream stack (only) carries the $15 Lambda and $70 account budgets at 80% and 100% actual', () => {
+  const res = resources(tpl)
+  const conds = tpl.split(/^Conditions:\s*$/m)[1].split(/^Resources:\s*$/m)[0]
+  const budgets = [...res].filter(([, b]) => /^    Type: AWS::Budgets::Budget\s*$/m.test(b))
+  assert.equal(budgets.length, 2, `expected 2 budgets, found ${budgets.map(([id]) => id)}`)
+  const amounts = budgets.map(([, b]) => Number((b.match(/Amount:\s*(\d+)/) || [])[1])).sort((a, b) => a - b)
+  assert.deepEqual(amounts, [15, 70])
+  for (const [id, b] of budgets) {
+    const cond = field(b, 'Condition')
+    assert.ok(cond, `${id} must be conditional`)
+    const def = (conds.match(new RegExp(`^  ${cond}:([\\s\\S]*?)(?=^  \\w+:|$(?![\\s\\S]))`, 'm')) || [])[1] || ''
+    assert.match(def, /StageName[\s\S]*prod|prod[\s\S]*StageName/, `${id}: condition ${cond} must require StageName = prod`)
+    assert.match(b, /TimeUnit:\s*MONTHLY/)
+    assert.match(b, /Unit:\s*USD/)
+    for (const pct of [80, 100]) {
+      assert.match(b, new RegExp(`NotificationType:\\s*ACTUAL[\\s\\S]*?Threshold:\\s*${pct}\\b`), `${id}: needs an ACTUAL ${pct}% notification`)
+    }
+    assert.match(b, /SubscriptionType:\s*EMAIL\s*\n\s+Address:\s*!Ref ChatAlertAlarmEmail/)
+    if (Number((b.match(/Amount:\s*(\d+)/) || [])[1]) === 15) assert.match(b, /Service:\s*\n\s+- AWS Lambda/, 'the $15 budget is Lambda-scoped')
+  }
+})

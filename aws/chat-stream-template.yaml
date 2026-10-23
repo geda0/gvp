@@ -182,6 +182,10 @@ Conditions:
   IsPublicUrl: !Equals [!Ref FunctionUrlAuthType, NONE]
   HasGeminiSecret: !Not [!Equals [!Ref GeminiApiKeySecretArn, '']]
   HasChatAlertAlarm: !Not [!Equals [!Ref ChatAlertAlarmEmail, '']]
+  # ADR-0021 D2: budgets are account-wide, so only the prod stack creates them.
+  IsProdWithAlertEmail: !And
+    - !Equals [!Ref StageName, prod]
+    - !Condition HasChatAlertAlarm
 
 Resources:
   # Explicit execution role: logs + DynamoDB writes to ONE table ARN. Nothing wider.
@@ -495,6 +499,69 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref ChatStreamAlertTopic
+
+  # ADR-0022 §15.3: Lambda-scoped $15/month, ACTUAL at 80% and 100%.
+  LambdaMonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: IsProdWithAlertEmail
+    Properties:
+      Budget:
+        BudgetName: gvp-lambda-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 15
+          Unit: USD
+        CostFilters:
+          Service:
+            - AWS Lambda
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
+
+  # ADR-0022 §15.3: whole account $70/month, ACTUAL at 80% and 100%.
+  AccountMonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: IsProdWithAlertEmail
+    Properties:
+      Budget:
+        BudgetName: gvp-account-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 70
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
 
 Outputs:
   ChatStreamFunctionUrlAuthType:
