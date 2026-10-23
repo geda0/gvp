@@ -433,6 +433,8 @@ async function loadContactDashboard() {
       )
     ])
 
+    // Smoke runs after this paint; until it answers, the strip must not read as all clear.
+    attentionData.smoke = { overall: 'pending' }
     Object.assign(attentionData, { contactSummary: summary, health, chatSummary })
     refreshAttention()
     renderSummary(summary)
@@ -892,6 +894,8 @@ async function loadChatDashboard() {
     chatHasLoaded = true
     setStatus(globalStatus, 'Chat transcript dashboard updated.', 'success')
   } catch (error) {
+    attentionData.chatSummary = null
+    refreshAttention()
     setStatus(globalStatus, error.message || 'Could not load transcripts.', 'error')
   }
 }

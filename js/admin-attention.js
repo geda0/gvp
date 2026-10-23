@@ -26,7 +26,8 @@ export function attentionItems({ contactSummary, health, smoke, chatSummary } = 
     if (health.alarmState === 'ALARM') add('bad', 'The contact pipeline alarm is firing.', 'contact')
   }
 
-  if (smoke?.overall === 'unavailable') add('warn', 'The smoke checks could not run — refresh to retry.', 'contact')
+  if (smoke?.overall === 'pending') add('info', 'Smoke checks are still running…', 'contact')
+  else if (smoke?.overall === 'unavailable') add('warn', 'The smoke checks could not run — refresh to retry.', 'contact')
   else if (smoke?.overall === 'fail') add('bad', 'The smoke checks are failing.', 'contact')
   else if (smoke?.overall === 'warn') add('warn', 'A smoke check is warning.', 'contact')
 

@@ -117,3 +117,19 @@ test('admin.js keeps the strip current: chat reloads, smoke failure, and a 503 "
   assert.match(smoke.slice(smoke.indexOf('catch')), /attentionData\.smoke = \{ overall: 'unavailable' \}/)
   assert.match(js, /not configured/i)
 })
+
+// Critic round 2: a source still loading must never read as "All clear".
+test('smoke checks still running are an info item, so the strip cannot say all clear yet', () => {
+  const items = attentionItems({ ...quiet, smoke: { overall: 'pending' } }, NOW)
+  assert.deepEqual(items.map((i) => [i.level, i.tab]), [['info', 'contact']])
+  assert.match(items[0].text, /still running/i)
+})
+
+test('admin.js marks smoke pending BEFORE the first strip paint, and a failed chat reload clears stale chat data', () => {
+  const js = readFileSync(new URL('../js/admin.js', import.meta.url), 'utf8')
+  const contact = js.slice(js.indexOf('async function loadContactDashboard'), js.indexOf('async function loadMoreMessages'))
+  const pending = contact.indexOf("attentionData.smoke = { overall: 'pending' }")
+  assert.ok(pending > -1 && pending < contact.indexOf('refreshAttention()'), 'smoke must be pending before the strip first renders')
+  const chat = js.slice(js.indexOf('async function loadChatDashboard'), js.indexOf('async function loadMoreChatTranscripts'))
+  assert.match(chat.slice(chat.indexOf('} catch')), /attentionData\.chatSummary = null/)
+})
