@@ -19,6 +19,17 @@
   A promise the system does not keep is worse than no promise, and this one is about
   people's conversations.
 
+  **UPDATE, same day, after M8's deploy to stage — the two environments have diverged:**
+  ```
+  page-staging-ChatTranscriptsTable-1XSZI611F4WDM   ENABLED   attribute `ttl`
+  page-ChatTranscriptsTable-19J8X0K9P03AJ           DISABLED  (unchanged)
+  ```
+  Stage's TABLE now honours `ttl`; prod's does not. But stage's chat functions still do not
+  WRITE the attribute, because that deploy died on the IAM deny — so stage is currently a
+  table that would expire rows nobody is stamping. Harmless (nothing expires), and worth
+  knowing: a table showing ENABLED is NOT evidence the retention promise is kept. Both
+  halves are needed, and on prod neither is there yet.
+
   **The rule, for the promotion checklist:** `js/privacy-note.js` and its footer entry may
   not reach `main` until (1) the `#ttl` writer is deployed to the prod chat host AND
   (2) `TimeToLiveStatus` reads `ENABLED` on `page-ChatTranscriptsTable-*`. Re-run the
