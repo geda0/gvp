@@ -135,6 +135,28 @@ backdrop), are in `test/privacy-note.test.mjs`.
 and the contact stack. **Do not promote this to `main` before the `#ttl` writer and the table
 TTL are deployed to prod**, or prod will display a retention promise that nothing enforces.
 
+## Measured on stage, 2026-10-23 (peer session, direct deploy of `agent@42d463a`)
+
+- **Deploy:** the stream function was redeployed, with CodeSha256 `9b577fa6…` → `a28da3d0…` at
+  16:58Z. All eight stage chat alarms exist and are OK:
+  - the three §15.3 alarms (`invocations-5m`, `invocations-1h`, `duration-1h`);
+  - P1/P2 alert-line alarms on both hosts;
+  - the older Lambda-errors alarm.
+- **E4, kill switch: PASS, fully reversed.** Reserved concurrency was 5, recorded first.
+  1. Baseline turn: **200** (15.7 s, cold).
+  2. Set to 0: the next turn got **429 in 299 ms** —
+     `ReservedFunctionConcurrentInvocationLimitExceeded`. It fails at the edge *without
+     invoking the function*, so an engaged kill switch costs nothing.
+  3. Restored to 5: the next turn got **200** (2.9 s). Net change: none.
+- **D3, both halves are true on stage:**
+  - `page-staging-ChatTranscriptsTable` TTL is ENABLED on `ttl`.
+  - A fresh session (`e4-restored-ttl-witness`) carries `ttl = 1808327559` (2027-04-21),
+    exactly +180.0 days.
+  - **Prod is still DISABLED and still unwritten.** D4's promotion rule stands.
+- **E2, alarm validation with `set-alarm-state`: not run.** Both sessions' permission
+  classifiers refuse it, so it is with the account owner as a one-liner. **E3, budgets:**
+  prod only, so not yet created. **E5, from-data cost:** not yet computed.
+
 ## Consequences
 
 - M8 item 2 shrinks from "build a limiter" to "build the controls an earlier ADR already
