@@ -12,7 +12,10 @@ import {
   snowSpeedMultiplierForPreference,
   precipitationCountForPreference,
   precipitationSpeedMultiplierForPreference,
-  defaultExperiencePrecipitationCount
+  defaultExperiencePrecipitationCount,
+  STAR_PACE,
+  STAR_REFERENCE_CORES,
+  frameStep
 } from './starfield-prefs.js'
 import { sceneParamsAt } from './theme-time.js'
 
@@ -63,7 +66,6 @@ export function initStarfield(canvasId, options = {}) {
   let stars = [];
   let numStars = 0;
   let centerX, centerY, fl;
-  const cores = window.navigator.hardwareConcurrency || 4;
 
   // Daytime precipitation (ADR-0016). ONE HOMOGENEOUS POOL: every particle in it is the
   // current kind, and the per-kind branch is hoisted OUT of the draw loop. A per-particle
@@ -285,12 +287,14 @@ export function initStarfield(canvasId, options = {}) {
     return `hsl(${h}, ${s}%, ${l}%)`;
   }
 
-  function calculateNumStars(width, height, coresCount) {
-    return calculateFullStarCount(width, height, coresCount, config.baseStars);
+  // Density no longer follows the CPU: every machine gets the reference-core sky (the one
+  // slower machines showed), so the field looks the same everywhere. See STAR_REFERENCE_CORES.
+  function calculateNumStars(width, height) {
+    return calculateFullStarCount(width, height, STAR_REFERENCE_CORES, config.baseStars);
   }
 
-  function starCountForCurrentPreference(width, height, coresCount) {
-    const full = calculateNumStars(width, height, coresCount);
+  function starCountForCurrentPreference(width, height) {
+    const full = calculateNumStars(width, height);
     if (prefersReducedMotion) return starCountForPreference(full, true);
     return defaultExperienceStarCount(full);
   }
@@ -398,12 +402,12 @@ export function initStarfield(canvasId, options = {}) {
     if (isTimeMode()) {
       // Living theme: stars (opacity modulated by the hour) + fireflies at dusk
       // + soft snow during daylight (drawTime gates each by the hour).
-      numStars = starCountForCurrentPreference(w, h, cores);
+      numStars = starCountForCurrentPreference(w, h);
       initStars(numStars);
       initFireflies();
       initPrecipitation(currentPrecipitationKind());
     } else if (theme === 'space') {
-      numStars = starCountForCurrentPreference(w, h, cores);
+      numStars = starCountForCurrentPreference(w, h);
       initStars(numStars);
     } else if (theme === 'garden') {
       initPrecipitation(currentPrecipitationKind());
@@ -430,7 +434,7 @@ export function initStarfield(canvasId, options = {}) {
     const trail = spaceTrailAlphaForPreference(prefersReducedMotion);
     c.fillStyle = `rgba(20, 25, 38, ${trail})`;
     c.fillRect(0, 0, canvas.width, canvas.height);
-    starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
+    starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion) * STAR_PACE * frameStepScale;
     for (var i = 0; i < numStars; i++) {
       stars[i].show();
       stars[i].move();
@@ -576,7 +580,7 @@ export function initStarfield(canvasId, options = {}) {
       // (Stars are ~0 by day, so there's no trail to preserve.)
       c.clearRect(0, 0, w, h);
       if (sp.star > 0.01) {
-        starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
+        starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion) * STAR_PACE * frameStepScale;
         c.save();
         c.globalAlpha = sp.star;
         for (var i = 0; i < numStars; i++) {
@@ -615,7 +619,7 @@ export function initStarfield(canvasId, options = {}) {
     c.fillRect(0, 0, w, h);
     c.restore();
     if (sp.star > 0.01) {
-      starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion);
+      starSpeedScale = starSpeedMultiplierForPreference(prefersReducedMotion) * STAR_PACE * frameStepScale;
       c.save();
       c.globalAlpha = sp.star;
       for (var j = 0; j < numStars; j++) {
@@ -646,8 +650,18 @@ export function initStarfield(canvasId, options = {}) {
 
   let rafId = null;
 
-  function frame() {
-    draw();
+  // Frame pacing (see frameStep): skip frames that come faster than the reference rate, and
+  // scale star motion by the real elapsed time when they come slower.
+  let frameStepScale = 1;
+  let lastDrawnAt;
+
+  function frame(now) {
+    const step = frameStep(lastDrawnAt === undefined || now === undefined ? undefined : now - lastDrawnAt);
+    if (step > 0) {
+      frameStepScale = step;
+      lastDrawnAt = now;
+      draw();
+    }
     if (document.visibilityState === 'visible') {
       rafId = window.requestAnimationFrame(frame);
     } else {
