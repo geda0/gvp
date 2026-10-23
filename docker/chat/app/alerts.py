@@ -36,6 +36,12 @@ _PRIORITY: dict[str, str] = {
     'chat_transcript_write_failed': 'P1',
     'chat_transcript_session_full': 'P2',
     'voice_mint_failed': 'P1',
+    # gemini_routing.py fires these WHILE switching to the fallback - the visitor is still
+    # served. If the fallback also fails, chat_upstream_unavailable (P1) follows.
+    'chat_primary_timeout': 'P2',
+    'chat_primary_rate_limit': 'P2',
+    'chat_upstream_unavailable': 'P1',
+    'chat_model_error': 'P1',
 }
 
 

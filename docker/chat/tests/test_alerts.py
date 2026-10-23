@@ -167,6 +167,13 @@ def test_emits_tier1_warning_line_even_when_gate_is_disabled(
         ('chat_transcript_session_full', 'P2'),
         ('chat_transcript_write_failed', 'P1'),
         ('voice_mint_failed', 'P1'),
+        # gemini_routing.py: a primary timeout / rate limit fires WHILE switching to the
+        # fallback, so the visitor is still served -> P2. If the fallback fails too,
+        # chat_upstream_unavailable fires -> P1. A non-retryable error is raised -> P1.
+        ('chat_primary_timeout', 'P2'),
+        ('chat_primary_rate_limit', 'P2'),
+        ('chat_upstream_unavailable', 'P1'),
+        ('chat_model_error', 'P1'),
         # Unclassified ⇒ P1, fail loud (ADR-0020, "priority is a static property OF the
         # event type"): a fire_alert added without a _PRIORITY row announces itself.
         ('a_type_nobody_classified', 'P1'),
