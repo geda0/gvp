@@ -225,3 +225,18 @@ async def test_live_session_success_fires_no_alert(
     r = await client.post('/api/live/session', json={})
     assert r.status_code == 200
     assert fired == []
+
+
+@pytest.mark.asyncio
+async def test_live_session_missing_key_fires_voice_mint_failed(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Critic D1: a deploy that drops GEMINI_API_KEY makes every voice start fail; that
+    is the same visitor-facing outage as a failed mint, so it is the same P1 type."""
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    fired = _capture_alerts(monkeypatch)
+
+    r = await client.post('/api/live/session', json={})
+    assert r.status_code == 503
+    assert r.json().get('code') == 'gemini_key_missing'
+    assert [t for t, _ in fired] == ['voice_mint_failed']

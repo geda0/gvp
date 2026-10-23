@@ -1141,6 +1141,7 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
 
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
+        fire_alert('voice_mint_failed', 'GEMINI_API_KEY missing')
         return JSONResponse(
             status_code=503,
             content={
