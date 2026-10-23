@@ -216,7 +216,13 @@ def _inject_retrieved(
     history_text = ' '.join(
         str(getattr(m, 'content', ''))[:300] for m in compacted[-6:]
     )
-    context = build_context(last, history_text, knowledge_pack)
+    # M4 (ADR-0017 §4.1): the visitor's open project, pinned into <relevant_projects> by
+    # explicit parameter. Read HERE so the real and the mock chain thread it identically.
+    pinned = inp.get("pinnedProjectId")
+    context = build_context(
+        last, history_text, knowledge_pack,
+        pinned_project_id=pinned if isinstance(pinned, str) else None,
+    )
     knowledge_xml = serialize_context_xml(context)
     messages = [Msg(role="human", content=knowledge_xml), *compacted]
     return {

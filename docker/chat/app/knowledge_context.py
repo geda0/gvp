@@ -339,6 +339,7 @@ def build_context(
     pack: dict[str, Any],
     max_roles: int = DEFAULT_MAX_ROLE_MATCHES,
     max_projects: int = DEFAULT_MAX_PROJECT_MATCHES,
+    pinned_project_id: str | None = None,
 ) -> dict[str, Any]:
     query = f'{user_message} {history_text}'
     tags = extract_tags(query)
@@ -354,6 +355,17 @@ def build_context(
     project_fallback = len(matched_projects) == 0
     roles = matched_roles if not role_fallback else roles_all[:2]
     projects = matched_projects if not project_fallback else projects_all[:2]
+    # M4 (ADR-0017 §4.1): the project the visitor has OPEN rides in this already-dynamic
+    # section through an explicit parameter - prepended, cap raised by one so the question's
+    # own matches keep their slots, deduplicated. Never appended to the query (that would move
+    # role retrieval and <retrieval_tags>), never in the cached head. Unknown ids change nothing.
+    if isinstance(pinned_project_id, str) and pinned_project_id:
+        pinned = next(
+            (p for p in projects_all if isinstance(p, dict) and p.get('id') == pinned_project_id),
+            None,
+        )
+        if pinned is not None:
+            projects = [pinned, *[p for p in projects if p.get('id') != pinned_project_id]]
     # True when tag-based retrieval yielded no role/project hits and defaults were used.
     retrieval_fallback = role_fallback or project_fallback
 

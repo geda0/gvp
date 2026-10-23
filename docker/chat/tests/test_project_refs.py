@@ -42,3 +42,53 @@ def test_a_malformed_pack_yields_an_empty_tuple(tmp_path, monkeypatch):
     (tmp_path / 'projects.json').write_text('{not json', encoding='utf-8')
     monkeypatch.setenv('CHAT_KNOWLEDGE_DIR', str(tmp_path))
     assert project_refs.load_project_ids() == ()
+
+
+# ---- M4 chat slice 4 (ADR-0017 §4.2): the voice path's project grounding.
+# On voice the knowledge blob is truncated to ~31% of the pack and <relevant_projects> never
+# arrives, so the open project's detail rides in the SITE-STATE RESERVE as one sentence:
+# server-only (the browser has no pack, so format_site_state_line and its shared fixture table
+# stay untouched), built from the project's existing one-liner, bounded.
+from app.knowledge_context import build_live_system_instruction, load_knowledge_pack  # noqa: E402
+
+PACK = load_knowledge_pack(REPO / 'data' / 'chat-knowledge')
+
+
+def test_grounding_line_names_the_project_and_its_one_liner():
+    line = project_refs.project_grounding_line('team-tactics', PACK)
+    project = next(p for p in PACK['projects'] if p['id'] == 'team-tactics')
+    assert project['name'] in line
+    assert line.endswith('.') and len(line) <= project_refs.GROUNDING_MAX_CHARS
+
+
+def test_grounding_line_is_empty_for_unknown_or_missing_ids():
+    for pid in (None, '', 'not-a-project', 'constructor'):
+        assert project_refs.project_grounding_line(pid, PACK) == ''
+
+
+def test_every_project_line_respects_the_cap():
+    for p in PACK['projects']:
+        assert len(project_refs.project_grounding_line(p['id'], PACK)) <= project_refs.GROUNDING_MAX_CHARS
+
+
+def test_the_live_instruction_still_fits_with_a_maximal_site_line_and_grounding_line(monkeypatch):
+    monkeypatch.delenv('CHAT_LIVE_SYSTEM_MAX_CHARS', raising=False)
+    from app.site_state import SiteStateIn, format_site_state_line
+
+    site = format_site_state_line(SiteStateIn(
+        section='portfolio', projectId='a' * 64, projectTitle='T' * 500, contactOpen=True, voiceActive=True,
+    ))
+    grounding = max((project_refs.project_grounding_line(p['id'], PACK) for p in PACK['projects']), key=len)
+    prompt = (REPO / 'docker' / 'chat' / 'prompts' / 'system-prompt.md').read_text()
+    text = build_live_system_instruction(prompt, PACK, site_state_line=f'{site} {grounding}'.strip())
+    assert len(text) <= 14000
+    assert grounding in text, 'the grounding sentence must survive the final truncate'
+
+
+def test_the_live_session_appends_the_grounding_line_to_the_site_line():
+    from app.main import LiveSessionRequest, _live_site_line
+
+    req = LiveSessionRequest.model_validate({'siteState': {'section': 'labs', 'projectId': 'team-tactics', 'projectTitle': 'Team Tactics'}})
+    line = _live_site_line(req.siteState, PACK)
+    assert line.endswith(project_refs.project_grounding_line('team-tactics', PACK))
+    assert _live_site_line(None, PACK) == ''
