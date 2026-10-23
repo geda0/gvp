@@ -1435,6 +1435,12 @@ P1 alarms keep 60 s because only the app can write their lines.
     2. The stale `gvp-<env>-chat-deploy` IAM policy.
 
     Fixing only the second does not land §6.2 through CI.
+  - **Measured on run `39939648430`:** the login step is wired but the role lacks the grant.
+    It was denied `ecr-public:GetAuthorizationToken`, fell back to the anonymous pull as
+    designed, and was throttled again. So blocker 1 also waits on the IAM draft.
+  - **Durable fallback if an authenticated pull still throttles:** mirror the adapter image
+    into the account's own ECR and point `Dockerfile.lambda-stream`'s `COPY --from` there, so
+    the build never touches `public.ecr.aws`.
 - New log group: `ContactAlarmTopic`'s subscription is unchanged, but the events function's
   logs move to `/gvp/site-events/<stack>`. Anyone reading `/aws/lambda/<fn>` for it must
   look there instead.
