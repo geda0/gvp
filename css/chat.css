@@ -2438,3 +2438,46 @@ body.content-open .agent-slot--navbar .agent-node__submit {
         transition: none;
     }
 }
+
+
+/* M4 slice 15 (ADR-0017 §6) — minimise lives on the docked card only; the launcher chip is the
+   way back from minimised. */
+.chat-dialog__minimize {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__minimize {
+    display: inline-flex;
+}
+
+.chat-dialog__minimize:hover,
+.chat-dialog__minimize:focus-visible {
+    background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.agent-node__active-chip {
+    margin-top: 0.5rem;
+    padding: 0.3rem 0.8rem;
+    border: 1px solid var(--accent, currentColor);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.agent-node__active-chip[hidden] {
+    display: none;
+}

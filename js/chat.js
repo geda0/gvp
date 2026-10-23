@@ -973,7 +973,30 @@ export function initChat() {
   // 'closed' is already the initial value, so a write would be a same-value no-op anyway.
   applyStageChrome('closed')
 
-  subscribeSiteState((_snapshot, change) => {
+  // M4 slice 15 (ADR-0017 §6): the launcher chip. Reads chatStage and voiceActive ONLY - a
+  // label that changed as the visitor browsed would be the opposite of "your conversation is
+  // still here". Its tap is `restore`, which the reducer refuses from `closed`, so a wrongly
+  // visible chip can only fail to restore, never cold-open a conversation.
+  const activeChip = document.getElementById('agentActiveChip')
+  const syncActiveChip = (snapshot) => {
+    if (!activeChip) return
+    const live = snapshot.chatStage !== 'closed'
+    activeChip.hidden = !live
+    activeChip.textContent = snapshot.voiceActive ? 'Voice live' : 'Assistant active'
+  }
+  activeChip?.addEventListener('click', () => {
+    trackEvent('chat_launcher_resume', { stage: chatStage })
+    dispatchStage('restore', 'visitor')
+  })
+  // The minimise control (docked card only, per css/chat.css). Ships with the chip because a
+  // minimise button with no visible way back is a trapdoor.
+  dialog?.querySelector('.chat-dialog__minimize')?.addEventListener('click', (event) => {
+    event.stopPropagation()
+    dispatchStage('minimize', 'visitor')
+  })
+
+  subscribeSiteState((snapshot, change) => {
+    syncActiveChip(snapshot)
     if (!change) return
     const event = stageEventForChange(change)
     if (!event) return
@@ -1475,9 +1498,11 @@ export function initChat() {
   })
 
   agentInput.addEventListener('click', () => {
-    if (state.history.length > 0 && !isOpen()) {
-      openPanel()
-    }
+    if (state.history.length === 0) return
+    // Read chatStage, never the dialog's hidden flag: the dialog stays un-hidden while docked
+    // or minimised, so with a minimised conversation this click used to do nothing at all.
+    if (chatStage === 'closed') openPanel()
+    else if (chatStage !== 'modal') dispatchStage('restore', 'visitor')
   })
 
   document.addEventListener('click', (event) => {
