@@ -18,6 +18,11 @@ Parameters:
   AdminApiKey:
     Type: String
     NoEcho: true
+  # M8 item 6 (ADR-0021): optional read-only admin key - every GET, 403 on every mutation.
+  AdminReadonlyKey:
+    Type: String
+    NoEcho: true
+    Default: ''
   IpHashPepper:
     Type: String
     NoEcho: true
@@ -472,6 +477,7 @@ Resources:
       Environment:
         Variables:
           ADMIN_API_KEY: !Ref AdminApiKey
+          ADMIN_READONLY_KEY: !Ref AdminReadonlyKey
           CONTACT_DELIVERY_DLQ_URL: !Ref ContactDeliveryDlq
           CONTACT_DLQ_ALARM_NAME: !Ref ContactDlqAlarm
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTable

@@ -21,9 +21,11 @@ function aggregateSite(events, { day, tz } = {}) {
   // the owner-local day here (no-op when day is unset — used by callers that
   // pre-scope). totalEvents etc. then count only the report's day.
   const rows = day ? events.filter((e) => localDayOf(e?.createdAt, tz) === day) : events
-  const byEventCounts = {}
-  const bySectionCounts = {}
-  const byPageCounts = {}
+  // ADR-0017 §12.1: keys are caller-supplied (public /api/events), so every counter here is
+  // prototype-free - `toString` must count as a number, `__proto__` must not vanish.
+  const byEventCounts = Object.create(null)
+  const bySectionCounts = Object.create(null)
+  const byPageCounts = Object.create(null)
   const sessions = new Set()
   const visitors = new Set()
 
@@ -57,7 +59,7 @@ function aggregateChat(chatSessions, { day, tz } = {}) {
   let toolCalls = 0
   let flaggedSessions = 0
   let activeSessions = 0
-  const errorsByCode = {}
+  const errorsByCode = Object.create(null)
   let firstTokenSum = 0
   let firstTokenCount = 0
 
@@ -106,7 +108,7 @@ function aggregateChat(chatSessions, { day, tz } = {}) {
 
 function aggregateContact(contactMessages, { day, tz } = {}) {
   const rows = day ? contactMessages.filter((m) => localDayOf(m?.createdAt, tz) === day) : contactMessages
-  const byStatus = {}
+  const byStatus = Object.create(null)
   const senders = []
   for (const m of rows) {
     const status = m?.status || 'unknown'

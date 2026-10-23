@@ -331,6 +331,41 @@ h2 {
   color: var(--text-muted);
 }
 
+/* M8 item 7 — Attention strip: one row per item, bad → warn → info, above the tabs. */
+.admin-attention {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+}
+
+.admin-attention > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-left-width: 4px;
+  border-radius: 8px;
+}
+
+.admin-attention > [data-level="bad"] {
+  border-left-color: var(--danger);
+}
+
+.admin-attention > [data-level="warn"] {
+  border-left-color: var(--warn);
+}
+
+.admin-attention > [data-level="info"] {
+  border-left-color: var(--accent);
+}
+
+.admin-attention > [data-level="ok"] {
+  margin: 0;
+  color: var(--ok);
+}
+
 .admin-tabs {
   display: flex;
   gap: 0.75rem;
