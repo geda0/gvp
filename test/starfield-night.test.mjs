@@ -53,7 +53,7 @@ function makeCanvas(counters) {
 const VIEWPORT = { width: 1200, height: 800 }
 
 /** Boot starfield in time mode and hand back a frame() we can pump. */
-async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
+async function bootStarfield({ reducedMotion = false, hours = '22', cores = 6 } = {}) {
   const counters = {
     createRadialGradient: 0, createLinearGradient: 0,
     fillRect: 0, clearRect: 0, drawImage: 0, stroke: 0,
@@ -76,7 +76,7 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   globalThis.window = {
     innerWidth: VIEWPORT.width,
     innerHeight: VIEWPORT.height,
-    navigator: { hardwareConcurrency: 6 },
+    navigator: { hardwareConcurrency: cores },
     matchMedia: () => ({ matches: reducedMotion, addEventListener() {} }),
     addEventListener() {},
     requestAnimationFrame: (cb) => { frameCb = cb; return 1 },
@@ -87,7 +87,7 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   initStarfield('canvas', { getTheme: () => 'space' })
 
   assert.ok(frameCb, 'starfield must schedule a frame via requestAnimationFrame')
-  return { counters, pump: () => frameCb() }
+  return { counters, pump: (t) => frameCb(t) }
 }
 
 
@@ -129,4 +129,23 @@ test('reduced motion draws stars but no motion streaks (invariant #6, live claus
   reset(normal.counters)
   normal.pump(); normal.pump(); normal.pump()
   assert.ok(normal.counters.stroke > 0, 'default motion draws streaks (guards against a vacuous assertion above)')
+})
+
+test('a high-refresh display renders the 60Hz sky: frames inside the reference interval are skipped', async () => {
+  const { counters, pump } = await bootStarfield()
+  pump(1000)
+  reset(counters)
+  pump(1000 + 1000 / 120) // a 120Hz vsync: too soon
+  assert.equal(counters.arc, 0, 'a frame 8ms after the last drawn one must not draw (or move) the sky')
+  pump(1000 + 1000 / 60)
+  assert.ok(counters.arc > 0, 'the next 60Hz-spaced frame draws')
+})
+
+test('star density does not follow the CPU: 4 and 16 cores draw the same sky', async () => {
+  const few = await bootStarfield({ cores: 4 })
+  reset(few.counters); few.pump()
+  const many = await bootStarfield({ cores: 16 })
+  reset(many.counters); many.pump()
+  assert.ok(few.counters.arc > 0)
+  assert.equal(many.counters.arc, few.counters.arc, 'a stronger machine must not get a denser (heavier) sky')
 })
