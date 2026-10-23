@@ -199,3 +199,47 @@ test('a persist failure never throws and never reports false success', async () 
   const body = JSON.parse(response.body)
   assert.ok(body.error, 'a 500 carries an error message')
 })
+
+// M7 (ADR-0020 amendment) — Tier 1 for visitor-side alerts. The SITE_ALERT lines are emitted
+// for every alerting row BEFORE the persist attempt and independently of it: a DynamoDB
+// failure answers 500 but must not swallow the record that a visitor's voice failed to start.
+test('alerting rows emit SITE_ALERT lines before persist, even when persist fails', async () => {
+  const emitted = []
+  const order = []
+  const handler = createEventsHandler({
+    persistEvents: async () => {
+      order.push('persist')
+      throw new Error('ddb down')
+    },
+    emitAlertLine: (line) => {
+      order.push('emit')
+      emitted.push(line)
+    },
+    env: { ...okEnv, SITE_ENV: 'page-staging' }
+  })
+
+  const response = await handler(
+    batchEvent({
+      sessionId: 'sess-1',
+      events: [
+        { event: 'page_view' },
+        { event: 'chat_live_error', params: { phase: 'start', message: 'mint 503' } }
+      ]
+    })
+  )
+
+  assert.equal(response.statusCode, 500)
+  assert.deepEqual(emitted, ['SITE_ALERT event=chat_live_error prio=P1 env=page-staging phase=start'])
+  assert.deepEqual(order, ['emit', 'persist'])
+})
+
+test('a batch with no alerting rows emits nothing', async () => {
+  const emitted = []
+  const handler = createEventsHandler({
+    persistEvents: async () => {},
+    emitAlertLine: (line) => emitted.push(line),
+    env: okEnv
+  })
+  await handler(batchEvent({ events: [{ event: 'page_view' }, { event: 'chat_live_error', params: { phase: 'attach_mic' } }] }))
+  assert.deepEqual(emitted, [])
+})
