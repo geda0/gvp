@@ -473,3 +473,58 @@ test('both Lambda chat hosts alarm on the Tier-1 alert line via a metric filter 
       broken.join('\n')
   )
 })
+
+// M7 (ADR-0020 amendment) — the priority is IN the Tier-1 line (`prio=P1|P2`), and on Lambda the
+// line -> filter -> alarm chain is the only delivery path, so the split has to exist HERE or it
+// exists nowhere. Two chains per host:
+//   P2 — lines carrying "prio=P2".
+//   P1 — every OTHER Tier-1 line (exclusion term -"prio=P2"), so a line with no priority, or one
+//        from code older than M7, fails LOUD into P1 instead of falling between two filters.
+// The P1 alarm evaluates every 60 s; P2 keeps the 300 s window.
+test('M7: each Lambda chat host splits the Tier-1 alarm into a P1 chain and a P2 chain', () => {
+  const alertsPy = read('docker/chat/app/alerts.py')
+  const prefix = tier1LinePrefix(alertsPy)
+  const fmt = (pythonTopLevelDefs(alertsPy).get('fire_alert') || '')
+    .match(/logger\.warning\(\s*['"]([^'"]*)['"]/)
+  assert.ok(fmt && / prio=%s /.test(fmt[1]), 'fire_alert\'s Tier-1 format must carry " prio=%s "')
+
+  const quoted = `"${prefix}"`
+  const broken = []
+  const identities = []
+
+  for (const rel of LAMBDA_CHAT_HOST_TEMPLATES) {
+    const resources = cfnResources(read(rel))
+    const filters = idsOfType(resources, 'AWS::Logs::MetricFilter')
+    const alarms = idsOfType(resources, 'AWS::CloudWatch::Alarm')
+    const pat = id => valueAt(resources.get(id), 'FilterPattern') || ''
+
+    const p2 = filters.find(f => pat(f).includes(quoted) && /(^|[^-])"prio=P2"/.test(pat(f)))
+    const p1 = filters.find(f => pat(f).includes(quoted) && pat(f).includes('-"prio=P2"'))
+
+    for (const [prio, id, maxPeriod] of [['P1', p1, 60], ['P2', p2, 300]]) {
+      if (!id) {
+        broken.push(`${rel}: no ${prio} metric filter (patterns: ${filters.map(pat).join(' | ')})`)
+        continue
+      }
+      const ns = unquote(valueAt(resources.get(id), 'MetricNamespace'))
+      const name = unquote(valueAt(resources.get(id), 'MetricName'))
+      identities.push(`${ns}/${name}`)
+      const alarm = alarms.find(a =>
+        unquote(valueAt(resources.get(a), 'Namespace')) === ns &&
+        unquote(valueAt(resources.get(a), 'MetricName')) === name
+      )
+      if (!alarm) { broken.push(`${rel}: no alarm on the ${prio} metric ${ns}/${name}`); continue }
+      const period = Number(unquote(valueAt(resources.get(alarm), 'Period')))
+      if (!(period <= maxPeriod)) broken.push(`${rel}: ${prio} alarm Period ${period} > ${maxPeriod}`)
+      if (!/!Ref\s+\w+/.test(valueAt(resources.get(alarm), 'AlarmActions') || '')) {
+        broken.push(`${rel}: ${prio} alarm notifies no topic`)
+      }
+      if (!new RegExp(`\\[?${prio}\\]?`).test(unquote(valueAt(resources.get(alarm), 'AlarmName')))) {
+        broken.push(`${rel}: ${prio} alarm's AlarmName does not say ${prio}, so the email cannot either`)
+      }
+    }
+  }
+
+  assert.equal(new Set(identities).size, identities.length, `metric identities collide: ${identities}`)
+  assert.deepEqual(broken, [], broken.join('\n'))
+})
