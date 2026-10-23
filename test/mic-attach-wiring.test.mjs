@@ -257,3 +257,14 @@ test('hanging up while the permission prompt is open stops the stream the visito
   await settle()
   assert.ok(stream.tracks.every((t) => t.stopped), 'a mic allowed after hang-up must be released at once')
 })
+
+test('re-review: the deferred attach first, then a manual tap, still share ONE getUserMedia', async () => {
+  const v = await bootControllable()
+  try {
+    await v.send({ serverContent: { turnComplete: true } }) // deferred attach starts, prompt open
+    assert.equal(v.gum.calls, 1)
+    void v.live.attachMicrophone() // the visitor taps the mic while the prompt is still open
+    await settle()
+    assert.equal(v.gum.calls, 1, 'a tap during an in-flight attach joins it rather than opening a second stream')
+  } finally { v.live.stopVoice?.() }
+})

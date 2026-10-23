@@ -236,7 +236,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   document.getElementById('footerOpenChatBtn')?.addEventListener('click', () => {
-    window.dispatchEvent(new CustomEvent(EV_OPEN_CHAT))
+    window.dispatchEvent(new CustomEvent(EV_OPEN_CHAT, { detail: { surface: 'footer' } }))
   })
 
   // Initialize navigation with spaceman hook (after chat so first navigateByHash sync runs real impl)

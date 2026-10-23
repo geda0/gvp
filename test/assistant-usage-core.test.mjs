@@ -111,13 +111,13 @@ test('the new facets are prototype-free in source too (histogram-keys discipline
 
 // Critic (M4 review): the journey must be built from the events production ACTUALLY emits.
 // chat_open fires only for programmatic opens (surface 'event'); the hero and header submit
-// as hero_chat_submit / header_chat_submit; the footer is a data-track 'footer_open_chat'.
+// as hero_chat_submit / header_chat_submit; the footer is chat_open { surface: 'footer' }.
 test('real entry events count as opens with their own surface, and as engagement where they send', async () => {
   const r = runner({
     '2026-10-23': [
       ev('hero_chat_submit', {}, 'h'),
       ev('header_chat_submit', {}, 'k'),
-      ev('footer_open_chat', {}, 'f'),
+      ev('chat_open', { surface: 'footer' }, 'f'), // the footer's open, as js/app.js now emits it
       ev('chat_open', { surface: 'event' }, 'e'),
       ev('project_assistant_chip', { chip: 'summarize' }, 'p'),
       ev('selection_assistant_chip', { chars: '1-49', section: 'labs' }, 's'),
@@ -145,4 +145,30 @@ test('the launcher chip is tracked once, not by both data-track and trackEvent',
   const html = read('index.html')
   const chip = html.slice(html.indexOf('id="agentActiveChip"'), html.indexOf('id="agentActiveChip"') + 300)
   assert.doesNotMatch(chip.split('>')[0], /data-track=/)
+})
+
+// Re-review: data-track clicks (bindOutboundTracking) record the SAME name as the explicit
+// trackEvent beside them, tagged { event_category: 'Outbound' }. The rollup counts the explicit
+// one; the footer passes its surface through gvp:open-chat, so one click = one chat_open.
+test('data-track duplicates of programmatic events are not counted twice', async () => {
+  const outbound = { event_category: 'Outbound', event_label: '' }
+  const r = runner({
+    '2026-10-23': [
+      ev('hero_chat_submit', { surface: 'hero' }, 'h'), ev('hero_chat_submit', outbound, 'h'),
+      ev('chat_composer_submit', { surface: 'dialog' }, 'c'), ev('chat_composer_submit', outbound, 'c'),
+      ev('footer_open_chat', outbound, 'f'), ev('chat_open', { surface: 'footer' }, 'f')
+    ]
+  })
+  const u = await assistantUsage({ queryDay: r.queryDay, days: 1, today: '2026-10-23' })
+  assert.equal(u.totals.opens, 2, 'hero submit + footer open, once each')
+  assert.equal(u.totals.submits, 2)
+  assert.equal(u.facets.openSurfaces.footer, 1)
+  assert.equal(u.facets.openSurfaces.event, 0)
+})
+
+test('the footer button passes its surface through gvp:open-chat', () => {
+  const app = read('js/app.js')
+  assert.match(app, /footerOpenChatBtn[\s\S]{0,200}new CustomEvent\(EV_OPEN_CHAT, \{ detail: \{ surface: 'footer' \} \}\)/)
+  const chat = read('js/chat.js')
+  assert.match(chat, /const onOpenChatEvent = \(event\) =>[\s\S]{0,600}surface: \(event && event\.detail && event\.detail\.surface\) \|\| 'event'/)
 })
