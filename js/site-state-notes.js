@@ -33,19 +33,38 @@
  */
 export function renderSiteStateLine (wire) {
   if (!wire) return ''
-  const parts = []
-  if (wire.section) parts.push(`on the ${wire.section} page`)
+  const open = []
   if (wire.projectId) {
-    const title = String(wire.projectTitle || '').trim() || wire.projectId
-    parts.push(`with the "${title}" project open`)
+    // Double quotes inside the quotes this line puts AROUND the title read to the model as
+    // a broken delimiter, so they become single ones. A whitespace-only title falls back to
+    // the id rather than rendering empty quotes.
+    const title = String(wire.projectTitle || '').trim().replace(/"/g, "'") || wire.projectId
+    open.push(`the "${title}" project open`)
   }
-  if (wire.contactOpen) parts.push('with the contact form open')
+  if (wire.contactOpen) open.push('the contact form open')
+
+  // WITHOUT A SECTION the sentence needs a different verb. "the visitor is with the contact
+  // form open" has no complement, and it is reachable: the store accepts any non-empty
+  // section string while the wire producer NULLS one whose shape the server would refuse,
+  // so section can arrive null with the rest of the state intact.
+  if (!wire.section) {
+    if (!open.length) return ''
+    return 'Current site state: the visitor has ' + joinAnd(open) + '.'
+  }
+
+  const parts = [`on the ${wire.section} page`, ...open.map((o) => `with ${o}`)]
   // `voiceActive` is on the wire but NOT in the prose: on the live path the model IS the
   // voice session, so saying it is a tautology that costs a clause in every note, and on
   // the text path the composer's two modes are mutually exclusive so it is never true
   // there. It stays on the wire because it is worth persisting on the turn (§6.4).
   if (!parts.length) return ''
   return 'Current site state: the visitor is ' + parts.join(', ') + '.'
+}
+
+/** "a, b and c" — only used where the sentence has no section to lead with. */
+function joinAnd (items) {
+  if (items.length <= 1) return items.join('')
+  return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1]
 }
 
 /** Trailing window. One visitor action can write two fields; one action is one note. */

@@ -73,6 +73,13 @@ class SiteStateIn(BaseModel):
             object.__setattr__(self, 'projectTitle', self.projectTitle[:_MAX_PROJECT_TITLE])
 
 
+def _join_and(items: list[str]) -> str:
+    """"a, b and c" — only used where the sentence has no section to lead with."""
+    if len(items) <= 1:
+        return ''.join(items)
+    return ', '.join(items[:-1]) + ' and ' + items[-1]
+
+
 def format_site_state_line(site_state: SiteStateIn | None) -> str:
     """Render one line of prose, or '' when there is nothing to assert.
 
@@ -83,14 +90,27 @@ def format_site_state_line(site_state: SiteStateIn | None) -> str:
     if site_state is None:
         return ''
 
-    parts: list[str] = []
-    if site_state.section:
-        parts.append(f'on the {site_state.section} page')
+    open_items: list[str] = []
     if site_state.projectId:
-        title = (site_state.projectTitle or '').strip() or site_state.projectId
-        parts.append(f'with the "{title}" project open')
+        # Double quotes inside the quotes this line puts AROUND the title read to the model
+        # as a broken delimiter, so they become single ones. A whitespace-only title falls
+        # back to the id rather than rendering empty quotes.
+        title = (site_state.projectTitle or '').strip().replace('"', "'") or site_state.projectId
+        open_items.append(f'the "{title}" project open')
     if site_state.contactOpen:
-        parts.append('with the contact form open')
+        open_items.append('the contact form open')
+
+    # WITHOUT A SECTION the sentence needs a different verb: "the visitor is with the
+    # contact form open" has no complement. Reachable, because the store accepts any
+    # non-empty section string while the wire producer nulls one whose shape this model
+    # would refuse — so section can arrive null with the rest of the state intact.
+    if not site_state.section:
+        if not open_items:
+            return ''
+        return 'Current site state: the visitor has ' + _join_and(open_items) + '.'
+
+    parts: list[str] = [f'on the {site_state.section} page']
+    parts.extend(f'with {item}' for item in open_items)
     # `voiceActive` is on the wire but NOT in the prose: on the live path the model IS the
     # voice session, so saying it is a tautology that costs a clause in every rendering, and
     # on the text path the composer's two modes are mutually exclusive so it is never true

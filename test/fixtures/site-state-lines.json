@@ -22,7 +22,15 @@
     "model IS the voice session, so saying it is a tautology that costs a clause in every",
     "note; on the text path the composer's modes are mutually exclusive, so it is never true",
     "there. It stays on the wire because it is worth persisting on the turn (6.4) - the",
-    "admin panel wants to know a failed turn happened during a call."
+    "admin panel wants to know a failed turn happened during a call.",
+    "",
+    "The rows below with no section exist because the first version of both renderers",
+    "produced \"the visitor is with the contact form open.\" - a sentence with no complement.",
+    "Reachable: the store accepts any non-empty section string, and the wire producer NULLS",
+    "one whose shape the server would refuse, so section can legitimately arrive as null with",
+    "the rest of the state intact. And a project title containing a double quote nested inside",
+    "the quotes the line puts around it, which reads to the model as a broken delimiter.",
+    "Neither renderer was pinned on either case; the table is the contract, so they go here."
   ],
   "cases": [
     {
@@ -117,6 +125,50 @@
         "voiceActive": true
       },
       "line": "Current site state: the visitor is on the labs page."
+    },
+    {
+      "name": "the contact form with no section still makes a sentence",
+      "wire": {
+        "section": null,
+        "projectId": null,
+        "projectTitle": null,
+        "contactOpen": true,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor has the contact form open."
+    },
+    {
+      "name": "a project and the form, with no section",
+      "wire": {
+        "section": null,
+        "projectId": "team-tactics",
+        "projectTitle": "Team Tactics",
+        "contactOpen": true,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor has the \"Team Tactics\" project open and the contact form open."
+    },
+    {
+      "name": "a title containing a quote does not break the delimiter",
+      "wire": {
+        "section": "labs",
+        "projectId": "x",
+        "projectTitle": "The \"Big\" One",
+        "contactOpen": false,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor is on the labs page, with the \"The 'Big' One\" project open."
+    },
+    {
+      "name": "a whitespace-only title falls back to the id rather than empty quotes",
+      "wire": {
+        "section": "labs",
+        "projectId": "team-tactics",
+        "projectTitle": "   ",
+        "contactOpen": false,
+        "voiceActive": false
+      },
+      "line": "Current site state: the visitor is on the labs page, with the \"team-tactics\" project open."
     }
   ]
 }
