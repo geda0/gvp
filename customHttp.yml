@@ -1,0 +1,52 @@
+# Security headers for the Amplify-hosted static site (M8 item 4).
+#
+# Amplify publishes this repository AS-IS — there is no server and no build step — so this
+# file is the only place response headers can come from. It covers the site and `admin/`.
+#
+# ── Why the API hosts are WILDCARDS and not pinned ────────────────────────────────────────
+# The contact and chat hosts differ between prod and stage. The 2026-06-04 incident was a
+# fast-forward of `agent` → `main` that silently carried the STAGING API hosts onto
+# production; `amplify.yml`'s preBuild guard exists to catch exactly that on the committed
+# meta tags. Putting a per-environment literal in a second committed file would reintroduce
+# the same hazard — and with a worse failure mode, because a blocked `connect-src` shows
+# nothing in the UI: the request just never happens. The wildcards below are our own AWS
+# service domains, which is a bounded loosening and the right trade here.
+#
+# ── The origin nobody guesses ─────────────────────────────────────────────────────────────
+# `wss://generativelanguage.googleapis.com` is not an implementation detail that might
+# change: the browser opens Google's Live API **directly** with a single-use ephemeral token
+# (ADR-0007 Phase 1, `liveVoiceTransport: direct_google`; there is no server relay). Omit it
+# and VOICE breaks while text chat keeps working — a partial outage that reads as a Gemini
+# problem rather than a header problem. `test/security-headers.test.mjs` pins it.
+#
+# ── Residual, deliberately kept ───────────────────────────────────────────────────────────
+# `script-src` carries `'unsafe-inline'`. The site has NO BUILD STEP, so the gtag bootstrap
+# and the inline module cannot be given nonces or hashes without introducing one. That is a
+# real weakening of the policy and it stays until the site gains a build step. It is written
+# down here so it reads as a decision rather than as a copy-pasted default.
+customHeaders:
+  - pattern: '**'
+    headers:
+      - key: 'Content-Security-Policy'
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://www.googletagmanager.com https://www.google-analytics.com; media-src 'self' blob:; connect-src 'self' https://*.execute-api.us-east-2.amazonaws.com https://*.cloudfront.net https://generativelanguage.googleapis.com wss://generativelanguage.googleapis.com https://www.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+      # Stops the browser second-guessing a declared Content-Type, which is how a user
+      # upload or a mis-served asset becomes script.
+      - key: 'X-Content-Type-Options'
+        value: 'nosniff'
+      # frame-ancestors above is the modern control; this is the floor for anything that
+      # still only understands the old header.
+      - key: 'X-Frame-Options'
+        value: 'DENY'
+      # Send the full URL same-origin, only the origin cross-origin. The site has no secrets
+      # in its URLs, but the admin surface does carry query state.
+      - key: 'Referrer-Policy'
+        value: 'strict-origin-when-cross-origin'
+      # Two years, subdomains included. Amplify already serves HTTPS only; this stops the
+      # first plaintext request of a visit.
+      - key: 'Strict-Transport-Security'
+        value: 'max-age=63072000; includeSubDomains'
+      # The microphone is ALLOWED for self — voice chat needs it, and a blanket
+      # `microphone=()` would break the feature silently. Everything else this site has no
+      # business asking for is denied outright.
+      - key: 'Permissions-Policy'
+        value: 'microphone=(self), camera=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()'
