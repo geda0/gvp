@@ -1,4 +1,3 @@
-import crypto from 'node:crypto'
 import { adminAccess, adminDecision } from './common/admin-auth.js'
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
