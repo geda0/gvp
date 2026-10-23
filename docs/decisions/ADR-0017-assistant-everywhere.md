@@ -1387,3 +1387,16 @@ still the right one.
   map to an action. Voice was unaffected, because its tool calls go straight to the frontend
   handlers from slice 12.
 
+**Measured on stage after the fix, 2026-10-23 (agent@65f763f, stream CodeSha256 `09ae9fcc…`):**
+- `POST /api/chat` "Open the Apptio project" → 200 with
+  `actions: [{ id: open-project, project: apptio, label: Open the project }]`. The id is the
+  registry id, not the prose title.
+- Through the real stage UI, with the real model:
+  1. the reply rendered as "Tap below to open that project…" with the button;
+  2. the tap opened the Apptio card;
+  3. the chat yielded to `docked` beside it, with no console errors.
+- **§3.2's "no fuzzy matching", measured, not just intended:** "Open the Blockchain Casino
+  project" (no such project) produced a real apology naming the miss and offering real
+  projects. It declined to guess rather than opening the wrong card, and it did not go silent
+  the way the empty-turn bug had.
+
