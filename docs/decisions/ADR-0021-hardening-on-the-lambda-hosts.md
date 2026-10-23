@@ -39,7 +39,7 @@ Nothing is built. Its real follow-ups are ADR-0025's filed-forward items (#1: re
 disclosed staging key; #5: the retired Express template still holds a plaintext key), and they
 stay there.
 
-### D2 — Item 2 becomes ADR-0022 §15.3, built as written
+### D2 — Item 2 becomes ADR-0022 §15.3, built with one stated deviation
 
 | Control | Where | Stage | Prod |
 |---|---|---|---|
@@ -50,6 +50,18 @@ stay there.
 | AWS Budget, account, $70/mo, ACTUAL 80% + 100% | same | — | yes |
 | WAF rate-based rule, 300 requests / 5 min / IP, on the distribution | new `aws/chat-waf-template.yaml` (us-east-1, `Scope: CLOUDFRONT`) → `WebAclArn` parameter on the CDN stack | optional | **yes** |
 
+- **Deviation from §15.3, deliberate:** §15.3 marks both budgets "required" for stage *and*
+  prod. A budget is account-wide, so two stacks would mint two copies and email twice. They
+  are created by the **prod** stream stack only.
+  - Consequence: if only the stage stream stack is deployed, no budget exists.
+  - The budgets and the three alarms are also skipped when the stack has no alarm email
+    (`HasChatAlertAlarm`). The deploy script now prints a `::warning::` when a prod deploy
+    has none.
+  - The budget names are fixed (`gvp-lambda-monthly`, `gvp-account-monthly`). If a budget with
+    either name was created by hand, the first prod deploy fails. Check
+    `aws budgets describe-budgets` first.
+- The deploy script refuses to deploy the CDN stack if the WAF stack yields no
+  `arn:aws:wafv2:` ARN, rather than failing later inside it.
 - **No in-process `rate_guard.py`.** It would add a per-container illusion of a cap. The real
   ceilings are WAF (per IP, at the edge) and reserved concurrency (global, at the function).
   ADR-0020's "per-IP limits default 0 = OFF" concern (shared NAT) is answered by the WAF limit's
@@ -79,12 +91,18 @@ decision governs. It is safe to undo:
 - only *new* writes carry `ttl`, and nothing is backfilled, so no existing transcript is
   deleted;
 - the first possible expiry is 180 days after deploy;
-- `CHAT_TRANSCRIPT_TTL_DAYS=0` restores "stay forever" without a code change.
+- `CHAT_TRANSCRIPT_TTL_DAYS=0` restores "stay forever" with an env/template change, not a
+  code change. The stream template does not set the variable today.
 
 - Every successful transcript write sets `ttl` = server-clock epoch seconds + N days, where N is
   `CHAT_TRANSCRIPT_TTL_DAYS` (default **180**, `0` = do not write `ttl`). The clock is the
   server's, never the caller's (ADR-0020 A1).
 - `ChatTranscriptsTable` gets `TimeToLiveSpecification { AttributeName: ttl, Enabled: true }`.
+- **`TTL` is a DynamoDB reserved word.** The write uses `#ttl` through
+  `ExpressionAttributeNames`. A bare `ttl = :ttl` would fail every transcript write at runtime,
+  and the unit tests' fake table cannot raise that error. Caught before merge, `ed94515`.
+- DynamoDB deletes expired items lazily (typically within days), and point-in-time recovery
+  keeps deleted items restorable for 35 days.
 - Stated consequences:
   - A write refused by the byte budget does not refresh `ttl`, so a full session expires 180 days
     after its last *accepted* turn.
@@ -94,17 +112,28 @@ decision governs. It is safe to undo:
 
 ### D4 — Item 5, the privacy note says only what is true
 
-A link in the **site** `<footer>` (the one holding `#footerOpenContactBtn`, not the chat
-dialog's) opens a plain-words dialog. Its claims are the ones verified above and nothing else:
+A "Privacy" link in the **site** `<footer>` (the one holding `#footerOpenContactBtn`, not the
+chat dialog's) opens a plain-words dialog that reuses the contact dialog shell. It says exactly
+this, as verified against the code; the critic corrected two first-draft claims:
 
-- No audio is stored, only byte counts.
-- The microphone opens only when voice starts and closes when it ends.
-- Chat transcripts are kept 180 days after the last message.
+- Chat and voice content is sent to **Google Gemini** to produce replies.
+- Conversation text is kept. **New** conversations are deleted about 180 days after their
+  last message; **older ones, from before the rule, are still kept** (no backfill, D3).
+- **No audio is stored, but a voice conversation's words are kept as text.**
+  `/api/live/transcript` persists `userText` and `assistantText`. The first draft wrongly said
+  "only byte counts".
+- The microphone is used only while voice is on.
 - Site events are kept 120 days, with the IP HMAC-hashed.
-- **Google Analytics also runs and sees your IP the way any site's analytics does.**
+- **Google Analytics also runs and sees the IP.**
+- Contact-form messages are kept so they can be answered.
 
-The dialog's copy is pinned by a test against the constants it describes (the TTL default and
-the events retention), so the note cannot drift from the code.
+The two numbers are derived from the constants that enforce them. The copy's required
+statements, and a stub-DOM behaviour test (text-only rendering, focus in and back, Escape,
+backdrop), are in `test/privacy-note.test.mjs`.
+
+**Promotion rule.** The note ships with the static site, but the TTL ships with the chat image
+and the contact stack. **Do not promote this to `main` before the `#ttl` writer and the table
+TTL are deployed to prod**, or prod will display a retention promise that nothing enforces.
 
 ## Consequences
 

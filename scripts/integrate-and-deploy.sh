@@ -720,6 +720,11 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   else
     echo "chat tier-2 alert alarm [lambda-stream ${CHAT_STREAM_STACK}]: no topic (set CHAT_ALERT_ALARM_EMAIL or ALARM_EMAIL) — log group and metric still created" >&2
   fi
+  # ADR-0021 D2: the §15.3 cost alarms AND the account budgets share HasChatAlertAlarm, so a
+  # prod deploy without an alarm email silently creates none of them. Say so, loudly.
+  if [[ "${DEPLOY_ENV}" == prod && -z "${CHAT_STREAM_ALARM_EMAIL}" ]]; then
+    echo "::warning::prod stream stack has NO alarm email: the ADR-0022 §15.3 invocation/duration alarms and the \$15/\$70 budgets will NOT be created. Set CHAT_ALERT_ALARM_EMAIL or ALARM_EMAIL." >&2
+  fi
   # Reconciled against the template's Parameters: block. NOT passed, because it declares no such
   # parameter and an unknown parameter key fails the whole deploy: ChatAlertCooldownSeconds (ECS
   # Express only, refused here by the architect), ChatVoiceModel, SmokeProbeKey,
@@ -829,6 +834,10 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
       --region us-east-1 \
       --query "Stacks[0].Outputs[?OutputKey=='WebAclArn'].OutputValue" \
       --output text)"
+    [[ "${CHAT_STREAM_WEB_ACL_ARN}" == arn:aws:wafv2:* ]] || {
+      echo "error: ${CHAT_WAF_STACK} returned no WebAclArn (got '${CHAT_STREAM_WEB_ACL_ARN}') — refusing to deploy the CDN stack without the rate ceiling it was asked for." >&2
+      exit 1
+    }
     echo "chat WAF WebAclArn=${CHAT_STREAM_WEB_ACL_ARN}"
   else
     echo "note: CHAT_STREAM_WAF=0 - ${CHAT_STREAM_CDN_STACK} has no per-IP rate ceiling (ADR-0022 §15.3 requires one for prod)." >&2

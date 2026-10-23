@@ -38,3 +38,12 @@ test('the deploy script builds the WAF stack in us-east-1 (on by default for pro
   assert.match(s.slice(waf - 400, waf + 400), /--region us-east-1/)
   assert.match(s, /"WebAclArn=\$\{CHAT_STREAM_WEB_ACL_ARN:-\}"/)
 })
+
+// Critic (M8): a prod stream deploy with no alarm email silently creates NO §15.3 alarms and NO
+// budgets (they share HasChatAlertAlarm), and a WAF ARN lookup that yields "None"/empty would
+// only fail later inside the CDN stack. Both must be loud at the step that causes them.
+test('the deploy script fails loudly on a bad WAF ARN and warns when prod has no alarm email', () => {
+  const s = read('scripts/integrate-and-deploy.sh')
+  assert.match(s, /\[\[ "\$\{CHAT_STREAM_WEB_ACL_ARN\}" == arn:aws:wafv2:\* \]\] \|\|/)
+  assert.match(s, /if \[\[ "\$\{DEPLOY_ENV\}" == prod && -z "\$\{CHAT_STREAM_ALARM_EMAIL\}" \]\]/)
+})

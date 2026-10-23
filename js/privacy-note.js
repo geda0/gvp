@@ -11,8 +11,9 @@ export const EVENT_RETENTION_DAYS = 120
 
 export function privacyFacts() {
   return [
-    `The assistant keeps the text of a chat so it can be reviewed and improved. A conversation is deleted ${TRANSCRIPT_RETENTION_DAYS} days after its last message.`,
-    'Voice chat stores no audio — only how many bytes were sent, for cost tracking.',
+    'Chat and voice conversations are answered by Google Gemini, so what you type or say is sent to Google to produce a reply.',
+    `This site keeps the text of each conversation so it can be reviewed and improved. New conversations are deleted about ${TRANSCRIPT_RETENTION_DAYS} days after their last message; older conversations, from before that rule existed, are still kept.`,
+    'Voice chat stores no audio. The words of a voice conversation are kept as written text, the same as a typed chat.',
     'Your microphone is used only while voice chat is on, and released when it ends.',
     `This site records simple page events (which section you opened, whether chat worked) with your IP address scrambled by a keyed hash. Those records are deleted after ${EVENT_RETENTION_DAYS} days.`,
     'Google Analytics also runs on this site and, like on most sites, it sees your IP address.',
