@@ -11,8 +11,9 @@
     - streak thickness 5.4 px (taste; now visible on prod too);
     - DPR canvas scaling (yes/no and when);
     - E2 for prod's new alarms;
-    - the ~84 MB of leftover ECS log groups (evidence for the ~$40/mo question; chat compute
-      measured at ~$0.01/mo).
+  - **Decided by the owner (2026-10-23): KEEP the ECS log groups** (~84 MB under
+    `/aws/ecs/default/gvp-chat-*-express-*`). They are harmless, cost cents, and are evidence of
+    what ran and when. Do not delete them as tidy-up.
   - **Rule kept:** the privacy note shipped only after prod TTL was proven on both halves.
 
 - **2026-10-23 — the chat stack has TWO CI blockers, and a green pull does not retire the
