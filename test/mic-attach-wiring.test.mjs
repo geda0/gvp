@@ -206,3 +206,54 @@ test('stopVoiceInternal clears the deferred-attach timer (source pin for the 15 
   const stop = src.slice(src.indexOf('const stopVoiceInternal'), src.indexOf('const stopVoiceInternal') + 2500)
   assert.match(stop, /clearDeferredMicAttach\(\)/)
 })
+
+// Critic (M4 review): two races the single-trigger tests above could not see.
+async function bootControllable () {
+  const sockets = []
+  const gum = { calls: 0, pending: [] }
+  const messagesEl = makeEl('ul')
+  const micButton = makeEl('button'); micButton.dataset = {}; micButton.addEventListener = () => {}; micButton.removeEventListener = () => {}
+  defineGlobal('document', { querySelector: () => null, querySelectorAll: () => [], createElement: (t) => makeEl(t), addEventListener () {} })
+  defineGlobal('window', { isSecureContext: true, location: { protocol: 'http:', hostname: 'portfolio.test', pathname: '/', hash: '', origin: 'http://portfolio.test' }, matchMedia: () => ({ matches: false, addEventListener () {} }), addEventListener () {} })
+  defineGlobal('navigator', {
+    permissions: { query: async () => ({ state: 'prompt' }) },
+    mediaDevices: {
+      // The browser's permission prompt: unresolved until the test "clicks Allow".
+      getUserMedia: () => { gum.calls += 1; return new Promise((resolve) => gum.pending.push(resolve)) }
+    }
+  })
+  defineGlobal('AudioContext', makeAudioContextClass([]))
+  defineGlobal('WebSocket', makeWebSocketClass(sockets))
+  defineGlobal('fetch', async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ websocketUrl: 'wss://chat.test/r', handshake: { setup: {} }, liveVoiceTransport: 'relay' }) }))
+  const { bindChatLiveVoice } = await import('../js/chat-live.js?race=' + Math.random())
+  const live = bindChatLiveVoice({ messagesEl, statusEl: makeEl('p'), micButtons: [micButton], syncEmptyState () {}, scrollMessagesToBottom () {}, setStatus () {}, getSessionId: () => 'race', isTextPending: () => false, openPanel () {}, isPanelOpen: () => true, patchLiveUi () {} })
+  void live.startVoice({ intent: 'auto' }); await settle()
+  const socket = sockets[0]
+  socket.onopen(); await settle()
+  socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) }); await settle()
+  const fakeStream = () => { const tracks = [{ stopped: false, stop () { this.stopped = true } }]; return { tracks, getTracks: () => tracks } }
+  return { live, gum, fakeStream, send: async (p) => { socket.onmessage({ data: JSON.stringify(p) }); await settle() } }
+}
+
+test('a manual mic tap during the greeting and the greeting\'s end share ONE getUserMedia', async () => {
+  const v = await bootControllable()
+  try {
+    void v.live.attachMicrophone()
+    await settle()
+    assert.equal(v.gum.calls, 1, 'the tap opens the permission prompt')
+    await v.send({ serverContent: { turnComplete: true } })
+    assert.equal(v.gum.calls, 1, 'the deferred attach must not open a second stream while the first is pending')
+  } finally { v.live.stopVoice?.() }
+})
+
+test('hanging up while the permission prompt is open stops the stream the visitor then allows', async () => {
+  const v = await bootControllable()
+  void v.live.attachMicrophone()
+  await settle()
+  v.live.stopVoice()
+  await settle()
+  const stream = v.fakeStream()
+  v.gum.pending[0](stream) // the visitor clicks Allow after the call ended
+  await settle()
+  assert.ok(stream.tracks.every((t) => t.stopped), 'a mic allowed after hang-up must be released at once')
+})

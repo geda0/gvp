@@ -47,8 +47,9 @@ def load_project_ids() -> tuple[str, ...]:
     ids: list[str] = []
     for row in rows:
         pid = row.get('id') if isinstance(row, dict) else None
-        if isinstance(pid, str) and pid.strip() and pid not in ids:
-            ids.append(pid.strip())
+        pid = pid.strip() if isinstance(pid, str) else ''
+        if pid and pid not in ids:
+            ids.append(pid)
     return tuple(ids)
 
 

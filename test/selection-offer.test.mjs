@@ -94,3 +94,19 @@ test('7.4 behaviour: a selection in the contact form never produces an offer', (
 test('app.js wires the offers to openPanelWithDraft', () => {
   assert.match(read('js/app.js'), /initSelectionOffers\(\{[\s\S]{0,300}openDraft:[\s\S]{0,120}openPanelWithDraft/)
 })
+
+
+test('critic: the mouseup that ends a tap on the offer button does not count a second offer', () => {
+  const h = harness({ text: 'Migrated onto Kubernetes without downtime', region: { selector: '#portfolioContent' } })
+  h.listeners.mouseup({ target: {} })
+  h.listeners.mouseup({ target: h.button }) // the button's own mouseup bubbles to the document
+  h.button.handlers.click({ preventDefault () {} })
+  assert.deepEqual(h.events.map(([n]) => n), ['selection_assistant_offer', 'selection_assistant_chip'])
+})
+
+test('the draft is a complete sentence the visitor can send as is (openPanelWithDraft trims)', () => {
+  const h = harness({ text: 'Migrated onto Kubernetes without downtime', region: { selector: '#portfolioContent' } })
+  h.listeners.mouseup({ target: {} })
+  h.button.handlers.click({ preventDefault () {} })
+  assert.equal(h.drafts[0], 'Tell me more about this: "Migrated onto Kubernetes without downtime"')
+})

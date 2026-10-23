@@ -92,3 +92,9 @@ def test_the_live_session_appends_the_grounding_line_to_the_site_line():
     line = _live_site_line(req.siteState, PACK)
     assert line.endswith(project_refs.project_grounding_line('team-tactics', PACK))
     assert _live_site_line(None, PACK) == ''
+
+
+def test_ids_are_deduplicated_after_trimming(tmp_path, monkeypatch):
+    (tmp_path / 'projects.json').write_text('[{"id": "a"}, {"id": " a "}, {"id": "b"}]', encoding='utf-8')
+    monkeypatch.setenv('CHAT_KNOWLEDGE_DIR', str(tmp_path))
+    assert project_refs.load_project_ids() == ('a', 'b')

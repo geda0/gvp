@@ -108,3 +108,41 @@ test('the new facets are prototype-free in source too (histogram-keys discipline
   assert.doesNotMatch(core, /(facet|Facet|facets)\s*[=:]\s*\{\s*\}/)
   assert.match(core, /const facet = Object\.create\(null\)/)
 })
+
+// Critic (M4 review): the journey must be built from the events production ACTUALLY emits.
+// chat_open fires only for programmatic opens (surface 'event'); the hero and header submit
+// as hero_chat_submit / header_chat_submit; the footer is a data-track 'footer_open_chat'.
+test('real entry events count as opens with their own surface, and as engagement where they send', async () => {
+  const r = runner({
+    '2026-10-23': [
+      ev('hero_chat_submit', {}, 'h'),
+      ev('header_chat_submit', {}, 'k'),
+      ev('footer_open_chat', {}, 'f'),
+      ev('chat_open', { surface: 'event' }, 'e'),
+      ev('project_assistant_chip', { chip: 'summarize' }, 'p'),
+      ev('selection_assistant_chip', { chars: '1-49', section: 'labs' }, 's'),
+      ev('chat_live_start', {}, 'h'),
+      ev('chat_composer_submit', { surface: 'dialog' }, ''), // no session: never a journey member
+      ev('chat_launcher_resume', {}, 'h')
+    ]
+  })
+  const u = await assistantUsage({ queryDay: r.queryDay, days: 1, today: '2026-10-23' })
+  assert.equal(u.totals.opens, 6)
+  assert.equal(u.facets.openSurfaces.hero, 1)
+  assert.equal(u.facets.openSurfaces.header, 1)
+  assert.equal(u.facets.openSurfaces.footer, 1)
+  assert.equal(u.facets.openSurfaces.event, 1)
+  assert.equal(u.facets.openSurfaces.chip, 1)
+  assert.equal(u.facets.openSurfaces.selection, 1)
+  assert.equal(u.totals.submits, 3, 'hero + header + composer submits')
+  const steps = Object.fromEntries(u.journey.map((s) => [s.step, s.sessions]))
+  assert.equal(steps.opened, 6)
+  assert.equal(steps.engaged, 4, 'hero, header, project chip, selection chip sessions')
+  assert.equal(steps.voice, 1)
+})
+
+test('the launcher chip is tracked once, not by both data-track and trackEvent', () => {
+  const html = read('index.html')
+  const chip = html.slice(html.indexOf('id="agentActiveChip"'), html.indexOf('id="agentActiveChip"') + 300)
+  assert.doesNotMatch(chip.split('>')[0], /data-track=/)
+})

@@ -1241,11 +1241,22 @@ export function bindChatLiveVoice(opts) {
 
   /** Get mic permission, build the AudioWorklet (or ScriptProcessor fallback),
    *  and start streaming PCM frames. Assumes the session is already open. */
-  const attachMicrophoneInternal = async () => {
+  // ONE attach in flight at a time (M4 critic): a manual mic tap during the greeting and the
+  // deferred attach at its turnComplete used to both reach getUserMedia - `active` is still false
+  // while the browser's permission prompt is open - and the first stream was overwritten and
+  // never stopped, leaving the mic indicator on after hang-up. Every trigger shares this promise.
+  let attachInFlight = null
+  const attachMicrophoneInternal = () => {
+    if (attachInFlight) return attachInFlight
+    attachInFlight = attachMicrophoneOnce().finally(() => { attachInFlight = null })
+    return attachInFlight
+  }
+
+  const attachMicrophoneOnce = async () => {
     if (active) return
     if (!voiceSessionOpen || !setupDone) throw new Error('voice session not ready')
 
-    stream = await navigator.mediaDevices.getUserMedia({
+    const acquired = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -1253,6 +1264,13 @@ export function bindChatLiveVoice(opts) {
       },
       video: false
     })
+    // The permission prompt can outlive the call: the visitor hangs up, THEN clicks Allow.
+    // Release that stream at once rather than building a pipeline nothing will ever stop.
+    if (!voiceSessionOpen) {
+      try { acquired.getTracks().forEach((t) => t.stop()) } catch (_) {}
+      throw new Error('voice session ended before the microphone was allowed')
+    }
+    stream = acquired
 
     audioCtx = new AudioContext()
     const inRate = audioCtx.sampleRate
@@ -1461,10 +1479,14 @@ export function bindChatLiveVoice(opts) {
       return startVoice({ intent: 'auto' })
     }
     if (active) return
+    // A manual tap supersedes a deferred attach: the shared in-flight promise covers the
+    // overlap, and clearing the pending record stops the fallback timer firing later.
+    clearDeferredMicAttach()
     try {
       await attachMicrophoneInternal()
       setStatus('Listening… speak about Marwan\'s work.')
     } catch (micErr) {
+      if (!voiceSessionOpen) return // the visitor hung up; not an error worth reporting
       setStatus(micAccessUserMessage(micErr), 'error')
       trackEvent('chat_live_error', { phase: 'attach_mic', message: micAccessUserMessage(micErr) })
     }
