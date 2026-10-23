@@ -243,3 +243,15 @@ test('a batch with no alerting rows emits nothing', async () => {
   await handler(batchEvent({ events: [{ event: 'page_view' }, { event: 'chat_live_error', params: { phase: 'attach_mic' } }] }))
   assert.deepEqual(emitted, [])
 })
+
+test('a missing table config answers 500 but still emits the SITE_ALERT line (Tier 1 is unconditional)', async () => {
+  const emitted = []
+  const handler = createEventsHandler({
+    persistEvents: async () => { throw new Error('must not be called') },
+    emitAlertLine: (line) => emitted.push(line),
+    env: { SITE_ENV: 'page' }
+  })
+  const response = await handler(batchEvent({ events: [{ event: 'contact_submit_error', params: { code: 500 } }] }))
+  assert.equal(response.statusCode, 500)
+  assert.deepEqual(emitted, ['SITE_ALERT event=contact_submit_error prio=P1 env=page code=500'])
+})

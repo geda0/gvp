@@ -38,19 +38,19 @@ export function createEventsHandler({
       return json(400, { error: 'Invalid JSON' }, origin)
     }
 
-    if (!env.SITE_EVENTS_TABLE) {
-      return json(500, { error: 'Events service is not configured.' }, origin)
-    }
-
     const received = Array.isArray(body?.events) ? body.events.length : 0
     const rows = normalizeEventBatch(body, event.headers || {})
     const persisted = rows.length
     const dropped = received - persisted
 
     // M7 Tier 1 (ADR-0020 amendment, invariant 19's shape): one SITE_ALERT line per
-    // alerting row, BEFORE and independently of the persist attempt. A metric filter on
+    // alerting row, BEFORE and independently of the config check and the persist attempt. A metric filter on
     // this function's log group turns the line into a P1/P2 alarm.
     for (const line of siteAlertLines(rows, env.SITE_ENV)) emitAlertLine(line)
+
+    if (!env.SITE_EVENTS_TABLE) {
+      return json(500, { error: 'Events service is not configured.' }, origin)
+    }
 
     if (!rows.length) {
       return json(202, { ok: true, accepted: 0, received, persisted: 0, dropped }, origin)
