@@ -703,6 +703,9 @@ export function initChat() {
     if (action.section) {
       button.dataset.section = action.section
     }
+    if (action.project) {
+      button.dataset.project = action.project
+    }
     return button
   }
 
@@ -1709,6 +1712,17 @@ export function initChat() {
     }
     if (action === 'open-contact') {
       openContactFromChat(parsePrefill(actionEl.dataset.prefill))
+      return
+    }
+    // The text path's project tools (stage-found defect): the button is the affordance and the
+    // tap is the VISITOR's, so the store write is labelled visitor, not agent.
+    if (action === 'open-project') {
+      const match = requestProjectOpen(actionEl.dataset.project || '', { origin: 'visitor' })
+      if (match && match.error) trackEvent('chat_project_unresolved', { reason: 'unknown_project' })
+      return
+    }
+    if (action === 'close-project') {
+      requestProjectClose({ origin: 'visitor' })
       return
     }
     if (action === 'start-over') {

@@ -32,5 +32,11 @@ export function deriveReplyText(reply, actions = []) {
   if (list.some((x) => x && x.id === 'open-contact')) {
     return "I've opened the contact form for you below — fire away."
   }
+  if (list.some((x) => x && x.id === 'open-project')) {
+    return 'Tap below to open that project — I can walk you through it while it is on screen.'
+  }
+  if (list.some((x) => x && x.id === 'close-project')) {
+    return 'Tap below to close the project card and get back to the page.'
+  }
   return 'I do not have a response yet. Please try again.'
 }

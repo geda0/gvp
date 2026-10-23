@@ -55,3 +55,11 @@ test('whitespace-only reply is treated as empty', () => {
   const out = deriveReplyText('   \n  ', [{ id: 'open-resume' }])
   assert.match(out, /résumé to download/)
 })
+
+// Stage-found defect (2026-10-23): a tool-only project turn must never render blank.
+import { deriveReplyText as derive2 } from '../js/chat-reply-text.js'
+test('a tool-only open-project / close-project turn gets a line tied to the action', () => {
+  assert.match(derive2('', [{ id: 'open-project', project: 'apptio' }]), /project/i)
+  assert.doesNotMatch(derive2('', [{ id: 'open-project', project: 'apptio' }]), /try again/i)
+  assert.match(derive2('', [{ id: 'close-project' }]), /close/i)
+})

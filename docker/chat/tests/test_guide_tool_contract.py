@@ -161,3 +161,40 @@ def test_both_modules_take_the_enum_from_project_refs_not_a_copy():
     for module in ('providers.py', 'live_gemini.py'):
         src = (APP / module).read_text()
         assert re.search(r'from app\.project_refs import PROJECT_IDS', src), f'{module} must import the shared tuple'
+
+
+# ---- Stage-found defect (2026-10-23): open_project was DECLARED but _actions_from_result only
+# knew the three original tools, so the model's call was dropped and the turn came back empty -
+# no text, no action - while persisting as a success. The contract that would have caught it:
+# every tool the text path declares must turn into an action.
+
+def _sample_args(decl) -> dict:
+    props = decl.parameters.properties or {}
+    args = {}
+    for key, schema in props.items():
+        enum = list(getattr(schema, 'enum', None) or [])
+        args[key] = enum[0] if enum else 'sample'
+    return args
+
+
+def test_every_declared_text_tool_becomes_an_action():
+    from app.main import _actions_from_result
+    from app.messages import Msg
+
+    for name, decl in _text_decls().items():
+        msg = Msg(role='ai', content='', tool_calls=[{'name': name, 'args': _sample_args(decl), 'id': 'c1'}])
+        assert _actions_from_result(msg), f'declared tool {name} produces no action: the call would be dropped'
+
+
+def test_open_project_carries_the_validated_id_and_close_project_needs_none():
+    from app.main import _actions_from_result
+    from app.messages import Msg
+    from app.project_refs import PROJECT_IDS
+
+    pid = PROJECT_IDS[0]
+    opened = _actions_from_result(Msg(role='ai', content='', tool_calls=[{'name': 'open_project', 'args': {'project': pid}, 'id': 'a'}]))
+    assert opened and opened[0]['id'] == 'open-project' and opened[0]['project'] == pid
+    unknown = _actions_from_result(Msg(role='ai', content='', tool_calls=[{'name': 'open_project', 'args': {'project': 'not-a-project'}, 'id': 'b'}]))
+    assert unknown == [], 'an id outside the registry is never handed to the frontend'
+    closed = _actions_from_result(Msg(role='ai', content='', tool_calls=[{'name': 'close_project', 'args': {}, 'id': 'c'}]))
+    assert closed and closed[0]['id'] == 'close-project'
