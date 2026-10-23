@@ -819,6 +819,18 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   if [[ -z "${CHAT_STREAM_DEFAULT_ORIGIN}" && -n "${CHAT_STACK_RESOLVED}" ]]; then
     CHAT_STREAM_DEFAULT_ORIGIN="$(url_host "$(stack_output "${CHAT_STACK_RESOLVED}" ChatApiBaseUrl)")"
   fi
+  # Keep what the CDN already has before falling to gate mode: CI runs without
+  # CHAT_SAM_STACK_NAME_*, and an empty value here silently strips the API Gateway throttle off
+  # every non-stream route (POST /api/live/session mints a paid token). Measured 2026-10-23.
+  if [[ -z "${CHAT_STREAM_DEFAULT_ORIGIN}" ]]; then
+    CHAT_STREAM_DEFAULT_ORIGIN="$(aws cloudformation describe-stacks \
+      --stack-name "${CHAT_STREAM_CDN_STACK}" \
+      --region "${REGION}" \
+      --query "Stacks[0].Parameters[?ParameterKey=='DefaultOriginDomainName'].ParameterValue|[0]" \
+      --output text 2>/dev/null || true)"
+    [[ "${CHAT_STREAM_DEFAULT_ORIGIN}" == "None" ]] && CHAT_STREAM_DEFAULT_ORIGIN=""
+    [[ -n "${CHAT_STREAM_DEFAULT_ORIGIN}" ]] && echo "chat CDN default origin: keeping the deployed ${CHAT_STREAM_DEFAULT_ORIGIN}"
+  fi
   if [[ -z "${CHAT_STREAM_DEFAULT_ORIGIN}" ]]; then
     echo "note: no chat HttpApi host found for the CloudFront DEFAULT behavior — deploying ${CHAT_STREAM_CDN_STACK} in gate mode, where every route (including POST /api/live/session) goes straight to the Function URL and loses the API Gateway throttle." >&2
     echo "  Set CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD (so aws/chat-template.yaml deploys and exports ChatApiBaseUrl), or pass CHAT_STREAM_DEFAULT_ORIGIN_DOMAIN explicitly." >&2
@@ -832,6 +844,14 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   if [[ "${CHAT_STREAM_WAF}" == 1 ]]; then
     CHAT_WAF_STACK="${CHAT_WAF_STACK_NAME:-gvp-chat-waf-${DEPLOY_ENV}}"
     echo "cfn deploy chat WAF stack=${CHAT_WAF_STACK} region=us-east-1 (per-IP 300 / 5 min)"
+    # A failed first create leaves ROLLBACK_COMPLETE, which CloudFormation cannot update - and
+    # such a stack holds no resources, so deleting it is the only way forward.
+    if [[ "$(aws cloudformation describe-stacks --stack-name "${CHAT_WAF_STACK}" --region us-east-1 \
+        --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)" == ROLLBACK_COMPLETE ]]; then
+      echo "chat WAF stack ${CHAT_WAF_STACK} is ROLLBACK_COMPLETE (empty) - deleting before retry"
+      aws cloudformation delete-stack --stack-name "${CHAT_WAF_STACK}" --region us-east-1
+      aws cloudformation wait stack-delete-complete --stack-name "${CHAT_WAF_STACK}" --region us-east-1
+    fi
     aws cloudformation deploy \
       --template-file "${AWS_DIR}/chat-waf-template.yaml" \
       --stack-name "${CHAT_WAF_STACK}" \
