@@ -72,6 +72,15 @@ stay there.
 
 ### D3 — Item 3, transcript retention
 
+**This reverses an owner decision, deliberately and reversibly.** Commit `4557056`
+(2026-05-18, "stay forever") removed transcript expiry. The later plan (2026-09) and the
+product-owner backlog (`.claude/state/backlog.md` ~686) re-specify 180 days, so the later
+decision governs. It is safe to undo:
+- only *new* writes carry `ttl`, and nothing is backfilled, so no existing transcript is
+  deleted;
+- the first possible expiry is 180 days after deploy;
+- `CHAT_TRANSCRIPT_TTL_DAYS=0` restores "stay forever" without a code change.
+
 - Every successful transcript write sets `ttl` = server-clock epoch seconds + N days, where N is
   `CHAT_TRANSCRIPT_TTL_DAYS` (default **180**, `0` = do not write `ttl`). The clock is the
   server's, never the caller's (ADR-0020 A1).

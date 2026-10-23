@@ -540,3 +540,52 @@ async def test_a_full_session_announces_itself_as_session_full_while_a_broken_wr
     # The swallow still holds: the caller is a fire-and-forget beacon, so a
     # refusal may never surface at the turn that triggered it.
     assert refusal_returned is None
+
+
+# M8 item 3 (ADR-0021 D3) — retention. Every accepted write refreshes `ttl` to SERVER-clock
+# epoch seconds + CHAT_TRANSCRIPT_TTL_DAYS (default 180) days, so a session expires 180 days
+# after its LAST turn. 0 disables (the 2026-05-18 "stay forever" behaviour, one env var away).
+def _ttl_write(monkeypatch, days: str | None, now: float):
+    if days is None:
+        monkeypatch.delenv('CHAT_TRANSCRIPT_TTL_DAYS', raising=False)
+    else:
+        monkeypatch.setenv('CHAT_TRANSCRIPT_TTL_DAYS', days)
+    monkeypatch.setattr('app.transcript_store.time.time', lambda: now)
+    table = FakeTable()
+    store = TranscriptStore('ChatTranscripts')
+    store._table = table
+    asyncio.run(
+        store.persist_turn(
+            session_id='session-ttl',
+            # A caller-supplied timestamp far in the past: the ttl must NOT derive from it.
+            created_at='2001-01-01T00:00:00+00:00',
+            prompt_version='v1',
+            provider='gemini',
+            model='m',
+            turn={'reply': 'ok'},
+            flags={},
+        )
+    )
+    return table.calls[0]
+
+
+def test_each_write_refreshes_ttl_180_days_from_the_server_clock(monkeypatch) -> None:
+    update = _ttl_write(monkeypatch, None, now=1_800_000_000.0)
+    assert 'ttl = :ttl' in update['UpdateExpression']
+    assert update['ExpressionAttributeValues'][':ttl'] == 1_800_000_000 + 180 * 86400
+
+
+def test_ttl_days_is_configurable(monkeypatch) -> None:
+    update = _ttl_write(monkeypatch, '7', now=1_800_000_000.0)
+    assert update['ExpressionAttributeValues'][':ttl'] == 1_800_000_000 + 7 * 86400
+
+
+@pytest.mark.parametrize('days', ['0', 'not-a-number', '-5'])
+def test_zero_or_invalid_ttl_days_writes_no_ttl_and_keeps_transcripts(monkeypatch, days) -> None:
+    update = _ttl_write(monkeypatch, days, now=1_800_000_000.0)
+    if days == '0':
+        assert 'ttl' not in update['UpdateExpression']
+        assert ':ttl' not in update['ExpressionAttributeValues']
+    else:
+        # An unparseable or negative value falls back to the default, never to "expire now".
+        assert update['ExpressionAttributeValues'][':ttl'] == 1_800_000_000 + 180 * 86400

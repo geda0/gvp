@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -55,6 +56,23 @@ def session_byte_budget(turn_bytes: int) -> int:
     the worst case.
     """
     return DYNAMODB_MAX_ITEM_BYTES - turn_bytes - UNDERCOUNT_MARGIN_BYTES
+
+
+_DEFAULT_TTL_DAYS = 180
+
+
+def transcript_ttl_days() -> int:
+    """M8 item 3 (ADR-0021 D3): days a session is kept after its LAST accepted turn.
+    0 disables expiry (the 2026-05-18 "stay forever" behaviour). Anything unparseable or
+    negative falls back to the default rather than to "expire now"."""
+    raw = os.environ.get('CHAT_TRANSCRIPT_TTL_DAYS')
+    if raw is None or raw.strip() == '':
+        return _DEFAULT_TTL_DAYS
+    try:
+        days = int(raw)
+    except ValueError:
+        return _DEFAULT_TTL_DAYS
+    return days if days >= 0 else _DEFAULT_TTL_DAYS
 
 
 class TranscriptStore:
@@ -121,6 +139,12 @@ class TranscriptStore:
             )
         # Once, and used for BOTH the charge and the threshold: they must agree.
         turn_bytes = len(json.dumps(turn).encode('utf-8'))
+        # Retention is computed from THIS process's clock, never the caller's timestamp
+        # (ADR-0020 A1); a refused write refreshes nothing, so a full session expires
+        # N days after its last accepted turn.
+        ttl_days = transcript_ttl_days()
+        ttl_set = ', ttl = :ttl' if ttl_days else ''
+        ttl_values = {':ttl': int(time.time()) + ttl_days * 86400} if ttl_days else {}
         table.update_item(
             Key={'id': session_id},
             UpdateExpression=(
@@ -137,6 +161,7 @@ class TranscriptStore:
                 'flagged = :flagged, '
                 'turnCount = if_not_exists(turnCount, :zero) + :one, '
                 'bytesStored = if_not_exists(bytesStored, :zero) + :turnBytes'
+                + ttl_set
             ),
             # `attribute_not_exists` is not optional: a brand-new item has no
             # bytesStored, so without it the condition is false on turn one and
@@ -166,6 +191,7 @@ class TranscriptStore:
                 # item-level fields are SET fresh each turn, never accumulated.
                 ':turnBytes': turn_bytes,
                 ':budget': session_byte_budget(turn_bytes),
+                **ttl_values,
             },
         )
 
