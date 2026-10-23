@@ -18,6 +18,7 @@ APP = Path(__file__).resolve().parents[1] / 'app'
 COMPONENT = {
     # leaf infra: shared plumbing, imports no other component
     'alerts': 'leaf', 'transcript_store': 'leaf', 'secret_resolver': 'leaf', 'messages': 'leaf',
+    'project_refs': 'leaf',  # M4: the shared project-id tuple, imported by voice AND assistant
     # models: the switchable model layer
     'gemini_routing': 'models', 'gemini_limit_state': 'models', 'upstream_errors': 'models',
     # voice: Gemini Live
