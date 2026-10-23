@@ -235,3 +235,62 @@ def test_a_fallback_also_announces_itself_on_stderr(monkeypatch, capsys):
 
     assert err.strip(), 'a fallback must be announced, not silent'
     assert 'fallback-env-key' not in err, 'and it must not print the key it fell back to'
+
+
+# ------------------------------------------- ADR-0025 filed-forward #2: lazy re-resolution
+# A SUCCESS is cached for the process. A FAILURE is not cached forever any more: one throttled
+# or denied read at cold start used to disable that container's key for its whole warm life.
+# It is retried, at most once per GEMINI_KEY_RETRY_SECONDS (default 60), so a broken secret
+# costs one Secrets Manager call per minute per container, not one per turn.
+
+class _FlakyClient(_FakeClient):
+    def __init__(self, fail_times, payload):
+        super().__init__(payload=payload)
+        self._fail_times = fail_times
+
+    def get_secret_value(self, SecretId):  # noqa: N803
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise RuntimeError('ThrottlingException')
+        return {'SecretString': self._payload}
+
+
+def test_a_failed_resolution_is_retried_after_the_cooldown(monkeypatch):
+    import os
+    monkeypatch.setenv('GEMINI_API_KEY_SECRET_ARN', 'arn:aws:secretsmanager:::secret:gvp/gemini')
+    client = _install(monkeypatch, _FlakyClient(fail_times=1, payload='recovered-key'))
+    clock = [1000.0]
+    monkeypatch.setattr(secret_resolver, '_now', lambda: clock[0])
+
+    assert secret_resolver.resolve_gemini_key_into_env() is False
+    clock[0] += 30
+    assert secret_resolver.resolve_gemini_key_into_env() is False, 'inside the cooldown: no new call'
+    assert client.calls == 1
+    clock[0] += 31
+    assert secret_resolver.resolve_gemini_key_into_env() is True
+    assert os.environ['GEMINI_API_KEY'] == 'recovered-key'
+    clock[0] += 3600
+    secret_resolver.resolve_gemini_key_into_env()
+    assert client.calls == 2, 'once resolved, never fetched again'
+
+
+def test_the_retry_cooldown_is_configurable(monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY_SECRET_ARN', 'arn:aws:secretsmanager:::secret:gvp/gemini')
+    monkeypatch.setenv('GEMINI_KEY_RETRY_SECONDS', '5')
+    client = _install(monkeypatch, _FlakyClient(fail_times=1, payload='k'))
+    clock = [0.0]
+    monkeypatch.setattr(secret_resolver, '_now', lambda: clock[0])
+    secret_resolver.resolve_gemini_key_into_env()
+    clock[0] += 6
+    assert secret_resolver.resolve_gemini_key_into_env() is True
+    assert client.calls == 2
+
+
+def test_no_arn_is_still_settled_once_and_never_retried(monkeypatch):
+    client = _install(monkeypatch, _FakeClient(payload='x'))
+    clock = [0.0]
+    monkeypatch.setattr(secret_resolver, '_now', lambda: clock[0], raising=False)
+    for step in range(3):
+        clock[0] += 3600
+        assert secret_resolver.resolve_gemini_key_into_env() is False
+    assert client.calls == 0
