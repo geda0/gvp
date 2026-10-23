@@ -4,6 +4,73 @@
 
 ## Current status
 
+- **2026-10-23 — M2 COMPLETE (journey harness included) and M1 COMPLETE. M3 blocked on
+  ADR-0016 (architect drafting).** `main` @ `33a514c` (unchanged), `agent` ahead by 33.
+  App suite **377 / 376 pass / 1 skip**, chat **213 passed**, browser journeys **17/17**.
+  NOTHING IS DEPLOYED — stage has not seen any of this.
+
+  **M2 shipped, then was audited by tdd-critic, which returned BLOCK. Ten real defects
+  found and fixed; four of them were introduced earlier in the same session.** Read these
+  before touching the chat again:
+  - **The site-state line was killing the implicit cache prefix.** It was folded in as a
+    SYSTEM message on the reasoning that gemini_routing appends those to the end of the
+    system instruction. That is true but irrelevant: `providers._inject_retrieved` puts the
+    ~4,000-token knowledge blob in `contents[0]`, NOT in the system instruction, which
+    precedes contents entirely. So the volatile line landed AHEAD of the blob and truncated
+    the cacheable prefix below the 4,096 minimum — the measured ~2.8x input-token / 429
+    regression this project already diagnosed on prod once. It is now a HUMAN turn placed
+    immediately before the visitor's newest message: after the blob, and inside the
+    twelve-message window `compact_history` keeps (at the front it was simply pruned, and
+    `summarize_pruned_messages` reads `type == 'human'` only, so a pruned system message
+    contributed nothing).
+  - **Escape while yielded ended the live call.** The document handler is guarded by
+    `isOpen()` = `!dialog.hidden`, and stageChrome keeps the dialog in the DOM for docked
+    and minimized — so pressing Escape to dismiss a PROJECT DIALOG closed the chat and
+    stopped voice. Invariant #20, by one keystroke. Escape now goes through the reducer and
+    does not `preventDefault` while yielded, because the key was aimed at the dialog.
+  - **7 of 13 reducer events had no caller.** A coverage row now asserts every event in
+    `CHAT_STAGE_EVENTS` is reachable from `js/chat.js`, with `minimize` exempted on the
+    record (no affordance until M4). That check immediately found the viewport rows unwired.
+  - **`setVoiceActive` was imported and never called**, so the wire carried `false` always
+    and §6.4 persisted that on every turn as the admin panel's "was this during a call".
+  - **`js/contact.js` hardcoded `origin: 'visitor'`**, so the agent's own
+    `open_contact_form` was read back to it — defeating §7.1's dedupe at the call site.
+    `navigate_to_section` was threaded correctly, which is why the existing dedupe row
+    passed: one tool covered, the other not, by the mechanism meant to cover both.
+  - **The browser could send a `siteState` the server 400s.** The producer bounded LENGTH,
+    the validator rejects on CHARSET. One project id with a space in `data/projects.json`
+    would have taken text chat AND voice down for every visitor who opened that card, both
+    suites green. Closed from both ends, and the patterns are read out of the Python.
+  - Plus: `resolveNavTarget('constructor')` returned a function; the notifier scheduled on
+    off-wire fields; `open_contact_form` reported success unconditionally (invariant #21's
+    error clause had no reachable case); two assertions passed against deleted code
+    (`pointerEvents || 'none'`, and the app.js guard anchored to a line start).
+
+  **M1 is done**, and the plan's §0 baseline for it is STALE — it describes a dust-GC
+  (`collectDustBand` / `DUST_SWEEP_ROWS`) that does not exist here; the night path does a
+  full `clearRect` and `drawSpace()`'s wash is `source-over`. Slices 1 and 6 are superseded.
+  Landed: the 8-bit trail-stall predicate (`trailFramesToClear8Bit`, pinning that 0.22 is
+  `Infinity`), off-canvas culling (`js/starfield-geom.js`, **44.3% fewer draw calls**), and
+  `Star.prototype` + one `setTransform` per streak. Slice 4 was already shipped (baked
+  sprites, not per-frame gradients).
+
+  **Two harnesses now exist and both are worth knowing about:**
+  - `scripts/qa/starfield-ab-draws.mjs` — renders a git revision and the working tree under
+    the same seeded `Math.random`, **pinned clock** and viewport, and compares the visible
+    draw stream. Stronger than a pixel diff and needs no browser. Clock pinning is not
+    optional: snow drift and firefly wander read `Date.now()`.
+  - `scripts/qa/chat-stage-journeys.mjs` + `scripts/qa/cdp.mjs` — the M2 journey harness,
+    real headless Chrome driven over CDP with **no dependencies** (Node 22 has a global
+    `WebSocket`). Only claims that need a compositor live here; everything a stub can settle
+    stays in `node --test`. Two flakes were fixed at the cause: a fragment-only URL change
+    is a SAME-DOCUMENT navigation (so state leaked between journeys), and `readyState`
+    complete is not "the app is wired" (initChat runs from DOMContentLoaded) — `goto` now
+    waits for `data-chat-stage`.
+
+  **Next:** M3 needs ADR-0016 (architect drafting; the plan's M3 text should be checked
+  against the repo the way §0 had to be). Then M4–M8. And `agent` is 33 commits ahead of
+  `main` with nothing on stage — the standing rule is stage must confirm before prod.
+
 - **2026-10-15 — M2 STARTED (slice 1 in flight). M0 + M1 done. A long credential/cost
   detour between them is finished and verified.** `main` @ `33a514c`, `agent` @ `4617d27`.
   App suite 255/254/1-skip, chat 174.

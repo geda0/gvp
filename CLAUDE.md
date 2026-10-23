@@ -156,7 +156,7 @@ See [`docs/architecture.md`](docs/architecture.md) for Mermaid diagrams (Amplify
 5. `initContactForm()` — contact form wiring
 6. `initSpaceman()` — loads character data, renders DOM, starts message cycle
 7. `initSpacemanPosition()` — viewport-aware positioning with observers
-8. `initNavigation()` — hash-based routing with state callbacks
+8. `initNavigation()` — hash-based routing with state callbacks; writes `section` to `site-state.js`
 9. `loadProjects()` / `renderProjects()` — fetches JSON, builds project cards
 10. `IntersectionObserver` — tracks which project card is in view for spaceman context
 
@@ -171,7 +171,15 @@ Two themes: `space` and `garden`. Stored in `localStorage` under key `gvp-theme`
 
 ### Navigation (`navigation.js`)
 
-Hash-based routing (`#home`, `#playground`, `#portfolio`). Uses `history.replaceState` + `hashchange` listener. Sections toggle via CSS classes (`hidden`/`visible`/`section-invisible`).
+Hash-based routing (`#home`, `#labs`, `#portfolio`; legacy `#playground` → `#labs`). Uses `history.replaceState` + `hashchange` listener. Sections toggle via CSS classes (`hidden`/`visible`/`section-invisible`).
+
+`applySection` writes `section` to `site-state.js`. `requestNavigation(raw, { origin })` is the door for everything that is not a nav click — the chat's `navigate_to_section` tool comes through here, so resolving the section, moving the URL and labelling the write all happen in one place. The vocabulary itself is data in `section-names.js` (`SECTION_IDS` / `SECTION_ALIASES` / `resolveNavTarget`).
+
+### Site state + chat stage (`site-state.js`, `chat-stage.js`) — ADR-0015
+
+One observable store (`section` / `project` / `contactOpen` / `chatStage` / `voiceActive`) with one narrow writer per field and a mandatory `origin` (`visitor` | `agent` | `system`). It replaced the `gvp:site-chat-collapse` event, which could only tell the chat to close — and closing reached `stopVoice`, so the assistant's own tools killed the voice session that had just promised the action.
+
+`chat-stage.js` is a pure reducer over `closed | modal | docked | minimized`; `stageChrome(stage)` returns the a11y contract as data. Project invariants #20, #21 and #22 cover it. Browser journeys: `node scripts/qa/chat-stage-journeys.mjs`.
 
 ### Spaceman Character (`spaceman.js` + `spaceman-position.js`)
 
