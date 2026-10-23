@@ -88,6 +88,17 @@ Resources:
         'GET /api/contact/admin/health':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
+        # M4 slice 17 (ADR-0017 §8.5) + §12.4: the new route, and the two admin routes that
+        # had Events entries but no RouteSettings (so they inherited the looser default).
+        'GET /api/contact/admin/assistant-usage':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/contact/admin/smoke':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/contact/admin/session/{id}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
         'POST /api/contact/admin/retry/{id}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
@@ -540,6 +551,12 @@ Resources:
           Properties:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/session/{id}
+            Method: GET
+        ContactAdminAssistantUsage:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/assistant-usage
             Method: GET
         ContactAdminDailyReport:
           Type: HttpApi

@@ -1,4 +1,5 @@
 import { adminAccess, adminDecision } from './common/admin-auth.js'
+import { assistantUsage, parseDays } from './admin/assistant-usage-core.js'
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
@@ -969,6 +970,18 @@ export const handler = async (event) => {
       return json(400, { error: 'Cannot suppress report for a sent message' })
     }
     return json(200, { ok: true, reportSuppressed: true })
+  }
+
+  // M4 slice 17 (ADR-0017 §8.5): the Assistant tab's rollup. `days` is a value, clamped to
+  // [1, 90]; the core caps rows per day and keeps every facet a closed key space.
+  if (method === 'GET' && path.endsWith('/assistant-usage')) {
+    const days = parseDays(event?.queryStringParameters?.days)
+    const usage = await assistantUsage({
+      days,
+      queryDay: ({ day, maxItems }) =>
+        queryDay(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day, maxItems })
+    })
+    return json(200, usage)
   }
 
   if (method === 'GET' && path.endsWith('/daily-report')) {
