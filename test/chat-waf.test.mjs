@@ -47,3 +47,30 @@ test('the deploy script fails loudly on a bad WAF ARN and warns when prod has no
   assert.match(s, /\[\[ "\$\{CHAT_STREAM_WEB_ACL_ARN\}" == arn:aws:wafv2:\* \]\] \|\|/)
   assert.match(s, /if \[\[ "\$\{DEPLOY_ENV\}" == prod && -z "\$\{CHAT_STREAM_ALARM_EMAIL\}" \]\]/)
 })
+
+// Prod deploy 2026-10-23 failed: WAFv2 rejects a Description outside
+// ^[\w+=:#@/\-,\.][\w+=:#@/\-,\.\s]+[\w+=:#@/\-,\.]$ — the '§' and parentheses killed it.
+test('every WAF Description satisfies WAFv2\'s character pattern', () => {
+  const t = read('aws/chat-waf-template.yaml')
+  const res = t.split(/^Resources:\s*$/m)[1].split(/^Outputs:\s*$/m)[0] // only what reaches the WAF API
+  const descs = [...res.matchAll(/^\s+Description:\s*(.+)$/gm)].map((m) => m[1].trim().replace(/^['"]|['"]$/g, ''))
+  assert.ok(descs.length >= 1)
+  for (const d of descs) assert.match(d, /^[\w+=:#@/\-,.][\w+=:#@/\-,.\s]+[\w+=:#@/\-,.]$/, d)
+})
+
+// The same run warned it would deploy the CDN in GATE MODE (no CHAT_SAM_STACK_NAME_* in CI),
+// i.e. strip the API Gateway throttle off every non-stream route. Never silently: keep the
+// CDN stack's existing DefaultOriginDomainName when nothing better is known.
+test('the deploy script keeps the CDN\'s existing default origin instead of falling into gate mode', () => {
+  const s = read('scripts/integrate-and-deploy.sh')
+  const keep = s.search(/ParameterKey=='DefaultOriginDomainName'/)
+  const gate = s.search(/deploying \$\{CHAT_STREAM_CDN_STACK\} in gate mode/)
+  assert.ok(keep > -1, 'no read of the existing DefaultOriginDomainName')
+  assert.ok(keep < gate, 'the existing origin must be tried before the gate-mode fallback')
+})
+
+test('a WAF stack left in ROLLBACK_COMPLETE is deleted before the retry (CFN cannot update it)', () => {
+  const s = read('scripts/integrate-and-deploy.sh')
+  const waf = s.slice(s.indexOf('CHAT_WAF_STACK='), s.indexOf('CHAT_STREAM_CDN_PO=('))
+  assert.match(waf, /ROLLBACK_COMPLETE[\s\S]{0,400}delete-stack[\s\S]{0,200}--region us-east-1/)
+})

@@ -17,7 +17,9 @@ Resources:
     Properties:
       Name: !Sub 'gvp-chat-${StageName}'
       Scope: CLOUDFRONT
-      Description: Per-IP rate ceiling for the chat distribution (ADR-0022 §15.3).
+      # WAFv2 allows only [\w+=:#@/\-,.\s] here - no section sign, no parentheses (the
+      # first prod deploy died on exactly that).
+      Description: Per-IP rate ceiling for the chat distribution, ADR-0022 section 15.3
       DefaultAction:
         Allow: {}
       Rules:
