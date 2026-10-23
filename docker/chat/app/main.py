@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.alerts import fire_alert, log_alert_gate_status
 from app.secret_resolver import resolve_gemini_key_into_env
+from app.project_refs import project_grounding_line
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
 from .site_state import SiteStateIn, format_site_state_line
@@ -232,6 +233,21 @@ def _to_lc_messages(rows: list[ChatMessageIn]) -> list[Msg]:
         else:
             out.append(Msg(role="system", content=row.content))
     return out
+
+
+def _live_site_line(site_state: SiteStateIn | None, pack: dict[str, Any]) -> str:
+    """The voice instruction's site line, plus the open project's grounding sentence.
+
+    M4 (ADR-0017 §4.2): on voice the blob is truncated before <relevant_projects>, so the open
+    project's detail rides here instead - INSIDE the site-state reserve that
+    build_live_system_instruction already subtracts from the pack budget, so it cannot eat the
+    portfolio tail. The shared site-state renderer itself is untouched.
+    """
+    if site_state is None:
+        return ''
+    site = format_site_state_line(site_state)
+    grounding = project_grounding_line(site_state.projectId, pack)
+    return ' '.join(part for part in (site, grounding) if part)
 
 
 def _chain_input(payload: ChatRequest, lc_messages: list[Any]) -> dict[str, Any]:
@@ -1177,7 +1193,7 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         instruction = build_live_system_instruction(
             prompt_src,
             app.state.knowledge_pack,
-            site_state_line=format_site_state_line(payload.siteState),
+            site_state_line=_live_site_line(payload.siteState, app.state.knowledge_pack),
         )
         session_payload = await asyncio.wait_for(
             mint_live_session_async(instruction),
