@@ -109,7 +109,7 @@ esac
 # pointed every visitor's chat at a dead hostname.
 # These are flags that say WHAT TO DO, not credentials. A secrets file may supply a default for
 # them, but it must never override an operator who passed one on the command line.
-_GVP_INTENT_VARS='SYNC_API_URLS SKIP_SECRETS_MANAGER SKIP_CHAT_TESTS CHAT_ALWAYS_BUILD CHAT_DEPLOY_TARGET CHAT_SAM_STACK_NAME_PROD CHAT_SAM_STACK_NAME_STAGE CHAT_STREAM_RESERVED_CONCURRENCY CHAT_STREAM_FUNCTION_URL_AUTH_TYPE CHAT_PROD_CHAT_API_URL CHAT_STAGE_CHAT_API_URL GEMINI_API_KEY GEMINI_API_KEY_PROD GEMINI_API_KEY_STAGE GEMINI_API_KEY_SECRET_ARN GEMINI_API_KEY_SECRET_ARN_PROD GEMINI_API_KEY_SECRET_ARN_STAGE'
+_GVP_INTENT_VARS='SYNC_API_URLS SKIP_SECRETS_MANAGER SKIP_CHAT_TESTS CHAT_ALWAYS_BUILD CHAT_DEPLOY_TARGET CHAT_SAM_STACK_NAME_PROD CHAT_SAM_STACK_NAME_STAGE CHAT_STREAM_RESERVED_CONCURRENCY CHAT_STREAM_WAF CHAT_STREAM_FUNCTION_URL_AUTH_TYPE CHAT_PROD_CHAT_API_URL CHAT_STAGE_CHAT_API_URL GEMINI_API_KEY GEMINI_API_KEY_PROD GEMINI_API_KEY_STAGE GEMINI_API_KEY_SECRET_ARN GEMINI_API_KEY_SECRET_ARN_PROD GEMINI_API_KEY_SECRET_ARN_STAGE'
 for _v in $_GVP_INTENT_VARS; do
   if [[ -n "${!_v+x}" ]]; then
     eval "_GVP_CALLER_${_v}=\${${_v}}"
@@ -810,11 +810,36 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     echo "  Set CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD (so aws/chat-template.yaml deploys and exports ChatApiBaseUrl), or pass CHAT_STREAM_DEFAULT_ORIGIN_DOMAIN explicitly." >&2
   fi
 
+  # ADR-0021 D2 / ADR-0022 §15.3 - the per-IP request-rate ceiling (WAF, 300 / 5 min / IP).
+  # Required for prod, so ON by default there; optional on stage. A CloudFront web ACL can
+  # only live in us-east-1 (Scope CLOUDFRONT), hence its own stack and region. ~$6/month.
+  CHAT_STREAM_WAF="${CHAT_STREAM_WAF:-$( [[ "${DEPLOY_ENV}" == prod ]] && echo 1 || echo 0 )}"
+  CHAT_STREAM_WEB_ACL_ARN=""
+  if [[ "${CHAT_STREAM_WAF}" == 1 ]]; then
+    CHAT_WAF_STACK="${CHAT_WAF_STACK_NAME:-gvp-chat-waf-${DEPLOY_ENV}}"
+    echo "cfn deploy chat WAF stack=${CHAT_WAF_STACK} region=us-east-1 (per-IP 300 / 5 min)"
+    aws cloudformation deploy \
+      --template-file "${AWS_DIR}/chat-waf-template.yaml" \
+      --stack-name "${CHAT_WAF_STACK}" \
+      --region us-east-1 \
+      --no-fail-on-empty-changeset \
+      --parameter-overrides "StageName=${DEPLOY_ENV}"
+    CHAT_STREAM_WEB_ACL_ARN="$(aws cloudformation describe-stacks \
+      --stack-name "${CHAT_WAF_STACK}" \
+      --region us-east-1 \
+      --query "Stacks[0].Outputs[?OutputKey=='WebAclArn'].OutputValue" \
+      --output text)"
+    echo "chat WAF WebAclArn=${CHAT_STREAM_WEB_ACL_ARN}"
+  else
+    echo "note: CHAT_STREAM_WAF=0 - ${CHAT_STREAM_CDN_STACK} has no per-IP rate ceiling (ADR-0022 §15.3 requires one for prod)." >&2
+  fi
+
   CHAT_STREAM_CDN_PO=(
     "StreamFunctionName=${CHAT_STREAM_FN_NAME}"
     "StreamFunctionUrlDomain=${CHAT_STREAM_FN_HOST}"
     "DefaultOriginDomainName=${CHAT_STREAM_DEFAULT_ORIGIN}"
     "DefaultOriginPath=${CHAT_STREAM_DEFAULT_ORIGIN_PATH:-}"
+    "WebAclArn=${CHAT_STREAM_WEB_ACL_ARN:-}"
   )
   echo "cfn deploy chat stream CDN stack=${CHAT_STREAM_CDN_STACK} default-origin=${CHAT_STREAM_DEFAULT_ORIGIN:-<gate mode: the function url itself>}"
   # Plain CFN deploy, not sam: no image, no transform.
