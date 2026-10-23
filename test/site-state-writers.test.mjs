@@ -317,6 +317,76 @@ test('the contact dialog reports WHO opened it, not always the visitor', async (
   assert.deepEqual(changes.map((c) => c.origin), ['visitor'])
 })
 
+test('the project dialog reports WHO opened it, and exposes an agent entry point', async () => {
+  // ADR-0017 §3.3, and this is the SAME defect M2 already fixed one module over:
+  // js/contact.js hardcoded origin:'visitor' until open_contact_form made the agent a
+  // caller. js/projects.js hardcodes it today, and open_project is about to make the agent
+  // a caller here too.
+  //
+  // WHY IT IS NOT COSMETIC. §3.3: an agent-caused and a visitor-caused change are
+  // byte-identical in the state, so origin is the only discriminator, and §7.1 uses it to
+  // decide whether a live session gets a context note. Hardcoded to 'visitor', the agent's
+  // own open_project pushes a note telling the model about the change IT JUST MADE and
+  // already received in the tool result — the double-notify the dedupe exists to prevent.
+  // The bug is invisible: the state is right, the UI is right, and the model hears itself
+  // twice.
+  //
+  // This slice lands BEFORE the tool that uses it, deliberately. The other order ships a
+  // hardcoded 'visitor' live for one slice with every test green, which is exactly the
+  // mistake made in contact.js.
+  const { getEl } = installStubDom({ hash: '#labs' })
+  const { siteState, bust } = await freshModules('proj-origin')
+  const projects = await import('../js/projects.js' + bust)
+
+  projects.renderProjects('labsContent', [
+    { id: 'team-tactics', title: 'Team Tactics', description: '<p>A TDD harness.</p>' }
+  ], 'labsProjects')
+  projects.initProjectDetailDialog()
+  await settle()
+
+  assert.equal(
+    typeof projects.requestProjectOpen, 'function',
+    'js/projects.js must export an agent entry point, mirroring js/navigation.js\'s ' +
+    'requestNavigation — the tool needs a door that carries an origin'
+  )
+  assert.equal(typeof projects.requestProjectClose, 'function')
+
+  const changes = []
+  siteState.subscribe((_s, change) => { if (change) changes.push(change) })
+
+  const opened = projects.requestProjectOpen('Team Tactics', { origin: 'agent' })
+  await settle()
+  assert.deepEqual(
+    opened, { id: 'team-tactics', title: 'Team Tactics' },
+    'the entry point resolves by title as well as id, and reports what it opened'
+  )
+  assert.deepEqual(
+    changes.map((c) => [c.field, c.origin]), [['project', 'agent']],
+    "an agent-opened project must be labelled 'agent'"
+  )
+
+  changes.length = 0
+  projects.requestProjectClose({ origin: 'agent' })
+  await settle()
+  assert.deepEqual(changes.map((c) => [c.field, c.to, c.origin]), [['project', null, 'agent']])
+
+  // A VISITOR tapping a card is still the visitor — origin travels with the ACT.
+  changes.length = 0
+  const card = makeEl('article')
+  card.getAttribute = (n) => (n === 'data-project-id' ? 'team-tactics' : null)
+  getEl('labsContent').events.fire('click', {
+    target: { closest: (sel) => (sel === '.project' ? card : null) }
+  })
+  await settle()
+  assert.deepEqual(changes.map((c) => c.origin), ['visitor'])
+
+  // And an unresolvable ref refuses rather than opening something arbitrary.
+  changes.length = 0
+  const missed = projects.requestProjectOpen('the video one', { origin: 'agent' })
+  assert.equal(missed.error, 'unknown_project')
+  assert.deepEqual(changes, [], 'a refusal must not write state')
+})
+
 test('gvp:site-chat-collapse is GONE from js/, not adapted', () => {
   // RECURSIVE. readdirSync without it is flat, and M5 moves js/ into js/lib + js/components
   // (plan §M5) — at which point a surviving emitter in a subdirectory is invisible to the
