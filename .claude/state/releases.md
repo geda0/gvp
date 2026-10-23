@@ -11,6 +11,16 @@ verified. Never release on a red bar or unaccepted work._
 | **PRODUCTION deploy** (contact refactor → prod) | `fda626f` (main) · deploy run `26938125929` | — | **prod** | **GREEN** (test ✅ + deploy ✅, 1m23s). New `deploy-prod.yml` (push→main, test-gated) ran `integrate-and-deploy.sh prod` via OIDC role `gvp-prod-ci-deploy` (main-only, page-scoped). QA-gated by a staging E2E contact submission (qa-verifier PASS). `page` UPDATE_COMPLETE; contact `lwi0vmdpb5…` OPTIONS 204 (matches FE prod meta); `www.marwanelgendy.link` 200; prod chat ECS `chat-api.marwanelgendy.link` 200 (untouched). Frontend unchanged (Amplify rebuild of `main`). | 2026-06-04 |
 
 
+## 2026-10-23 — PROMOTED TO PROD: original starfield restored (GREEN, verified live)
+- `main` `fa6cf19`: merged agent into main (no fast-forward). Prod hosts were kept in
+  `index.html` and `admin/index.html`; the prod guard passed 3/3 and the suite 518/0.
+- CI on main: tdd-verify and the chat tests are GREEN. Amplify served the new build about
+  2.5 min after the push: `js/starfield-geom.js` returns 404, and none of the removed
+  identifiers are in the served `starfield.js`.
+- A prod 1440x900 night frame composited over #141926 measured 1080 lit / 32 bright. The
+  original is 921–1073 / 26–31.
+- `agent` took main back in (`f05d6ba`); stage hosts were re-pinned in `1e8ac92`.
+
 ## 2026-10-23 — PROMOTED TO PROD: M4, M5, M7, M8 (GREEN, verified live)
 - `main`:
   - `4118aa3` merge agent → main (no fast-forward); prod hosts were kept by the merge, so no
