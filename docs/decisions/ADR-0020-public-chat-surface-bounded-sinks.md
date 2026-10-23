@@ -1361,9 +1361,10 @@ on branch `m7-alerts`, commits `7f776b7`, `3eb4741`, `ec987cd`, `96aaf16`, `9542
   `ChatAlertLines-{httpapi,stream}-${StageName}` and alarm names `…-tier1-alert-line` recorded
   in ADR-0022 §29 are **superseded** by `ChatAlertLinesP1-…`/`ChatAlertLinesP2-…` and
   `…-P1-alert-line`/`…-P2-alert-line`.
-- `/api/live/session`: every failure exit (504 timeout, 503 `RuntimeError`, upstream error,
-  500 missing token) fires one P1 `voice_mint_failed`. The `corpus_unavailable` 503 does not:
-  it is a deploy-time knowledge-pack fault that fails text chat too.
+- `/api/live/session`: every failure exit fires one P1 `voice_mint_failed`. That covers the
+  503 `gemini_key_missing` (added after the critic found it missing), the 504 timeout, the 503
+  `RuntimeError`, the upstream error and the 500 missing token. The `corpus_unavailable` 503
+  does not: it is a deploy-time knowledge-pack fault that fails text chat too.
 
 ### 6.3 Visitor side (`aws/src/common/site-alerts-core.js`)
 
@@ -1383,11 +1384,17 @@ beacon reporting it arrived.
 The events handler emits `SITE_ALERT event=<type> prio=<P> env=<stack> <detail>` for each
 alerting row **before and independently of** the DynamoDB write. `EventsIngressFunction` logs to
 a stack-owned `/gvp/site-events/${AWS::StackName}` group carrying
-`SITE_ENV=${AWS::StackName}`. The P1 (60 s) and P2 (300 s) filters and alarms are named per
-stack and notify `ContactAlarmTopic`.
+`SITE_ENV=${AWS::StackName}`. The P1 and P2 filters and alarms are named per stack, both use a **300 s** period, and
+both notify `ContactAlarmTopic`. The 300 s is deliberate (see the residual below).
 
-**Accepted residual:** anyone can POST a qualifying event and trigger one P1 email per
-alarm breach. Because of the allowlist the content is fixed, and the alarm caps the rate.
+The Tier-1 lines are emitted before both the table-config check and the persist attempt.
+
+**Accepted residual:** anyone can POST a qualifying event, and the allowlist only fixes the
+email's *content*, not its frequency. One forged row per window re-arms the alarm. An
+ALARM→OK→ALARM cycle needs at least two periods, so the 300 s period caps a patient forger
+at roughly 6 P1 emails an hour per chain (at 60 s it would have been about 30). Stopping it
+entirely needs a rate guard on `/api/events`, which is M8's business, not M7's. The chat-host
+P1 alarms keep 60 s because only the app can write their lines.
 
 ### 6.4 Acceptance caveats
 
@@ -1401,9 +1408,22 @@ alarm breach. Because of the allowlist the content is fixed, and the alarm caps 
 - **Nothing is deployed.** Prod chat runs 2026-10-15 code, and neither CI role can deploy
   chat until the `gvp-<env>-chat-deploy` IAM policies are repointed (the user's decision).
   So a P1 alarm "working on stage" is not evidence for prod.
-- The `-"prio=P2"` exclusion term has not been run against CloudWatch. Before relying on it,
-  check with `aws logs test-metric-filter` against sample `CHAT_ALERT` and `SITE_ALERT`
-  lines.
+- **Filter patterns measured against real CloudWatch** (`aws logs test-metric-filter`,
+  us-east-2, 2026-10-23, peer session) on seven sample lines:
+  - Both P1 patterns matched the P1 line, the pre-M7 line with no prio field, and a line
+    behind a traceback prefix.
+  - Both P2 patterns matched only the P2 line.
+  - The alert-gate startup line matched nothing.
+
+  So the `-"term"` exclusion works and the partition holds.
+  - **Residual (critic N1):** P1/P2 is decided by the whole line, not by the prio field alone.
+    A future summary containing the text `prio=P2` would be counted as P2. No current call site
+    can produce one: summaries carry type names, model ids and pattern-bounded session ids, and
+    `SITE_ALERT` lines carry only constants.
+- **The two halves deploy differently.** The contact stack's deploy roles grant `logs:*` on
+  `*` (measured, both envs), so §6.3's log group, filters and alarms can deploy through CI
+  today. The chat templates' §6.2 chains cannot: the `gvp-<env>-chat-deploy` policies are
+  the broken ones.
 - New log group: `ContactAlarmTopic`'s subscription is unchanged, but the events function's
   logs move to `/gvp/site-events/<stack>`. Anyone reading `/aws/lambda/<fn>` for it must
   look there instead.
