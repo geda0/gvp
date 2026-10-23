@@ -4,6 +4,32 @@
 
 ## Current status
 
+- **2026-10-23 — PROMOTION BLOCKER, verified: the privacy note must not reach `main` yet.**
+  ADR-0021 D4 states the rule; this is the measurement behind it.
+
+  `aws dynamodb describe-time-to-live` on both transcript tables, just now:
+  ```
+  page-ChatTranscriptsTable-19J8X0K9P03AJ          TimeToLiveStatus = DISABLED
+  page-staging-ChatTranscriptsTable-1XSZI611F4WDM  TimeToLiveStatus = DISABLED
+  ```
+  So **TTL is off in prod and in stage**. M8 item 3 adds a `ttl` attribute on new writes
+  (`transcript_store.py`, via `#ttl` because TTL is a DynamoDB reserved word) and enables
+  TTL on the table — but until BOTH are deployed to prod, the footer's privacy note would
+  tell visitors their transcripts are kept 180 days while DynamoDB keeps them forever.
+  A promise the system does not keep is worse than no promise, and this one is about
+  people's conversations.
+
+  **The rule, for the promotion checklist:** `js/privacy-note.js` and its footer entry may
+  not reach `main` until (1) the `#ttl` writer is deployed to the prod chat host AND
+  (2) `TimeToLiveStatus` reads `ENABLED` on `page-ChatTranscriptsTable-*`. Re-run the
+  describe-time-to-live above as the check; do not take a green suite or a successful
+  deploy as evidence, because the table setting is not in the suite's reach.
+
+  Note the ordering trap: the TTL attribute is written on NEW rows only, with no backfill
+  (D3), so enabling TTL does not retroactively bound the rows already there. The note's
+  wording should be true of the data that exists, not only of the data written after the
+  deploy — worth a second look at the copy before promotion.
+
 - **2026-10-23 — STAGE IS DEPLOYED AND VERIFIED (frontend + backend). Two CI deploy roles
   are broken and need the user; nothing is on prod.** `agent` @ `c8910ba`, `main` @
   `33a514c`. App **415 / 414 pass / 1 skip**, chat **213**, journeys **17/17**.
