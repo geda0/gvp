@@ -792,6 +792,12 @@ export function initChat() {
     if ('active' in patch) liveUi.active = Boolean(patch.active)
     if ('connecting' in patch) liveUi.connecting = Boolean(patch.connecting)
     if ('sessionOpen' in patch) liveUi.sessionOpen = Boolean(patch.sessionOpen)
+    // ss3.2's second chat.js-owned field, bridged from chat-live.js through this existing
+    // patch point. Without it `voiceActive` stayed false forever: the wire carried a lie,
+    // ss6.4 persisted that lie on every turn as the admin panel's "was this during a call",
+    // and siteStateWireIfNotable's voiceActive clause was unreachable. 'system' because the
+    // transport coming up or going down is neither the visitor nor the agent acting.
+    setVoiceActive(Boolean(liveUi.active || liveUi.sessionOpen), { origin: 'system' })
     if (liveUi.active || liveUi.sessionOpen) {
       voiceAwaitingStart = false
       voiceStartRequested = false
@@ -1126,13 +1132,13 @@ export function initChat() {
     panel.style.transform = toTransform
   }
 
-  const openContactFromChat = (prefill) => {
+  const openContactFromChat = (prefill, opts) => {
     // No closePanel here any more. js/contact.js writes contactOpen, the subscription above
     // feeds `contact-open` to the reducer, and the panel MINIMISES. The old version closed
     // the panel synchronously, which is what dropped the tool response for the assistant's
     // own open_contact_form call: stopVoice nulled chat-live's `ws` before the send-guard
     // ran, so the model waited forever on a function response (ADR-0015 ss9.3 c1).
-    openContactDialog()
+    openContactDialog(undefined, opts)
     if (!prefill || typeof prefill !== 'object') return
 
     requestAnimationFrame(() => {
@@ -1712,7 +1718,7 @@ export function initChat() {
         ? { subject: typeof args.subject === 'string' ? args.subject : '',
             message: typeof args.message === 'string' ? args.message : '' }
         : null
-      openContactFromChat(prefill)
+      openContactFromChat(prefill, { origin: 'agent' })
       // Same read-back: this is what proves the form OPENED, rather than that the handler
       // was called. The whole state travels, not just the field the tool touched - the model
       // should not have to remember where the visitor was to know where they still are.

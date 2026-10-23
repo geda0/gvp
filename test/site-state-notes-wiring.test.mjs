@@ -78,6 +78,41 @@ test("the assistant's OWN navigation is not read back to it", async (t) => {
   )
 })
 
+test("the assistant's OWN contact-form open is not read back to it either", async (t) => {
+  // The other half of the dedupe, and the one that was broken. navigate_to_section was
+  // threaded correctly (js/navigation.js takes an origin), so the existing row passed —
+  // while open_contact_form went through a js/contact.js that hardcoded 'visitor'. The
+  // model got the fact twice on every live contact-form open: the tool result's siteState,
+  // then a clientContent note ~250ms later. One tool covered, the other not, by the one
+  // mechanism that was supposed to cover both.
+  const siteState = await import('../js/site-state.js')
+  siteState.__resetSiteStateForTests()
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'notes-contact' })
+  t.after(() => api.disposeChatLiveVoice())
+  socket.sent.length = 0
+
+  socket.onmessage({
+    data: JSON.stringify({
+      toolCall: { functionCalls: [{ id: 'c1', name: 'open_contact_form', args: {} }] }
+    })
+  })
+  await afterTheWindow()
+
+  assert.equal(
+    sentMessages(socket).filter((m) => m.toolResponse).length, 1,
+    'harness: the tool must have run, or this proves nothing'
+  )
+  assert.equal(
+    siteState.getSiteState().contactOpen, true,
+    'harness: the form must actually have opened'
+  )
+  assert.deepEqual(
+    notes(socket), [],
+    'the tool result already carried the new state. A note on top is the double-notify §7.1 ' +
+    'exists to prevent, and origin is the only thing that can tell the two apart'
+  )
+})
+
 test('a site change is never allowed to end the call', async (t) => {
   // Invariant #20 again, at the one seam that did not exist when it was written: the
   // notifier runs inside the store's notify loop on every site change during a live call.

@@ -127,14 +127,20 @@ test('the /api/live/session request carries siteState too', async (t) => {
 
   const sent = JSON.parse(liveCall.opts.body)
   assert.ok(sent.sessionId, 'the existing sessionId must survive the addition')
-  assert.deepEqual(
-    sent.siteState, siteState.getSiteStateForWire(),
-    'the voice path needs it MORE than the text path, not less: a voice session is minted ' +
-    'once and then talks for minutes, so the greeting is the only chance to tell it where ' +
-    'the visitor already is (§6, and §7 keeps it current from there)'
+  assert.equal(
+    sent.siteState.section, 'labs',
+    'the voice path needs this MORE than the text path, not less: a session is minted once ' +
+    'and then talks for minutes, so the mint is its only chance to learn where the visitor ' +
+    'already is (§6; §7 keeps it current from there)'
   )
-  assert.equal(sent.siteState.section, 'labs')
   assert.equal(sent.siteState.contactOpen, true)
+  assert.equal(
+    sent.siteState.voiceActive, false,
+    'voiceActive must be FALSE in the request that creates the session — there is no live ' +
+    'call at mint time, and claiming one would be the first thing the model learned being ' +
+    'untrue. (This row compared the payload against a snapshot taken AFTER the session came ' +
+    'up, which passed only while nothing ever wrote the field.)'
+  )
 })
 
 test('nothing is sent when there is nothing to say — the key is ABSENT, not null', async (t) => {

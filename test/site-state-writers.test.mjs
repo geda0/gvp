@@ -273,6 +273,50 @@ test('js/projects.js writes project on open and null on close', async () => {
   )
 })
 
+test('the contact dialog reports WHO opened it, not always the visitor', async () => {
+  // Found by the M2 critic pass. js/contact.js hardcoded `origin: 'visitor'`, and
+  // openContactFromChat (js/chat.js) calls openContactDialog() with no way to say
+  // otherwise — so an AGENT-caused contact open was labelled as the visitor's doing.
+  //
+  // That is not cosmetic. §7.1's dedupe is "never notify on an agent-origin change, because
+  // the agent already received it in the tool result". Mislabelled, the model gets the same
+  // fact twice during a live call: once in the tool result's siteState and again ~250 ms
+  // later as a clientContent note. §3.3's entire justification for mandatory origin IS this
+  // case — and the mechanism was being defeated at the call site while the store's own
+  // throw looked like it was holding the line.
+  const { getEl } = installStubDom()
+  const { siteState, bust } = await freshModules('contact-origin')
+  const contact = await import('../js/contact.js' + bust)
+  contact.initContactForm()
+  await settle()
+
+  const changes = []
+  siteState.subscribe((_snap, change) => { if (change) changes.push(change) })
+
+  contact.openContactDialog(null, { origin: 'agent' })
+  await settle()
+  assert.deepEqual(
+    changes.map((c) => [c.field, c.to, c.origin]), [['contactOpen', true, 'agent']],
+    "an agent-opened contact form must be labelled 'agent'"
+  )
+
+  // A visitor closing it afterwards is still the visitor: origin travels with the ACT, not
+  // with the dialog.
+  changes.length = 0
+  getEl('contactDialog').querySelector('.contact-dialog__close').events
+    .fire('click', { type: 'click' })
+  await settle()
+  assert.deepEqual(
+    changes.map((c) => [c.field, c.to, c.origin]), [['contactOpen', false, 'visitor']]
+  )
+
+  // And the default stays the visitor, because every other door into this dialog is theirs.
+  changes.length = 0
+  contact.openContactDialog()
+  await settle()
+  assert.deepEqual(changes.map((c) => c.origin), ['visitor'])
+})
+
 test('gvp:site-chat-collapse is GONE from js/, not adapted', () => {
   const offenders = []
   for (const name of readdirSync(join(REPO, 'js'))) {

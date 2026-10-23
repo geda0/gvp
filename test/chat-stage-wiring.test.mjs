@@ -480,6 +480,39 @@ test('every event in the reducer table has a caller, or it is not a feature', as
   )
 })
 
+test('voiceActive is actually written, so the wire is not carrying a lie', async (t) => {
+  // Found by the M2 critic pass: `setVoiceActive` was imported into js/chat.js and called
+  // nowhere. ADR-0015 §3.2's writer row ("js/chat.js only, bridged from chat-live.js via
+  // patchLiveUi") was never built, so the field sat false forever.
+  //
+  // Three silent consequences, which is why this is a defect and not a tidy-up:
+  //   - getSiteStateForWire().voiceActive was always false, and §6.4 persists it on every
+  //     turn as the admin panel's record of whether a failed turn happened during a call.
+  //     A stored value that is wrong by construction is worse than an absent one.
+  //   - siteStateWireIfNotable()'s `|| wire.voiceActive` clause was unreachable, so a
+  //     visitor on home with a live call and nothing else open sent no siteState at all.
+  //   - the live-note path only looked right because js/chat-live.js substitutes its own
+  //     `voiceActive: true` when it renders — which is exactly what hid this.
+  const { api, siteState } = await boot('stage-voiceactive', WIDE)
+  t.after(() => api.disposeChatLiveVoice())
+
+  assert.equal(api.liveVoice.isSessionOpen(), true, 'harness: the session must be up')
+  assert.equal(
+    siteState.getSiteState().voiceActive, true,
+    'a live session must be visible in the store — this is the one field besides chatStage ' +
+    'whose writer the ADR assigns to chat.js and nothing else'
+  )
+  assert.equal(siteState.getSiteStateForWire().voiceActive, true)
+
+  api.liveVoice.stopVoice({ silent: true })
+  await settle()
+  assert.equal(
+    siteState.getSiteState().voiceActive, false,
+    'and it must go false when the call ends, or the next text turn is persisted as though ' +
+    'the visitor were still talking'
+  )
+})
+
 test('a viewport that narrows under a docked card minimises it', async (t) => {
   // §4.3's viewport rows, which had no caller either. A docked card is sized for a wide
   // viewport; left in place when the window narrows it covers the content it was supposed
