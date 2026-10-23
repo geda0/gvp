@@ -240,3 +240,120 @@ test('the TEXT path stops discarding the navigation result', async (t) => {
     `event is the cheapest honest fix. Saw: ${JSON.stringify(names)}`
   )
 })
+
+// ---------------------------------------------------------------- M4 (ADR-0017 §3.4)
+
+/** Render one card so the registry the resolver reads is populated, as the page does. */
+async function withOneProject () {
+  const projects = await import('../js/projects.js')
+  projects.renderProjects('labsContent', [
+    { id: 'team-tactics', title: 'Team Tactics', description: '<p>A TDD harness.</p>' }
+  ], 'labsProjects')
+  projects.initProjectDetailDialog()
+  await settle()
+  return projects
+}
+
+test('open_project resolves a title, opens the card, and echoes the store', async (t) => {
+  const siteState = await import('../js/site-state.js')
+  siteState.__resetSiteStateForTests()
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'toolres-openproj', hash: '#labs' })
+  t.after(() => api.disposeChatLiveVoice())
+  await withOneProject()
+  socket.sent.length = 0
+
+  // The model says the TITLE, which is what it has been shown — not the slug.
+  await callTool(socket, 'open_project', { project: 'Team Tactics' })
+
+  const [response] = toolResponses(socket)
+  assert.ok(response, 'the model must receive a toolResponse')
+  assert.equal(response.response.result, 'opened_project')
+  assert.equal(
+    response.response.projectId, 'team-tactics',
+    'the echo carries the RESOLVED id, so the model learns the vocabulary the site uses'
+  )
+  assert.equal(response.response.projectTitle, 'Team Tactics')
+  assert.deepEqual(
+    response.response.siteState, siteState.getSiteStateForWire(),
+    'read back from the store (invariant #21), never built from the argument'
+  )
+  assert.equal(siteState.getSiteState().project.id, 'team-tactics', 'and the card actually opened')
+})
+
+test('open_project refuses a project the site does not have, with what was said', async (t) => {
+  const siteState = await import('../js/site-state.js')
+  siteState.__resetSiteStateForTests()
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'toolres-badproj', hash: '#labs' })
+  t.after(() => api.disposeChatLiveVoice())
+  await withOneProject()
+  socket.sent.length = 0
+
+  await callTool(socket, 'open_project', { project: 'the video one' })
+
+  const [response] = toolResponses(socket)
+  assert.match(String(response.response.error), /unknown_project/)
+  assert.equal(
+    response.response.received, 'the video one',
+    'the model is the only party that can correct itself, so the refusal carries its words back'
+  )
+  assert.equal(
+    siteState.getSiteState().project, null,
+    'and NOTHING opened — a near miss must not pick a card by luck'
+  )
+})
+
+test('close_project on nothing open is a SUCCESS, not an error', async (t) => {
+  // The inverse of the no-op hash write, and the distinction matters. Invariant #21 is
+  // about whether the state the result ASSERTS is true, not about whether work happened.
+  // After close_project the state is "no project open" — exactly what it reports, and it
+  // was already true. An error here would teach the model that a correct statement about
+  // the world is a failure, and it would retry or apologise for nothing.
+  const siteState = await import('../js/site-state.js')
+  siteState.__resetSiteStateForTests()
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'toolres-closeproj', hash: '#labs' })
+  t.after(() => api.disposeChatLiveVoice())
+  const projects = await withOneProject()
+  socket.sent.length = 0
+
+  await callTool(socket, 'close_project', {})
+  let [response] = toolResponses(socket)
+  assert.equal(
+    response.response.result, 'closed_project',
+    'closing nothing is a true statement about the world, not a failure'
+  )
+  assert.equal(response.response.siteState.projectId, null)
+
+  // And it still works when something IS open.
+  projects.requestProjectOpen('team-tactics', { origin: 'visitor' })
+  await settle()
+  assert.equal(siteState.getSiteState().project.id, 'team-tactics', 'harness: must be open')
+  socket.sent.length = 0
+
+  await callTool(socket, 'close_project', {}, 'call-c2')
+  ;[response] = toolResponses(socket)
+  assert.equal(response.response.result, 'closed_project')
+  assert.equal(siteState.getSiteState().project, null, 'and it actually closed')
+})
+
+test("the agent's own open_project is not read back to it", async (t) => {
+  // The third tool to need the dedupe, and the reason slice 11 threaded origin BEFORE this
+  // slice: with a hard-coded 'visitor' the model would hear about the card it just opened
+  // twice — once in this tool result, once as a clientContent note 250 ms later.
+  const siteState = await import('../js/site-state.js')
+  siteState.__resetSiteStateForTests()
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'toolres-projdedupe', hash: '#labs' })
+  t.after(() => api.disposeChatLiveVoice())
+  await withOneProject()
+  socket.sent.length = 0
+
+  await callTool(socket, 'open_project', { project: 'team-tactics' })
+  await new Promise((r) => setTimeout(r, 320))
+  await settle(10)
+
+  const notes = socket.sent.map((raw) => JSON.parse(raw)).filter((m) => m.clientContent)
+  assert.deepEqual(
+    notes, [],
+    'the tool result already carried the new state; a note on top is the double-notify §7.1 ' +
+    'exists to prevent'
+  )
+})

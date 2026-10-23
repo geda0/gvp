@@ -4,6 +4,7 @@ import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { normalizeSection } from './section-names.js'
 import { requestNavigation } from './navigation.js'
+import { requestProjectOpen, requestProjectClose } from './projects.js'
 import {
   subscribe as subscribeSiteState,
   getSiteState,
@@ -1730,6 +1731,40 @@ export function initChat() {
       // The whole state travels, not just the field the tool touched - the model should not
       // have to remember where the visitor was to know where they still are.
       return { result: 'opened_contact_form', siteState: getSiteStateForWire() }
+    }
+    if (name === 'open_project') {
+      const ref = args && typeof args.project === 'string' ? args.project : ''
+      const match = requestProjectOpen(ref, { origin: 'agent' })
+      if (match.error) {
+        return { error: 'unknown_project', received: ref, siteState: getSiteStateForWire() }
+      }
+      // READ BACK (invariant #21). The "did not apply" branch is genuinely reachable here:
+      // openDialog returns early when the project registry misses, and that registry is
+      // populated per card only after loadProjects resolves - and never at all when that
+      // fetch fails. So a voice visitor on a slow connection can ask in the first second
+      // and, without this, be told a card opened that never did.
+      const settled = getSiteState().project
+      if (!settled || settled.id !== match.id) {
+        return { error: 'project_did_not_open', projectId: match.id, siteState: getSiteStateForWire() }
+      }
+      return {
+        result: 'opened_project',
+        projectId: settled.id,
+        projectTitle: settled.title,
+        siteState: getSiteStateForWire()
+      }
+    }
+    if (name === 'close_project') {
+      requestProjectClose({ origin: 'agent' })
+      // CLOSING NOTHING IS A SUCCESS, and that is the inverse of the no-op hash write.
+      // Invariant #21 is about whether the state the result ASSERTS is true, not about
+      // whether work happened: after this the state is "no project open", which is exactly
+      // what is reported and may well have been true already. An error here would teach the
+      // model that a correct statement about the world is a failure.
+      if (getSiteState().project) {
+        return { error: 'project_did_not_close', siteState: getSiteStateForWire() }
+      }
+      return { result: 'closed_project', siteState: getSiteStateForWire() }
     }
     if (name === 'navigate_to_section') {
       const section = args && typeof args.section === 'string' ? args.section : ''
