@@ -30,6 +30,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,23 @@ JSON_FIELD = 'GEMINI_API_KEY'
 
 _lock = threading.Lock()
 _resolved: bool | None = None
+#: When the last FAILED attempt ran (ADR-0025 filed-forward #2). None = no failure pending.
+_failed_at: float | None = None
+_DEFAULT_RETRY_SECONDS = 60.0
+
+
+def _now() -> float:
+    """Separated so tests can drive the retry cooldown without sleeping."""
+    return time.monotonic()
+
+
+def _retry_seconds() -> float:
+    raw = os.environ.get('GEMINI_KEY_RETRY_SECONDS')
+    try:
+        value = float(raw) if raw else _DEFAULT_RETRY_SECONDS
+    except ValueError:
+        return _DEFAULT_RETRY_SECONDS
+    return value if value >= 0 else _DEFAULT_RETRY_SECONDS
 
 
 def _announce(message: str) -> None:
@@ -93,15 +111,25 @@ def _extract(payload: Any) -> str:
 def resolve_gemini_key_into_env() -> bool:
     """Populate ``GEMINI_API_KEY`` from Secrets Manager. True only if it actually did.
 
-    Idempotent and cached: one fetch per process, because this runs on a cold start and the
-    value cannot change under a running container.
+    A SUCCESS is cached for the process: the value cannot change under a running container.
+    A FAILURE is retried, at most once per GEMINI_KEY_RETRY_SECONDS (default 60) - one
+    throttled or denied read at cold start used to disable the container's key for its whole
+    warm life (ADR-0025 filed-forward #2). No ARN configured is settled once and never retried.
     """
-    global _resolved
+    global _resolved, _failed_at
     with _lock:
-        if _resolved is not None:
-            return _resolved
-        _resolved = _resolve_once()
-        return _resolved
+        if _resolved is True:
+            return True
+        if _resolved is False and _failed_at is None:
+            return False
+        if _failed_at is not None and _now() - _failed_at < _retry_seconds():
+            return False
+        ok = _resolve_once()
+        _resolved = ok
+        # Only a configured-but-failed read is retryable; "no ARN" is a settled answer.
+        configured = bool((os.environ.get(ARN_ENV) or '').strip())
+        _failed_at = _now() if (not ok and configured) else None
+        return ok
 
 
 def _resolve_once() -> bool:
@@ -145,6 +173,7 @@ def _resolve_once() -> bool:
 
 def reset_for_tests() -> None:
     """Clear the cached resolution (pytest isolation)."""
-    global _resolved
+    global _resolved, _failed_at
     with _lock:
         _resolved = None
+        _failed_at = None

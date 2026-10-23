@@ -68,6 +68,13 @@ Parameters:
     NoEcho: true
     Default: ''
     Description: Probe-scoped secret validated by /api/chat/smoke (x-smoke-key). Distinct from the contact admin key.
+  AdminApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: >
+      ADR-0025 filed-forward #4 - the admin key /api/chat/host-status compares against.
+      Empty keeps that diagnostic closed (401), which was its only state before.
   ResendApiKey:
     Type: String
     NoEcho: true
@@ -190,6 +197,7 @@ Resources:
           CHAT_CORS_ORIGINS: !Ref ChatCorsOrigins
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTableName
           SMOKE_PROBE_KEY: !Ref SmokeProbeKey
+          ADMIN_API_KEY: !Ref AdminApiKey
           RESEND_API_KEY: !Ref ResendApiKey
           CHAT_ALERT_EMAIL: !Ref ChatAlertEmail
           CHAT_ALERT_FROM_EMAIL: !Ref ChatAlertFromEmail
