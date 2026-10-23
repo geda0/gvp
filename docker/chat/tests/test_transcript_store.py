@@ -571,7 +571,12 @@ def _ttl_write(monkeypatch, days: str | None, now: float):
 
 def test_each_write_refreshes_ttl_180_days_from_the_server_clock(monkeypatch) -> None:
     update = _ttl_write(monkeypatch, None, now=1_800_000_000.0)
-    assert 'ttl = :ttl' in update['UpdateExpression']
+    # TTL is a DynamoDB RESERVED WORD: a bare `ttl = :ttl` is rejected at runtime with a
+    # ValidationException that this fake table cannot raise, so the name MUST go through
+    # ExpressionAttributeNames.
+    assert '#ttl = :ttl' in update['UpdateExpression']
+    assert update['ExpressionAttributeNames'] == {'#ttl': 'ttl'}
+    assert ' ttl = ' not in update['UpdateExpression'].replace('#ttl', '')
     assert update['ExpressionAttributeValues'][':ttl'] == 1_800_000_000 + 180 * 86400
 
 
@@ -586,6 +591,7 @@ def test_zero_or_invalid_ttl_days_writes_no_ttl_and_keeps_transcripts(monkeypatc
     if days == '0':
         assert 'ttl' not in update['UpdateExpression']
         assert ':ttl' not in update['ExpressionAttributeValues']
+        assert 'ExpressionAttributeNames' not in update
     else:
         # An unparseable or negative value falls back to the default, never to "expire now".
         assert update['ExpressionAttributeValues'][':ttl'] == 1_800_000_000 + 180 * 86400

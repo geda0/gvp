@@ -9,8 +9,11 @@ const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8'
 
 test('ChatTranscriptsTable enables TTL on the attribute transcript_store.py writes', () => {
   const store = read('docker/chat/app/transcript_store.py')
-  const written = (store.match(/', (\w+) = :ttl'/) || [])[1]
-  assert.ok(written, 'transcript_store.py no longer SETs a `<attr> = :ttl` — update this test with it')
+  // The writer SETs `#ttl = :ttl` (TTL is a DynamoDB reserved word) and names the real
+  // attribute in ExpressionAttributeNames; that mapping is the attribute the table must name.
+  assert.match(store, /', #ttl = :ttl'/, 'transcript_store.py no longer SETs `#ttl = :ttl`')
+  const written = (store.match(/\{'#ttl': '(\w+)'\}/) || [])[1]
+  assert.ok(written, 'no ExpressionAttributeNames mapping for #ttl in transcript_store.py')
 
   const tpl = read('aws/template.yaml')
   const table = tpl.split(/^  ChatTranscriptsTable:\s*$/m)[1]?.split(/^  [A-Za-z0-9]+:\s*$/m)[0] || ''

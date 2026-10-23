@@ -143,8 +143,11 @@ class TranscriptStore:
         # (ADR-0020 A1); a refused write refreshes nothing, so a full session expires
         # N days after its last accepted turn.
         ttl_days = transcript_ttl_days()
-        ttl_set = ', ttl = :ttl' if ttl_days else ''
+        # `#ttl`, not `ttl`: TTL is a DynamoDB reserved word and a bare name is a
+        # runtime ValidationException, which would fail every transcript write.
+        ttl_set = ', #ttl = :ttl' if ttl_days else ''
         ttl_values = {':ttl': int(time.time()) + ttl_days * 86400} if ttl_days else {}
+        ttl_names = {'ExpressionAttributeNames': {'#ttl': 'ttl'}} if ttl_days else {}
         table.update_item(
             Key={'id': session_id},
             UpdateExpression=(
@@ -193,6 +196,7 @@ class TranscriptStore:
                 ':budget': session_byte_budget(turn_bytes),
                 **ttl_values,
             },
+            **ttl_names,
         )
 
     async def persist_turn(
