@@ -70,7 +70,7 @@ Four things make that harder here than the plan assumes, all MEASURED:
    `drawImage` is recorded (`:85-95`). Rain drawn as strokes is *invisible* to the harness.
 3. **Two test files classify sprites by `img.height === 4`** — `test/starfield-cull-wiring.test.mjs:40`
    and `test/starfield-perf.test.mjs:32`, plus the harness at `:89`. MEASURED: that is the star
-   streak strip (`STREAK_SPRITE_H = 4`, `js/starfield.js:225`). It is an undeclared contract, and a
+   streak strip (`STREAK_SPRITE_H = 4`, `js/starfield.js:311`). It is an undeclared contract, and a
    new 4-pixel-tall sprite silently breaks three files.
 4. **The renderer must not acquire a `new Date()`.** The harness pins `Date.now` and says so at
    `:136-141` ("Snow drift and the firefly wander read `Date.now()` directly … without this, hours
@@ -519,7 +519,7 @@ assertable with the counting stub the repo already has:
 MEASURED: three places identify a sprite by `img.height === 4` — `test/starfield-cull-wiring.test.mjs:40`,
 `test/starfield-perf.test.mjs:32` (feeding the `streakDraws` counter that pins invariant #6's live
 clause at `:140-153`), and `scripts/qa/starfield-ab-draws.mjs:89`. All three mean "this is a star
-motion streak", because `STREAK_SPRITE_H = 4` (`js/starfield.js:225`).
+motion streak", because `STREAK_SPRITE_H = 4` (`js/starfield.js:311`).
 
 **A hail pellet sprite baked 4 pixels tall would be counted as a star streak in all three.** The
 cheap fix: bake the hail sprite at any height other than 4 (8 × 8 is the natural size), and add one

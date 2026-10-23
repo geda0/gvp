@@ -137,9 +137,9 @@ test('starDrawBounds reports the union, and is the thing the predicate uses', ()
 // The streak is no longer one width for every star: `streakThickness(radius)` in
 // js/starfield.js keeps 1.5px as the hairline FLOOR a distant pinprick gets and grows the
 // width with the star's radius — 5.4px for the closest star the renderer can draw (radius
-// STAR_MAX_RADIUS = 9). This module still inflates the streak's segment box by a hardcoded
-// 0.75, which is half of the OLD one-size thickness copied into a second module. So for
-// every star above the floor the bound now under-covers the ink it is supposed to contain.
+// STAR_MAX_RADIUS = 9). This module USED TO inflate the streak's segment box by a hardcoded
+// 0.75 — half of the OLD one-size thickness, copied into a second module — so for every star
+// above the floor the bound under-covered the ink it was supposed to contain.
 //
 // UNDER-COVERING IS THE FORBIDDEN DIRECTION, per this module's own header: "A wrong `false`
 // costs one `drawImage` the canvas then clips — invisible, and exactly what is paid today. A
@@ -181,11 +181,29 @@ test('a star is bounded by its OWN streak width, so a close star with a fat stre
     'half-width applies on BOTH axes, because the streak runs at any angle'
   )
 
-  // The fallback, so this cannot regress a single cull that is correct today: a star that
-  // carries no width is still bounded by the hairline, exactly as it is now.
+  // The fallback, as a RELATION rather than a verdict.
+  //
+  // This used to assert `starIsOffCanvas(closest) === true`, which happened to sit 0.25px
+  // from flipping (bottom -0.25 against a needed < 0). That coupled the row to two numbers
+  // it is not about: bump STREAK_BOUNDS_PAD from 1 to 1.25 — an ordinary antialiasing retune
+  // the test above explicitly permits — and it failed with a message about the hairline. Far
+  // worse, making the fallback MORE conservative, which this module's header calls the
+  // correct direction, also failed it. A test that forbids a strictly-safer change is
+  // pinning the implementation, not the behaviour.
+  //
+  // What the fallback actually claims is comparative: declaring a width may only ever WIDEN
+  // the box, never narrow it.
+  assert.ok(
+    starDrawBounds(closest).bottom < starDrawBounds(fat).bottom,
+    'the box may only widen for a star that declares its own width — a declared width that ' +
+    'narrowed the bounds would shave them, which deletes visible stars'
+  )
+
+  // And the cull still culls, on a fixture with room to spare rather than a knife edge: 18px
+  // clear of the top on a tail that no permitted width can reach back onto the canvas.
+  const farOff = { x: 864, y: -60, radius: 9, tailX: 960, tailY: -20 }
   assert.equal(
-    starIsOffCanvas(closest, W, H), true,
-    'with no width on the star the hairline bound still applies — the bound may only widen ' +
-    'for the stars that actually draw a wide streak'
+    starIsOffCanvas(farOff, W, H), true,
+    'a star genuinely clear of the canvas is still culled, whatever its streak width'
   )
 })

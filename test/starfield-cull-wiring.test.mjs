@@ -143,3 +143,60 @@ test('a culled star still tracks its position, so its streak is never a stale sm
     're-entering star smear from wherever it left. Skip the drawing, nothing else'
   )
 })
+
+test('the streak is DRAWN at the width the star computed, centred on its segment', async () => {
+  // THE GAP THIS CLOSES, found by the tdd-critic and then PROVEN by probe: with the fat-tail
+  // expression at js/starfield.js:473 reverted to the old constant — i.e. the 12:1 lollipop
+  // fully restored on screen — all 502 tests still passed. The pure function had a test, the
+  // cull had a test, and the one line that actually puts the tail on the canvas had none.
+  //
+  // That is the exact defect class this repo has already paid for: `2d079aa` silently
+  // reverted three correct starfield fixes, and both regressions resurfaced on prod months
+  // later because nothing failed when they went away.
+  //
+  // TWO claims, because the cull depends on BOTH:
+  //   1. the drawn height is `streakThickness(radius)` for that same star — derived from the
+  //      glow draw that follows it (`dw` is the glow DIAMETER, so `dw / 2` is the radius,
+  //      bit-exact, restating no formula);
+  //   2. the strip is CENTRED (`dy === -dh / 2`). js/starfield-geom.js inflates the segment
+  //      box symmetrically, so an off-centre strip would over-cover one side and UNDER-cover
+  //      the other — a wrong `true` along one edge, which is the thing that module forbids.
+  const { streakThickness, STREAK_THICKNESS } = await import('../js/starfield.js')
+  const { log, pump } = await bootNight('streakwidth')
+  for (let i = 0; i < 300; i++) pump()
+
+  const pairs = []
+  for (let i = 0; i < log.length - 1; i++) {
+    if (log[i].kind === 'streak' && log[i + 1].kind === 'glow') {
+      pairs.push({ streak: log[i], glow: log[i + 1] })
+    }
+  }
+  assert.ok(pairs.length > 0, 'harness: no streak-then-glow pair was drawn — this probe is blind')
+
+  const wrongWidth = pairs.filter(
+    (p) => p.streak.dh !== streakThickness(p.glow.dw / 2)
+  )
+  assert.deepEqual(
+    wrongWidth.slice(0, 3).map((p) => ({ drawn: p.streak.dh, expected: streakThickness(p.glow.dw / 2) })),
+    [],
+    `${wrongWidth.length} of ${pairs.length} streaks were drawn at a width that is not ` +
+    'streakThickness(radius). A constant here is the lollipop: an 18px head on a 1.5px ' +
+    'stick, measured at 12:1 on live prod 2026-10-23'
+  )
+
+  const offCentre = pairs.filter((p) => p.streak.dy !== -p.streak.dh / 2)
+  assert.deepEqual(
+    offCentre.slice(0, 3).map((p) => ({ dy: p.streak.dy, dh: p.streak.dh })), [],
+    'a streak was not centred on its segment. js/starfield-geom.js inflates the segment box ' +
+    'by HALF the width on both sides; an off-centre strip under-covers one edge, and ' +
+    'under-covering is the wrong `true` that deletes a visible star'
+  )
+
+  // NON-VACUITY. Every assertion above is satisfied by a sky of pinpricks, where
+  // streakThickness floors at STREAK_THICKNESS and the fat-tail path is never exercised.
+  assert.ok(
+    pairs.some((p) => p.streak.dh > STREAK_THICKNESS),
+    'no streak was drawn wider than the hairline floor across 300 frames, so this test ' +
+    'never saw the behaviour it exists to pin. Widen the window or the viewport'
+  )
+})

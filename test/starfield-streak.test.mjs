@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import {
   STREAK_TAIL_FRAMES,
   STREAK_MAX_DIST,
+  STAR_MAX_RADIUS,
   streakLength,
+  streakThickness,
   compensateForClearedTrail
 } from '../js/starfield.js'
 
@@ -72,13 +74,15 @@ test('an uncompensated path draws a single-frame streak, not an 8-frame comet', 
 // constant in disguise), still a hairline for a distant pinprick so faint stars are never
 // fattened, and bounded above so the closest star draws a tail and not a slab.
 //
-// 1.5px is kept here as the HAIRLINE CEILING for a pinprick: at p50 it is already the
-// right order of magnitude, so it is what faint stars must not exceed — not what every
-// star gets.
-const HAIRLINE_CEILING = 1.5
+// 1.5px is the HAIRLINE FLOOR in js/starfield.js — the narrowest tail any star gets. This
+// test uses it as an upper bound, and that is not a contradiction: a pinprick should sit
+// EXACTLY at the floor, so "a faint star's tail is no wider than the floor" is the way to
+// say "faint stars were not fattened" without restating the formula. Deliberately a
+// test-local constant rather than an import, so green stays free to rename or delete the
+// production constant without this test following it around.
+const HAIRLINE_FLOOR = 1.5
 
-test('streak thickness tracks the star radius, so a close star trails a tail and not a stick', async () => {
-  const { streakThickness, STAR_MAX_RADIUS } = await import('../js/starfield.js')
+test('streak thickness tracks the star radius, so a close star trails a tail and not a stick', () => {
   assert.equal(typeof streakThickness, 'function',
     'streak width must be derivable from the star radius through a pure seam, like streakLength')
 
@@ -98,10 +102,52 @@ test('streak thickness tracks the star radius, so a close star trails a tail and
   // Hairline floor: a distant pinprick still streaks, and never fattens.
   const pinprick = streakThickness(0.2)
   assert.ok(pinprick > 0, 'a faint star still trails something — the streak must not vanish')
-  assert.ok(pinprick <= HAIRLINE_CEILING,
+  assert.ok(pinprick <= HAIRLINE_FLOOR,
     'faint stars must stay hairline — widening them is a different, unasked-for change')
 
   // Bounded above: no arithmetic turns a tail into a slab.
   assert.ok(streakThickness(1e9) <= headDiameter,
     'a tail is never wider than the widest star is across')
+})
+
+test('the tail never widens into the "mantis ray" that was rejected on staging', () => {
+  // THE OTHER DIRECTION, and it is not hypothetical — it is recorded history. From
+  // .claude/state/progress.md, 2026-07-09: the navigator reviewed a build ON STAGING and
+  // rejected it because "close stars showed a 'lollipop' (thin stick under a fat round
+  // glow); after I widened the head to the glow DIAMETER it became a 'mantis ray'
+  // (triangular wings)". So BOTH failure modes have been seen by the owner on a real screen,
+  // and the fix for one is the cause of the other.
+  //
+  // The test above bounds only the lollipop side (head/tail <= 4). That leaves the mantis
+  // ray wide open: STREAK_WIDTH_RATIO = 2.0 makes streakThickness(9) = 18, a tail exactly as
+  // wide as the glow is across — the rejected configuration — and every assertion above
+  // still passes. The ceiling at STAR_MAX_RADIUS * 2 does not help, because clampStarRadius
+  // caps the input at 9, so Math.min can never bind and that bound is unreachable.
+  //
+  // This is the reachable bound: the widest tail the renderer can actually draw must stay
+  // comfortably under the head's own RADIUS, let alone its diameter.
+  assert.ok(streakThickness(STAR_MAX_RADIUS) <= STAR_MAX_RADIUS,
+    'a tail must never be as wide as the head — widening it to the glow DIAMETER is the ' +
+    '"mantis ray" the owner rejected on staging 2026-07-09')
+})
+
+test('every depth gets a proportional tail — no band is left on the hairline', () => {
+  // A two-step function (`r < 5 ? 1.5 : 5.4`) satisfies every assertion in the lollipop test
+  // while leaving a whole mid-depth band stranded: a star at r = 4.9 has a ~10px head on a
+  // 1.5px hairline, a 6.5:1 lollipop in exactly the depth range most stars occupy. The
+  // lollipop was measured at p95 radius ~6.2, not at the ceiling, so the bound has to hold
+  // across the range rather than only at the extreme.
+  let prev = streakThickness(0)
+  for (let r = 0; r <= 12; r += 0.25) {
+    const t = streakThickness(r)
+    assert.ok(t >= prev,
+      `thickness went DOWN between radius ${(r - 0.25).toFixed(2)} and ${r.toFixed(2)} ` +
+      `(${prev} -> ${t}) — a wider star must never trail a thinner tail`)
+    prev = t
+  }
+
+  // And the silhouette bound holds at the MEASURED p95 star, not just the closest one.
+  const p95Radius = 6.2
+  assert.ok((p95Radius * 2) / streakThickness(p95Radius) <= 4,
+    'the p95 star (measured 12.4px across on live prod) must not be a lollipop either')
 })

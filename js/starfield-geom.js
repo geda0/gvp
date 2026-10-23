@@ -56,12 +56,22 @@ export function starDrawBounds (star) {
   const hasTail = star.tailX !== undefined && star.tailY !== undefined
   if (hasTail) {
     if (!finite(star.tailX) || !finite(star.tailY)) return null
-    // This star's own half-width, falling back to the hairline when it declares none. An
-    // unusable value falls back too rather than propagating NaN into the bounds, which
-    // would make every comparison below false and cull a star that should be drawn.
-    const half = finite(star.streakThickness) && star.streakThickness > 0
-      ? Math.abs(star.streakThickness) / 2
-      : STREAK_HALF_THICKNESS
+    // This star's own half-width, NEVER NARROWER than the hairline fallback.
+    //
+    // The Math.max is the whole safety argument, not a tidy-up. Without it a declared width
+    // below the hairline — anything in (0, 1.5) — would inflate LESS than the old constant
+    // did: 1.0 gives half 0.5 against 0.75, a 0.25px shave per side. Shaving is the wrong
+    // `true` this module's header forbids, and no producer should be able to reach it by
+    // accident. js/starfield.js cannot today, because streakThickness floors at 1.5, but a
+    // bound that depends on a caller's floor is not a bound.
+    //
+    // A non-finite or non-positive value contributes 0 and so falls back, rather than
+    // propagating NaN into the comparisons below — NaN makes every one of them false, which
+    // would cull a star that should be drawn.
+    const declared = finite(star.streakThickness) && star.streakThickness > 0
+      ? star.streakThickness / 2
+      : 0
+    const half = Math.max(STREAK_HALF_THICKNESS, declared)
     // The segment's own box, inflated by half the stroke width on both axes. Slightly loose
     // at the caps of a diagonal streak, which is the safe direction.
     left = Math.min(left, Math.min(star.x, star.tailX) - half)

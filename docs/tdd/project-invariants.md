@@ -1206,6 +1206,33 @@ proves it comes FIRST.
     compared against it (`test/chat-stage-wiring.test.mjs`), and a browser hit-test that a click
     over site content reaches the content while a click over the panel reaches the panel.
 
+23. **The starfield cull inflates, never shaves — and the width it assumes is the width that is
+    drawn.** `[app]`
+    Recorded 2026-10-23. Two halves of one rule, and both have already been broken once.
+    *Shaving:* `starDrawBounds` (`js/starfield-geom.js`) must bound a star by at least what it
+    puts on the canvas. A wrong `false` costs one `drawImage` the canvas then clips — free. A
+    wrong `true` **deletes a visible star**, which no unit test shows and which reads as flicker
+    at the edge of vision. So every bound is inflated and never shaved, and an untrusted input is
+    always drawn.
+    *Disagreement:* the cull's assumed streak width and the width passed to `drawImage` must be
+    **one number**. They were two — `STREAK_HALF_THICKNESS = 0.75` in the geom module was a silent
+    copy of `STREAK_THICKNESS / 2` in the renderer — so making the streak proportional to the star
+    silently under-covered the widest tails, selecting precisely for the **brightest** stars at the
+    screen edges.
+    **WHY THIS CLEARS THE BAR** that declined the voice-résumé net: it is a correctness defect in
+    the forbidden direction, invisible in a diff, invisible to the suite, and this repo has already
+    paid for it — `2d079aa` silently reverted three correct starfield fixes and both regressions
+    resurfaced on prod months later. The whole class is "a starfield change nothing fails for".
+    *Pin:* the width function as a pure seam, bounded on BOTH sides — the lollipop direction and
+    the "mantis ray" the owner rejected on staging 2026-07-09 (`test/starfield-streak.test.mjs`);
+    the bounds' fallback proven to only ever widen (`test/starfield-geom.test.mjs`); and — the one
+    that was missing, and that a probe showed the whole suite passing without — the DRAWN height
+    asserted equal to `streakThickness(radius)` and centred on its segment, at the call site
+    (`test/starfield-cull-wiring.test.mjs`).
+    *Implemented by:* `js/starfield-geom.js` (`starDrawBounds`, `starIsOffCanvas`),
+    `js/starfield.js` (`streakThickness`, and the single `thickness` passed to both the cull and
+    the `drawImage`).
+
 
 ## Out of scope / explicitly allowed
 
