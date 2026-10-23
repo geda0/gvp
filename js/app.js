@@ -19,6 +19,7 @@ import {
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
+import { initPrivacyNote } from './privacy-note.js'
 import { initSpacemanProjectContext } from './spaceman-project-context.js'
 import { initChat, syncChatLaunchers, EV_OPEN_CHAT } from './chat.js'
 import { initAgentNode } from './agent-node.js'
@@ -36,6 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme()
   initStarfield('canvas', { getTheme })
   initContactForm()
+  initPrivacyNote()
 
   // Living time-of-day slider — A native range input drives the hour (drag + keyboard);
   // Auto re-engages the local clock.

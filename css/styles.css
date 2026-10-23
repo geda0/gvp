@@ -1700,8 +1700,20 @@ section#portfolioProjects.visible.content-section-reveal {
 }
 
 /* Contact */
-body.contact-dialog-open {
+body.contact-dialog-open,
+body.privacy-dialog-open {
     overflow: hidden;
+}
+
+/* M8 item 5 — the privacy note reuses the contact dialog shell. */
+.privacy-facts {
+    margin: 0.75rem 0 0;
+    padding-left: 1.2rem;
+    line-height: 1.55;
+}
+
+.privacy-facts li + li {
+    margin-top: 0.6rem;
 }
 
 .contact-open-btn {
