@@ -2,9 +2,18 @@
  * Starfield defaults vs prefers-reduced-motion tuning (single source of truth).
  * Imported by starfield.js and tests.
  */
+import { parsePrecipitationKind } from './precipitation.js'
 
 export const STARFIELD_DEFAULT_EXPERIENCE = {
   snowCount: 200,
+  // TUNABLE starting points (ADR-0016 §5.2), DERIVED rather than measured. Rain is denser
+  // than snow because a drop crosses an 800px viewport in ~60 frames against snow's ~600,
+  // so the eye reads individual streaks instead of a field. Hail is sparser and larger
+  // because a pellet is a hard, high-contrast object and a dense field of them is visually
+  // violent. Neither scales with viewport area or core count, deliberately - a fixed count
+  // is the shipped design for snow and it is fine.
+  rainCount: 260,
+  hailCount: 90,
   spaceTrailAlpha: 0.59,
   baseStars: 717,
   fireflyCount: 22
@@ -16,6 +25,16 @@ export const STARFIELD_REDUCED_MOTION = {
   starMin: 36,
   snowMult: 0.42,
   snowMin: 28,
+  // Rain and hail cut SPEED as well as count, which snow does not (see
+  // precipitationSpeedMultiplierForPreference). The floors are non-zero on purpose: a
+  // reduced-motion visitor who sees NO precipitation has not had the feature softened, they
+  // have had it deleted.
+  rainMult: 0.38,
+  rainMin: 24,
+  rainSpeedMult: 0.45,
+  hailMult: 0.4,
+  hailMin: 12,
+  hailSpeedMult: 0.5,
   spaceTrailAlpha: 0.66,
   fireflyMult: 0.4,
   fireflyMin: 6
@@ -147,4 +166,68 @@ export function trailFramesToClear8Bit(eraseAlpha, start) {
     frames++
   }
   return frames
+}
+
+// ---------------------------------------------------------------- precipitation (ADR-0016 §5)
+//
+// These WRAP the snow helpers rather than replacing them. `snowflakeCountForPreference` is
+// named in invariant #6's implemented-by list and asserted by name with the literal 84 in
+// test/starfield-reduced-motion.test.mjs, so replacing it means editing an invariant and a
+// green test to buy nothing — and this repo's scar tissue is a defined-but-never-called
+// helper, so keeping it on the live path is worth more than tidiness.
+//
+// Two entry points would also mean two things the renderer could call and two places a kind
+// can be forgotten. One door, and the kind is a parameter.
+
+/** @param {unknown} kind @returns {'snow'|'rain'|'hail'} */
+function tierKind(kind) {
+  return parsePrecipitationKind(kind)
+}
+
+export function precipitationCountForPreference(kind, prefersReducedMotion) {
+  const def = STARFIELD_DEFAULT_EXPERIENCE
+  const rm = STARFIELD_REDUCED_MOTION
+  switch (tierKind(kind)) {
+    case 'rain':
+      return prefersReducedMotion
+        ? Math.max(rm.rainMin, Math.floor(def.rainCount * rm.rainMult))
+        : def.rainCount
+    case 'hail':
+      return prefersReducedMotion
+        ? Math.max(rm.hailMin, Math.floor(def.hailCount * rm.hailMult))
+        : def.hailCount
+    default:
+      // Delegated, so the snow number is byte-identical and the old helper stays called.
+      return snowflakeCountForPreference(prefersReducedMotion)
+  }
+}
+
+/**
+ * Reduced motion slows rain and hail; snow keeps its shipped behaviour exactly.
+ *
+ * MEASURED: `snowSpeedMultiplierForPreference` returns exactly 1 under reduced motion — the
+ * shipped reduced tier cuts COUNT and trail alpha, not speed. For snow at 0.6-1.8px/frame
+ * that is defensible. For rain at roughly an order of magnitude more displacement per frame
+ * it is not: the thing a reduced-motion visitor is reacting to IS the speed, and a tier that
+ * cut only the count would ship fast streaks to exactly the people who asked for less
+ * motion while staying fully compliant with invariant #6's current wording, and green.
+ */
+export function precipitationSpeedMultiplierForPreference(kind, prefersReducedMotion) {
+  const rm = STARFIELD_REDUCED_MOTION
+  switch (tierKind(kind)) {
+    case 'rain':
+      return prefersReducedMotion ? rm.rainSpeedMult : 1
+    case 'hail':
+      return prefersReducedMotion ? rm.hailSpeedMult : 1
+    default:
+      return snowSpeedMultiplierForPreference(prefersReducedMotion)
+  }
+}
+
+export function defaultExperiencePrecipitationCount(kind) {
+  switch (tierKind(kind)) {
+    case 'rain': return STARFIELD_DEFAULT_EXPERIENCE.rainCount
+    case 'hail': return STARFIELD_DEFAULT_EXPERIENCE.hailCount
+    default: return defaultExperienceSnowflakeCount()
+  }
 }
