@@ -168,6 +168,12 @@ Resources:
             ProjectionType: ALL
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+      # M8 item 3 (ADR-0021 D3): transcript_store.py refreshes `ttl` on every accepted
+      # turn (180 d, CHAT_TRANSCRIPT_TTL_DAYS; 0 = keep forever). Items written before
+      # this have no `ttl` and are not touched - there is no backfill.
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   # First-party site-interaction events (analytics we own). Same id+byCreatedAt
   # GSI shape as the other tables so the daily report can range-query a UTC day.

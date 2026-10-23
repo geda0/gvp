@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  ADR-0021 D2 / ADR-0022 §15.3 — the request-rate ceiling in front of the chat CloudFront
+  distribution: a WAF rate-based rule, 300 requests / 5 min / IP, everything else allowed.
+  MUST be deployed in us-east-1 (Scope CLOUDFRONT). Its WebAclArn output is passed to
+  aws/chat-stream-cdn-template.yaml's WebAclArn parameter. Cost: ~$5/month per web ACL +
+  $1/month per rule + $0.60 per million requests.
+
+Parameters:
+  StageName:
+    Type: String
+    AllowedValues: [stage, prod]
+
+Resources:
+  ChatWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub 'gvp-chat-${StageName}'
+      Scope: CLOUDFRONT
+      Description: Per-IP rate ceiling for the chat distribution (ADR-0022 §15.3).
+      DefaultAction:
+        Allow: {}
+      Rules:
+        - Name: per-ip-300-per-5min
+          Priority: 0
+          # 300 / 5 min / IP is far above one household's real use (ADR-0020's shared-NAT
+          # concern) and far below a scripted loop's. A blocked caller gets 403 at the edge,
+          # before any Lambda is invoked or billed.
+          Statement:
+            RateBasedStatement:
+              Limit: 300
+              EvaluationWindowSec: 300
+              AggregateKeyType: IP
+          Action:
+            Block: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub 'gvp-chat-${StageName}-per-ip-rate'
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub 'gvp-chat-${StageName}-web-acl'
+
+Outputs:
+  WebAclArn:
+    Description: Pass to gvp-chat-stream-cdn-<env> as WebAclArn.
+    Value: !GetAtt ChatWebAcl.Arn

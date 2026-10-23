@@ -377,12 +377,23 @@
 
     <script type="module" src="js/app.js"></script>
 
+    <!-- M8 item 5 (ADR-0021 D4): plain-words privacy note; facts rendered by js/privacy-note.js -->
+    <div id="privacyDialog" class="contact-dialog privacy-dialog" hidden aria-hidden="true">
+        <div class="contact-dialog__backdrop" aria-hidden="true"></div>
+        <div class="contact-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="privacyDialogTitle">
+            <button type="button" class="contact-dialog__close" aria-label="Close privacy note">&times;</button>
+            <h2 id="privacyDialogTitle" class="section-label">Privacy, in plain words</h2>
+            <ul id="privacyFacts" class="privacy-facts"></ul>
+        </div>
+    </div>
+
     <footer>
         <p>© 2026 Marwan Elgendy. All rights reserved.</p>
         <p>
             <button type="button" id="footerOpenContactBtn" class="footer-contact-open footer-link-spacing" data-track="contact_open" aria-label="Open contact form">Contact</button> |
             <a href="https://www.linkedin.com/in/marwan-elgendy/" target="_blank" rel="noopener noreferrer" data-track="linkedin_click" class="footer-link-spacing">LinkedIn</a> |
-            <button type="button" id="footerOpenChatBtn" class="footer-chat-open footer-link-spacing" data-track="footer_open_chat" aria-label="Open chat">Chat with Agent</button>
+            <button type="button" id="footerOpenChatBtn" class="footer-chat-open footer-link-spacing" data-track="footer_open_chat" aria-label="Open chat">Chat with Agent</button> |
+            <button type="button" id="footerOpenPrivacyBtn" class="footer-contact-open footer-link-spacing" data-track="privacy_open" aria-label="Open privacy note">Privacy</button>
         </p>
     </footer>
 </body>
