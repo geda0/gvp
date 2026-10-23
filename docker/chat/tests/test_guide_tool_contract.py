@@ -119,3 +119,45 @@ def test_the_chat_tools_docstring_does_not_contradict_the_function():
         'navigate_to_section\", which the function contradicts by declaring it. ADR-0010 §2 '
         '(navigation parity on the text path) shipped; the docstring did not follow.'
     )
+
+
+# ---------------------------------------------------------------- M4 chat slice 2 (ADR-0017 §3.1)
+# open_project / close_project are declared on BOTH paths from ONE tuple (app/project_refs.py),
+# with the argument the frontend reads (`project`, js/chat.js). Inspected at runtime because the
+# enum is the shared tuple, not a literal a regex could read.
+
+def _decls_by_name(tool) -> dict:
+    return {d.name: d for d in tool.function_declarations}
+
+
+def _text_decls() -> dict:
+    from app.providers import chat_tools
+    return _decls_by_name(chat_tools()[0])
+
+
+def _voice_decls() -> dict:
+    from app.live_gemini import _LIVE_TOOLS
+    return _decls_by_name(_LIVE_TOOLS)
+
+
+def test_both_paths_declare_open_project_over_the_shared_tuple():
+    from app.project_refs import PROJECT_IDS
+    assert PROJECT_IDS, 'the shipped pack must yield project ids'
+    for label, decls in (('text', _text_decls()), ('voice', _voice_decls())):
+        assert 'open_project' in decls, f'{label} path does not declare open_project'
+        params = decls['open_project'].parameters
+        assert list(params.properties) == ['project'], f'{label}: the FE reads args.project'
+        assert params.required == ['project']
+        assert list(params.properties['project'].enum) == list(PROJECT_IDS), f'{label} enum drifted'
+
+
+def test_both_paths_declare_close_project_with_no_arguments():
+    for label, decls in (('text', _text_decls()), ('voice', _voice_decls())):
+        assert 'close_project' in decls, f'{label} path does not declare close_project'
+        assert not (decls['close_project'].parameters.properties or {}), f'{label}: close_project takes nothing'
+
+
+def test_both_modules_take_the_enum_from_project_refs_not_a_copy():
+    for module in ('providers.py', 'live_gemini.py'):
+        src = (APP / module).read_text()
+        assert re.search(r'from app\.project_refs import PROJECT_IDS', src), f'{module} must import the shared tuple'
