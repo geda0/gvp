@@ -260,3 +260,47 @@ def test_no_site_state_leaves_the_messages_untouched():
     from app.messages import Msg
     history = [Msg(role='human', content='hello')]
     assert _place(history, None) == history
+
+
+def test_the_live_route_actually_passes_the_line_to_the_builder(monkeypatch):
+    """Dropping `site_state_line=` from the route must not go unnoticed.
+
+    `test_the_live_instruction_stays_inside_its_budget_WITH_a_site_state_line` calls
+    `build_live_system_instruction` directly, so it proves the BUILDER handles the line and
+    nothing about whether the route hands it over. Delete the keyword argument at the call
+    site and that test stays green while the voice model is told nothing about where the
+    visitor is — which is half of M2's "site awareness" claim, gone silently.
+    """
+    from app import main
+
+    seen = {}
+    real = main.build_live_system_instruction
+
+    def spy(prompt, pack, site_state_line=''):
+        seen['line'] = site_state_line
+        return real(prompt, pack, site_state_line=site_state_line)
+
+    monkeypatch.setattr(main, 'build_live_system_instruction', spy)
+    monkeypatch.setenv('GEMINI_API_KEY', 'test-key-not-used-for-a-real-mint')
+
+    import asyncio
+
+    from httpx import ASGITransport, AsyncClient
+    from asgi_lifespan import LifespanManager
+
+    async def go():
+        async with LifespanManager(main.app):
+            transport = ASGITransport(app=main.app)
+            async with AsyncClient(transport=transport, base_url='http://test') as ac:
+                return await ac.post('/api/live/session', json={
+                    'sessionId': 'abc123', 'siteState': VALID,
+                })
+
+    asyncio.run(go())
+
+    assert 'line' in seen, 'the route must call build_live_system_instruction at all'
+    assert 'Current site state' in seen['line'], (
+        'the route built the live instruction WITHOUT the site-state line, so the voice '
+        f'model learns nothing about where the visitor is. Saw: {seen["line"]!r}'
+    )
+    assert 'portfolio' in seen['line']

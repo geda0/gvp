@@ -1,7 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+
 import { hasNavPromiseGap } from '../js/nav-promise-gap.js'
+
+const REPO = fileURLToPath(new URL('..', import.meta.url))
 
 // Did the assistant say it would take the visitor somewhere, and then not?
 //
@@ -92,5 +98,32 @@ test('the predicate cannot navigate — it only answers a question', () => {
     src, /location|hash|navigate\s*\(|requestNavigation|history/,
     'this is a COUNTER. It is recorded and never acted on, which is the whole reason its ' +
     'predicate is allowed to be loose'
+  )
+})
+
+test('the action id the counter reads is the one the server actually sends', () => {
+  // The text path translates an ACTION into the tool name this predicate knows:
+  //   actions.map(a => ({ name: a.id === 'navigate' ? 'navigate_to_section' : a.id }))
+  // and `'navigate'` is an unshared literal that has to match what the server emits
+  // (docker/chat/app/main.py builds `{'id': 'navigate', 'section': …}`).
+  //
+  // If they drift, EVERY KEPT PROMISE IS COUNTED AS A GAP, and the number that ADR-0015
+  // §5.2 says will decide whether to revisit inferPromisedNavigation becomes noise — a
+  // counter reporting a defect rate for behaviour that is working. Nothing would fail: both
+  // sides stay individually correct, and the only symptom is a metric that lies.
+  const serverSrc = readFileSync(join(REPO, 'docker', 'chat', 'app', 'main.py'), 'utf8')
+  const ids = [...serverSrc.matchAll(/'id':\s*'([a-z-]+)'/g)].map((m) => m[1])
+  assert.ok(ids.length > 0, 'harness: no action ids found in main.py, so this proves nothing')
+  assert.ok(
+    ids.includes('navigate'),
+    `the server no longer emits an action with id 'navigate' — it emits ${JSON.stringify([...new Set(ids)])}. ` +
+    'js/chat.js translates that exact string before asking hasNavPromiseGap, so a rename ' +
+    'turns every kept promise into a counted gap'
+  )
+
+  const chatSrc = readFileSync(join(REPO, 'js', 'chat.js'), 'utf8')
+  assert.match(
+    chatSrc, /a\.id === 'navigate' \? 'navigate_to_section'/,
+    'the translation at the text-path call site must still read the id the server sends'
   )
 })
