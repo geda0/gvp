@@ -134,8 +134,18 @@ Then open `http://localhost:8000` in a browser.
 
 ### Tests
 
-- **`npm run test:reduced-motion`** — `node:test` against `js/starfield-prefs.js`.
-- No browser E2E suite; verify UI manually after static or Lambda changes.
+- **`node --test`** — the whole app suite (zero dependencies; `node --test` auto-discovers
+  `test/**/*.test.mjs`). `npm run test:reduced-motion` runs one file.
+- **`cd docker/chat && PYTHONPATH=. .venv/bin/python -m pytest tests -q`** — the chat suite.
+- **`npm run test:journeys`** — browser journeys against a real headless Chrome, driven over
+  CDP with no dependencies (`scripts/qa/cdp.mjs`). Opt-in, not part of `node --test`. Only
+  claims that need a compositor live there — real hit-testing, real CSS, real key order;
+  everything a stub DOM can settle stays in `node --test`.
+- **`npm run qa:starfield-ab`** — renders a git revision and the working tree under the same
+  seeded `Math.random`, pinned clock and viewport, and compares the visible draw stream. Run
+  it after ANY change to `js/starfield.js`: it is how a perf change is shown to be
+  render-identical without a browser. Takes a revision, hour and frame count
+  (`npm run qa:starfield-ab -- HEAD~3 19 400`).
 
 ### CI/CD
 
