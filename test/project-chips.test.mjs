@@ -37,3 +37,9 @@ test('js/chat.js wires the chips to open-beside with a MEASURED roomBeside, and 
   assert.match(block, /projectChipPrompt\(/)
   assert.match(block, /sendMessage\(/)
 })
+
+test('critic: a project-chip prompt is not also counted as a composer submit', () => {
+  const chat = read('js/chat.js')
+  const branch = chat.slice(chat.indexOf("if (source === 'hero') {"), chat.indexOf("trackEvent('chat_composer_submit'"))
+  assert.match(branch, /source === 'project_chip'/, 'project_chip must be its own branch before the composer default')
+})

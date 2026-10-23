@@ -1355,3 +1355,20 @@ touches the request builder. If a language control is ever reintroduced, §12.6'
 top-level field, shape-validated, rendered text-path only into the `_with_site_state` turn) is
 still the right one.
 
+**After the M4 critic pass (2026-10-23):**
+- The Assistant tab's journey is now built from the events production *emits*. `chat_open`
+  fires only for programmatic opens; the hero and header submit as `hero_chat_submit` and
+  `header_chat_submit`; the footer is the `footer_open_chat` data-track; chips and selection
+  offers open too. The first version counted only `chat_open` and passed a test whose fixture
+  invented rows production never sends.
+- **§8.3's registry-bounded `projectId` facet is NOT built.** No emitted event carries a
+  `projectId` (`project_assistant_chip` is `{ chip, beside }`), so there is nothing to bound.
+  Adding one is an FE event change that must come with its registry bound in the same slice.
+- **§8.4's histogram-keys growth** is met behaviourally rather than by name: the new facets
+  live in `aws/src/admin/assistant-usage-core.js`, outside the file that test scans, and
+  `test/assistant-usage-core.test.mjs` feeds `toString` / `__proto__` through them.
+- Two voice races fixed in `js/chat-live.js`:
+  - one shared in-flight mic attach, so a manual tap plus the deferred attach no longer open
+    two streams;
+  - a mic allowed after hang-up is released at once.
+

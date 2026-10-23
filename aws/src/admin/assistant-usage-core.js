@@ -5,20 +5,32 @@
 // Events arrive on a PUBLIC route, so every facet is a CLOSED key space plus 'other' - an
 // open-keyed facet would let anyone mint values and own rows of the owner's dashboard
 // (invariant #17). Counters are Object.create(null) so 'toString' counts as a number
-// (ADR-0020 §5 A7b; test/chat-admin-histogram-keys.test.mjs widens to these names).
+// (ADR-0020 §5 A7b). Pinned behaviourally by test/assistant-usage-core.test.mjs ('toString' and
+// '__proto__' count as numbers) - the name-matched histogram-keys test scans contact-admin.js only.
 
 const DEFAULT_DAYS = 30
 const MAX_DAYS = 90
 // Route-specific cap: 90 days x the daily report's 50,000 would be far more than a dashboard needs.
 const MAX_ROWS_PER_DAY = 5000
 
-const SURFACES = ['hero', 'event', 'dialog', 'footer', 'launcher', 'chip']
+const SURFACES = ['hero', 'header', 'footer', 'event', 'chip', 'selection']
 const STOP_REASONS = ['abort_connecting', 'max_session', 'no_mic_idle', 'ws_idle']
 const LIVE_ERROR_PHASES = ['start', 'websocket', 'ws_closed_before_ready', 'attach_mic']
 const PROJECT_CHIPS = ['summarize', 'more', 'talk']
 const SECTIONS = ['home', 'portfolio', 'labs']
 
-const ENGAGED = new Set(['chat_composer_submit', 'chat_voice_start', 'chat_live_start', 'chat_dialog_chip', 'project_assistant_chip', 'selection_assistant_chip'])
+// The events production ACTUALLY emits when the assistant opens (M4 critic): chat_open fires
+// only for programmatic opens; the hero and header submit as their own events; the footer is a
+// data-track. Each maps to its surface.
+const OPEN_SURFACE = {
+  hero_chat_submit: 'hero',
+  header_chat_submit: 'header',
+  footer_open_chat: 'footer',
+  project_assistant_chip: 'chip',
+  selection_assistant_chip: 'selection'
+}
+const SUBMITS = new Set(['chat_composer_submit', 'hero_chat_submit', 'header_chat_submit'])
+const ENGAGED = new Set(['chat_composer_submit', 'hero_chat_submit', 'header_chat_submit', 'chat_voice_start', 'chat_live_start', 'chat_dialog_chip', 'project_assistant_chip', 'selection_assistant_chip'])
 
 export function parseDays (raw) {
   const n = Number.parseInt(String(raw ?? ''), 10)
@@ -65,20 +77,26 @@ export async function assistantUsage ({ queryDay, days, today = new Date().toISO
       const name = row && row.event
       const params = (row && row.params) || {}
       const sid = (row && row.sessionId) || ''
-      if (name === 'chat_open') {
+      // A row with no session is counted in totals but never joins a journey set: '' would
+      // otherwise merge every anonymous row into one fake session.
+      const track = (set) => { if (sid) set.add(sid) }
+      // chat_open without a surface is still an open (it folds into 'other').
+      const openSurface = name === 'chat_open' ? (params.surface ?? '') : OPEN_SURFACE[name]
+      if (openSurface !== undefined) {
         totals.opens += 1
-        opened.add(sid)
-        bump(facets.openSurfaces, params.surface)
+        track(opened)
+        bump(facets.openSurfaces, openSurface)
         if (row.section) bump(facets.sections, row.section)
-      } else if (name === 'chat_composer_submit') totals.submits += 1
-      else if (name === 'chat_live_start') { totals.voiceStarts += 1; voice.add(sid) }
-      else if (name === 'chat_live_error') { totals.voiceErrors += 1; voiceErr.add(sid); bump(facets.liveErrorPhases, params.phase) }
+      }
+      if (SUBMITS.has(name)) totals.submits += 1
+      if (name === 'chat_live_start') { totals.voiceStarts += 1; track(voice) }
+      else if (name === 'chat_live_error') { totals.voiceErrors += 1; track(voiceErr); bump(facets.liveErrorPhases, params.phase) }
       else if (name === 'chat_live_stop') { totals.voiceStops += 1; bump(facets.stopReasons, params.reason) }
       else if (name === 'chat_launcher_resume') totals.launcherResumes += 1
       else if (name === 'project_assistant_chip') { totals.projectChips += 1; bump(facets.projectChips, params.chip) }
       else if (name === 'selection_assistant_offer') totals.selectionOffers += 1
       else if (name === 'selection_assistant_chip') totals.selectionChips += 1
-      if (ENGAGED.has(name)) engaged.add(sid)
+      if (ENGAGED.has(name)) track(engaged)
     }
   }
 

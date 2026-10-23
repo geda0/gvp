@@ -1405,6 +1405,8 @@ export function initChat() {
       trackEvent('hero_chat_submit', { surface: 'hero' })
     } else if (source === 'header') {
       trackEvent('header_chat_submit', { surface: 'header' })
+    } else if (source === 'project_chip') {
+      // Already counted as project_assistant_chip at the tap; not a composer submit.
     } else {
       trackEvent('chat_composer_submit', { surface: 'dialog' })
     }

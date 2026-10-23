@@ -39,7 +39,9 @@ export function initSelectionOffers ({ doc = document, getSelection = () => wind
     send('selection_assistant_offer', { chars: charBucket(current.length), section: getSection() })
   }
 
-  doc.addEventListener('mouseup', () => evaluate())
+  // The tap on the offer itself ends in a mouseup that bubbles here; re-evaluating then would
+  // count a second offer for the one the visitor is taking.
+  doc.addEventListener('mouseup', (e) => { if (e && e.target === button) return; evaluate() })
   doc.addEventListener('keyup', (e) => { if (e && e.shiftKey) evaluate() })
   doc.addEventListener('scroll', hide, true)
 
@@ -50,6 +52,7 @@ export function initSelectionOffers ({ doc = document, getSelection = () => wind
     hide()
     if (!quote) return
     send('selection_assistant_chip', { chars: charBucket(quote.length), section: getSection() })
-    openDraft(`About this: "${quote}" — `)
+    // A complete sentence: openPanelWithDraft trims, so a trailing separator would be lost.
+    openDraft(`Tell me more about this: "${quote}"`)
   })
 }
