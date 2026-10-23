@@ -1348,9 +1348,13 @@ on branch `m7-alerts`, commits `7f776b7`, `3eb4741`, `ec987cd`, `96aaf16`, `9542
   - Subject: `[chat alert · <env>] [<P>] <type> — <summary>`.
   - Classified: `chat_transcript_write_failed` P1, `chat_transcript_session_full` P2,
     `voice_mint_failed` P1.
-  - **Open for the navigator:** the four `gemini_routing.py` types are unclassified and so P1 by
-    default. `chat_primary_timeout` and `chat_primary_rate_limit` mean the fallback answered,
-    which arguably makes them P2. That is a judgment, so it was not made here.
+  - **The four `gemini_routing.py` types, classified 2026-10-23** from what the code does:
+    - `chat_primary_timeout` and `chat_primary_rate_limit` fire *while switching to the
+      fallback*, so the visitor is still served. They are **P2**. If the fallback also fails,
+      `chat_upstream_unavailable` follows.
+    - `chat_upstream_unavailable` (every model failed) and `chat_model_error` (non-retryable,
+      raised) reach the visitor as errors. They are **P1**.
+    - Moving a row in `_PRIORITY` reverses any of this.
 - Both Lambda chat templates now have two chains:
   - **P1** = `'"CHAT_ALERT event=" -"prio=P2"'` (every line that is not P2, so a line without a
     prio field from pre-M7 code still pages) at a **60 s** period.
