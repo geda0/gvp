@@ -775,7 +775,19 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 }
 
 .chat-dialog {
-    z-index: 1095;
+    /* ABOVE .project-dialog (1100), not below it. MEASURED in a real browser 2026-10-23 at
+     * 1280x900 and 1512x950, and this was live on prod and stage: with a project dialog
+     * open, elementFromPoint over #agentNode returned the PROJECT DIALOG, so nothing in the
+     * site could open the chat — and forcing it open put the panel behind the dialog too,
+     * unreadable and unclickable. .project-dialog is inset:0, so its backdrop covers the
+     * launcher wherever the launcher is.
+     *
+     * This is the MODAL stage only. The yielded stages stay at 1085, deliberately BELOW
+     * every dialog (see the data-chat-stage block at the end of this file). ADR-0017 §1
+     * refutes the plan's "pill 1106": a pill raised above the project backdrop stops being
+     * yielded, and a pill left below it is untappable — which is why the two stages get
+     * opposite answers rather than one shared number. */
+    z-index: 1105;
 }
 
 /* Opaque shell + heavy dim so hero/portfolio never reads through the panel */

@@ -70,16 +70,51 @@ test('a yielded assistant sits BELOW the dialogs the visitor is using', () => {
   )
 })
 
-test('a MODAL assistant still sits above them — yielding is the exception, not the rule', () => {
+test('a MODAL assistant sits above EVERY site dialog, not just the contact one', () => {
+  // MEASURED IN A REAL BROWSER, 2026-10-23, at 1280x900 and 1512x950 — and this is a LIVE
+  // defect on prod and stage today, not a hypothetical:
+  //   - with a project dialog open, elementFromPoint over #agentNode returns the PROJECT
+  //     DIALOG, so nothing in the site can open the chat at all; and
+  //   - force the chat open anyway and its panel is ALSO behind the dialog, so a visitor
+  //     who reaches it can neither read nor click it.
+  // Cause: .project-dialog is inset:0 at z-index 1100 and .chat-dialog was 1095.
+  //
+  // The contact dialog (1090) happened to already sit below the chat, which is why the
+  // previous version of this row passed while the project dialog — the one M4's project
+  // chips are about to make reachable — did not. Asserting against EVERY dialog rather than
+  // one named dialog is the difference between catching the class and catching the instance
+  // somebody happened to think of.
   const chatCss = read('css', 'chat.css')
   const siteCss = read('css', 'styles.css')
   const modal = zIndexOf(chatCss, '.chat-dialog')
-  assert.ok(
-    modal > zIndexOf(siteCss, '.contact-dialog'),
-    'an OPEN chat dialog is modal and belongs on top; the rule above is about the yielded ' +
-    'stages only. Dropping the modal stage too would put the chat behind a backdrop it ' +
-    'raised itself'
-  )
+
+  for (const dialog of ['.contact-dialog', '.project-dialog']) {
+    assert.ok(
+      modal > zIndexOf(siteCss, dialog),
+      `a modal chat (z-index ${modal}) must sit above ${dialog} ` +
+      `(${zIndexOf(siteCss, dialog)}). An OPEN chat is modal and belongs on top; the rule ` +
+      'above is about the YIELDED stages only, and the two must not be confused — dropping ' +
+      'the modal stage would put the chat behind a backdrop it raised itself, while raising ' +
+      'the yielded ones would make a pill cover the page it exists to step aside from'
+    )
+  }
+})
+
+test('the yielded stages did NOT move when modal did', () => {
+  // The paired half. Raising modal above the project dialog is correct; raising the pill
+  // with it is the regression this file already records a browser measurement for — and the
+  // plan explicitly asked for it ("pill 1106"). Both assertions live in one file so a future
+  // edit cannot satisfy one by breaking the other without seeing both.
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const yielded = zIndexOf(chatCss, "#chatDialog[data-chat-stage='docked'],\n#chatDialog[data-chat-stage='minimized']")
+  for (const dialog of ['.contact-dialog', '.project-dialog']) {
+    assert.ok(
+      yielded < zIndexOf(siteCss, dialog),
+      `a yielded chat (${yielded}) must stay below ${dialog}. "Yielded" that covers the ` +
+      'thing the visitor turned to is not yielded'
+    )
+  }
 })
 
 test('the yielded panel takes its own pointer events back', () => {
