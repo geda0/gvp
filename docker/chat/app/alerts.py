@@ -29,6 +29,19 @@ _RESEND_URL = 'https://api.resend.com/emails'
 _lock = threading.Lock()
 _last_sent: dict[str, float] = {}
 
+# M7 (ADR-0020, "priority is a static property OF the event type"): one event type =
+# one priority = one throttle bucket. No call site learns its own priority, and the
+# throttle key stays the type alone. Unlisted types are P1 - fail loud.
+_PRIORITY: dict[str, str] = {
+    'chat_transcript_write_failed': 'P1',
+    'chat_transcript_session_full': 'P2',
+    'voice_mint_failed': 'P1',
+}
+
+
+def _priority(event_type: str) -> str:
+    return _PRIORITY.get(event_type, 'P1')
+
 
 def _dest_email() -> str:
     return (
@@ -126,7 +139,10 @@ def fire_alert(event_type: str, summary: str, detail: str = '') -> None:
     obligation, completing with the invocation, where an in-process POST is the
     PROCESS's and the process is not guaranteed to run again on Lambda.
     """
-    logger.warning('CHAT_ALERT event=%s env=%s %s', event_type, _env_label(), summary)
+    logger.warning(
+        'CHAT_ALERT event=%s prio=%s env=%s %s',
+        event_type, _priority(event_type), _env_label(), summary,
+    )
     if not alerts_enabled():
         return
     if not _should_send(event_type, time.monotonic()):
@@ -153,7 +169,7 @@ async def _send(event_type: str, summary: str, detail: str) -> None:
         import httpx
 
         env = _env_label()
-        subject = f'[chat alert · {env}] {event_type} — {summary}'[:200]
+        subject = f'[chat alert · {env}] [{_priority(event_type)}] {event_type} — {summary}'[:200]
         cooldown = int(_cooldown_seconds())
         body = (
             f'Event: {event_type}\n'

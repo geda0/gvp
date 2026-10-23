@@ -5,13 +5,18 @@ import {
   resolveCorsOrigin
 } from './common/contact-shared.js'
 import { normalizeEventBatch } from './common/events-shared.js'
+import { siteAlertLines } from './common/site-alerts-core.js'
 
 // A single beacon batch is small (<=25 events, clamped params). Refuse anything
 // past ~64KB outright — it can only be malformed or abusive, and bounding the
 // size BEFORE JSON.parse keeps a giant body from costing parse CPU at all.
 const MAX_BODY_BYTES = 64 * 1024
 
-export function createEventsHandler({ persistEvents, env = process.env }) {
+export function createEventsHandler({
+  persistEvents,
+  emitAlertLine = (line) => console.warn(line),
+  env = process.env
+}) {
   return async (event) => {
     const origin = resolveCorsOrigin(event)
     const method = event?.requestContext?.http?.method || event?.httpMethod || 'POST'
@@ -33,14 +38,19 @@ export function createEventsHandler({ persistEvents, env = process.env }) {
       return json(400, { error: 'Invalid JSON' }, origin)
     }
 
-    if (!env.SITE_EVENTS_TABLE) {
-      return json(500, { error: 'Events service is not configured.' }, origin)
-    }
-
     const received = Array.isArray(body?.events) ? body.events.length : 0
     const rows = normalizeEventBatch(body, event.headers || {})
     const persisted = rows.length
     const dropped = received - persisted
+
+    // M7 Tier 1 (ADR-0020 amendment, invariant 19's shape): one SITE_ALERT line per
+    // alerting row, BEFORE and independently of the config check and the persist attempt. A metric filter on
+    // this function's log group turns the line into a P1/P2 alarm.
+    for (const line of siteAlertLines(rows, env.SITE_ENV)) emitAlertLine(line)
+
+    if (!env.SITE_EVENTS_TABLE) {
+      return json(500, { error: 'Events service is not configured.' }, origin)
+    }
 
     if (!rows.length) {
       return json(202, { ok: true, accepted: 0, received, persisted: 0, dropped }, origin)

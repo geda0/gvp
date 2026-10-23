@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app.alerts import log_alert_gate_status
+from app.alerts import fire_alert, log_alert_gate_status
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
 from .site_state import SiteStateIn, format_site_state_line
@@ -1141,6 +1141,7 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
 
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
+        fire_alert('voice_mint_failed', 'GEMINI_API_KEY missing')
         return JSONResponse(
             status_code=503,
             content={
@@ -1166,6 +1167,8 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         )
     except asyncio.TimeoutError:
         logger.warning('live session mint timed out after %ss', mint_timeout)
+        # M7 (ADR-0020 §6): the visitor asked for voice and it will not start - P1.
+        fire_alert('voice_mint_failed', f'mint timed out after {mint_timeout}s')
         return JSONResponse(
             status_code=504,
             content={
@@ -1175,18 +1178,21 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         )
     except RuntimeError as exc:
         logger.warning("live session unavailable: %s", exc)
+        fire_alert('voice_mint_failed', f'live unavailable: {type(exc).__name__}')
         return JSONResponse(
             status_code=503,
             content={"error": str(exc), "code": "live_unavailable"},
         )
     except Exception as exc:
         logger.exception("live session token mint failed")
+        fire_alert('voice_mint_failed', f'mint failed: {type(exc).__name__}')
         status, content = upstream_error_body(exc)
         return JSONResponse(status_code=status, content=content)
 
     token_name = session_payload.pop("_authTokenName", None)
     if not token_name or not isinstance(token_name, str):
         logger.error("live session: mint returned no _authTokenName")
+        fire_alert('voice_mint_failed', 'mint returned no auth token')
         return JSONResponse(
             status_code=500,
             content={"error": "Live session misconfigured", "code": "live_internal"},
