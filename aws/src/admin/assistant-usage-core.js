@@ -22,10 +22,11 @@ const SECTIONS = ['home', 'portfolio', 'labs']
 // The events production ACTUALLY emits when the assistant opens (M4 critic): chat_open fires
 // only for programmatic opens; the hero and header submit as their own events; the footer is a
 // data-track. Each maps to its surface.
+// footer_open_chat is NOT here: the footer dispatches gvp:open-chat with surface 'footer', which
+// emits chat_open - counting both would count one click twice.
 const OPEN_SURFACE = {
   hero_chat_submit: 'hero',
   header_chat_submit: 'header',
-  footer_open_chat: 'footer',
   project_assistant_chip: 'chip',
   selection_assistant_chip: 'selection'
 }
@@ -76,6 +77,9 @@ export async function assistantUsage ({ queryDay, days, today = new Date().toISO
     for (const row of rows || []) {
       const name = row && row.event
       const params = (row && row.params) || {}
+      // bindOutboundTracking re-emits a data-track click under the SAME name as the explicit
+      // trackEvent beside it, tagged event_category 'Outbound'. Count the explicit one only.
+      if (params.event_category === 'Outbound') continue
       const sid = (row && row.sessionId) || ''
       // A row with no session is counted in totals but never joins a journey set: '' would
       // otherwise merge every anonymous row into one fake session.
