@@ -33,7 +33,12 @@ export const CHAT_STAGE_EVENTS = Object.freeze([
   'minimize',
   'close',
   'viewport-narrow',
-  'viewport-wide'
+  'viewport-wide',
+  // A visitor tapping "talk about this" inside a project dialog. Neither open-* nor
+  // project-open expresses it: open-* always goes modal, which covers the dialog with the
+  // chat's own backdrop, and project-open does not fire at all because the store's
+  // `project` was written BEFORE the chat opened, so tapping a chip changes nothing.
+  'open-beside'
 ])
 
 const STAGES = Object.freeze(['closed', 'modal', 'docked', 'minimized'])
@@ -109,6 +114,14 @@ export function nextChatStage (stage, event, ctx) {
     case 'viewport-wide':
       return stage
 
+    // Dock BESIDE the dialog when the measured geometry allows it, else take the screen.
+    // `closed` is deliberately NOT absorbing here: ss4.3 note 2 makes it absorbing for SITE
+    // events so a visitor who never opened the chat cannot acquire a dock by navigating,
+    // but this is not a site event - it is a visitor asking to talk, and opening is exactly
+    // what it is for.
+    case 'open-beside':
+      return ctx && ctx.roomBeside ? 'docked' : 'modal'
+
     default:
       // An unknown event is INERT, not fatal: a reducer that throws on one turns a typo in a
       // caller into a broken chat.
@@ -117,10 +130,52 @@ export function nextChatStage (stage, event, ctx) {
 }
 
 /**
- * The normative accessibility contract per stage (§4.4), as data.
- * @param {ChatStage} stage
+ * Is there room for the docked card beside an open dialog, without overlapping it?
+ *
+ * A FUNCTION OF MEASURED WIDTHS, NOT A BREAKPOINT. The dialog's width has two regimes -
+ * viewport-bound below ~704px, content-bound above - and the content-bound one is expressed
+ * in `rem`. The root font-size is 16px today, but this site already drives other sizes off
+ * viewport-relative clamps, so a future `html { font-size: clamp(...) }` would move the real
+ * threshold while a hard-coded media query kept passing, silently, with a green suite.
+ *
+ * The MEASUREMENT lives in js/chat.js (one getBoundingClientRect on the dialog panel); the
+ * DECISION lives here. Same split as the stage reducer and the precipitation leaf, for the
+ * same reason: the half that needs a compositor should be the half with no logic in it.
+ *
+ * @param {{viewportWidth: number, dialogWidth: number, cardWidth: number, gutter: number}} m
  */
-export function stageChrome (stage) {
+export function hasRoomBesideDialog (m) {
+  if (!m) return false
+  const { viewportWidth, dialogWidth, cardWidth, gutter } = m
+  // A measurement that did not happen must not read as room. The caller measures a live
+  // element, and before the dialog exists that rect is all zeros - a predicate that said
+  // `true` on zeros would dock the chat beside a dialog that is not there.
+  for (const v of [viewportWidth, dialogWidth, cardWidth, gutter]) {
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return false
+  }
+  if (viewportWidth <= 0 || dialogWidth <= 0 || cardWidth <= 0) return false
+  return (viewportWidth - dialogWidth) / 2 >= cardWidth + gutter
+}
+
+/**
+ * The normative accessibility contract per stage (§4.4), as data.
+ *
+ * `opts.requested` says the visitor ASKED for this stage rather than being yielded into it,
+ * and it changes exactly one cell: focus. ADR-0015 §4.4 argues that entering `docked` must
+ * not move focus, because stealing focus back into the chat is the keyboard equivalent of
+ * the modal that milestone removed - but that argument is about a YIELD. A visitor who taps
+ * "talk about this" asked for the composer, and leaving focus in the project dialog means a
+ * keyboard visitor taps the chip and then has to hunt for what they just opened.
+ *
+ * Widened here rather than handled in js/chat.js's glue: the whole point of returning the
+ * contract as DATA is that it is assertable in a repo with no jsdom, and one case handled
+ * imperatively would be the single cell of the table nothing checks - the exception, which
+ * is the cell most likely to be wrong.
+ *
+ * @param {ChatStage} stage
+ * @param {{requested?: boolean}} [opts]
+ */
+export function stageChrome (stage, opts) {
   switch (stage) {
     case 'closed':
       return {
@@ -155,7 +210,9 @@ export function stageChrome (stage) {
         backdropHidden: true,
         scrollLock: false,
         ariaModal: 'false',
-        moveFocus: 'none',
+        // `docked` by REQUEST focuses the composer; `docked` by yield does not, and a
+        // minimized pill has no composer to focus either way.
+        moveFocus: stage === 'docked' && opts && opts.requested ? 'composer' : 'none',
         pointerEventsOnShell: 'none'
       }
     default:

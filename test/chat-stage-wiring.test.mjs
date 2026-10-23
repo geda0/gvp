@@ -476,7 +476,12 @@ test('every event in the reducer table has a caller, or it is not a feature', as
   //     launcher work. Listed here so the gap is a decision on the record rather than an
   //     oversight that looks identical.
   const BYPASSED = { 'open-text': 'modal', 'open-voice': 'modal', close: 'closed' }
-  const NOT_YET_AFFORDED = ['minimize']
+  //   open-beside — the reducer row and the geometry predicate land in ADR-0017's slices 7-9;
+  //     its caller is the project chip in slice 13. Listed here for the same reason as
+  //     minimize: an event with no caller is either a missing feature or a row that should
+  //     be deleted, and the difference has to be a decision on the record rather than an
+  //     oversight that looks identical to one.
+  const NOT_YET_AFFORDED = ['minimize', 'open-beside']
   const uncalled = CHAT_STAGE_EVENTS.filter((event) => {
     if (NOT_YET_AFFORDED.includes(event)) return false
     if (new RegExp(`['"]${event}['"]`).test(src)) return false

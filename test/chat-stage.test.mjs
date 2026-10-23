@@ -154,7 +154,9 @@ test('every documented event name is accepted', () => {
   const expected = [
     'open-text', 'open-voice', 'navigate', 'project-open', 'project-close',
     'contact-open', 'contact-close', 'escape', 'restore', 'minimize', 'close',
-    'viewport-narrow', 'viewport-wide'
+    'viewport-narrow', 'viewport-wide',
+    // M4 (ADR-0017 §2.5): a visitor tapping "talk about this" inside a project dialog.
+    'open-beside'
   ]
   assert.deepEqual(
     [...CHAT_STAGE_EVENTS].sort(), expected.sort(),
@@ -225,5 +227,129 @@ test('stageChrome refuses an unknown stage rather than inventing chrome', () => 
     () => stageChrome('wide'), /stage/i,
     'an unknown stage must throw — silently returning closed-like chrome would hide the bug ' +
     'behind a blank screen'
+  )
+})
+
+// ---------------------------------------------------------------- M4 (ADR-0017 §2.4-2.6)
+
+test('hasRoomBesideDialog is a function of measured widths, not a breakpoint', async () => {
+  const { hasRoomBesideDialog } = await import('../js/chat-stage.js')
+
+  // THE THREE BROWSER-MEASURED GEOMETRIES. The project panel is 739.59px wide and the
+  // docked card 384px, both measured rather than computed from the CSS, because
+  // `min(42rem, …)` plus padding-inline-end is not something to derive by hand.
+  //
+  // The plan said "≥1100px the dialog shifts left beside the docked card". Both halves are
+  // wrong: centred, no-overlap needs W ≥ ~1547, and at 1512 — a common laptop — the two
+  // still overlap by ~18px. 1100 is not close.
+  const P = 739.59
+  const C = 384
+  const g = 20
+  assert.equal(
+    hasRoomBesideDialog({ viewportWidth: 1280, dialogWidth: P, cardWidth: C, gutter: g }), false,
+    'at 1280 browser-measurement puts 134 of the card\'s 384px behind the dialog panel'
+  )
+  assert.equal(
+    hasRoomBesideDialog({ viewportWidth: 1512, dialogWidth: P, cardWidth: C, gutter: g }), false,
+    'at 1512 they still overlap by ~18px — this is the row that makes the plan\'s 1100 ' +
+    'obviously wrong rather than arguably wrong'
+  )
+  assert.equal(
+    hasRoomBesideDialog({ viewportWidth: 1600, dialogWidth: P, cardWidth: C, gutter: g }), true
+  )
+
+  // The boundary is arithmetic, not a constant: (W - dialog) / 2 >= card + gutter.
+  const exact = P + 2 * (C + g)
+  assert.equal(hasRoomBesideDialog({ viewportWidth: exact, dialogWidth: P, cardWidth: C, gutter: g }), true)
+  assert.equal(hasRoomBesideDialog({ viewportWidth: exact - 1, dialogWidth: P, cardWidth: C, gutter: g }), false)
+
+  // A MEASUREMENT THAT DID NOT HAPPEN MUST NOT READ AS ROOM. The caller measures a live
+  // element; before the dialog exists that rect is 0, and a predicate that answered `true`
+  // on zeros would dock the chat beside a dialog that is not there.
+  for (const bad of [
+    { viewportWidth: 0, dialogWidth: 0, cardWidth: 0, gutter: 0 },
+    { viewportWidth: NaN, dialogWidth: P, cardWidth: C, gutter: g },
+    { viewportWidth: 1600, dialogWidth: NaN, cardWidth: C, gutter: g },
+    {},
+    null
+  ]) {
+    assert.equal(
+      hasRoomBesideDialog(bad), false,
+      `${JSON.stringify(bad)} must answer false — an unmeasured geometry is not room`
+    )
+  }
+})
+
+test('open-beside docks when there is room and goes modal when there is not', async () => {
+  const { nextChatStage, CHAT_STAGE_EVENTS } = await import('../js/chat-stage.js')
+
+  assert.ok(
+    CHAT_STAGE_EVENTS.includes('open-beside'),
+    'the event must be in the exported list, which test/chat-stage-wiring.test.mjs checks ' +
+    'every member of for a caller'
+  )
+
+  for (const from of ['closed', 'modal', 'docked', 'minimized']) {
+    assert.equal(
+      nextChatStage(from, 'open-beside', { roomBeside: true }), 'docked',
+      `open-beside from ${from} with room must dock`
+    )
+    assert.equal(
+      nextChatStage(from, 'open-beside', { roomBeside: false }), 'modal',
+      `open-beside from ${from} without room must go modal — on a phone, beside is not a ` +
+      'place, and a docked card there would cover the dialog it is meant to discuss'
+    )
+  }
+
+  // `closed` IS NOT ABSORBING for this one event, deliberately. §4.3 note 2 makes closed
+  // absorbing for SITE events so a visitor who never opened the chat cannot acquire a dock
+  // by navigating. open-beside is not a site event: it is a visitor tapping "talk about
+  // this", and opening is exactly what it is for.
+  assert.equal(nextChatStage('closed', 'open-beside', { roomBeside: true }), 'docked')
+
+  // ctx.wide is a SEPARATE key and must not be confused with roomBeside: wide governs the
+  // yield events, roomBeside governs this one.
+  assert.equal(
+    nextChatStage('closed', 'open-beside', { wide: true, roomBeside: false }), 'modal',
+    'a wide viewport with no room beside the dialog is still modal'
+  )
+  assert.equal(
+    nextChatStage('modal', 'navigate', { wide: true, roomBeside: false }), 'docked',
+    'and roomBeside must not leak into the yield events'
+  )
+})
+
+test('stageChrome moves focus when the stage was REQUESTED, not when it was yielded to', async () => {
+  const { stageChrome } = await import('../js/chat-stage.js')
+
+  // ADR-0015 §4.4 argues hard that entering docked must not move focus — "stealing focus
+  // back into the chat is the keyboard equivalent of the modal this milestone removes."
+  // That argument is about a YIELD. open-beside is a REQUEST: the visitor tapped "talk
+  // about this", so the composer is the thing they asked for, and leaving focus in the
+  // project dialog means a keyboard visitor taps the chip and nothing is reachable without
+  // hunting for it.
+  assert.equal(stageChrome('docked').moveFocus, 'none', 'yielding still must not move focus')
+  assert.equal(stageChrome('docked', { requested: true }).moveFocus, 'composer')
+
+  // Every other cell is unchanged, and the default argument reproduces the old table byte
+  // for byte — that is what makes this additive rather than a revision.
+  for (const stage of ['closed', 'modal', 'docked', 'minimized']) {
+    const plain = stageChrome(stage)
+    const defaulted = stageChrome(stage, {})
+    assert.deepEqual(defaulted, plain, `${stage}: an empty opts must change nothing`)
+
+    const requested = stageChrome(stage, { requested: true })
+    const { moveFocus: _a, ...restPlain } = plain
+    const { moveFocus: _b, ...restRequested } = requested
+    assert.deepEqual(
+      restRequested, restPlain,
+      `${stage}: requested may only affect moveFocus — not the backdrop, the scroll lock, ` +
+      'aria-modal or pointer events'
+    )
+  }
+
+  assert.equal(
+    stageChrome('minimized', { requested: true }).moveFocus, 'none',
+    'a minimised pill has no composer to focus, so requested changes nothing there'
   )
 })
