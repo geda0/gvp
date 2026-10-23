@@ -260,6 +260,9 @@ def build_llm_runnable(
         return _MockChain(inject), model_id
 
     if provider == "gemini":
+        # ADR-0025 #2: a key that failed to resolve at cold start may recover here (cached
+        # when resolved; retried at most once per GEMINI_KEY_RETRY_SECONDS when it failed).
+        resolve_gemini_key_into_env()
         key = os.environ.get("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")

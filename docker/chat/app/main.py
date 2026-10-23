@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.alerts import fire_alert, log_alert_gate_status
+from app.secret_resolver import resolve_gemini_key_into_env
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
 from .site_state import SiteStateIn, format_site_state_line
@@ -1139,6 +1140,8 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             },
         )
 
+    # ADR-0025 #2: give a key that failed at cold start its bounded chance to recover.
+    resolve_gemini_key_into_env()
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         fire_alert('voice_mint_failed', 'GEMINI_API_KEY missing')

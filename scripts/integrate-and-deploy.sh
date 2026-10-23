@@ -507,6 +507,10 @@ if [[ "${run_chat_sam}" == "true" ]]; then
   if [[ -n "${SMOKE_PROBE_KEY:-}" ]]; then
     CHAT_PO+=("SmokeProbeKey=${SMOKE_PROBE_KEY}")
   fi
+  # ADR-0025 filed-forward #4: /api/chat/host-status needs the admin key on this host.
+  if [[ -n "${ADMIN_API_KEY:-}" ]]; then
+    CHAT_PO+=("AdminApiKey=${ADMIN_API_KEY}")
+  fi
   # Conditional for exactly the SMOKE_PROBE_KEY reason above: `sam deploy` rejects a bare
   # `GeminiApiKey=` for this PackageType: Image stack, so an empty value must be OMITTED
   # rather than passed. Omitting it is also what lets the secret REPLACE the env var:
