@@ -1424,6 +1424,17 @@ P1 alarms keep 60 s because only the app can write their lines.
   `*` (measured, both envs), so §6.3's log group, filters and alarms can deploy through CI
   today. The chat templates' §6.2 chains cannot: the `gvp-<env>-chat-deploy` policies are
   the broken ones.
+  - **Measured 2026-10-23, run `39939004822`:** `page-staging` deployed §6.3 through CI.
+  - A probe event produced the exact `SITE_ALERT … prio=P2` line, and the
+    `SiteAlertLinesP2-page-staging` metric counted 1 while P1 stayed at 0.
+  - **The chat stacks have TWO CI blockers, in this order:**
+    1. The public-ECR pull throttle on the Lambda Web Adapter (`toomanyrequests`). The deploy
+       workflows now log in to ECR Public first, best-effort. That needs
+       `ecr-public:GetAuthorizationToken` and `sts:GetServiceBearerToken` on the role (in the
+       IAM draft); without them the login falls back to the anonymous pull.
+    2. The stale `gvp-<env>-chat-deploy` IAM policy.
+
+    Fixing only the second does not land §6.2 through CI.
 - New log group: `ContactAlarmTopic`'s subscription is unchanged, but the events function's
   logs move to `/gvp/site-events/<stack>`. Anyone reading `/aws/lambda/<fn>` for it must
   look there instead.

@@ -128,5 +128,16 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN_PROD }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # The stream image COPYs the Lambda Web Adapter from public.ecr.aws; anonymous pulls
+      # hit `toomanyrequests` on shared runners (runs 38765137572, 39939004822). An
+      # authenticated pull gets the higher limit. Best-effort: without the IAM grant
+      # (ecr-public:GetAuthorizationToken + sts:GetServiceBearerToken) it falls back to the
+      # anonymous pull it replaces. Pinned by test/deploy-ecr-public-login.test.mjs.
+      - name: Log in to ECR Public (rate limit)
+        run: |
+          aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws \
+            || echo "::warning::ECR Public login failed; falling back to anonymous pulls"
+
       - name: Integrate and deploy (prod)
         run: bash scripts/integrate-and-deploy.sh prod
