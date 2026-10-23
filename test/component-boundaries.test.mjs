@@ -20,7 +20,7 @@ const ADDRESS = {
     'mic-attach-plan', 'project-chips', 'selection-offer', 'selection-offer-ui'],
   theme: ['theme', 'starfield', 'time-switcher-mode'],
   hero: ['spaceman', 'spaceman-position', 'spaceman-project-context', 'project-observer'],
-  admin: ['admin', 'admin-attention'],
+  admin: ['admin', 'admin-attention', 'admin-assistant'],
   shell: ['app', 'navigation', 'projects', 'contact', 'site-state', 'analytics', 'site-events', 'site-config',
     'section-names', 'dialog-helpers', 'privacy-note', 'project-link', 'project-ref']
 }
