@@ -17,7 +17,7 @@ const ADDRESS = {
   lib: ['starfield-geom', 'starfield-prefs', 'precipitation', 'theme-time'],
   assistant: ['chat', 'chat-live', 'chat-bus', 'chat-panel-anim', 'chat-payload-hash', 'chat-reply-text',
     'chat-stage', 'agent-node', 'voice-resume-button', 'voice-turn-gate', 'nav-promise-gap', 'site-state-notes',
-    'mic-attach-plan'],
+    'mic-attach-plan', 'project-chips', 'selection-offer', 'selection-offer-ui'],
   theme: ['theme', 'starfield', 'time-switcher-mode'],
   hero: ['spaceman', 'spaceman-position', 'spaceman-project-context', 'project-observer'],
   admin: ['admin', 'admin-attention'],

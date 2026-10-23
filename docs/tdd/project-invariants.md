@@ -1234,6 +1234,22 @@ proves it comes FIRST.
     the `drawImage`).
 
 
+23. **Text a visitor selects reaches the model only through the composer, only when they send
+    it, and never reaches analytics.** `[app]` Recorded 2026-10-23 by **ADR-0017 §7** (M4
+    slice 16). Enforced at four seams:
+    1. `js/selection-offer.js` is a pure leaf with no network, analytics or DOM.
+    2. The only sink is `openPanelWithDraft`, which fills the composer and does not submit. No
+       module that imports the leaf may reference `openPanelWithMessage`; that is a source
+       assertion, because draft → message is a one-word edit a diff reads as a synonym.
+    3. `selection_assistant_offer` / `_chip` carry exactly `{ chars: <bucket>, section }`,
+       because a param would be persisted for 120 days on a public route.
+    4. An allowlist of content regions, because Firefox reports `<textarea>` selections and the
+       contact form's message is the visitor's own words.
+
+    **PROVEN** by `test/selection-offer.test.mjs`, including a behavioural run of the glue: a tap
+    fills the composer and sends nothing, the quote never appears in an event, and a
+    contact-form selection produces no offer.
+
 ## Out of scope / explicitly allowed
 
 - **"Single origin" is not literal in production.** The shipped meta tags point chat
