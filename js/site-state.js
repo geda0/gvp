@@ -162,6 +162,17 @@ const MAX_SECTION = 32
 const MAX_PROJECT_ID = 64
 const MAX_PROJECT_TITLE = 120
 
+// The SHAPES docker/chat/app/site_state.py accepts. Length alone is not enough: the server
+// rejects on charset too, and a rejection is a 400 for the WHOLE request on both routes
+// (ss6.2 chose reject-not-clamp for identities, correctly). So one project id with a space
+// in it would take the chat down - text and voice - for as long as that card is open, with
+// both suites green, because each side is individually right. A value this side cannot
+// vouch for is DROPPED: a missing field costs the model one fact, a 400 costs the visitor
+// the whole conversation. test/site-state-producer-matches-validator.test.mjs reads these
+// patterns out of the Python rather than trusting this copy.
+const SECTION_SHAPE = /^[a-z][a-z0-9-]{0,31}$/
+const PROJECT_ID_SHAPE = /^[A-Za-z0-9._-]{1,64}$/
+
 /**
  * The five flat keys the server sees. ONE conversion, in the module that owns the state —
  * the tool-result echo (§5.1), the /api/chat body and the /api/live/session request all call
@@ -179,13 +190,20 @@ const MAX_PROJECT_TITLE = 120
  * accept as real. Dropping loses a fact; truncating invents one.
  */
 export function getSiteStateForWire () {
-  const section = typeof state.section === 'string' && state.section.length <= MAX_SECTION
+  const section = typeof state.section === 'string'
+    && state.section.length <= MAX_SECTION
+    && SECTION_SHAPE.test(state.section)
     ? state.section
     : null
   const id = state.project && state.project.id
+  const projectId = typeof id === 'string'
+    && id.length <= MAX_PROJECT_ID
+    && PROJECT_ID_SHAPE.test(id)
+    ? id
+    : null
   return {
     section,
-    projectId: typeof id === 'string' && id.length <= MAX_PROJECT_ID ? id : null,
+    projectId,
     projectTitle: state.project ? String(state.project.title ?? '').slice(0, MAX_PROJECT_TITLE) : null,
     contactOpen: state.contactOpen,
     voiceActive: state.voiceActive

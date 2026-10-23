@@ -109,6 +109,28 @@ test('a non-string input is refused, not coerced into a lookup', () => {
   }
 })
 
+test('an inherited property name is not a section', () => {
+  // Found by the M2 critic pass. `SECTION_ALIASES[key]` reaches up the prototype chain, so
+  // `SECTION_ALIASES['constructor']` is a FUNCTION and therefore truthy: resolveNavTarget
+  // returned `{ id: [Function: Object], hash: undefined }` — neither a target nor an error.
+  // requestNavigation then saw no `.error`, called applySection with a function, and
+  // setSection threw a TypeError out of the tool call.
+  //
+  // The voice path survives it (chat-live wraps onToolCall in a try/catch and reports the
+  // message), but the text path calls navigateToSection straight from a click handler, so
+  // there it is an uncaught exception. And an error reading "section id must be a non-empty
+  // string" tells the model nothing it can act on, where `unknown_section` does.
+  for (const key of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    const got = resolveNavTarget(key)
+    assert.equal(
+      got.error, 'unknown_section',
+      `${key} is a property of Object.prototype, not a page of this site. Got ` +
+      JSON.stringify(got)
+    )
+    assert.equal(got.id, undefined)
+  }
+})
+
 test('the registry is the single source of truth, in one module', () => {
   assert.deepEqual(
     [...SECTION_IDS], ['home', 'portfolio', 'labs'],

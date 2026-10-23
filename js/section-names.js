@@ -53,7 +53,14 @@ export function resolveNavTarget(raw) {
   // blind coercion turns a caller bug into a plausible lookup miss.
   if (typeof raw !== 'string') return { error: 'unknown_section', received: raw }
   const key = raw.trim().toLowerCase()
-  const id = SECTION_ALIASES[key] || (SECTION_IDS.includes(key) ? key : null)
+  // OWN properties only. A bare `SECTION_ALIASES[key]` reaches up the prototype chain, so
+  // `SECTION_ALIASES['constructor']` is a function and therefore truthy - the resolver
+  // returned `{ id: [Function: Object] }`, which is neither a target nor an error, and the
+  // router then threw a TypeError out of the tool call instead of reporting unknown_section.
+  const alias = Object.prototype.hasOwnProperty.call(SECTION_ALIASES, key)
+    ? SECTION_ALIASES[key]
+    : null
+  const id = alias || (SECTION_IDS.includes(key) ? key : null)
   if (!id) return { error: 'unknown_section', received: raw }
   return { id, hash: SECTION_HASHES[id] }
 }
