@@ -30,18 +30,12 @@ function makeCtx(counters) {
     clearRect(...a) { counters.clearRect++; counters.clearRectArgs.push(a) },
     drawImage(img) {
       counters.drawImage++
-      // Which sprite, not just how many: the streak strip is 64x4 and the star glow 64x64
-      // (js/starfield.js). Counting the DRAW is what pins "no motion streaks"; counting the
-      // transform call that happened to precede it pinned which canvas API the renderer
-      // used, and broke the moment save/translate/rotate became one setTransform.
-      if (img && img.height === 4) counters.streakDraws++
     },
     stroke() { counters.stroke++ },
     beginPath() {}, arc() { counters.arc++ }, fill() { counters.fill++ },
     moveTo() {}, lineTo() {},
     save() {}, restore() {},
-    // Only the streak draw translates — a cheap, exact probe for "was a streak drawn".
-    translate() { counters.translate++ },
+    translate() {},
     rotate() {}, scale() {}, setTransform() {}
   }
   Object.defineProperty(ctx, 'globalCompositeOperation', {
@@ -62,7 +56,7 @@ const VIEWPORT = { width: 1200, height: 800 }
 async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   const counters = {
     createRadialGradient: 0, createLinearGradient: 0,
-    fillRect: 0, clearRect: 0, drawImage: 0, streakDraws: 0, stroke: 0, translate: 0,
+    fillRect: 0, clearRect: 0, drawImage: 0, stroke: 0,
     clearRectArgs: [], fillRectArgs: [], arc: 0, fill: 0,
     compositeOps: new Set()
   }
@@ -98,7 +92,7 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
 
 
 function reset(counters) {
-  for (const k of ['createRadialGradient', 'createLinearGradient', 'fillRect', 'clearRect', 'drawImage', 'streakDraws', 'stroke', 'translate', 'arc', 'fill']) counters[k] = 0
+  for (const k of ['createRadialGradient', 'createLinearGradient', 'fillRect', 'clearRect', 'drawImage', 'stroke', 'arc', 'fill']) counters[k] = 0
   counters.clearRectArgs = []
   counters.fillRectArgs = []
   counters.compositeOps = new Set()

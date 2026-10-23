@@ -33,3 +33,13 @@ test('the night path draws the original stars - no depth guards, sprites or come
     assert.ok(!src.includes(gone), `${gone} is a post-original star change and must not come back`)
   }
 })
+
+test('every star loop draws then moves, as the original did', () => {
+  // The verbatim block pins Star itself; this pins the callers. Moving before showing shifts
+  // every star one frame ahead of its streak, which the block check cannot see.
+  const src = read('js/starfield.js')
+  const moves = src.match(/stars\[\w+\]\.move\(\);/g) || []
+  const ordered = src.match(/stars\[(\w+)\]\.show\(\);\s*stars\[\1\]\.move\(\);/g) || []
+  assert.ok(moves.length >= 3, `expected the space, day and night star loops, found ${moves.length}`)
+  assert.equal(ordered.length, moves.length, 'a star loop calls move() without show() immediately before it')
+})

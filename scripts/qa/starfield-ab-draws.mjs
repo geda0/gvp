@@ -161,7 +161,7 @@ async function render (moduleUrl, tag) {
   // draw on Math.random, so both runs must see the same sequence from the same point.
   //
   // THE CLOCK IS PINNED TOO, and it is not optional. Snow drift and the firefly wander read
-  // `Date.now()` directly (js/starfield.js:518,553), so two runs seconds apart produce
+  // `Date.now()` directly (drawSnow and drawFireflies in js/starfield.js), so two runs seconds apart produce
   // genuinely different output on every path that draws them. Without this, hours 12 and 19
   // reported a difference that was the wall clock, not the renderer — a harness that cries
   // wolf on the daytime scenes is a harness nobody runs. It advances one frame per tick so

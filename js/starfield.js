@@ -451,14 +451,10 @@ export function initStarfield(canvasId, options = {}) {
   /**
    * Rain: ONE path, N moveTo/lineTo pairs, ONE stroke. Zero drawImage, zero gradients.
    *
-   * Batching is right here precisely because rain is UNIFORM - one colour, one width - which
-   * is why the star streak could not use it: every star has its own colour, hence a baked
-   * per-colour sprite. (M1 rejected batching streaks-then-discs because it changes blend
-   * order; that does not transfer, because rain and the star field never draw in the same
-   * branch.)
+   * Batching is right here because rain is UNIFORM - one colour, one width. Rain and the
+   * star field never draw in the same branch, so batching changes no blend order.
    *
-   * The tail is DERIVED from the per-frame displacement through the same `streakLength` the
-   * stars use, so one knob - speed - controls how fast a drop falls AND how long it looks,
+   * The tail is DERIVED from the per-frame displacement through `streakLength`, so one knob - speed - controls how fast a drop falls AND how long it looks,
    * and the reduced-motion speed cut shortens the streaks for free.
    */
   function drawRainParticles() {
