@@ -20,7 +20,7 @@ const ADDRESS = {
     'mic-attach-plan', 'project-chips', 'selection-offer', 'selection-offer-ui'],
   theme: ['theme', 'starfield', 'time-switcher-mode'],
   hero: ['spaceman', 'spaceman-position', 'spaceman-project-context', 'project-observer'],
-  admin: ['admin', 'admin-attention'],
+  admin: ['admin', 'admin-attention', 'admin-assistant'],
   shell: ['app', 'navigation', 'projects', 'contact', 'site-state', 'analytics', 'site-events', 'site-config',
     'section-names', 'dialog-helpers', 'privacy-note', 'project-link', 'project-ref']
 }
@@ -67,9 +67,12 @@ test('every declared seam still exists (a dead seam is a stale permission)', () 
 })
 
 test('the SDK-free cores in aws/src never import @aws-sdk', () => {
-  const dir = new URL('../aws/src/common/', import.meta.url)
-  const cores = readdirSync(dir).filter((f) => /-core\.js$/.test(f) || f === 'admin-auth.js')
-  assert.ok(cores.length >= 4, `found ${cores}`)
-  const dirty = cores.filter((f) => /@aws-sdk\//.test(readFileSync(new URL(f, dir), 'utf8')))
+  // aws/src/admin/ (M4 slice 17) holds admin cores only: everything there is SDK-free.
+  const dirs = ['../aws/src/common/', '../aws/src/admin/'].map((d) => new URL(d, import.meta.url))
+  const cores = dirs.flatMap((dir) => readdirSync(dir)
+    .filter((f) => /-core\.js$/.test(f) || f === 'admin-auth.js' || dir.pathname.endsWith('/admin/'))
+    .map((f) => new URL(f, dir)))
+  assert.ok(cores.length >= 5, `found ${cores}`)
+  const dirty = cores.filter((u) => /@aws-sdk\//.test(readFileSync(u, 'utf8'))).map((u) => u.pathname)
   assert.deepEqual(dirty, [], `cores must stay SDK-free so they test without node_modules: ${dirty}`)
 })

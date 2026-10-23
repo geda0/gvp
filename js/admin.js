@@ -1,4 +1,5 @@
 import { attentionItems, renderAttention } from './admin-attention.js'
+import { assistantViewModel, renderAssistant } from './admin-assistant.js'
 
 const CHAT_FLAGS = [
   'no_retrieval_match',
@@ -54,6 +55,27 @@ const tabReportBtn = document.getElementById('adminTabReport')
 const panelContact = document.getElementById('adminPanelContact')
 const panelTranscripts = document.getElementById('adminPanelTranscripts')
 const panelReport = document.getElementById('adminPanelReport')
+// M4 slice 18: the Assistant tab.
+const tabAssistantBtn = document.getElementById('adminTabAssistant')
+const panelAssistant = document.getElementById('adminPanelAssistant')
+const assistantDaysEl = document.getElementById('assistantDays')
+let assistantHasLoaded = false
+
+async function loadAssistantUsage() {
+  const root = document.getElementById('assistantUsage')
+  const status = document.getElementById('assistantStatus')
+  if (!root) return
+  const days = Number(assistantDaysEl?.value || 30)
+  setStatus(status, 'Loading assistant usage…')
+  try {
+    const usage = await requestContact(`/assistant-usage?days=${days}`)
+    renderAssistant(root, assistantViewModel(usage))
+    assistantHasLoaded = true
+    setStatus(status, `Assistant usage for the last ${days} days.`, 'success')
+  } catch (error) {
+    setStatus(status, error.message || 'Could not load assistant usage.', 'error')
+  }
+}
 const reportDateEl = document.getElementById('reportDate')
 const reportStatusEl = document.getElementById('reportStatus')
 let reportHasLoaded = false
@@ -919,7 +941,11 @@ async function loadMoreChatTranscripts() {
 }
 
 function setActiveTab(tab) {
-  activeTab = ['transcripts', 'report'].includes(tab) ? tab : 'contact'
+  activeTab = ['transcripts', 'report', 'assistant'].includes(tab) ? tab : 'contact'
+  tabAssistantBtn?.classList.toggle('is-active', activeTab === 'assistant')
+  tabAssistantBtn?.setAttribute('aria-selected', activeTab === 'assistant' ? 'true' : 'false')
+  if (panelAssistant) panelAssistant.hidden = activeTab !== 'assistant'
+  if (activeTab === 'assistant' && !assistantHasLoaded) void loadAssistantUsage()
   tabContactBtn.classList.toggle('is-active', activeTab === 'contact')
   tabTranscriptsBtn.classList.toggle('is-active', activeTab === 'transcripts')
   tabReportBtn?.classList.toggle('is-active', activeTab === 'report')
@@ -1045,6 +1071,8 @@ function syncSmokeProbeKey() {
 tabContactBtn?.addEventListener('click', () => setActiveTab('contact'))
 tabTranscriptsBtn?.addEventListener('click', () => setActiveTab('transcripts'))
 tabReportBtn?.addEventListener('click', () => setActiveTab('report'))
+tabAssistantBtn?.addEventListener('click', () => setActiveTab('assistant'))
+assistantDaysEl?.addEventListener('change', () => { void loadAssistantUsage() })
 smokeProbeKeyEl?.addEventListener('change', syncSmokeProbeKey)
 smokeProbeKeyEl?.addEventListener('input', syncSmokeProbeKey)
 deepProbeBtn?.addEventListener('click', runDeepProbe)
