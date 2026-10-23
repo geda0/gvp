@@ -236,19 +236,35 @@ def _to_lc_messages(rows: list[ChatMessageIn]) -> list[Msg]:
 def _with_site_state(payload: ChatRequest, messages: list[Msg]) -> list[Msg]:
     """Prepend the site-state line as a SYSTEM message, when there is one.
 
-    System role, not a user turn, because `gemini_routing._to_contents` folds every system
-    message OUT of the turn list and onto the END of the system instruction - so the static
-    prompt stays the identical PREFIX and the volatile line lands after it. That ordering is
-    load-bearing: Gemini's implicit cache matches an identical prefix, and cached tokens do
-    not count against the free tier's 16,000-input-tokens-per-minute-per-model quota
-    (measured 2026-10-13, the reason tests/test_cache_prefix.py exists). A volatile line
-    placed ahead of the pack truncates the cache prefix to nothing and silently costs ~2.8x
-    throughput - correct answers, green tests, and only the 429 rate moves.
+    NOT a system message, and NOT at the front. Both are load-bearing, and the first
+    version of this function got both wrong:
+
+    1. CACHE PREFIX. `providers._inject_retrieved` builds the model input as
+       `[Msg(human, knowledge_xml), *compacted]` - the ~4,000-token knowledge blob is
+       `contents[0]`, not part of the system instruction. `gemini_routing._to_contents`
+       folds every SYSTEM message out of the turn list and onto the end of the system
+       instruction, which precedes `contents` entirely. So a system-role line lands BETWEEN
+       the static prompt and the blob, and since Gemini's implicit cache matches an
+       identical PREFIX, a line that changes per turn truncates the cacheable prefix to the
+       ~1,812-token system prompt - under the 4,096 minimum, so caching never engages.
+       Cached tokens do not count against the free tier's 16,000 input tokens per minute per
+       model, so losing the cache is the measured ~2.8x regression tests/test_cache_prefix.py
+       exists to prevent. Its symptom is not a wrong answer: correct replies, green tests,
+       and only the 429 rate moves.
+
+    2. COMPACTION. `compact_history` keeps the last twelve messages and summarises the rest
+       through `summarize_pruned_messages`, which reads `type == 'human'` only - so a pruned
+       system message contributes nothing. At the front of a twenty-message history the line
+       simply disappears, and MAX_MESSAGES is 32, so that history is ordinary.
+
+    Placed as a human turn immediately before the visitor's newest message: after the blob,
+    inside the window compaction keeps, and with their actual question still last so the
+    model answers that rather than the context line.
     """
     line = format_site_state_line(payload.siteState)
-    if not line:
+    if not line or not messages:
         return messages
-    return [Msg(role='system', content=line), *messages]
+    return [*messages[:-1], Msg(role='human', content=line), messages[-1]]
 
 
 def _reply_text_from_result(result: Any) -> str:
