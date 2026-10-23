@@ -376,3 +376,136 @@ test('tapping the minimised pill restores it; tapping the docked card does not',
     'request for a full-screen modal'
   )
 })
+
+test('Escape while yielded does not end the call — invariant #20, by keystroke', async (t) => {
+  // THE DEFECT THIS PINS, found by the M2 critic pass and confirmed in shipped code.
+  // js/chat.js's document-level Escape handler is guarded by `isOpen()`, which is
+  // `!dialog.hidden` — and stageChrome deliberately keeps the dialog in the DOM for docked
+  // AND minimized. So the handler fired while the chat was yielded and ran closePanel with
+  // keepVoice defaulting to false, which reaches stopVoice.
+  //
+  // One keystroke, entirely plausible: live voice call, visitor taps a project card, chat
+  // minimises correctly, visitor presses Escape to dismiss THE PROJECT DIALOG — and the
+  // call dies. js/dialog-helpers.js's own Escape handler does not stopPropagation, so both
+  // run. ADR-0015 §4.3 note 8 forbids exactly this ("Escape from minimized is a NO-OP …
+  // would discard the transcript on a keystroke aimed at something else"), and the
+  // reducer's table has always said so — as DATA, with no caller.
+  const { api, siteState, docEvents } = await boot('stage-escape', NARROW)
+  t.after(() => api.disposeChatLiveVoice())
+
+  siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized', 'harness: must be yielded')
+  assert.equal(api.liveVoice.isSessionOpen(), true, 'harness: the call must be up')
+
+  const stops = []
+  api.liveVoice.stopVoice = (o) => { stops.push(o || {}) }
+  let defaultPrevented = false
+  const fired = docEvents.fire('keydown', {
+    key: 'Escape',
+    preventDefault () { defaultPrevented = true }
+  })
+  assert.ok(fired > 0, 'harness: a keydown listener must be bound, or this is blind')
+  await settle()
+
+  assert.deepEqual(stops, [], 'Escape while yielded must not stop the voice session')
+  assert.equal(api.liveVoice.isSessionOpen(), true, 'the call must survive the keystroke')
+  assert.equal(
+    siteState.getSiteState().chatStage, 'minimized',
+    'and the stage must not move: a pill has nothing to dismiss (§4.3)'
+  )
+  assert.equal(
+    defaultPrevented, false,
+    'the chat must NOT swallow the keystroke while minimised — it was aimed at the project ' +
+    'dialog in front of the visitor, and preventDefault here leaves that dialog stuck open'
+  )
+})
+
+test('Escape from modal still closes, so the fix is not a blanket mute', async (t) => {
+  const { api, siteState, docEvents } = await boot('stage-escape-modal', WIDE)
+  t.after(() => api.disposeChatLiveVoice())
+
+  assert.equal(siteState.getSiteState().chatStage, 'modal', 'harness: starts modal')
+  docEvents.fire('keydown', { key: 'Escape', preventDefault () {} })
+  await settle()
+  assert.equal(
+    siteState.getSiteState().chatStage, 'closed',
+    "Escape from modal is today's shipped behaviour and §4.3 keeps it deliberately"
+  )
+})
+
+test('every event in the reducer table has a caller, or it is not a feature', async (t) => {
+  // The general form of the Escape defect. CHAT_STAGE_EVENTS has thirteen names and
+  // test/chat-stage.test.mjs pins thirty-six transitions over them — but a table nobody
+  // calls is exactly the defect this FILE says it exists to prevent, and seven of the
+  // thirteen had no production caller at all. An event with no caller is either a missing
+  // feature or a row that should be deleted; either way the table should not claim it.
+  const { api } = await boot('stage-coverage', WIDE, { voice: false })
+  t.after(() => api.disposeChatLiveVoice())
+
+  const { CHAT_STAGE_EVENTS } = await import('../js/chat-stage.js')
+  const src = await import('node:fs').then((fs) => fs.readFileSync(
+    new URL('../js/chat.js', import.meta.url), 'utf8'
+  ))
+
+  // "Reachable" = the name appears as a quoted literal in js/chat.js. Deliberately looser
+  // than matching `dispatchStage('<event>')`: the site events are dispatched through
+  // `stageEventForChange`, which RETURNS the name rather than calling with it, and a check
+  // that insisted on the call shape reported nine false positives on its first run. The
+  // only reason to write one of these strings in that file is to dispatch it.
+  //
+  // TWO DELIBERATE EXEMPTIONS, named rather than quietly dropped:
+  //   open-text / open-voice / close — opening and closing bypass the reducer on purpose
+  //     (closing is more than chrome; opening is unconditional), so they are satisfied by
+  //     the applyStage call that implements them.
+  //   minimize — the reducer handles it and §4.3 specifies it, but M2 ships NO minimise
+  //     affordance: the X closes, and the launcher restores. It is wired in M4 with the
+  //     launcher work. Listed here so the gap is a decision on the record rather than an
+  //     oversight that looks identical.
+  const BYPASSED = { 'open-text': 'modal', 'open-voice': 'modal', close: 'closed' }
+  const NOT_YET_AFFORDED = ['minimize']
+  const uncalled = CHAT_STAGE_EVENTS.filter((event) => {
+    if (NOT_YET_AFFORDED.includes(event)) return false
+    if (new RegExp(`['"]${event}['"]`).test(src)) return false
+    const stage = BYPASSED[event]
+    return !(stage && new RegExp(`applyStage\\(\\s*['"]${stage}['"]`).test(src))
+  })
+
+  assert.deepEqual(
+    uncalled, [],
+    'these reducer events have no caller in js/chat.js, so the behaviour they describe ' +
+    'does not exist: ' + JSON.stringify(uncalled) + '. Either wire them or take them out ' +
+    'of CHAT_STAGE_EVENTS — a table that lists behaviour nobody can reach is how "Escape ' +
+    'while docked minimizes" read as shipped while Escape actually ended the call'
+  )
+})
+
+test('a viewport that narrows under a docked card minimises it', async (t) => {
+  // §4.3's viewport rows, which had no caller either. A docked card is sized for a wide
+  // viewport; left in place when the window narrows it covers the content it was supposed
+  // to yield to. The reducer already says so — this is the listener that asks it.
+  const { api, siteState, mediaListeners } = await boot('stage-viewport', WIDE)
+  t.after(() => api.disposeChatLiveVoice())
+
+  siteState.setSection('portfolio', { origin: 'visitor' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'docked', 'harness: must start docked')
+
+  // Exactly what a matchMedia change delivers.
+  const widthSubs = mediaListeners.filter((m) => /min-width/.test(m.query))
+  assert.ok(
+    widthSubs.length > 0,
+    'js/chat.js must subscribe to the width media query during init, or nothing can react ' +
+    'to a resize. The harness records it, because a matchMedia installed AFTER the boot can ' +
+    'never see a subscription the boot already made — which is how the first version of ' +
+    'this row failed against a correct implementation'
+  )
+  for (const sub of widthSubs) sub.fn({ matches: false })
+  await settle()
+
+  assert.equal(
+    siteState.getSiteState().chatStage, 'minimized',
+    'narrowing under a docked card must yield further (§4.3). Left docked it covers the ' +
+    'content it exists to make room for'
+  )
+})

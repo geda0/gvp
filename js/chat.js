@@ -1552,10 +1552,37 @@ export function initChat() {
 
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || !isOpen()) return
+
+    // THROUGH THE REDUCER, and the guard above is why this had to change. isOpen() is
+    // `!dialog.hidden`, and stageChrome deliberately keeps the dialog in the DOM for docked
+    // AND minimized - so this handler fired while the chat was yielded and ran closePanel
+    // with keepVoice false, which reaches stopVoice. One keystroke: a visitor on a live
+    // call taps a project card, the chat minimises correctly, they press Escape to dismiss
+    // THE PROJECT DIALOG, and the call dies (js/dialog-helpers.js does not stopPropagation,
+    // so both handlers run). Invariant #20, broken by a key aimed at something else.
+    if (chatStage !== 'modal') {
+      // Not ours to swallow: another dialog is in front of the visitor and its own Escape
+      // handler still has to run, so no preventDefault. `minimize` -> `minimized` is a
+      // no-op in the reducer, which is the point (ss4.3: a pill has nothing to dismiss, and
+      // destroying the conversation on a stray keystroke would discard the transcript).
+      dispatchStage('escape', 'visitor')
+      return
+    }
     event.preventDefault()
     const hasActiveTransition = Boolean(panelAnim.timeout || panelAnim.endHandler)
     closePanel({ immediate: hasActiveTransition })
   })
+
+  // A docked card is sized for a wide viewport; left in place when the window narrows it
+  // covers the content it exists to make room for. 'system' because a resize is neither the
+  // visitor moving the chat nor the agent doing it (ss3.3).
+  if (typeof window.matchMedia === 'function') {
+    const wide = window.matchMedia('(min-width: 768px)')
+    const onViewport = (e) => {
+      dispatchStage(e && e.matches ? 'viewport-wide' : 'viewport-narrow', 'system')
+    }
+    if (typeof wide.addEventListener === 'function') wide.addEventListener('change', onViewport)
+  }
 
   dialog.addEventListener('click', (event) => {
     // At the minimised size the panel renders as the header alone — a title and a close X

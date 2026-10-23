@@ -218,6 +218,7 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' 
     hash,
     origin: 'http://portfolio.test'
   }
+  const mediaListeners = []
   defineGlobal('window', {
     isSecureContext: true,
     gtag: (...args) => { gtagCalls.push(args) },
@@ -226,7 +227,15 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' 
     innerWidth: 1280,
     innerHeight: 800,
     scrollTo () {},
-    matchMedia: () => ({ matches: false, addEventListener() {} }),
+    // Listeners are RECORDED, because initChat subscribes to the width query during boot —
+    // a test that installs its own matchMedia afterwards can never see that subscription,
+    // and a stub that drops it makes "nothing reacts to a resize" indistinguishable from
+    // "the harness forgot to pass it on".
+    matchMedia: (query) => ({
+      matches: false,
+      addEventListener (_type, fn) { mediaListeners.push({ query: String(query), fn }) },
+      removeEventListener () {}
+    }),
     addEventListener: (type, fn) => winEvents.add(type, fn),
     removeEventListener: (type, fn) => winEvents.remove(type, fn),
     dispatchEvent: (event) => {
@@ -330,7 +339,7 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' 
   // closing the panel afterwards to "get back" to closed is a different state, and a row
   // asserting the boot contract against it proves nothing.
   if (!voice) {
-    return { chat, nav, contact, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls }
+    return { chat, nav, contact, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls, mediaListeners }
   }
 
   api.openPanel()
@@ -344,6 +353,6 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' 
   socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) })
   await settle()
 
-  return { chat, nav, contact, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls }
+  return { chat, nav, contact, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls, mediaListeners }
 }
 export { DEAD_RECT, makeListeners, makeEl, defineGlobal, settle, makeWebSocketClass, bootChatWithLiveVoice }
