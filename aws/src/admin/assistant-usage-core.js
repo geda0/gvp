@@ -20,8 +20,8 @@ const PROJECT_CHIPS = ['summarize', 'more', 'talk']
 const SECTIONS = ['home', 'portfolio', 'labs']
 
 // The events production ACTUALLY emits when the assistant opens (M4 critic): chat_open fires
-// only for programmatic opens; the hero and header submit as their own events; the footer is a
-// data-track. Each maps to its surface.
+// for programmatic opens (the footer names its surface through it); the hero and header submit
+// as their own events. Each maps to its surface.
 // footer_open_chat is NOT here: the footer dispatches gvp:open-chat with surface 'footer', which
 // emits chat_open - counting both would count one click twice.
 const OPEN_SURFACE = {
