@@ -1311,7 +1311,7 @@ this addendum that is remotely triggerable, needs no credential and costs one re
 Recorded here, not in a new ADR, because §Consequences already ruled that M7 extends this ADR.
 The plan (`docs/plan-2026-09-port.md` M7) labelled it "ADR-0020" correctly but its body was
 written before ADR-0022 to ADR-0025 existed, and it is wrong in the ways listed in §6.1. Built
-on branch `m7-alerts`, commits `7f776b7`, `3eb4741`, `ec987cd`, `96aaf16`, plus slice 4.
+on branch `m7-alerts`, commits `7f776b7`, `3eb4741`, `ec987cd`, `96aaf16`, `9542dbc`.
 
 ### 6.1 What the plan text got wrong (measured against the repo, 2026-10-23)
 
@@ -1391,6 +1391,13 @@ alarm breach. Because of the allowlist the content is fixed, and the alarm caps 
 
 ### 6.4 Acceptance caveats
 
+- **A P1 alarm that exists only on stage is worse than none**, because it implies coverage
+  prod does not have. Until a prod deploy runs, treat every alarm in §6.2-6.3 as stage-only.
+- **Every target topic can deliver**, measured 2026-10-23 (peer session, `list-subscriptions`):
+  both `ChatErrorTopic`s, both `ChatStreamAlertTopic`s and both `ContactAlarmTopic`s (`page`,
+  `page-staging`) have confirmed email subscriptions. Invariant #19's tail still records
+  `gvp-chat-stage-ChatErrorTopic` as PendingConfirmation and `page-ContactAlarmTopic` as having
+  none. **That text is stale, not an open defect.** Do not "re-fix" it.
 - **Nothing is deployed.** Prod chat runs 2026-10-15 code, and neither CI role can deploy
   chat until the `gvp-<env>-chat-deploy` IAM policies are repointed (the user's decision).
   So a P1 alarm "working on stage" is not evidence for prod.
