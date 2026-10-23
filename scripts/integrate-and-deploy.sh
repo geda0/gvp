@@ -333,6 +333,11 @@ if [[ -n "${SMOKE_PROBE_KEY:-}" ]]; then
   PO+=("$(sam_param_override SmokeProbeKey "${SMOKE_PROBE_KEY}")")
 fi
 
+# M8 item 6 (ADR-0021): optional read-only admin key, omitted when unset (never a bare Key=).
+if [[ -n "${ADMIN_READONLY_KEY:-}" ]]; then
+  PO+=("$(sam_param_override AdminReadonlyKey "${ADMIN_READONLY_KEY}")")
+fi
+
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
   PO+=("$(sam_param_override ContactReportEmail "${CONTACT_REPORT_EMAIL}")")
 fi
