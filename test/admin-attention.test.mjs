@@ -82,3 +82,38 @@ test('admin.js renders the strip from the loaded data, above the tabs in admin/i
   assert.match(js, /from '\.\/admin-attention\.js'/)
   assert.match(js, /renderAttention\(attentionEl, attentionItems\(/)
 })
+
+// Critic round 1 (M8 item 7).
+test('ranking really sorts: a warn pushed first still lands after the bads', () => {
+  // Contact data failed (warn, pushed first), smoke failing (bad), fresh chat failure (bad).
+  const items = attentionItems({
+    contactSummary: null, health: null, smoke: { overall: 'fail' },
+    chatSummary: { unreviewed: 1, flagged: 0, stream: { streamFailures: 1, recentFailures: [{ errorCode: 'x', capturedAt: '2026-10-23T11:00:00Z' }] } }
+  }, NOW)
+  assert.deepEqual(items.map((i) => i.level), ['bad', 'bad', 'warn', 'info'])
+})
+
+test('an env with no chat table is not a failure: no item, so "all clear" stays reachable', () => {
+  assert.deepEqual(attentionItems({ ...quiet, chatSummary: { notConfigured: true } }, NOW), [])
+})
+
+test('smoke checks that could not run are a warn, not silence', () => {
+  const items = attentionItems({ ...quiet, smoke: { overall: 'unavailable' } }, NOW)
+  assert.deepEqual(items.map((i) => [i.level, i.tab]), [['warn', 'contact']])
+  assert.match(items[0].text, /smoke checks could not run/i)
+})
+
+test('an unconfigured contact API is bad; missing contact data is a warn', () => {
+  assert.ok(attentionItems({ ...quiet, health: { ...quiet.health, apiConfigured: false } }, NOW).some((i) => i.level === 'bad' && /not configured/.test(i.text)))
+  assert.ok(attentionItems({ ...quiet, health: null }, NOW).some((i) => i.level === 'warn' && i.tab === 'contact'))
+})
+
+test('admin.js keeps the strip current: chat reloads, smoke failure, and a 503 "not configured"', () => {
+  const js = readFileSync(new URL('../js/admin.js', import.meta.url), 'utf8')
+  const chatLoad = js.slice(js.indexOf('async function loadChatDashboard'), js.indexOf('async function loadMoreChatTranscripts'))
+  assert.match(chatLoad, /attentionData\.chatSummary = /, 'loadChatDashboard must refresh the strip\'s chat data')
+  assert.match(chatLoad, /refreshAttention\(\)/)
+  const smoke = js.slice(js.indexOf('async function loadSmoke'), js.indexOf('async function runDeepProbe'))
+  assert.match(smoke.slice(smoke.indexOf('catch')), /attentionData\.smoke = \{ overall: 'unavailable' \}/)
+  assert.match(js, /not configured/i)
+})

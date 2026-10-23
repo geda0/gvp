@@ -277,6 +277,8 @@ async function loadSmoke() {
     attentionData.smoke = smoke
     refreshAttention()
   } catch (error) {
+    attentionData.smoke = { overall: 'unavailable' }
+    refreshAttention()
     if (smokeTableEl) smokeTableEl.innerHTML = `<tr><td colspan="4">Smoke unavailable: ${escapeHtml(error.message || 'error')}</td></tr>`
   }
 }
@@ -423,8 +425,12 @@ async function loadContactDashboard() {
       requestContact('/summary'),
       requestContact(`/messages?limit=${limit}`),
       requestContact('/health'),
-      // For the Attention strip only; a failure here is shown as an item, never fatal.
-      requestChat('/transcripts/summary').catch(() => null)
+      // For the Attention strip only; a failure here is shown as an item, never fatal. The
+      // admin API answers 503 "Chat transcript table is not configured" where there is no
+      // chat table - that is configuration, not an outage, so it is not an item.
+      requestChat('/transcripts/summary').catch((err) =>
+        /not configured/i.test(String(err?.message || '')) ? { notConfigured: true } : null
+      )
     ])
 
     Object.assign(attentionData, { contactSummary: summary, health, chatSummary })
@@ -445,7 +451,7 @@ async function loadContactDashboard() {
     setStatus(globalStatus, 'Contact dashboard updated.', 'success')
   } catch (error) {
     setStatus(globalStatus, error.message || 'Could not load contact dashboard.', 'error')
-    Object.assign(attentionData, { contactSummary: null, health: null })
+    Object.assign(attentionData, { contactSummary: null, health: null, chatSummary: null })
     refreshAttention()
     if (/Unauthorized/i.test(String(error.message || ''))) {
       app.hidden = true
@@ -870,6 +876,8 @@ async function loadChatDashboard() {
     ])
     renderChatSummary(summary)
     refreshPromptVersionFilter(summary)
+    attentionData.chatSummary = summary
+    refreshAttention()
 
     chatNextCursor = listBody.nextCursor || ''
     if (chatLoadMoreBtn) chatLoadMoreBtn.hidden = !chatNextCursor

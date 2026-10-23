@@ -25,7 +25,7 @@ test('the read-only key is optional: unset or empty grants nothing, and never ma
   assert.equal(adminAccess(h('x'), {}), null, 'no keys configured → no access')
 })
 
-test('a read-only key equal to the full key is refused, so it can never be a second full key', () => {
+test('a read-only key equal to the full key resolves to full, so the full check always wins', () => {
   assert.equal(adminAccess(h('same'), { ADMIN_API_KEY: 'same', ADMIN_READONLY_KEY: 'same' }), 'full')
 })
 

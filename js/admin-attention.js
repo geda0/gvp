@@ -26,10 +26,15 @@ export function attentionItems({ contactSummary, health, smoke, chatSummary } = 
     if (health.alarmState === 'ALARM') add('bad', 'The contact pipeline alarm is firing.', 'contact')
   }
 
-  if (smoke?.overall === 'fail') add('bad', 'The smoke checks are failing.', 'contact')
+  if (smoke?.overall === 'unavailable') add('warn', 'The smoke checks could not run — refresh to retry.', 'contact')
+  else if (smoke?.overall === 'fail') add('bad', 'The smoke checks are failing.', 'contact')
   else if (smoke?.overall === 'warn') add('warn', 'A smoke check is warning.', 'contact')
 
-  if (!chatSummary) {
+  // An environment with no chat table is configuration, not a failure: say nothing, so
+  // "All clear" stays reachable there.
+  if (chatSummary?.notConfigured) {
+    // nothing to report
+  } else if (!chatSummary) {
     add('warn', 'Chat transcripts could not load — refresh to retry.', 'transcripts')
   } else {
     const failures = Number(chatSummary.stream?.streamFailures || 0)
