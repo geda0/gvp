@@ -19,7 +19,17 @@
  */
 export const STREAK_BOUNDS_PAD = 1
 
-/** Half of js/starfield.js's STREAK_THICKNESS: the streak is CENTRED on its segment. */
+/**
+ * Fallback half-width for a star that does not declare its own: half of js/starfield.js's
+ * STREAK_THICKNESS, which is now the HAIRLINE FLOOR rather than the width every star gets.
+ *
+ * A star SHOULD carry `streakThickness`, because the width is proportional to the star's
+ * radius since the lollipop fix — up to 5.4px for the closest star (`streakThickness(9)`,
+ * the radius ceiling `clampStarRadius` enforces). Inflating that star's segment box by 0.75
+ * instead of 2.7 under-covers its streak by 1.95px on every side, and under-covering is the
+ * wrong `true` this module's header forbids: a star with ink still on the canvas gets
+ * culled, which reads as the BRIGHTEST stars flickering out along the screen edges.
+ */
 const STREAK_HALF_THICKNESS = 0.75
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v)
@@ -46,12 +56,18 @@ export function starDrawBounds (star) {
   const hasTail = star.tailX !== undefined && star.tailY !== undefined
   if (hasTail) {
     if (!finite(star.tailX) || !finite(star.tailY)) return null
+    // This star's own half-width, falling back to the hairline when it declares none. An
+    // unusable value falls back too rather than propagating NaN into the bounds, which
+    // would make every comparison below false and cull a star that should be drawn.
+    const half = finite(star.streakThickness) && star.streakThickness > 0
+      ? Math.abs(star.streakThickness) / 2
+      : STREAK_HALF_THICKNESS
     // The segment's own box, inflated by half the stroke width on both axes. Slightly loose
     // at the caps of a diagonal streak, which is the safe direction.
-    left = Math.min(left, Math.min(star.x, star.tailX) - STREAK_HALF_THICKNESS)
-    right = Math.max(right, Math.max(star.x, star.tailX) + STREAK_HALF_THICKNESS)
-    top = Math.min(top, Math.min(star.y, star.tailY) - STREAK_HALF_THICKNESS)
-    bottom = Math.max(bottom, Math.max(star.y, star.tailY) + STREAK_HALF_THICKNESS)
+    left = Math.min(left, Math.min(star.x, star.tailX) - half)
+    right = Math.max(right, Math.max(star.x, star.tailX) + half)
+    top = Math.min(top, Math.min(star.y, star.tailY) - half)
+    bottom = Math.max(bottom, Math.max(star.y, star.tailY) + half)
   }
 
   return {

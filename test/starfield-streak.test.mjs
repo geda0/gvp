@@ -57,3 +57,51 @@ test('an uncompensated path draws a single-frame streak, not an 8-frame comet', 
   assert.equal(streakLength(2, STREAK_TAIL_FRAMES), 2 * STREAK_TAIL_FRAMES)
   assert.equal(streakLength(10_000, 1), STREAK_MAX_DIST, 'the clamp still applies without a tail multiplier')
 })
+
+// THE LOLLIPOP. Measured in a real browser on live prod, 2026-10-23: instrumenting the
+// space-theme canvas over 90 frames put star draw sizes at p50 2.4px, p95 12.4px and
+// max 150px. So the HEAD grows with proximity — the baked glow sprite is scaled to
+// `clampStarRadius(...)`, capped at STAR_MAX_RADIUS = 9, i.e. up to 18px across — while
+// the STICK does not: the streak strip is stretched to `tail x STREAK_THICKNESS` and
+// STREAK_THICKNESS is a constant 1.5px for every star at every depth. A close star is
+// therefore an 18px ball on a 1.5px stick, a 12:1 head-to-tail silhouette, and that
+// silhouette is the single most-disliked thing about the current sky.
+//
+// A tail has to be the width of the thing it trails, so thickness becomes a function of
+// the star's radius — proportional (not a constant, and not a curve so flat it is a
+// constant in disguise), still a hairline for a distant pinprick so faint stars are never
+// fattened, and bounded above so the closest star draws a tail and not a slab.
+//
+// 1.5px is kept here as the HAIRLINE CEILING for a pinprick: at p50 it is already the
+// right order of magnitude, so it is what faint stars must not exceed — not what every
+// star gets.
+const HAIRLINE_CEILING = 1.5
+
+test('streak thickness tracks the star radius, so a close star trails a tail and not a stick', async () => {
+  const { streakThickness, STAR_MAX_RADIUS } = await import('../js/starfield.js')
+  assert.equal(typeof streakThickness, 'function',
+    'streak width must be derivable from the star radius through a pure seam, like streakLength')
+
+  // The closest star's silhouette: head diameter against tail thickness.
+  const headDiameter = STAR_MAX_RADIUS * 2
+  const closest = streakThickness(STAR_MAX_RADIUS)
+  const ratio = headDiameter / closest
+  assert.ok(ratio <= 4,
+    `lollipop: a ${headDiameter}px head on a ${closest}px tail is ${ratio.toFixed(1)}:1 — prod measured 12:1`)
+
+  // Proportional, not constant: double the radius must buy appreciably more tail.
+  assert.ok(streakThickness(6) >= streakThickness(3) * 1.5,
+    'thickness must scale with the star, not sit at a constant for every depth')
+  assert.ok(streakThickness(1.2) < streakThickness(6.2),
+    'the p50 star (2.4px across) must trail a thinner tail than the p95 star (12.4px across)')
+
+  // Hairline floor: a distant pinprick still streaks, and never fattens.
+  const pinprick = streakThickness(0.2)
+  assert.ok(pinprick > 0, 'a faint star still trails something — the streak must not vanish')
+  assert.ok(pinprick <= HAIRLINE_CEILING,
+    'faint stars must stay hairline — widening them is a different, unasked-for change')
+
+  // Bounded above: no arithmetic turns a tail into a slab.
+  assert.ok(streakThickness(1e9) <= headDiameter,
+    'a tail is never wider than the widest star is across')
+})
