@@ -102,7 +102,7 @@ test('reduced motion means SLOWER too, for the kinds that actually move fast', (
 
 test('the reduced floor is above zero — softened, not deleted', () => {
   // A reduced-motion visitor who sees NO precipitation has not had the feature softened,
-  // they have had it removed. Same asymmetry js/starfield-geom.js argues for the cull.
+  // they have had it removed.
   for (const kind of PRECIPITATION_KINDS) {
     assert.ok(
       precipitationCountForPreference(kind, true) >= 8,

@@ -4,6 +4,31 @@
 
 ## Current status
 
+- **2026-10-23 — Starfield restored to the original (c7a09b6) look and animation.** Owner:
+  "original was better ... way before we tried to use the tactics". The star section of
+  `js/starfield.js` is now verbatim c7a09b6 (radial glows, 1.5px/0.38 streaks under 150px,
+  hsl palette), and the core-scaled star count is uncapped as it was. Removed the
+  depth/cull/streak/comet layer (`js/starfield-geom.js` and 6 test files). Pinned by
+  `test/starfield-original.test.mjs` (verbatim fixture, mutation-checked) and
+  `test/starfield-night.test.mjs`. The night path keeps the original trail as a converging
+  destination-out erase over the CSS sky. Composited over #141926, a 1440x900 night frame
+  measures 860–989 lit / 16–35 bright, against the original's 921–1073 / 26–31; the pre-restore
+  frame was 1731 / 534. TRADE-OFF: a large, many-core screen draws the original's dense sky
+  (the Oct-09 measurement: 2560x1440 on 12 cores gave 3292 stars at about 30ms/frame). Stage
+  only; prod needs the owner's OK.
+
+- **2026-10-23 (late) — PROD IS LIVE WITH M4, M5, M7, M8.** See `releases.md` for the run,
+  stacks and live checks. `main` @ `fde6f98`; `agent` re-pinned to the stage hosts. Every plan
+  milestone is built (M6 obsolete), critic-passed, and verified on prod.
+  - **Open, owner's call:**
+    - streak thickness 5.4 px (taste; now visible on prod too);
+    - DPR canvas scaling (yes/no and when);
+    - E2 for prod's new alarms;
+  - **Decided by the owner (2026-10-23): KEEP the ECS log groups** (~84 MB under
+    `/aws/ecs/default/gvp-chat-*-express-*`). They are harmless, cost cents, and are evidence of
+    what ran and when. Do not delete them as tidy-up.
+  - **Rule kept:** the privacy note shipped only after prod TTL was proven on both halves.
+
 - **2026-10-23 — the chat stack has TWO CI blockers, and a green pull does not retire the
   first one.** Correcting a too-generous read of mine from the same day.
 
