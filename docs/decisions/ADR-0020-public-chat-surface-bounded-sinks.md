@@ -2,6 +2,7 @@
 
 - Status: Accepted; **extended by its own §5 addendum (2026-10-05), which refutes the headline
   of D1 and adds decisions A1-A8**. Read §5 before relying on §1-§4.
+  **Amended 2026-10-23 by §6 (M7, alert priority).**
 - Date: 2026-09-17
 - Supersedes: none. **Extends** ADR-0007 (browser-direct voice — this ADR fences the public
   surface that posture created), ADR-0008 (IP-pepper HMAC + consent gate — same
@@ -1303,3 +1304,100 @@ the first alone would pass if someone "fixed" it by walking `id`, and the second
 invisible to the recursion hole. **Ungated** — `turn_input.py` only, no `main.py` edit, so no
 new clearance. **Priority: ahead of A2 and A3.2** (§5.12 item 4b) — it is the only item left in
 this addendum that is remotely triggerable, needs no credential and costs one request.
+
+
+## 6. Amendment — 2026-10-23: M7, alert priority (as built)
+
+Recorded here, not in a new ADR, because §Consequences already ruled that M7 extends this ADR.
+The plan (`docs/plan-2026-09-port.md` M7) labelled it "ADR-0020" correctly but its body was
+written before ADR-0022 to ADR-0025 existed, and it is wrong in the ways listed in §6.1. Built
+on branch `m7-alerts`, commits `7f776b7`, `3eb4741`, `ec987cd`, `96aaf16`, plus slice 4.
+
+### 6.1 What the plan text got wrong (measured against the repo, 2026-10-23)
+
+1. **"Depends on M6", and the `chat_cold_wait` event.** M6 (scale-to-zero) is built on ECS
+   Express, and both Express services were deleted on 2026-10-13 (ADR-0022 §35). Every chat host
+   is now Lambda. There is no host to wake, so `chat_cold_wait` has no trigger. **It is dropped.**
+   M6 as written is obsolete. Lambda cold start (2.0-3.5 s, ADR-0022 §33.1) is not the dominant
+   wait; model fallback is, and that already alerts as `chat_primary_timeout`.
+2. **"`alerts.py` subjects carry `[P1]/[P2]`" is not enough on its own.** On Lambda the
+   in-process Resend send is measured lost (ADR-0022 §25.3-M), so the only delivery path is
+   Tier-1 line → metric filter → alarm, and that alarm said only *that* an alert fired. A
+   priority that lives only in the subject is invisible there. **Priority goes in the line.**
+3. **"Previously only model-fallback paths alerted"** was stale: the two transcript types
+   (`chat_transcript_write_failed` P1, `chat_transcript_session_full` P2, §5.13) also alert.
+4. **"Wired into events-ingress → existing alarm SNS topic", with "per-type cooldown
+   persisted in the events table".** The events Lambda has no `sns:Publish`. It is also a
+   Lambda, so an in-process send is unreliable for the reason in item 2. Built instead as the
+   same two-tier shape: a `SITE_ALERT` line, a metric filter, and alarms on the existing
+   `ContactAlarmTopic`. **No cooldown table.** The alarm state already collapses a storm to
+   one notification per breach, and a second throttle would only hide repeats.
+5. **The plan's flat P1/P2 per event name was too coarse.** `contact_submit_error{reason:
+   validation}`, `chat_live_error{phase: attach_mic}` and `chat_live_blocked{reason:
+   insecure_or_no_mediadevices}` are the visitor's own input, choice or browser. Paging P1 on
+   them is noise. See 6.3.
+6. **Journey "J8d"** does not exist. The harness has no J8 and no cold path. Nothing to pin.
+
+### 6.2 Chat side
+
+- `alerts.py`: a module-level `_PRIORITY` dict, `_priority(type)` defaulting to **P1** (fail
+  loud), exactly as the ruling earlier in this ADR requires. The throttle key is unchanged
+  (the type alone).
+  - Tier-1 line: `CHAT_ALERT event=<type> prio=<P> env=<env> <summary>`. The `CHAT_ALERT event=`
+    prefix the ADR-0022 §29.4 filter quotes is preserved.
+  - Subject: `[chat alert · <env>] [<P>] <type> — <summary>`.
+  - Classified: `chat_transcript_write_failed` P1, `chat_transcript_session_full` P2,
+    `voice_mint_failed` P1.
+  - **Open for the navigator:** the four `gemini_routing.py` types are unclassified and so P1 by
+    default. `chat_primary_timeout` and `chat_primary_rate_limit` mean the fallback answered,
+    which arguably makes them P2. That is a judgment, so it was not made here.
+- Both Lambda chat templates now have two chains:
+  - **P1** = `'"CHAT_ALERT event=" -"prio=P2"'` (every line that is not P2, so a line without a
+    prio field from pre-M7 code still pages) at a **60 s** period.
+  - **P2** = `'"CHAT_ALERT event=" "prio=P2"'` at **300 s**.
+
+  The existing filter and alarm keep their logical IDs and become P1, so the topics and their
+  confirmed subscriptions are not replaced. The metric names
+  `ChatAlertLines-{httpapi,stream}-${StageName}` and alarm names `…-tier1-alert-line` recorded
+  in ADR-0022 §29 are **superseded** by `ChatAlertLinesP1-…`/`ChatAlertLinesP2-…` and
+  `…-P1-alert-line`/`…-P2-alert-line`.
+- `/api/live/session`: every failure exit (504 timeout, 503 `RuntimeError`, upstream error,
+  500 missing token) fires one P1 `voice_mint_failed`. The `corpus_unavailable` 503 does not:
+  it is a deploy-time knowledge-pack fault that fails text chat too.
+
+### 6.3 Visitor side (`aws/src/common/site-alerts-core.js`)
+
+`/api/events` is public and anonymous, so classification is an **allowlist** over
+`(event, discriminator)`. Only allowlisted constants and an integer status reach the line;
+nothing a visitor typed does, and a forged discriminator is simply not an alert.
+
+| Alert type | Priority | Qualifies when |
+|---|---|---|
+| `contact_submit_error` | P1 | `code` an integer 500-599, or `reason` ∈ {`network`, `unexpected_reply`} |
+| `chat_live_error` | P1 | `phase` ∈ {`start`, `websocket`, `ws_closed_before_ready`} |
+| `chat_live_blocked` | P2 | `reason` = `voice_host_endpoint` |
+
+`network` is included on purpose: the visitor's network demonstrably worked, because the
+beacon reporting it arrived.
+
+The events handler emits `SITE_ALERT event=<type> prio=<P> env=<stack> <detail>` for each
+alerting row **before and independently of** the DynamoDB write. `EventsIngressFunction` logs to
+a stack-owned `/gvp/site-events/${AWS::StackName}` group carrying
+`SITE_ENV=${AWS::StackName}`. The P1 (60 s) and P2 (300 s) filters and alarms are named per
+stack and notify `ContactAlarmTopic`.
+
+**Accepted residual:** anyone can POST a qualifying event and trigger one P1 email per
+alarm breach. Because of the allowlist the content is fixed, and the alarm caps the rate.
+
+### 6.4 Acceptance caveats
+
+- **Nothing is deployed.** Prod chat runs 2026-10-15 code, and neither CI role can deploy
+  chat until the `gvp-<env>-chat-deploy` IAM policies are repointed (the user's decision).
+  So a P1 alarm "working on stage" is not evidence for prod.
+- The `-"prio=P2"` exclusion term has not been run against CloudWatch. Before relying on it,
+  check with `aws logs test-metric-filter` against sample `CHAT_ALERT` and `SITE_ALERT`
+  lines.
+- New log group: `ContactAlarmTopic`'s subscription is unchanged, but the events function's
+  logs move to `/gvp/site-events/<stack>`. Anyone reading `/aws/lambda/<fn>` for it must
+  look there instead.
+
