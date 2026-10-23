@@ -59,13 +59,11 @@ export function calculateFullStarCount(width, height, coresCount, baseStars) {
   // a ~32fps ceiling with no idle time left, which is why the chat response lagged too.
   // The same page on a phone cost 1.8ms. Area scaling is correct and stays: it holds
   // density per pixel constant, so the sky looks the same on a laptop and a monitor.
-  // Core count is not a reason to draw a DENSER sky, only a reason to draw the same sky
-  // more smoothly — so it is clamped at 1x and can now only scale DOWN, never up. A
-  // 4-core machine is the design point (1920x1080 => 646 stars); anything faster gets the
-  // same density, and anything slower still gets relief. Bounded by
-  // test/starfield-star-budget.test.mjs, which is the only part of the render budget a
-  // stubbed canvas can referee.
-  const scaleFactor = Math.min(coresCount / 4, 1)
+  // The formula is the original (c7a09b6), but since 2026-10-23 the renderer passes
+  // STAR_REFERENCE_CORES rather than the machine's core count. The owner found the sky looked
+  // better on slower machines and differed between machines, so every machine now gets the
+  // 4-core density. test/starfield-night.test.mjs pins that the CPU no longer changes it.
+  const scaleFactor = coresCount / 4
   const stars = baseStars ?? STARFIELD_DEFAULT_EXPERIENCE.baseStars
   return Math.floor((area / (1920 * 1080)) * stars * scaleFactor)
 }
@@ -230,4 +228,32 @@ export function defaultExperiencePrecipitationCount(kind) {
     case 'hail': return STARFIELD_DEFAULT_EXPERIENCE.hailCount
     default: return defaultExperienceSnowflakeCount()
   }
+}
+
+/**
+ * Star pace and frame pacing: the same sky on every machine (owner, 2026-10-23: "slow them
+ * down a notch, they look better on slower machines", and the sky differed by machine).
+ *
+ * The original moves every star a fixed step PER FRAME, so a 120Hz display ran the sky at
+ * twice the speed of a 60Hz one and a loaded machine ran it slower. The streak and the trail
+ * are per-frame too, so speed alone cannot be equalised. Instead: draw at most once per
+ * REFERENCE_FRAME_MS (a 120/144Hz display renders the 60Hz sky exactly), and when frames come
+ * slower than that, step the stars by the time that actually passed (capped, so a stall or a
+ * returning tab does not teleport the field).
+ */
+export const STAR_PACE = 0.8
+export const STAR_REFERENCE_CORES = 4
+export const REFERENCE_FRAME_MS = 1000 / 60
+// rAF timestamps jitter around the vsync interval; a 60Hz frame can arrive at 16.5ms.
+const FRAME_SLACK_MS = 2
+export const MAX_FRAME_STEP = 3
+
+/**
+ * @param {number|undefined} elapsedMs  time since the last DRAWN frame (undefined: first frame)
+ * @returns {number} 0 to skip this frame, else the motion step in reference frames
+ */
+export function frameStep(elapsedMs) {
+  if (typeof elapsedMs !== 'number' || !Number.isFinite(elapsedMs)) return 1
+  if (elapsedMs < REFERENCE_FRAME_MS - FRAME_SLACK_MS) return 0
+  return Math.min(MAX_FRAME_STEP, Math.max(1, elapsedMs / REFERENCE_FRAME_MS))
 }

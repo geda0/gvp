@@ -10,6 +10,57 @@ verified. Never release on a red bar or unaccepted work._
 | Staging deploy (contact-only) + team-tactics 0.8.5 | `8f4584c` (agent) · deploy run `26936642631` | — | **staging** | **GREEN** (test ✅ + deploy ✅, 55s). First contact-only run via the tightened `gvp-staging-ci-deploy` role. `page-staging` ContactApiUrl `fvfqpef8kb…` OPTIONS 204 (matches FE meta); frontend `chat.marwanelgendy.link` 200; ECS chat `chat-api-stage` 200 (untouched). 0.8.5 merged onto agent. ⚠ CI uses Node20 actions (GitHub deprecation 2026-06-16). | 2026-06-04 |
 | **PRODUCTION deploy** (contact refactor → prod) | `fda626f` (main) · deploy run `26938125929` | — | **prod** | **GREEN** (test ✅ + deploy ✅, 1m23s). New `deploy-prod.yml` (push→main, test-gated) ran `integrate-and-deploy.sh prod` via OIDC role `gvp-prod-ci-deploy` (main-only, page-scoped). QA-gated by a staging E2E contact submission (qa-verifier PASS). `page` UPDATE_COMPLETE; contact `lwi0vmdpb5…` OPTIONS 204 (matches FE prod meta); `www.marwanelgendy.link` 200; prod chat ECS `chat-api.marwanelgendy.link` 200 (untouched). Frontend unchanged (Amplify rebuild of `main`). | 2026-06-04 |
 
+
+## 2026-10-23 — PROMOTED TO PROD: star pacing (GREEN, verified live)
+- `main` `5aa075d`: merged agent into main (no fast-forward). Prod hosts kept; prod guard 3/3;
+  suite 524/0; both CI runs on main GREEN.
+- Change: the sky draws at most 60fps, slower frames step by real elapsed time (cap 3x),
+  stars move at 0.8x, and density uses a fixed 4-core reference (no longer tracks the CPU).
+- Prod served the new build about 2.75 min after the push, with the prod API hosts in the
+  meta tags. The night frame measured 493 lit / 21 bright (4-core density on an 8-core
+  capture machine).
+- `agent` took main back in; stage hosts re-pinned in `2f8475e`.
+
+## 2026-10-23 — PROMOTED TO PROD: original starfield restored (GREEN, verified live)
+- `main` `fa6cf19`: merged agent into main (no fast-forward). Prod hosts were kept in
+  `index.html` and `admin/index.html`; the prod guard passed 3/3 and the suite 518/0.
+- CI on main: tdd-verify and the chat tests are GREEN. Amplify served the new build about
+  2.5 min after the push: `js/starfield-geom.js` returns 404, and none of the removed
+  identifiers are in the served `starfield.js`.
+- A prod 1440x900 night frame composited over #141926 measured 1080 lit / 32 bright. The
+  original is 921–1073 / 26–31.
+- `agent` took main back in (`f05d6ba`); stage hosts were re-pinned in `1e8ac92`.
+
+## 2026-10-23 — PROMOTED TO PROD: M4, M5, M7, M8 (GREEN, verified live)
+- `main`:
+  - `4118aa3` merge agent → main (no fast-forward); prod hosts were kept by the merge, so no
+    re-pin was needed;
+  - `939354e` privacy-link HOLD (ADR-0021 D4);
+  - `521221c` deploy fixes;
+  - `fde6f98` hold lifted.
+- First `deploy-prod` failed at the new WAF stack: WAFv2 rejected the Description's `§` and
+  parentheses. The same run would have deployed the chat CDN in GATE MODE (no
+  `CHAT_SAM_STACK_NAME_*` in CI).
+  - Fixed in `67db0ad`: ASCII description, keep the CDN's existing default origin, delete an
+    empty ROLLBACK_COMPLETE WAF stack before retrying.
+  - Repo vars `CHAT_SAM_STACK_NAME_PROD=gvp-chat-prod` and `CHAT_SAM_STACK_NAME_STAGE=gvp-chat-stage`
+    were set, so CI now also deploys the HttpApi chat stacks.
+- `deploy-prod` run 40008189011 GREEN:
+  - page (no changes), gvp-chat-prod, gvp-chat-lambda-stream-prod, gvp-chat-waf-prod
+    (created in us-east-1), gvp-chat-stream-cdn-prod (WAF attached, default origin kept at
+    `63omz2jyqd…`);
+  - stream `/health` 200.
+- Verified on prod:
+  - TTL ENABLED on page-ChatTranscriptsTable, and a fresh row stamped `ttl` +180 days
+    (prompt 1.6.0);
+  - budgets gvp-lambda-monthly $15 and gvp-account-monthly $70 exist;
+  - five stream alarms and the page P1/P2 site alarms exist;
+  - in a real browser on www: privacy note (7 facts), "Open the Apptio project" → button →
+    the card opens and the chat docks, zero CSP violations, no console errors.
+- Noted: the first prod witness turn hit a transient Gemini `500 INTERNAL`. Cold prod Lambda
+  took ~15 s on the first browser turn.
+- `agent` took main back in and re-pinned the stage hosts.
+
 ## 2026-06-17 — Pre-prod hardening → STAGING (GREEN)
 - Branch `agent` @ `d242979` (commits 27ef7f6 ttics/gate, 1d0354d hardening, d242979 ci+deploy fixes).
 - deploy-staging run 27720539158 GREEN: test 120/120/0, deploy OK. `page-staging` + `gvp-chat-express-stage` UPDATE_COMPLETE; IpHashPepper + SmokeProbeKey provisioned (chat task def rev 18).
