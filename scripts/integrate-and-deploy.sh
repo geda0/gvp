@@ -88,34 +88,16 @@ case "${CHAT_DEPLOY_TARGET}" in
     ;;
 esac
 
-if [[ "${SKIP_SECRETS_MANAGER:-0}" != "1" && -f "$SECRETS_DIR/manifest.json" && -f "$SECRETS_DIR/config.manifest.json" ]]; then
-  if [[ ! -f "$SECRETS_DIR/deploy.env" ]]; then
-    echo "error: $SECRETS_DIR/deploy.env missing (required with manifest.json + config.manifest.json)" >&2
-    echo "  cp \"$ROOT/secrets.example/deploy.env.example\" \"$SECRETS_DIR/deploy.env\" && edit" >&2
-    exit 1
-  fi
-  ORCH_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-2}}"
-  export AWS_DEFAULT_REGION="${ORCH_REGION}"
-  echo "Secrets prep: seeding config exports (config.manifest.json)…"
-  python3 "$ROOT/scripts/seed_local_configs.py" --secrets-dir "$SECRETS_DIR"
-  echo "Secrets prep: pushing manifest files to AWS Secrets Manager…"
-  python3 "$ROOT/scripts/push_local_secrets_to_sm.py" --secrets-dir "$SECRETS_DIR" --region "${ORCH_REGION}"
-  set -a
-  # shellcheck source=/dev/null
-  source "$SECRETS_DIR/deploy.env"
-  if [[ -f "$SECRETS_DIR/config.generated.env" ]]; then
-    # shellcheck source=/dev/null
-    source "$SECRETS_DIR/config.generated.env"
-  fi
-  if [[ -f "$SECRETS_DIR/deploy.generated.env" ]]; then
-    # shellcheck source=/dev/null
-    source "$SECRETS_DIR/deploy.generated.env"
-  fi
-  set +a
-  gvp_restore_operator_intent
-fi
-
-
+# MOVED ABOVE THE SECRETS-PREP BLOCK, 2026-10-23, and it has to stay here. Two reasons,
+# both of which had already fired:
+#   1. The block below CALLS gvp_restore_operator_intent. Bash resolves a function at the
+#      moment of the call, so with the definition further down the script died with
+#      `command not found` and exit 127 - mid-deploy, AFTER it had written
+#      .secrets/config.generated.env and pushed a secret to Secrets Manager.
+#   2. The snapshot loop has to run BEFORE anything sources .secrets/*, or it captures
+#      values the secrets files have already clobbered and "restores" them to themselves,
+#      which is the exact override this mechanism exists to prevent.
+# Pinned by test/deploy-script-no-use-before-define.test.mjs.
 # OPERATOR INTENT WINS OVER THE SECRETS FILES. Snapshot any behaviour flag the caller set
 # BEFORE sourcing .secrets/*, then restore it after.
 # MEASURED 2026-10-13, and it had already fired: `.secrets/deploy.env` carries
@@ -160,6 +142,36 @@ gvp_restore_operator_intent() {
     fi
   done
 }
+
+
+if [[ "${SKIP_SECRETS_MANAGER:-0}" != "1" && -f "$SECRETS_DIR/manifest.json" && -f "$SECRETS_DIR/config.manifest.json" ]]; then
+  if [[ ! -f "$SECRETS_DIR/deploy.env" ]]; then
+    echo "error: $SECRETS_DIR/deploy.env missing (required with manifest.json + config.manifest.json)" >&2
+    echo "  cp \"$ROOT/secrets.example/deploy.env.example\" \"$SECRETS_DIR/deploy.env\" && edit" >&2
+    exit 1
+  fi
+  ORCH_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-2}}"
+  export AWS_DEFAULT_REGION="${ORCH_REGION}"
+  echo "Secrets prep: seeding config exports (config.manifest.json)…"
+  python3 "$ROOT/scripts/seed_local_configs.py" --secrets-dir "$SECRETS_DIR"
+  echo "Secrets prep: pushing manifest files to AWS Secrets Manager…"
+  python3 "$ROOT/scripts/push_local_secrets_to_sm.py" --secrets-dir "$SECRETS_DIR" --region "${ORCH_REGION}"
+  set -a
+  # shellcheck source=/dev/null
+  source "$SECRETS_DIR/deploy.env"
+  if [[ -f "$SECRETS_DIR/config.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/config.generated.env"
+  fi
+  if [[ -f "$SECRETS_DIR/deploy.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/deploy.generated.env"
+  fi
+  set +a
+  gvp_restore_operator_intent
+fi
+
+
 
 # When not already exported (e.g. GitHub Actions exports secrets), load local .secrets/deploy.env
 if [[ -z "${RESEND_API_KEY:-}" && -f "$SECRETS_DIR/deploy.env" ]]; then
