@@ -3,8 +3,11 @@ import './site-config.js'
 import {
   initAnalytics,
   bindOutboundTracking,
-  trackThemeChange
+  trackThemeChange,
+  trackEvent
 } from './analytics.js'
+import { getSiteState } from './site-state.js'
+import { initSelectionOffers } from './selection-offer-ui.js'
 import { initSiteEvents } from './site-events.js'
 import { initNavigation } from './navigation.js'
 import { initTheme, getTheme, getThemeState, setAutoTime, setPinnedTime } from './theme.js'
@@ -223,6 +226,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       onDockChange: () => spacemanPosition?.updatePosition?.()
     })
     chatApi.bindAgentNode(agentNodeApi)
+    // M4 slice 16 (ADR-0017 §7): selection offers. The ONLY sink is the composer draft - it
+    // fills the box and the visitor's own send is the explicit tap.
+    initSelectionOffers({
+      openDraft: (text) => chatApi.openPanelWithDraft(text, 'selection'),
+      track: trackEvent,
+      getSection: () => getSiteState().section || ''
+    })
   }
 
   document.getElementById('footerOpenChatBtn')?.addEventListener('click', () => {

@@ -2481,3 +2481,24 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 .agent-node__active-chip[hidden] {
     display: none;
 }
+
+
+/* M4 slice 16 — the "Ask about this" offer under a content selection. */
+.selection-offer {
+    position: fixed;
+    z-index: 1090;
+    transform: translateX(-50%);
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--accent, currentColor);
+    border-radius: 999px;
+    background: var(--surface, #111);
+    color: inherit;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.selection-offer[hidden] {
+    display: none;
+}
