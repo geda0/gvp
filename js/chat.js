@@ -1719,9 +1719,16 @@ export function initChat() {
             message: typeof args.message === 'string' ? args.message : '' }
         : null
       openContactFromChat(prefill, { origin: 'agent' })
-      // Same read-back: this is what proves the form OPENED, rather than that the handler
-      // was called. The whole state travels, not just the field the tool touched - the model
-      // should not have to remember where the visitor was to know where they still are.
+      // READ BACK, and this is the one place invariant #21's "did not apply -> error"
+      // clause is reachable: openContactDialog is a no-op until initContactForm has run,
+      // and that returns early when any of seven DOM nodes is missing. Without the check
+      // the tool reported success, the voice model said so out loud, and the echoed
+      // siteState sitting beside it said contactOpen: false.
+      if (!getSiteState().contactOpen) {
+        return { error: 'contact_form_did_not_open', siteState: getSiteStateForWire() }
+      }
+      // The whole state travels, not just the field the tool touched - the model should not
+      // have to remember where the visitor was to know where they still are.
       return { result: 'opened_contact_form', siteState: getSiteStateForWire() }
     }
     if (name === 'navigate_to_section') {

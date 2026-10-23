@@ -200,6 +200,36 @@ test('the dedupe memory resets with the session', () => {
   )
 })
 
+test('a change to a field that is not in the line schedules nothing', () => {
+  // Found by the M2 critic pass. onChange fired on ANY visitor-origin change, including
+  // `chatStage` — which js/chat.js writes with origin 'visitor' every time the panel opens
+  // or closes, and which is deliberately NOT on the wire and NOT in the prose (§6.1).
+  //
+  // The dedupe usually swallowed the resulting note, but not always: reset() runs on
+  // session open, so the FIRST note of a call has no previous line to compare against and
+  // goes out — repeating verbatim what the mint-time system instruction already said. That
+  // is "the same fact told twice", the exact failure §7.2 names, arriving across the two
+  // renderers instead of within one.
+  const h = harness()
+  h.setState({ section: 'portfolio' })
+  h.notifier.onChange({ field: 'chatStage', from: 'closed', to: 'modal', origin: 'visitor' })
+  h.advance(500)
+  assert.deepEqual(
+    h.sent, [],
+    'chatStage is not in the rendered line, so a change to it cannot be news. Scheduling ' +
+    'on it means the note is driven by something the model never sees'
+  )
+
+  h.notifier.onChange({ field: 'voiceActive', from: false, to: true, origin: 'visitor' })
+  h.advance(500)
+  assert.deepEqual(h.sent, [], 'and neither is voiceActive (§6.1, and it is a tautology here)')
+
+  // The positive control: a field that IS in the line still schedules.
+  h.notifier.onChange({ field: 'section', from: 'home', to: 'portfolio', origin: 'visitor' })
+  h.advance(500)
+  assert.equal(h.sent.length, 1, 'a section change must still send, or this row is vacuous')
+})
+
 test('an empty line is never sent', () => {
   const h = harness()
   h.setState({ section: null, projectId: null, projectTitle: null, contactOpen: false })

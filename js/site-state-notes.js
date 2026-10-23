@@ -51,6 +51,9 @@ export function renderSiteStateLine (wire) {
 /** Trailing window. One visitor action can write two fields; one action is one note. */
 const COALESCE_MS = 250
 
+/** The store fields `renderSiteStateLine` actually reads. Everything else cannot be news. */
+const LINE_FIELDS = new Set(['section', 'project', 'contactOpen'])
+
 /**
  * @param {object} deps
  * @param {() => object} deps.getWireState   the store's wire snapshot, read at FLUSH time
@@ -99,6 +102,13 @@ export function createSiteStateNotifier ({ getWireState, isSessionOpen, send, se
       // that can tell the two apart — an agent-caused and a visitor-caused change are
       // byte-identical in the state. 'system' (boot, viewport) is not a fact about the site.
       if (!change || change.origin !== 'visitor') return
+      // Only the fields that appear in the rendered line can be news. `chatStage` is
+      // written with origin 'visitor' every time the panel opens or closes and is
+      // deliberately off the wire (ss6.1); scheduling on it means the note is driven by
+      // something the model never sees. The dedupe usually swallowed the result - but
+      // reset() runs on session open, so the FIRST note of a call had nothing to compare
+      // against and went out repeating what the mint-time instruction already said.
+      if (!LINE_FIELDS.has(change.field)) return
       if (pending !== null) clearTimer(pending)
       pending = setTimer(flush, COALESCE_MS)
     },

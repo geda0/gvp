@@ -176,7 +176,7 @@ function makeWebSocketClass(sockets) {
 // session stays open with no mic attached — one of the real prod states), then let
 // setupComplete land, which is what makes isSessionOpen() true and the teardown at
 // js/chat.js:902-909 reachable.
-async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' } = {}) {
+async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '', contact = true } = {}) {
   const sockets = []
   const byId = new Map()
   const docEvents = makeListeners()
@@ -328,8 +328,11 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' 
   // js/contact.js's openContactDialog, which is a no-op until initContactForm has assigned
   // its impl — so without this the tool runs, reports success, and contactOpen stays false.
   // Not cache-busted, same argument as navigation above.
-  const contact = await import('../../js/contact.js')
-  contact.initContactForm()
+  // `contact: false` leaves openContactDialog as the no-op it is before initContactForm
+  // runs — which is the real state of a page where the dialog was renamed or removed, and
+  // the one place invariant #21's "did not apply → error" clause is reachable.
+  const contactMod = await import('../../js/contact.js')
+  if (contact) contactMod.initContactForm()
   await settle()
 
   // `voice: false` stops here, with the modules initialised and NOTHING opened — the state
@@ -339,7 +342,7 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' 
   // closing the panel afterwards to "get back" to closed is a different state, and a row
   // asserting the boot contract against it proves nothing.
   if (!voice) {
-    return { chat, nav, contact, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls, mediaListeners }
+    return { chat, nav, contact: contactMod, api, socket: null, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls, mediaListeners }
   }
 
   api.openPanel()
@@ -353,6 +356,6 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '' 
   socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) })
   await settle()
 
-  return { chat, nav, contact, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls, mediaListeners }
+  return { chat, nav, contact: contactMod, api, socket, sockets, getEl, byId, docEvents, winEvents, gtagCalls, fetchCalls, mediaListeners }
 }
 export { DEAD_RECT, makeListeners, makeEl, defineGlobal, settle, makeWebSocketClass, bootChatWithLiveVoice }
