@@ -481,7 +481,8 @@ test('every event in the reducer table has a caller, or it is not a feature', as
   //     minimize: an event with no caller is either a missing feature or a row that should
   //     be deleted, and the difference has to be a decision on the record rather than an
   //     oversight that looks identical to one.
-  const NOT_YET_AFFORDED = ['minimize', 'open-beside']
+  // minimize is wired by M4 slice 15 (with the launcher chip, its way back).
+  const NOT_YET_AFFORDED = ['open-beside']
   const uncalled = CHAT_STAGE_EVENTS.filter((event) => {
     if (NOT_YET_AFFORDED.includes(event)) return false
     if (new RegExp(`['"]${event}['"]`).test(src)) return false
