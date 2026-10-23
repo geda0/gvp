@@ -35,7 +35,11 @@ const MUST_BE_GATED = [
   // Retired, but still carries the key in container env if anyone deploys it.
   'aws/chat-express-template.yaml',
   // Resolves the credential at runtime.
-  'docker/chat/app/secret_resolver.py'
+  'docker/chat/app/secret_resolver.py',
+  // Added by M7/M8 (2026-10-23), and missed by the glob until this test named them:
+  'aws/chat-waf-template.yaml',          // the per-IP rate ceiling in front of chat
+  'aws/src/common/admin-auth.js',        // decides full vs read-only admin access
+  'aws/src/common/site-alerts-core.js'   // parses public /api/events input into pages
 ]
 
 // Deliberately NOT gated: these shape a deploy but grant nothing and hold no credential.
@@ -71,4 +75,15 @@ test('the glob stays targeted — it does not swallow ordinary files', () => {
     'credential. A gate that blocks everyday edits gets routed around, and then it protects ' +
     'nothing at all.'
   )
+})
+
+// Every CloudFormation template here creates IAM or security-relevant resources, so the rule
+// is "all of aws/*.yaml", not a list a new template can be forgotten from - which is exactly
+// how aws/chat-waf-template.yaml shipped ungated.
+test('every template under aws/ is gated, including ones added after this test', async () => {
+  const { readdirSync } = await import('node:fs')
+  const rx = new RegExp(pattern)
+  const templates = readdirSync(join(REPO, 'aws')).filter((f) => /\.ya?ml$/.test(f))
+  const missing = templates.map((f) => `aws/${f}`).filter((f) => !rx.test(f))
+  assert.deepEqual(missing, [], `ungated templates: ${missing.join(', ')}`)
 })
