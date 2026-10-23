@@ -2494,3 +2494,28 @@ h6 {
     --link-hover: var(--accent-hover);
 }
 
+
+
+/* M4 slice 13 — "ask the assistant about this project" chips inside the project dialog. */
+.project-dialog__assistant {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.project-dialog__chip {
+    padding: 0.35rem 0.85rem;
+    border: 1px solid var(--border-strong, currentColor);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.project-dialog__chip:hover,
+.project-dialog__chip:focus-visible {
+    border-color: var(--accent, currentColor);
+}
