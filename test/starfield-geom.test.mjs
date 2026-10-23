@@ -2,6 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { starDrawBounds, starIsOffCanvas, STREAK_BOUNDS_PAD } from '../js/starfield-geom.js'
+// The renderer owns the streak width. This test reaches for it on purpose: the width must be
+// ONE number, read from the star, never a copy of it living in the culling module.
+import { streakThickness, STAR_MAX_RADIUS } from '../js/starfield.js'
 
 // Is this star going to put a single pixel on the canvas?
 //
@@ -126,5 +129,63 @@ test('starDrawBounds reports the union, and is the thing the predicate uses', ()
   assert.deepEqual(
     starIsOffCanvas({ x: 100, y: 100, radius: 10, tailX: 40, tailY: 100 }, W, H),
     false
+  )
+})
+
+// A star is bounded by the width of ITS OWN streak, not by a copy of a constant.
+//
+// The streak is no longer one width for every star: `streakThickness(radius)` in
+// js/starfield.js keeps 1.5px as the hairline FLOOR a distant pinprick gets and grows the
+// width with the star's radius — 5.4px for the closest star the renderer can draw (radius
+// STAR_MAX_RADIUS = 9). This module still inflates the streak's segment box by a hardcoded
+// 0.75, which is half of the OLD one-size thickness copied into a second module. So for
+// every star above the floor the bound now under-covers the ink it is supposed to contain.
+//
+// UNDER-COVERING IS THE FORBIDDEN DIRECTION, per this module's own header: "A wrong `false`
+// costs one `drawImage` the canvas then clips — invisible, and exactly what is paid today. A
+// wrong `true` DELETES A VISIBLE STAR: a rendering defect no unit test would show, reading
+// as flicker at the edge of someone's vision. So bounds are inflated and never shaved." A
+// star whose fat streak genuinely still paints canvas pixels, culled because the bound was
+// computed for a hairline, IS that wrong `true` — and it selects for the CLOSEST, brightest
+// stars, as a flicker along the screen edges. No existing row here can see it: they all
+// describe the old thin streak.
+//
+// THE GEOMETRY. Head at (864, -30), tail at (960, -2): a 96-28-100 segment above the top
+// edge, the star travelling up and to the left. The strip is CENTRED on that segment
+// (js/starfield.js draws it from -thickness/2), and perpendicular to this segment is
+// (0.28, -0.96), so a 5.4px streak puts its lower edge 2.7 * 0.96 = 2.59px below the
+// centreline: the tail corner lands at y = +0.59, ON CANVAS. The head's glow cannot save it
+// — radius 9 at y = -30 stops 21px short of the edge. Inflating by 0.75 instead puts the
+// bottom bound at -0.25 and deletes the star.
+test('a star is bounded by its OWN streak width, so a close star with a fat streak is not culled', () => {
+  const closest = { x: 864, y: -30, radius: 9, tailX: 960, tailY: -2 }
+  const thickness = streakThickness(STAR_MAX_RADIUS)
+  const half = thickness / 2
+  const fat = { ...closest, streakThickness: thickness }
+
+  assert.equal(
+    starIsOffCanvas(fat, W, H), false,
+    `a ${thickness}px streak reaches ${half}px off its centreline, so this one still paints ` +
+    'the top row of the canvas. Culling it is the wrong `true` this module forbids — the ' +
+    'brightest stars in the sky flickering out along the edges'
+  )
+
+  const b = starDrawBounds(fat)
+  assert.ok(
+    b.bottom >= closest.tailY + half,
+    `bottom ${b.bottom} must clear the streak's lower edge at ${closest.tailY + half}`
+  )
+  assert.ok(
+    b.right >= closest.tailX + half,
+    `right ${b.right} must clear the streak's outer edge at ${closest.tailX + half}; the ` +
+    'half-width applies on BOTH axes, because the streak runs at any angle'
+  )
+
+  // The fallback, so this cannot regress a single cull that is correct today: a star that
+  // carries no width is still bounded by the hairline, exactly as it is now.
+  assert.equal(
+    starIsOffCanvas(closest, W, H), true,
+    'with no width on the star the hairline bound still applies — the bound may only widen ' +
+    'for the stars that actually draw a wide streak'
   )
 })

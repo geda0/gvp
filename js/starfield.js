@@ -34,7 +34,24 @@ export const STREAK_TAIL_FRAMES = 8;
 export const STREAK_MAX_DIST = 150;
 /** Sub-pixel tails are invisible; skip the draw entirely. */
 export const STREAK_MIN_DIST = 1;
+/**
+ * THE LOLLIPOP, and why the streak width is no longer one number.
+ *
+ * STREAK_THICKNESS was a constant 1.5px for every star at every depth, while the head is
+ * the baked glow sprite scaled to `clampStarRadius(...)` — up to STAR_MAX_RADIUS * 2 = 18px
+ * across. An 18px ball on a 1.5px stick is a 12:1 silhouette, and that is the "lollipop"
+ * the site owner named as the single worst thing about the sky. Measured on live prod
+ * 2026-10-23: star draw sizes p50 2.4px, p95 12.4px, max 150px — the head grows, the stick
+ * never did.
+ *
+ * A tail has to be the width of the thing it trails. STREAK_THICKNESS is kept as the
+ * HAIRLINE FLOOR a distant pinprick still gets, so faint stars are not fattened; above
+ * that the width is proportional to the star's own radius, and capped so the closest star
+ * draws a tail and never a slab.
+ */
 export const STREAK_THICKNESS = 1.5;
+/** Tail width per unit of star radius, above the hairline floor. */
+export const STREAK_WIDTH_RATIO = 0.6;
 /**
  * Per-frame brightness. The old renderer got its brightness for free by letting
  * ~14 frames of glow pile up on an uncleared canvas. On a cleared canvas each
@@ -89,6 +106,24 @@ export function clampStarRadius(radius) {
 /** Tail length for a star that moved `frameDelta` px this frame. */
 export function streakLength(frameDelta, tailFrames = STREAK_TAIL_FRAMES) {
   return Math.min(frameDelta * tailFrames, STREAK_MAX_DIST);
+}
+
+/**
+ * Tail WIDTH for a star of this (already depth-clamped) radius — the fix for the lollipop
+ * described above STREAK_THICKNESS.
+ *
+ * Floored at STREAK_THICKNESS so a pinprick keeps the hairline it has today, and capped at
+ * the widest a head can ever be (STAR_MAX_RADIUS * 2) so no arithmetic upstream can turn a
+ * tail into a slab. A non-finite radius degrades to the hairline rather than throwing: this
+ * runs once per streaking star per frame, and killing the render loop over one bad number
+ * is far worse than drawing one thin streak.
+ */
+export function streakThickness(radius) {
+  const r = typeof radius === 'number' && Number.isFinite(radius) ? Math.abs(radius) : 0;
+  return Math.min(
+    Math.max(r * STREAK_WIDTH_RATIO, STREAK_THICKNESS),
+    STAR_MAX_RADIUS * 2
+  );
 }
 
 /**
@@ -388,8 +423,17 @@ export function initStarfield(canvasId, options = {}) {
       // not approximate. `px`/`py` are still updated below: the streak is drawn from the
       // PREVIOUS projected position, so returning without updating it would make a star that
       // wanders off and comes back smear from wherever it left.
+      // ONE number for the draw and the cull. The cull used to assume a fixed hairline, so
+      // once the width became proportional it would have under-covered the fattest streaks
+      // and deleted exactly the brightest stars near the edges.
+      const thickness = streakThickness(radius);
+
       if (starIsOffCanvas(
-        { x: x, y: y, radius: radius, tailX: streakTailX, tailY: streakTailY },
+        {
+          x: x, y: y, radius: radius,
+          tailX: streakTailX, tailY: streakTailY,
+          streakThickness: thickness
+        },
         canvas.width, canvas.height
       )) {
         this.px = x;
@@ -426,7 +470,7 @@ export function initStarfield(canvasId, options = {}) {
           );
           c.drawImage(
             streakSprites[this.colorIndex],
-            0, -STREAK_THICKNESS / 2, tail, STREAK_THICKNESS
+            0, -thickness / 2, tail, thickness
           );
           c.setTransform(1, 0, 0, 1, 0, 0);
         }
