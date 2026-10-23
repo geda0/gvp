@@ -17,7 +17,7 @@ export function privacyFacts() {
     'Your microphone is used only while voice chat is on, and released when it ends.',
     `This site records simple page events (which section you opened, whether chat worked) with your IP address scrambled by a keyed hash. Those records are deleted after ${EVENT_RETENTION_DAYS} days.`,
     'Google Analytics also runs on this site and, like on most sites, it sees your IP address.',
-    'Messages you send through the contact form are kept so they can be answered.'
+    'Messages you send through the contact form are kept so they can be answered, with no set deletion date.'
   ]
 }
 
