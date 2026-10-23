@@ -863,8 +863,11 @@ export function initStarfield(canvasId, options = {}) {
   window.addEventListener('themechange', () => {
     if (isTimeMode()) {
       // Time mode fires themechange as the chrome flips garden/space at dawn/dusk.
-      // Keep the pools (drawTime modulates star opacity; snow is always on); just
-      // ensure they exist. Re-allocating on every flip would reset the scene.
+      // Keep the pools (drawTime modulates star opacity and fades precipitation in and out
+      // with the sun); just ensure they exist. Re-allocating on every flip would reset the
+      // scene. The precipitation KIND is not handled here on purpose: an event-driven
+      // re-seed goes stale the moment anything sets the attribute without dispatching, so
+      // drawTime compares it per frame instead (ADR-0016 §3.2).
       if (!stars.length || !precipitation.length) resizeCanvas();
       return;
     }

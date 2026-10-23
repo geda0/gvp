@@ -4,6 +4,47 @@
 
 ## Current status
 
+- **2026-10-23 (later) — M3 COMPLETE, all six slices. M1 and M2 complete. M8 item 4 done
+  opportunistically.** `main` @ `33a514c` (untouched), `agent` ahead by 40. App **413 / 412
+  pass / 1 skip**, chat **213 passed**, browser journeys **17/17**. STILL NOTHING DEPLOYED.
+
+  **M3 (ADR-0016, architect-authored, 958 lines).** The daytime sky had snow in all twelve
+  months everywhere; now `js/precipitation.js` decides and `js/starfield.js` obeys. Today
+  (2026-10-23, northern autumn, not a hail day) renders rain.
+  - **The constraint that bites, and it is invisible in a diff:**
+    `initPrecipitation('snow')` keeps `initSnow`'s exact FIVE `Math.random()` draws in the
+    order `x, y, r, phase, speed`, with NO shared pre-roll before the per-kind branch. The
+    A/B harness replays the render under a seeded `Math.random`, so one extra or reordered
+    draw shifts every subsequent particle and reports a full-stream difference for a change
+    that is visually nothing. **Gate, run it on every starfield change:**
+    `node scripts/qa/starfield-ab-draws.mjs HEAD 12 400 0 snow` → `identical: true`.
+  - **The hail sprite is 8px, not 4.** Three places in this repo identify a sprite by
+    `img.height === 4` and all three mean "star motion streak". A 4px pellet would have
+    been counted as one by the perf test's reduced-motion clause (which pins invariant #6's
+    live clause), the cull wiring test and the A/B harness.
+  - **The decision lives in `theme.js`, not the renderer**, for a MEASURED reason: the A/B
+    harness pins `Date.now` and `new Date()` does not consult it, so a calendar read inside
+    `starfield.js` would make the harness answer differently depending on the day you ran
+    it. A grep enforces the renderer knows no months, dates, hemispheres or hail odds.
+  - **Reduced motion now cuts SPEED as well as count** for rain and hail.
+    `snowSpeedMultiplierForPreference` returns exactly `1` under reduced motion — the
+    shipped tier cuts count only, which is fine for snow at 0.6-1.8px/frame and not for
+    rain at ten times that. Snow's behaviour is preserved byte-for-byte.
+  - Census at hour 12 / 120 frames: snow identical, rain 120 visible draws (one stroke per
+    frame), hail ~91/frame. Verified visually in headless Chrome over the real garden scene.
+
+  **M8 item 4 (CSP + security headers) landed out of order** while M3's ADR was being
+  written — `customHttp.yml`, verified against the running site with the policy served as a
+  real header and the violation listener installed BEFORE any page script. Zero violations;
+  positive control reports six. The API hosts are WILDCARDS because they differ per
+  environment and the 2026-06-04 incident is what a committed per-environment literal
+  produces — with a worse failure mode here, since a blocked `connect-src` is silent in the
+  UI. `wss://generativelanguage.googleapis.com` is the origin nobody guesses: voice is
+  browser-direct, so omitting it kills voice while text chat keeps working.
+
+  **Next:** M4 (ADR-0017, not written), M5, M6, M7, the rest of M8. And the promotion
+  question is now 40 commits deep — stage has seen none of it.
+
 - **2026-10-23 — M2 COMPLETE (journey harness included) and M1 COMPLETE. M3 blocked on
   ADR-0016 (architect drafting).** `main` @ `33a514c` (unchanged), `agent` ahead by 33.
   App suite **377 / 376 pass / 1 skip**, chat **213 passed**, browser journeys **17/17**.
