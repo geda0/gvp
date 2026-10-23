@@ -42,7 +42,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const JS = join(REPO, 'js')
 
-const [, , baseRef = 'HEAD', hours = '22', framesArg = '400', reducedArg = '0'] = process.argv
+const [, , baseRef = 'HEAD', hours = '22', framesArg = '400', reducedArg = '0', kind = ''] = process.argv
+// A FORCED PRECIPITATION KIND (ADR-0016 §7). Without it the snow no-regression gate is
+// undecidable: run this in December and it compares snow against snow, run it in July and it
+// compares snow against rain and calls that a regression. '' means whatever the date gives.
 // Reduced motion is a different draw path (no streaks), so it needs its own run.
 const REDUCED = reducedArg === '1' || reducedArg === 'reduced'
 const FRAMES = Number(framesArg)
@@ -62,14 +65,33 @@ function mulberry32 (a) {
 function makeHarness (log) {
   const state = { a: 1, tx: 0, ty: 0, rot: 0 }
   const stack = []
+  const path = []
   const gradient = () => ({ addColorStop () {} })
   const mkCtx = () => {
     const ctx = {
       _c: 'source-over',
       fillStyle: '', strokeStyle: '', lineWidth: 1, lineCap: 'butt',
       createRadialGradient: gradient, createLinearGradient: gradient,
-      fillRect () {}, clearRect () {}, stroke () {}, beginPath () {}, arc () {}, fill () {},
-      moveTo () {}, lineTo () {}, scale () {},
+      fillRect () {}, clearRect () {}, arc () {}, fill () {}, scale () {},
+      // PATHS ACCUMULATE AND `stroke()` IS RECORDED (ADR-0016 §7). Rain emits ZERO drawImage
+      // calls — it is one batched stroke — so with these as no-ops the harness recorded a
+      // rain frame as drawing NOTHING, and would have reported `identical: true` between a
+      // working rain renderer and a deleted one. That is not a nicety; it is the difference
+      // between this harness being a gate for the rain slice and being decoration.
+      beginPath () { path.length = 0 },
+      moveTo (x, y) { path.push({ m: true, x, y }) },
+      lineTo (x, y) { path.push({ m: false, x, y }) },
+      stroke () {
+        if (!path.length) return
+        log.push({
+          k: 'stroke',
+          tx: +state.tx.toFixed(3), ty: +state.ty.toFixed(3), r: +state.rot.toFixed(6),
+          a: +state.a.toFixed(6),
+          w: +(+ctx.lineWidth).toFixed(3),
+          pts: path.map((p2) => ({ m: p2.m, x: +(+p2.x).toFixed(3), y: +(+p2.y).toFixed(3) }))
+        })
+        path.length = 0
+      },
       save () { stack.push({ ...state }) },
       restore () { const s = stack.pop(); if (s) Object.assign(state, s) },
       translate (x, y) { state.tx += x; state.ty += y },
@@ -86,7 +108,9 @@ function makeHarness (log) {
         // The RAW transform and the RAW destination box, kept apart so the true quad can be
         // reconstructed. Rounded so float noise cannot masquerade as a difference.
         log.push({
-          k: img && img.height === 4 ? 'streak' : 'glow',
+          // The sprite HEIGHT is the classifier (§4.4): streak strip 4, star glow 64, and
+          // hail gets its own so a third sprite cannot silently read as one of the first two.
+          k: img ? ({ 4: 'streak', 64: 'glow' }[img.height] || `sprite${img.height}`) : 'glow',
           tx: +state.tx.toFixed(3), ty: +state.ty.toFixed(3), r: +state.rot.toFixed(6),
           dx: +(+dx).toFixed(3), dy: +(+dy).toFixed(3),
           w: +(+dw).toFixed(3), h: +(+dh).toFixed(3),
@@ -116,7 +140,10 @@ async function render (moduleUrl, tag) {
     createElement: () => mkCanvas(),
     addEventListener () {},
     visibilityState: 'visible',
-    documentElement: { hasAttribute: (a) => a === 'data-time', dataset: { timeHours: hours } }
+    documentElement: {
+      hasAttribute: (a) => a === 'data-time' || (a === 'data-precipitation' && Boolean(kind)),
+      dataset: kind ? { timeHours: hours, precipitation: kind } : { timeHours: hours }
+    }
   }
   globalThis.window = {
     innerWidth: W, innerHeight: H,
@@ -159,6 +186,28 @@ async function render (moduleUrl, tag) {
 /** The exact rotated quad, so this can never keep a draw that puts down no pixel. */
 function invisible (d) {
   if (d.a <= 0) return true
+
+  // A STROKED PATH is a list of segments, not a box. Its extent is the bounding box of its
+  // points inflated by half the line width — loose at the caps, which is the safe direction
+  // for a filter whose job is to never DROP something that would have been drawn.
+  if (d.k === 'stroke') {
+    if (!d.pts || !d.pts.length) return true
+    const half = Math.abs(d.w || 1) / 2
+    const cosS = Math.cos(d.r)
+    const sinS = Math.sin(d.r)
+    let minX = Infinity; let maxX = -Infinity
+    let minY = Infinity; let maxY = -Infinity
+    for (const pt of d.pts) {
+      const x = d.tx + pt.x * cosS - pt.y * sinS
+      const y = d.ty + pt.x * sinS + pt.y * cosS
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+    return maxX + half < 0 || minX - half > W || maxY + half < 0 || minY - half > H
+  }
+
   const cos = Math.cos(d.r)
   const sin = Math.sin(d.r)
   const xs = []
