@@ -99,10 +99,9 @@ def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
 
 def chat_tools() -> list[Any]:
     """Function-call declarations for the Gemini text path: open_resume,
-    open_contact_form and navigate_to_section - the SAME THREE Live declares
-    (ADR-0010 §2 shipped navigation parity on the text path; this docstring
-    formerly denied that the text path had the navigation tool at all, and was
-    contradicted by the function fifty lines below). The enum must stay equal to
+    open_contact_form, navigate_to_section and the project tools - the same set Live
+    declares - plus start_tour, which is text-only (Track C item 6: the page runs the
+    tour; voice parity is a bonus, not required). The enum must stay equal to
     live_gemini.py's; see docker/chat/tests/test_guide_tool_contract.py.
     Returned as a list of ``types.Tool`` for ``GenerateContentConfig.tools``.
     Imported lazily so importing providers in the mock path never requires
@@ -146,11 +145,22 @@ def chat_tools() -> list[Any]:
                     ),
                 ),
                 types.FunctionDeclaration(
+                    name='start_tour',
+                    description=(
+                        'Start a guided tour of THIS site: the page moves through the work one stop at a time, '
+                        'with a short line at each stop, and the visitor taps to go on. Call this when they say '
+                        '"show me around", "give me a tour", "walk me through the site" or similar. Do not '
+                        'narrate the tour yourself - one short sentence that it is starting is enough.'
+                    ),
+                    parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+                ),
+                types.FunctionDeclaration(
                     name='navigate_to_section',
                     description=(
-                        'Scroll the visitor to a top-level section of THIS site so they can see it. Call this '
-                        'when they ask to see the work, projects, portfolio, or labs, or ask you to show them '
-                        'around — guide them to the section instead of dumping a link or the resume.'
+                        'Scroll the visitor to a top-level section of THIS site so they can see it - the page '
+                        'moves. Call this when they ask to go to or see the work, projects, experience, '
+                        'portfolio, or labs - guide them to the section instead of dumping a link or the resume. '
+                        'For a whole-site tour use start_tour instead.'
                     ),
                     parameters=types.Schema(
                         type=types.Type.OBJECT,

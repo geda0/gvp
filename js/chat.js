@@ -20,6 +20,7 @@ import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
 import { hasNavPromiseGap } from './nav-promise-gap.js'
 import { buildChatRequest } from './chat-payload-hash.js'
+import { tourStep } from './tour.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
@@ -705,6 +706,9 @@ export function initChat() {
     }
     if (action.project) {
       button.dataset.project = action.project
+    }
+    if (Number.isInteger(action.step)) {
+      button.dataset.step = String(action.step)
     }
     return button
   }
@@ -1453,12 +1457,17 @@ export function initChat() {
       // promise kept — the button is the affordance, and the assistant cannot move the page
       // without a tap — so an action translates to the tool name the predicate knows.
       if (hasNavPromiseGap(safeReply, actions.map((a) => ({
-        name: a && a.id === 'navigate' ? 'navigate_to_section' : (a && a.id)
+        name: a && (a.id === 'navigate' || a.id === 'start-tour') ? 'navigate_to_section' : (a && a.id)
       })))) {
         trackEvent('chat_nav_promise_gap', { modality: 'text' })
       }
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
-      finalizeAssistantMessage(pendingAssistant, safeReply, actions)
+      // Track C item 5: the agent's navigation RUNS, as it does on voice. The visitor asked
+      // to be shown; a button they still had to tap was the pre-Track-C text path. Only an
+      // action that did not apply stays behind as a button.
+      const { remaining, startTour } = runAgentActions(actions)
+      finalizeAssistantMessage(pendingAssistant, safeReply, remaining)
+      if (startTour) runTourStep(0)
       setStatus('')
       scheduleIdleLifecycle(SUCCESS_IDLE_DELAY_MS, { source, model })
     } catch (error) {
@@ -1714,6 +1723,17 @@ export function initChat() {
       openContactFromChat(parsePrefill(actionEl.dataset.prefill))
       return
     }
+    if (action === 'tour-next') {
+      runTourStep(Number(actionEl.dataset.step))
+      return
+    }
+    if (action === 'tour-end') {
+      const line = 'No problem. Ask me anything, or open any card to dig in.'
+      appendMessage('assistant', line, { forceScroll: true })
+      state.history = state.history.concat({ role: 'assistant', content: line })
+      trackEvent('chat_tour_end', {})
+      return
+    }
     // The text path's project tools (stage-found defect): the button is the affordance and the
     // tap is the VISITOR's, so the store write is labelled visitor, not agent.
     if (action === 'open-project') {
@@ -1786,6 +1806,47 @@ export function initChat() {
     return { result: 'navigated', section: settled.section, siteState: getSiteStateForWire() }
   }
 
+  // Execute the text path's page-moving actions (Track C item 5). Navigation and project
+  // cards are the agent's moves, labelled `agent` like voice's; the résumé and the contact
+  // form stay buttons - a new tab and a form are the visitor's to open.
+  const runAgentActions = (actions) => {
+    const remaining = []
+    let startTour = false
+    for (const a of Array.isArray(actions) ? actions : []) {
+      if (a && a.id === 'start-tour') {
+        startTour = true
+        continue
+      }
+      if (a && a.id === 'navigate') {
+        const outcome = navigateToSection(a.section || '')
+        if (!outcome.error) continue
+        trackEvent('chat_nav_unresolved', { section: String(a.section || '') })
+      }
+      if (a && a.id === 'open-project') {
+        const match = requestProjectOpen(a.project || '', { origin: 'agent' })
+        if (match && !match.error) continue
+      }
+      remaining.push(a)
+    }
+    return { remaining, startTour }
+  }
+
+  // One stop of the guided tour (js/tour.js): move the page, then say the line. The line goes
+  // into the history so the model knows where the tour has taken the visitor.
+  const runTourStep = (index) => {
+    const step = tourStep(index)
+    if (!step) return null
+    for (const move of step.moves) {
+      if (move.kind === 'close-project') requestProjectClose({ origin: 'agent' })
+      else if (move.kind === 'navigate') navigateToSection(move.section)
+      else if (move.kind === 'open-project') requestProjectOpen(move.project, { origin: 'agent' })
+    }
+    appendMessage('assistant', step.say, { actions: step.actions, forceScroll: true })
+    state.history = state.history.concat({ role: 'assistant', content: step.say })
+    trackEvent('chat_tour_step', { step: index })
+    return step
+  }
+
   const applyVoiceToolCall = (name, args) => {
     if (name === 'open_resume') {
       // Parity with text chat: don't yank the visitor into a new tab. Reveal the
@@ -1855,6 +1916,11 @@ export function initChat() {
     if (name === 'navigate_to_section') {
       const section = args && typeof args.section === 'string' ? args.section : ''
       return navigateToSection(section)
+    }
+    if (name === 'start_tour') {
+      const step = runTourStep(0)
+      if (!step) return { error: 'tour_unavailable', siteState: getSiteStateForWire() }
+      return { result: 'tour_started', stop: step.say, siteState: getSiteStateForWire() }
     }
     return { error: `unknown_tool: ${name}` }
   }

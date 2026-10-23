@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timezone
@@ -331,6 +332,30 @@ def _normalize_tool_args(args: Any) -> dict[str, Any]:
     return {}
 
 
+# Track C item 7: the visitor's own words are the gate for the PDF, not the model's tool choice.
+_RESUME_ASK = re.compile(r'\b(r[eé]sum[eé]s?|cv|curriculum vitae|pdf)\b', re.IGNORECASE)
+
+
+def resume_was_requested(messages: list[Any]) -> bool:
+    """True when the LAST user message asks for the résumé/CV file itself. Reads the visitor,
+    never the model's prose (ADR-0015 §5.2), and only the latest ask: an old request does not
+    license a PDF on a later, different question."""
+    for row in reversed(messages or []):
+        role = row.get('role') if isinstance(row, dict) else getattr(row, 'role', None)
+        if role != 'user':
+            continue
+        content = row.get('content') if isinstance(row, dict) else getattr(row, 'content', '')
+        return bool(_RESUME_ASK.search(content or ''))
+    return False
+
+
+def _turn_actions(result: Any, messages: list[Any]) -> list[dict[str, Any]]:
+    actions = _actions_from_result(result)
+    if resume_was_requested(messages):
+        return actions
+    return [a for a in actions if a.get('id') != 'open-resume']
+
+
 def _actions_from_result(result: Any) -> list[dict[str, Any]]:
     if not isinstance(result, Msg):
         return []
@@ -358,6 +383,9 @@ def _actions_from_result(result: Any) -> list[dict[str, Any]]:
             continue
         if name == 'close_project':
             actions.append({'id': 'close-project', 'label': 'Close the project'})
+            continue
+        if name == 'start_tour':
+            actions.append({'id': 'start-tour', 'label': 'Start the tour'})
             continue
         if name == 'open_contact_form':
             action: dict[str, Any] = {'id': 'open-contact', 'label': 'Open contact form'}
@@ -1035,7 +1063,7 @@ async def chat(payload: ChatRequest) -> Any:
         return JSONResponse(status_code=status, content=content)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = _reply_text_from_result(result)
-    actions = _actions_from_result(result)
+    actions = _turn_actions(result, payload.messages)
     tool_calls = _tool_calls_from_result(result)
     model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
 
@@ -1129,7 +1157,7 @@ async def _chat_stream(
         aggregated = acc.finalize()
 
     reply_text = _reply_text_from_result(aggregated) if aggregated is not None else ''
-    actions = _actions_from_result(aggregated) if stream_status == 'ok' and aggregated is not None else []
+    actions = _turn_actions(aggregated, payload.messages) if stream_status == 'ok' and aggregated is not None else []
     tool_calls = _tool_calls_from_result(aggregated) if aggregated is not None else []
     model_used = getattr(chain, "last_model_id", None) or app.state.model_id
     elapsed_ms = int((time.perf_counter() - t0) * 1000)

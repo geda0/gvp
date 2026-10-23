@@ -123,7 +123,9 @@ test('the action id the counter reads is the one the server actually sends', () 
 
   const chatSrc = readFileSync(join(REPO, 'js', 'chat.js'), 'utf8')
   assert.match(
-    chatSrc, /a\.id === 'navigate' \? 'navigate_to_section'/,
-    'the translation at the text-path call site must still read the id the server sends'
+    chatSrc, /a\.id === 'navigate' \|\| a\.id === 'start-tour'\) \? 'navigate_to_section'/,
+    'the translation at the text-path call site must still read the ids the server sends'
   )
+  // A tour moves the page too (Track C item 6), so "starting the tour" is a kept promise.
+  assert.ok(ids.includes('start-tour'), 'the server must still emit the start-tour id chat.js reads')
 })
