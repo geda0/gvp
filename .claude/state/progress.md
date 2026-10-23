@@ -4,6 +4,17 @@
 
 ## Current status
 
+- **2026-10-23 (late) — PROD IS LIVE WITH M4, M5, M7, M8.** See `releases.md` for the run,
+  stacks and live checks. `main` @ `fde6f98`; `agent` re-pinned to the stage hosts. Every plan
+  milestone is built (M6 obsolete), critic-passed, and verified on prod.
+  - **Open, owner's call:**
+    - streak thickness 5.4 px (taste; now visible on prod too);
+    - DPR canvas scaling (yes/no and when);
+    - E2 for prod's new alarms;
+    - the ~84 MB of leftover ECS log groups (evidence for the ~$40/mo question; chat compute
+      measured at ~$0.01/mo).
+  - **Rule kept:** the privacy note shipped only after prod TTL was proven on both halves.
+
 - **2026-10-23 — the chat stack has TWO CI blockers, and a green pull does not retire the
   first one.** Correcting a too-generous read of mine from the same day.
 
