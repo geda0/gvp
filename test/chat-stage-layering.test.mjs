@@ -81,3 +81,23 @@ test('a MODAL assistant still sits above them — yielding is the exception, not
     'raised itself'
   )
 })
+
+test('the yielded panel takes its own pointer events back', () => {
+  // The other half of the shell's `pointer-events: none`, and it had no assertion at all.
+  // The SHELL is switched off so the site underneath is clickable; the PANEL has to switch
+  // itself back on, or the docked card and the pill are dead to clicks — no close X, no
+  // restore tap, no composer — while the suite stays green, because every click row in the
+  // suite fires events directly on a stub element and never hit-tests.
+  //
+  // Caught by the M2 critic pass. One deleted CSS declaration, invisible in review, and the
+  // symptom is an assistant you can see and cannot use.
+  const css = read('css', 'chat.css')
+  const block = /#chatDialog\[data-chat-stage='docked'\] \.chat-dialog__panel,\s*\n#chatDialog\[data-chat-stage='minimized'\] \.chat-dialog__panel \{([^}]*)\}/
+    .exec(css)
+  assert.ok(block, 'the yielded-panel rule is gone or was renamed — update this test with it')
+  assert.match(
+    block[1], /pointer-events:\s*auto/,
+    'the yielded panel must re-enable pointer events. The shell above it is set to `none` ' +
+    'so the site stays usable, and nothing else turns them back on for the card itself'
+  )
+})

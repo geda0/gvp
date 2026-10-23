@@ -40,7 +40,13 @@ function readChrome (getEl) {
     backdropHidden: Boolean(backdrop.hidden),
     scrollLock: document.body.classList.contains('chat-dialog-open'),
     ariaModal: panel.getAttribute('aria-modal'),
-    pointerEventsOnShell: dialog.style.pointerEvents || 'none'
+    // NO `|| 'none'` FALLBACK. It used to have one, and that defeated the assertion: an
+    // UNSET pointerEvents reads as '' and the fallback turned that into exactly the value
+    // the three yielded/closed stages expect — so deleting the line in js/chat.js that
+    // applies it left the whole suite green while #chatDialog, which is `position: fixed;
+    // inset: 0`, swallowed every click on the site. The ADR calls this the highest-value
+    // assertion in the app half; it was reading a default.
+    pointerEventsOnShell: dialog.style.pointerEvents
   }
 }
 
@@ -123,6 +129,13 @@ test('a navigation while the panel is modal yields the stage instead of closing 
     siteState.getSiteState().chatStage, 'modal',
     'the panel the harness opened must have written its stage: chatStage is js/chat.js\'s ' +
     'field to write (§3.2), and §7\'s live note reads it'
+  )
+  // The MODAL row, which the file did not have. Without it every chrome comparison here is
+  // against a stage whose pointerEventsOnShell is 'none' — the same value an unset property
+  // reads as — so nothing in the file could tell "applied correctly" from "never applied".
+  assert.deepEqual(
+    readChrome(getEl), expectedChrome('modal'),
+    'a modal panel OWNS the viewport: pointer events on, backdrop shown, scroll locked'
   )
 
   // The visitor navigates. This is the write js/navigation.js makes.
