@@ -240,3 +240,27 @@ async def test_live_session_missing_key_fires_voice_mint_failed(
     assert r.status_code == 503
     assert r.json().get('code') == 'gemini_key_missing'
     assert [t for t, _ in fired] == ['voice_mint_failed']
+
+
+@pytest.mark.asyncio
+async def test_live_session_re_resolves_the_key_before_reading_it(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-0025 #2: the mint entry asks the resolver first, so a key that failed at cold
+    start can recover without a new container."""
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    _capture_alerts(monkeypatch)
+
+    def _recover() -> bool:
+        import os
+        os.environ['GEMINI_API_KEY'] = 'recovered'
+        return True
+
+    monkeypatch.setattr('app.main.resolve_gemini_key_into_env', _recover, raising=False)
+
+    async def fake_mint(_instruction: str) -> dict:
+        return dict(_FAKE_MINT)
+
+    monkeypatch.setattr('app.main.mint_live_session_async', fake_mint)
+    r = await client.post('/api/live/session', json={})
+    assert r.status_code == 200, r.text
