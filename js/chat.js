@@ -13,7 +13,8 @@ import {
   setChatStage,
   setVoiceActive
 } from './site-state.js'
-import { nextChatStage, stageChrome } from './chat-stage.js'
+import { nextChatStage, stageChrome, hasRoomBesideDialog } from './chat-stage.js'
+import { projectChipPrompt } from './project-chips.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
@@ -946,8 +947,8 @@ export function initChat() {
    * chrome (animation, focus restore, the voice stop the VISITOR is entitled to). Everything
    * else is chrome only - which is the whole point: a yield must not touch the session.
    */
-  const dispatchStage = (event, origin) => {
-    const next = nextChatStage(chatStage, event, { wide: isWideViewport() })
+  const dispatchStage = (event, origin, extraCtx = {}) => {
+    const next = nextChatStage(chatStage, event, { wide: isWideViewport(), ...extraCtx })
     if (next === chatStage) return
     if (next === 'closed') {
       closePanel({ restoreFocus: origin === 'visitor', immediate: true })
@@ -1503,6 +1504,46 @@ export function initChat() {
     // or minimised, so with a minimised conversation this click used to do nothing at all.
     if (chatStage === 'closed') openPanel()
     else if (chatStage !== 'modal') dispatchStage('restore', 'visitor')
+  })
+
+  // M4 slice 13 (ADR-0017 §2.5, §7.5): the project chips are open-beside's caller. The
+  // MEASUREMENT is here (one rect on the live project panel); the DECISION is
+  // hasRoomBesideDialog. 384 / 20 are the browser-measured docked card and gutter
+  // (test/chat-stage.test.mjs). No room -> modal, never the pill (untappable under the
+  // project backdrop). The prompt is canned + the store's title, never visitor text.
+  const DOCKED_CARD_WIDTH = 384
+  const DOCK_GUTTER = 20
+  document.addEventListener('click', (event) => {
+    const chip = event.target.closest('#projectDialog [data-project-chip]')
+    if (!chip) return
+    const project = getSiteState().project
+    const prompt = projectChipPrompt(chip.dataset.projectChip, project && project.title)
+    if (!prompt) return
+    const panelEl = document.querySelector('#projectDialog .project-dialog__panel')
+    const rect = panelEl ? panelEl.getBoundingClientRect() : null
+    const roomBeside = hasRoomBesideDialog({
+      viewportWidth: window.innerWidth,
+      dialogWidth: rect ? rect.width : 0,
+      cardWidth: DOCKED_CARD_WIDTH,
+      gutter: DOCK_GUTTER
+    })
+    trackEvent('project_assistant_chip', { chip: chip.dataset.projectChip, beside: roomBeside })
+    // Opening is more than chrome, so a closed chat opens through openPanel first; open-beside
+    // then docks it beside the card when there is room.
+    if (chatStage === 'closed') openPanel()
+    dispatchStage('open-beside', 'visitor', { roomBeside })
+    // A REQUESTED dock moves focus to the composer (stageChrome(..., { requested: true })) -
+    // once the reply settles, because the composer is disabled while it is pending and a
+    // disabled input cannot take focus (measured: focus stayed on the project dialog's X).
+    void sendMessage(prompt, 'project_chip').finally(() => {
+      if (chatStage === 'closed') return
+      if (stageChrome(chatStage, { requested: true }).moveFocus !== 'composer') return
+      // Next task: the busy flag clears after the send promise settles. setTimeout, not
+      // requestAnimationFrame, which never fires in a background tab.
+      setTimeout(() => {
+        if (chatStage !== 'closed' && !composerInput.disabled) composerInput.focus()
+      }, 0)
+    })
   })
 
   document.addEventListener('click', (event) => {

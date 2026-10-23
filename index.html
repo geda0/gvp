@@ -249,6 +249,12 @@
             <div id="projectDialogActions" class="project-dialog__actions">
                 <a id="projectDialogLink" class="cta-primary project-dialog__link" href="#" target="_blank" rel="noopener noreferrer" data-track="project_dialog_link">Open link</a>
             </div>
+            <!-- M4 slice 13 (ADR-0017 §7.5): ask the assistant about THIS project; opens beside the card when there is room. -->
+            <div id="projectDialogAssistant" class="project-dialog__assistant" role="group" aria-label="Ask the assistant about this project">
+                <button type="button" class="project-dialog__chip" data-project-chip="summarize">Summarize</button>
+                <button type="button" class="project-dialog__chip" data-project-chip="more">Tell me more</button>
+                <button type="button" class="project-dialog__chip" data-project-chip="talk">Just talk about it</button>
+            </div>
         </div>
     </div>
 
