@@ -1328,3 +1328,30 @@ stated after it, because the order is the part most likely to be ignored.
 **And one decision for the navigator, zero slices:** §9.3 — M4 writes flat, and ADR-0018 becomes a
 relocation of M2, M3 and M4 rather than a fence around addresses nobody wrote at. M4 is not *gated*
 on that answer, but ADR-0018 should not discover it by surprise.
+
+---
+
+## 15. Addendum — 2026-10-23: M4 as built, and slice 20 dropped on measurement
+
+Slices 1–19 of §14 are on `agent` (chat 1–5; app 6–16; admin 17–18 — slice 19's preview script
+is folded into the browser checks recorded in each slice's commit). Built by two sessions; the
+app half 6–12 first, then the chat half, 13–18 and this addendum after the handover.
+
+**Slice 20 (`language`) is DROPPED, because §12.6's premise no longer holds — MEASURED:**
+
+- `#chatLanguageSelect` **does not exist** in `index.html` any more, so there is no visible
+  control that "does nothing" — the defect §12.6 set out to fix is already gone.
+- With no select, `js/chat.js` falls back to `SUPPORTED_LANGS = ['en']`, so every request
+  sends **`language: "en"`, always**.
+- Wiring that as §12.6 specifies would put "reply in English" into every text turn and
+  **override the model's current behaviour of replying in the language the visitor writes in**
+  — a regression for every non-English visitor, delivered as a feature.
+
+§12.6 made the slice "explicitly droppable — and if the navigator drops it, the `<select>` is
+hidden in the same breath". The select is already gone, so dropping costs nothing further. The
+residual is the field itself: still sent, still ignored by `ChatRequest` (`extra='ignore'`).
+Removing it from `js/chat.js` is a cleanup, not a behaviour change, and is left for whoever next
+touches the request builder. If a language control is ever reintroduced, §12.6's design (a
+top-level field, shape-validated, rendered text-path only into the `_with_site_state` turn) is
+still the right one.
+
