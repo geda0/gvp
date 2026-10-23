@@ -32,6 +32,7 @@ const OPTIONAL = [
   'GeminiApiKey',
   'GeminiApiKeySecretArn',
   'SmokeProbeKey',
+  'AdminReadonlyKey',
   'IpHashPepper'
 ]
 

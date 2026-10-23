@@ -1,4 +1,4 @@
-import crypto from 'node:crypto'
+import { adminAccess, adminDecision } from './common/admin-auth.js'
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
@@ -34,22 +34,6 @@ const CHAT_FLAGS = [
   'long_conversation',
   'tool_offered_not_taken'
 ]
-
-function requireAdminKey(event) {
-  const expected = process.env.ADMIN_API_KEY
-  const provided =
-    event?.headers?.['x-admin-key'] ||
-    event?.headers?.['X-Admin-Key'] ||
-    ''
-  if (!expected || typeof provided !== 'string' || !provided) return false
-  try {
-    const eh = crypto.createHash('sha256').update(expected, 'utf8').digest()
-    const ph = crypto.createHash('sha256').update(provided, 'utf8').digest()
-    return crypto.timingSafeEqual(eh, ph)
-  } catch {
-    return false
-  }
-}
 
 function getPath(event) {
   return event?.rawPath || event?.path || ''
@@ -903,7 +887,13 @@ export const handler = async (event) => {
 
   const method = getMethod(event)
   if (method === 'OPTIONS') return optionsResponse(origin)
-  if (!requireAdminKey(event)) return unauthorized()
+  // M8 item 6: one access decision before any route. The read-only key sees every GET and
+  // gets 403 on every mutation.
+  const decision = adminDecision(adminAccess(event?.headers || {}), method)
+  if (!decision.ok) {
+    if (decision.status === 401) return unauthorized()
+    return json(decision.status, { error: 'This admin key is read-only.', code: decision.code })
+  }
 
   const path = getPath(event)
 
