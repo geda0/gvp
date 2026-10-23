@@ -4,6 +4,55 @@
 
 ## Current status
 
+- **2026-10-23 — STAGE IS DEPLOYED AND VERIFIED (frontend + backend). Two CI deploy roles
+  are broken and need the user; nothing is on prod.** `agent` @ `c8910ba`, `main` @
+  `33a514c`. App **415 / 414 pass / 1 skip**, chat **213**, journeys **17/17**.
+
+  **Verified live on stage, not inferred:**
+  - Frontend: Amplify serves `agent` HEAD. New CSP / HSTS / X-Frame-Options /
+    Permissions-Policy all present, **zero CSP violations** on the real page, and the
+    journey harness run against `https://agent.marwanelgendy.link` itself holds **17/17**,
+    hit-test included.
+  - Backend: both stage chat functions moved **2026-10-15 → 2026-10-23** with new
+    `CodeSha256`s (`319bd231→fbe35285`, `7d1b1adf→9b577fa6`). Checked as before/after
+    markers, because the task-completion notification reported **exit 0 for a failed run
+    twice today** — read the `.rc` file, never the notification.
+  - ADR-0015 §6, end to end against the deployed CloudFront endpoint: `siteState` present →
+    *"looking at the labs section, specifically the Team Tactics project"*; absent → the
+    model falls back to home (correct: absent asserts nothing); `section: "Labs"` → **400
+    validation_error** with the pattern, i.e. reject-not-clamp for identities, on real
+    infrastructure.
+
+  **THREE SEPARATE BLOCKERS stood between the push and a deployed backend. Only the first
+  was known, and two of them are still open:**
+  1. **CI IAM — OPEN, needs the user.** `gvp-staging-ci-deploy` was denied
+     `cloudformation:ListStackResources`, but the real fault is bigger: the whole
+     `gvp-<env>-chat-deploy` inline policy still describes the **deleted ECS Express**
+     architecture — `cloudformation:*` on `stack/gvp-chat-express-<env>/*`, IAM on
+     `role/gvp-chat-express-<env>-*`, plus `ecs`/`elb`/`ec2` on `*`. So every WRITE to the
+     stream and CDN stacks is denied too; the read action was just the first deny hit.
+     **Both roles are affected** — prod run `38822614809` (Oct 15) failed identically — so
+     **neither CI role has deployed chat since the Express teardown.** Note
+     `gvp-<env>-deploy` (the CONTACT policy) is fine and must be left alone; its
+     `CfnGlobalRead` already grants `DescribeStacks` on `*`, so that one is NOT missing.
+     A peer session has a repoint-and-narrow draft in `~/workspace/gvp/iam-draft/`;
+     nothing applied.
+  2. **`integrate-and-deploy.sh` use-before-define — FIXED (`c8910ba`).** It called
+     `gvp_restore_operator_intent` at line 115 and defined it at 138, so a local deploy died
+     at **exit 127 after writing `.secrets/config.generated.env` and pushing a secret to
+     Secrets Manager**. On `main` since 2026-10-13, fires only on the Secrets-Manager branch
+     CI never takes. The crash was also masking that the snapshot loop ran AFTER the
+     `source .secrets/*` it defends against. Pinned as a class by
+     `test/deploy-script-no-use-before-define.test.mjs`.
+  3. **`.secrets/chat-deploy.env` sets only the legacy `CHAT_SAM_STACK_NAME` — STILL OPEN.**
+     It resolves to `gvp-chat-stage` for BOTH envs, so the script correctly REFUSED rather
+     than write stage parameters into the stack prod uses. Workaround used for this run:
+     `CHAT_SAM_STACK_NAME_PROD=gvp-chat-prod CHAT_SAM_STACK_NAME_STAGE=gvp-chat-stage`.
+     Every local deploy hits this until the file sets both.
+
+  **Still true and still unfixed:** prod and stage resolve to the SAME Gemini API key, so
+  stage load draws down prod's per-project quota. Voice on stage is unverified.
+
 - **2026-10-23 (later) — M3 COMPLETE, all six slices. M1 and M2 complete. M8 item 4 done
   opportunistically.** `main` @ `33a514c` (untouched), `agent` ahead by 40. App **413 / 412
   pass / 1 skip**, chat **213 passed**, browser journeys **17/17**. STILL NOTHING DEPLOYED.
