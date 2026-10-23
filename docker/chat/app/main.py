@@ -234,6 +234,21 @@ def _to_lc_messages(rows: list[ChatMessageIn]) -> list[Msg]:
     return out
 
 
+def _chain_input(payload: ChatRequest, lc_messages: list[Any]) -> dict[str, Any]:
+    """The ONE place both chat paths build the chain input (M4, ADR-0017 §4.1).
+
+    The visitor's open project travels as `pinnedProjectId`, an additive key that
+    `providers._inject_retrieved` forwards to retrieval as an explicit parameter. It is the
+    pattern-validated SiteStateIn.projectId, so nothing a caller typed reaches retrieval
+    unvalidated, and an unknown id changes nothing downstream.
+    """
+    inp: dict[str, Any] = {"messages": lc_messages}
+    project_id = payload.siteState.projectId if payload.siteState else None
+    if project_id:
+        inp["pinnedProjectId"] = project_id
+    return inp
+
+
 def _with_site_state(payload: ChatRequest, messages: list[Msg]) -> list[Msg]:
     """Prepend the site-state line as a SYSTEM message, when there is one.
 
@@ -947,7 +962,7 @@ async def chat(payload: ChatRequest) -> Any:
     t0 = time.perf_counter()
     try:
         result = await asyncio.wait_for(
-            app.state.chain.ainvoke({"messages": lc_messages}),
+            app.state.chain.ainvoke(_chain_input(payload, lc_messages)),
             timeout=app.state.provider_timeout_seconds,
         )
     except asyncio.TimeoutError:
@@ -1034,7 +1049,7 @@ async def _chat_stream(
 
     # Per-chunk wait_for keeps a single end-to-end budget while supporting
     # Python 3.10 (asyncio.timeout is 3.11+).
-    iterator = chain.astream({"messages": lc_messages}).__aiter__()
+    iterator = chain.astream(_chain_input(payload, lc_messages)).__aiter__()
     try:
         while True:
             remaining = deadline - time.monotonic()
