@@ -20,9 +20,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app.alerts import log_alert_gate_status
+from app.alerts import fire_alert, log_alert_gate_status
+from app.secret_resolver import resolve_gemini_key_into_env
+from app.project_refs import PROJECT_IDS, project_grounding_line
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
+from .site_state import SiteStateIn, format_site_state_line
 from app.turn_input import clamp_text, clamp_transport, sanitize_tool_calls
 from app.knowledge_context import (
     build_context,
@@ -191,10 +194,17 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessageIn] = Field(default_factory=list)
     stream: bool = False
     sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
+    # ADR-0015 ss6. Optional by contract: ABSENT means the caller asserts nothing about the
+    # site, and the prompt line is omitted entirely rather than defaulted - so an older
+    # frontend against a newer server keeps working unchanged. ONE shared sub-model with
+    # LiveSessionRequest below, because two classes for one wire shape is how providers.py
+    # and live_gemini.py came to declare two different section enums.
+    siteState: SiteStateIn | None = None
 
 
 class LiveSessionRequest(BaseModel):
     sessionId: str | None = Field(default=None, max_length=128, pattern=SESSION_ID_PATTERN)
+    siteState: SiteStateIn | None = None
 
 
 class LiveTranscriptTurn(BaseModel):
@@ -223,6 +233,70 @@ def _to_lc_messages(rows: list[ChatMessageIn]) -> list[Msg]:
         else:
             out.append(Msg(role="system", content=row.content))
     return out
+
+
+def _live_site_line(site_state: SiteStateIn | None, pack: dict[str, Any]) -> str:
+    """The voice instruction's site line, plus the open project's grounding sentence.
+
+    M4 (ADR-0017 §4.2): on voice the blob is truncated before <relevant_projects>, so the open
+    project's detail rides here instead - INSIDE the site-state reserve that
+    build_live_system_instruction already subtracts from the pack budget, so it cannot eat the
+    portfolio tail. The shared site-state renderer itself is untouched.
+    """
+    if site_state is None:
+        return ''
+    site = format_site_state_line(site_state)
+    grounding = project_grounding_line(site_state.projectId, pack)
+    return ' '.join(part for part in (site, grounding) if part)
+
+
+def _chain_input(payload: ChatRequest, lc_messages: list[Any]) -> dict[str, Any]:
+    """The ONE place both chat paths build the chain input (M4, ADR-0017 §4.1).
+
+    The visitor's open project travels as `pinnedProjectId`, an additive key that
+    `providers._inject_retrieved` forwards to retrieval as an explicit parameter. It is the
+    pattern-validated SiteStateIn.projectId, so nothing a caller typed reaches retrieval
+    unvalidated, and an unknown id changes nothing downstream.
+    """
+    inp: dict[str, Any] = {"messages": lc_messages}
+    project_id = payload.siteState.projectId if payload.siteState else None
+    if project_id:
+        inp["pinnedProjectId"] = project_id
+    return inp
+
+
+def _with_site_state(payload: ChatRequest, messages: list[Msg]) -> list[Msg]:
+    """Prepend the site-state line as a SYSTEM message, when there is one.
+
+    NOT a system message, and NOT at the front. Both are load-bearing, and the first
+    version of this function got both wrong:
+
+    1. CACHE PREFIX. `providers._inject_retrieved` builds the model input as
+       `[Msg(human, knowledge_xml), *compacted]` - the ~4,000-token knowledge blob is
+       `contents[0]`, not part of the system instruction. `gemini_routing._to_contents`
+       folds every SYSTEM message out of the turn list and onto the end of the system
+       instruction, which precedes `contents` entirely. So a system-role line lands BETWEEN
+       the static prompt and the blob, and since Gemini's implicit cache matches an
+       identical PREFIX, a line that changes per turn truncates the cacheable prefix to the
+       ~1,812-token system prompt - under the 4,096 minimum, so caching never engages.
+       Cached tokens do not count against the free tier's 16,000 input tokens per minute per
+       model, so losing the cache is the measured ~2.8x regression tests/test_cache_prefix.py
+       exists to prevent. Its symptom is not a wrong answer: correct replies, green tests,
+       and only the 429 rate moves.
+
+    2. COMPACTION. `compact_history` keeps the last twelve messages and summarises the rest
+       through `summarize_pruned_messages`, which reads `type == 'human'` only - so a pruned
+       system message contributes nothing. At the front of a twenty-message history the line
+       simply disappears, and MAX_MESSAGES is 32, so that history is ordinary.
+
+    Placed as a human turn immediately before the visitor's newest message: after the blob,
+    inside the window compaction keeps, and with their actual question still last so the
+    model answers that rather than the context line.
+    """
+    line = format_site_state_line(payload.siteState)
+    if not line or not messages:
+        return messages
+    return [*messages[:-1], Msg(role='human', content=line), messages[-1]]
 
 
 def _reply_text_from_result(result: Any) -> str:
@@ -273,6 +347,17 @@ def _actions_from_result(result: Any) -> list[dict[str, Any]]:
                 sec = section.strip()
                 labels = {'home': 'Go to Home', 'portfolio': 'See the Portfolio', 'labs': 'See the Labs'}
                 actions.append({'id': 'navigate', 'section': sec, 'label': labels.get(sec, f'Go to {sec}')})
+            continue
+        # M4 (stage-found defect): both project tools were declared but dropped here, so the
+        # model's call vanished and the turn came back empty. Every declared tool must map to an
+        # action - pinned by test_every_declared_text_tool_becomes_an_action.
+        if name == 'open_project':
+            project = args.get('project')
+            if isinstance(project, str) and project.strip() in PROJECT_IDS:
+                actions.append({'id': 'open-project', 'project': project.strip(), 'label': 'Open the project'})
+            continue
+        if name == 'close_project':
+            actions.append({'id': 'close-project', 'label': 'Close the project'})
             continue
         if name == 'open_contact_form':
             action: dict[str, Any] = {'id': 'open-contact', 'label': 'Open contact form'}
@@ -820,6 +905,13 @@ async def _persist_text_turn(
         'outputCharCount': len(reply_text or ''),
         'fallbackUsed': bool(fallback_used),
     }
+    # ss6.4: the MODEL's dump, never `payload` raw - the precedent is `requestMessages`
+    # above. Useful (the admin panel can see what the visitor was looking at when a turn
+    # failed) and already bounded. NOTE: if any admin rollup ever keys a histogram or facet
+    # by `section` or `projectId`, that is a new CARDINALITY sink and needs its own slice
+    # (invariant #17's residual; contact-admin.js:373 is the precedent). Filed forward.
+    if payload.siteState is not None:
+        turn['siteState'] = payload.siteState.model_dump()
     if first_token_ms is not None:
         turn['firstTokenLatencyMs'] = int(first_token_ms)
     if chunk_count is not None:
@@ -881,6 +973,7 @@ async def chat(payload: ChatRequest) -> Any:
         )
 
     lc_messages = _to_lc_messages(payload.messages)
+    lc_messages = _with_site_state(payload, lc_messages)
 
     if payload.stream:
         return StreamingResponse(
@@ -896,7 +989,7 @@ async def chat(payload: ChatRequest) -> Any:
     t0 = time.perf_counter()
     try:
         result = await asyncio.wait_for(
-            app.state.chain.ainvoke({"messages": lc_messages}),
+            app.state.chain.ainvoke(_chain_input(payload, lc_messages)),
             timeout=app.state.provider_timeout_seconds,
         )
     except asyncio.TimeoutError:
@@ -983,7 +1076,7 @@ async def _chat_stream(
 
     # Per-chunk wait_for keeps a single end-to-end budget while supporting
     # Python 3.10 (asyncio.timeout is 3.11+).
-    iterator = chain.astream({"messages": lc_messages}).__aiter__()
+    iterator = chain.astream(_chain_input(payload, lc_messages)).__aiter__()
     try:
         while True:
             remaining = deadline - time.monotonic()
@@ -1089,8 +1182,11 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
             },
         )
 
+    # ADR-0025 #2: give a key that failed at cold start its bounded chance to recover.
+    resolve_gemini_key_into_env()
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
+        fire_alert('voice_mint_failed', 'GEMINI_API_KEY missing')
         return JSONResponse(
             status_code=503,
             content={
@@ -1102,9 +1198,13 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
     mint_timeout = float(os.environ.get('GEMINI_LIVE_MINT_TIMEOUT_SEC', '50'))
     try:
         prompt_src = app.state.voice_system_prompt or app.state.system_prompt
+        # The line goes INTO the builder, never appended to its result: ss6.6's pack budget
+        # has to reserve for it, or the final truncate eats the tail of the portfolio XML
+        # and the voice agent quietly forgets part of it.
         instruction = build_live_system_instruction(
             prompt_src,
             app.state.knowledge_pack,
+            site_state_line=_live_site_line(payload.siteState, app.state.knowledge_pack),
         )
         session_payload = await asyncio.wait_for(
             mint_live_session_async(instruction),
@@ -1112,6 +1212,8 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         )
     except asyncio.TimeoutError:
         logger.warning('live session mint timed out after %ss', mint_timeout)
+        # M7 (ADR-0020 §6): the visitor asked for voice and it will not start - P1.
+        fire_alert('voice_mint_failed', f'mint timed out after {mint_timeout}s')
         return JSONResponse(
             status_code=504,
             content={
@@ -1121,18 +1223,21 @@ async def live_session(request: Request, payload: LiveSessionRequest) -> JSONRes
         )
     except RuntimeError as exc:
         logger.warning("live session unavailable: %s", exc)
+        fire_alert('voice_mint_failed', f'live unavailable: {type(exc).__name__}')
         return JSONResponse(
             status_code=503,
             content={"error": str(exc), "code": "live_unavailable"},
         )
     except Exception as exc:
         logger.exception("live session token mint failed")
+        fire_alert('voice_mint_failed', f'mint failed: {type(exc).__name__}')
         status, content = upstream_error_body(exc)
         return JSONResponse(status_code=status, content=content)
 
     token_name = session_payload.pop("_authTokenName", None)
     if not token_name or not isinstance(token_name, str):
         logger.error("live session: mint returned no _authTokenName")
+        fire_alert('voice_mint_failed', 'mint returned no auth token')
         return JSONResponse(
             status_code=500,
             content={"error": "Live session misconfigured", "code": "live_internal"},

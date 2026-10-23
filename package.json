@@ -7,6 +7,8 @@
     "prepare-site": "node scripts/prepare.mjs",
     "build:chat-knowledge": "node scripts/build-chat-knowledge.mjs",
     "test:reduced-motion": "node --test test/starfield-reduced-motion.test.mjs",
+    "test:journeys": "node scripts/qa/chat-stage-journeys.mjs",
+    "qa:starfield-ab": "node scripts/qa/starfield-ab-draws.mjs",
     "sam:build": "cd aws && sam build --template-file template.yaml",
     "sam:build:chat": "cd aws && sam build --template-file chat-template.yaml --build-dir .aws-sam/build-chat",
     "deploy": "bash scripts/integrate-and-deploy.sh",

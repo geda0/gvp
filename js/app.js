@@ -3,8 +3,11 @@ import './site-config.js'
 import {
   initAnalytics,
   bindOutboundTracking,
-  trackThemeChange
+  trackThemeChange,
+  trackEvent
 } from './analytics.js'
+import { getSiteState } from './site-state.js'
+import { initSelectionOffers } from './selection-offer-ui.js'
 import { initSiteEvents } from './site-events.js'
 import { initNavigation } from './navigation.js'
 import { initTheme, getTheme, getThemeState, setAutoTime, setPinnedTime } from './theme.js'
@@ -19,8 +22,9 @@ import {
 import { initSpaceman } from './spaceman.js'
 import { initSpacemanPosition } from './spaceman-position.js'
 import { initContactForm } from './contact.js'
+import { initPrivacyNote } from './privacy-note.js'
 import { initSpacemanProjectContext } from './spaceman-project-context.js'
-import { initChat, collapseChatDialog, syncChatLaunchers, EV_OPEN_CHAT } from './chat.js'
+import { initChat, syncChatLaunchers, EV_OPEN_CHAT } from './chat.js'
 import { initAgentNode } from './agent-node.js'
 import { timeControlMode, timeTriggerLabel, TIME_TRIGGER_ICON_HTML } from './time-switcher-mode.js'
 
@@ -36,6 +40,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme()
   initStarfield('canvas', { getTheme })
   initContactForm()
+  initPrivacyNote()
 
   // Living time-of-day slider — A native range input drives the hour (drag + keyboard);
   // Auto re-engages the local clock.
@@ -221,10 +226,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       onDockChange: () => spacemanPosition?.updatePosition?.()
     })
     chatApi.bindAgentNode(agentNodeApi)
+    // M4 slice 16 (ADR-0017 §7): selection offers. The ONLY sink is the composer draft - it
+    // fills the box and the visitor's own send is the explicit tap.
+    initSelectionOffers({
+      openDraft: (text) => chatApi.openPanelWithDraft(text, 'selection'),
+      track: trackEvent,
+      getSection: () => getSiteState().section || ''
+    })
   }
 
   document.getElementById('footerOpenChatBtn')?.addEventListener('click', () => {
-    window.dispatchEvent(new CustomEvent(EV_OPEN_CHAT))
+    window.dispatchEvent(new CustomEvent(EV_OPEN_CHAT, { detail: { surface: 'footer' } }))
   })
 
   // Initialize navigation with spaceman hook (after chat so first navigateByHash sync runs real impl)
@@ -240,9 +252,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (spacemanPosition) {
         spacemanPosition.updatePosition()
       }
-      if (state === 'portfolio' || state === 'labs') {
-        collapseChatDialog()
-      }
+      // Was: `if (state === 'portfolio' || state === 'labs') collapseChatDialog()`.
+      // That was the first link in the ADR-0015 ss9.1 teardown, and ss3.2 is explicit that
+      // app.js writes nothing and commands nothing - it wires. js/navigation.js now writes
+      // the section to the store and js/chat.js decides what that means for its own stage.
+      // (The guard above is also why "the chat collapses on every navigation" was false:
+      // navigating HOME never collapsed anything, so any test exercising only -> home would
+      // have been green against the broken code.)
       syncChatLaunchers(state)
     }
   })

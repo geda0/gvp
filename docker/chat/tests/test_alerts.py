@@ -158,3 +158,83 @@ def test_emits_tier1_warning_line_even_when_gate_is_disabled(
     assert lines[0].levelno >= logging.WARNING
     assert 'chat_primary_timeout' in lines[0].getMessage()
     assert 'tier1-probe-env' in lines[0].getMessage()
+
+
+@pytest.mark.parametrize(
+    ('event_type', 'priority'),
+    [
+        # Ruled by ADR-0020 §5.13 (Decision A3.1′) and its M7 note.
+        ('chat_transcript_session_full', 'P2'),
+        ('chat_transcript_write_failed', 'P1'),
+        ('voice_mint_failed', 'P1'),
+        # gemini_routing.py: a primary timeout / rate limit fires WHILE switching to the
+        # fallback, so the visitor is still served -> P2. If the fallback fails too,
+        # chat_upstream_unavailable fires -> P1. A non-retryable error is raised -> P1.
+        ('chat_primary_timeout', 'P2'),
+        ('chat_primary_rate_limit', 'P2'),
+        ('chat_upstream_unavailable', 'P1'),
+        ('chat_model_error', 'P1'),
+        # Unclassified ⇒ P1, fail loud (ADR-0020, "priority is a static property OF the
+        # event type"): a fire_alert added without a _PRIORITY row announces itself.
+        ('a_type_nobody_classified', 'P1'),
+    ],
+)
+def test_tier1_line_carries_the_static_priority_of_the_event_type(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    event_type: str,
+    priority: str,
+) -> None:
+    """M7 — priority lives in the Tier-1 LINE, not only the email subject. On Lambda the
+    in-process send is measured lost (ADR-0022 §25.3-M), so the line → metric filter →
+    alarm chain is the only delivery path, and a priority that is only in the subject is
+    invisible. The `CHAT_ALERT event=` prefix the §29.4 filter quotes must survive."""
+    monkeypatch.delenv('CHAT_ALERT_EMAIL', raising=False)
+    monkeypatch.delenv('CONTACT_REPORT_EMAIL', raising=False)
+    monkeypatch.delenv('RESEND_API_KEY', raising=False)
+    alerts.reset_for_tests()
+
+    with caplog.at_level(logging.WARNING, logger=alerts.__name__):
+        alerts.fire_alert(event_type, 'probe')
+
+    [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith(TIER1_PREFIX)]
+    assert line.startswith(f'CHAT_ALERT event={event_type} ')
+    assert f' prio={priority} ' in f'{line} '
+
+
+@pytest.mark.asyncio
+async def test_email_subject_carries_priority_between_env_and_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR-0020's M7 note fixes the shape: `[chat alert · prod] [P1] chat_live_error — …`.
+    Only the long-lived-host Tier 2 reads this, but it is the half a human sees first."""
+    _configure(monkeypatch)
+    monkeypatch.setenv('CHAT_ENV', 'prod')
+    import httpx
+
+    posted: list[dict] = []
+
+    class _Resp:
+        status_code = 200
+
+    class _CaptureClient:
+        def __init__(self, *a, **k) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a) -> bool:
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            posted.append(json)
+            return _Resp()
+
+    monkeypatch.setattr(httpx, 'AsyncClient', _CaptureClient)
+
+    await alerts._send('chat_transcript_session_full', 'budget hit', '')
+
+    assert posted[0]['subject'].startswith(
+        '[chat alert · prod] [P2] chat_transcript_session_full — budget hit'
+    )

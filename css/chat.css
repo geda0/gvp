@@ -775,7 +775,19 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 }
 
 .chat-dialog {
-    z-index: 1095;
+    /* ABOVE .project-dialog (1100), not below it. MEASURED in a real browser 2026-10-23 at
+     * 1280x900 and 1512x950, and this was live on prod and stage: with a project dialog
+     * open, elementFromPoint over #agentNode returned the PROJECT DIALOG, so nothing in the
+     * site could open the chat — and forcing it open put the panel behind the dialog too,
+     * unreadable and unclickable. .project-dialog is inset:0, so its backdrop covers the
+     * launcher wherever the launcher is.
+     *
+     * This is the MODAL stage only. The yielded stages stay at 1085, deliberately BELOW
+     * every dialog (see the data-chat-stage block at the end of this file). ADR-0017 §1
+     * refutes the plan's "pill 1106": a pill raised above the project backdrop stops being
+     * yielded, and a pill left below it is untappable — which is why the two stages get
+     * opposite answers rather than one shared number. */
+    z-index: 1105;
 }
 
 /* Opaque shell + heavy dim so hero/portfolio never reads through the panel */
@@ -2325,3 +2337,168 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     color: #a83333;
 }
 
+
+/* ================================================================ the stage (ADR-0015 §4)
+ *
+ * Four stages, set by js/chat.js as data-chat-stage on #chatDialog. `closed` is [hidden] and
+ * `modal` is everything above this block — the shipped look, unchanged. These two are the
+ * YIELDED stages: the assistant steps aside so the visitor can use the site, WITHOUT the
+ * conversation (or the live voice session) ending.
+ *
+ * The shell keeps `position: fixed; inset: 0`, so it still covers the viewport in the layout
+ * sense. What makes the site usable underneath is `pointer-events`, which js/chat.js sets
+ * inline from stageChrome — `none` on the shell for both stages here, with `auto` put back on
+ * the panel below. The backdrop is hidden outright rather than faded to 0: it is a real
+ * inset:0 element with backdrop-filter, and a transparent one still swallows every click.
+ */
+
+#chatDialog[data-chat-stage='docked'],
+#chatDialog[data-chat-stage='minimized'] {
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: clamp(0.75rem, 2vw, 1.25rem);
+    /* BELOW the site's dialogs. .chat-dialog is 1095 so an OPEN chat sits above
+     * .contact-dialog (1090) and .project-dialog (1100) — which is right for a modal and
+     * wrong for a yielded one. MEASURED in a browser: with the chat minimised and the
+     * contact form open, the pill floated over the form the visitor was filling in. It
+     * happens not to overlap at 1024x768, which is why nothing caught it; on a taller
+     * viewport the form reaches the corner and the pill lands on top of it. "Yielded" that
+     * still covers the thing you are typing into is not yielded (invariant #22). */
+    z-index: 1085;
+}
+
+/* The panel takes its own pointer events back — the shell's `none` is what frees the page. */
+#chatDialog[data-chat-stage='docked'] .chat-dialog__panel,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__panel {
+    pointer-events: auto;
+    margin: 0;
+    align-self: flex-end;
+    /* UNDOES THE <=640px FULL-SCREEN RULE (css/chat.css:2183), which sets width/height to
+     * 100vw/100dvh and strips the radius and borders. A yielded panel is the opposite of
+     * full-screen, and the height is the one that bites: without `height: auto` the pill
+     * renders as a viewport-tall lozenge, because border-radius: 999px on a 812px-high box
+     * is exactly that. MEASURED in the browser, not reasoned about. */
+    height: auto;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-style: solid;
+}
+
+/* ---- docked: a real, usable card beside the content ---- */
+#chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
+    width: min(24rem, calc(100vw - 2rem));
+    max-width: min(24rem, calc(100vw - 2rem));
+    height: min(60vh, 34rem);
+    max-height: min(60vh, 34rem);
+    border-radius: 18px;
+    box-shadow:
+        0 10px 32px rgba(0, 0, 0, 0.42),
+        0 0 0 1px color-mix(in srgb, var(--chat-launcher-glow-chrome) 12%, transparent);
+}
+
+/* ---- minimized: the header alone, as a pill ---- */
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__panel {
+    width: auto;
+    max-width: min(20rem, calc(100vw - 2rem));
+    max-height: none;
+    overflow: visible;
+    border-radius: 999px;
+}
+
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__scroll,
+#chatDialog[data-chat-stage='minimized'] .chat-composer,
+#chatDialog[data-chat-stage='minimized'] .chat-status,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__footer,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__dock,
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__subtitle {
+    display: none;
+}
+
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__header {
+    border-bottom: 0;
+    padding-block: 0.55rem;
+    border-radius: 999px;
+}
+
+#chatDialog[data-chat-stage='minimized'] .chat-dialog__title {
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+
+/* The voice pane SURVIVES minimisation, deliberately: the whole point of the yielded stages
+ * is that a live conversation keeps going (project invariant #20), so the visitor must still
+ * see that it is live and still be able to mute or end it from the pill. */
+#chatDialog[data-chat-stage='minimized'] .chat-voice-pane {
+    padding: 0 0.6rem 0.55rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #chatDialog[data-chat-stage] .chat-dialog__panel {
+        transition: none;
+    }
+}
+
+
+/* M4 slice 15 (ADR-0017 §6) — minimise lives on the docked card only; the launcher chip is the
+   way back from minimised. */
+.chat-dialog__minimize {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__minimize {
+    display: inline-flex;
+}
+
+.chat-dialog__minimize:hover,
+.chat-dialog__minimize:focus-visible {
+    background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.agent-node__active-chip {
+    margin-top: 0.5rem;
+    padding: 0.3rem 0.8rem;
+    border: 1px solid var(--accent, currentColor);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.agent-node__active-chip[hidden] {
+    display: none;
+}
+
+
+/* M4 slice 16 — the "Ask about this" offer under a content selection. */
+.selection-offer {
+    position: fixed;
+    z-index: 1090;
+    transform: translateX(-50%);
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--accent, currentColor);
+    border-radius: 999px;
+    background: var(--surface, #111);
+    color: inherit;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.selection-offer[hidden] {
+    display: none;
+}

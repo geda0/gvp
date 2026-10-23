@@ -56,10 +56,14 @@
 
       <p id="adminGlobalStatus" class="admin-status" data-tone="muted"></p>
 
+      <!-- M8 item 7 (ADR-0021): what needs attention, ranked, above the analysed detail. -->
+      <section id="adminAttention" class="admin-attention" aria-label="Needs attention" aria-live="polite"></section>
+
       <nav class="admin-tabs" role="tablist" aria-label="Admin dashboards">
         <button id="adminTabContact" class="admin-tab is-active" type="button" role="tab" aria-selected="true" data-tab="contact">Contact Ops</button>
         <button id="adminTabTranscripts" class="admin-tab" type="button" role="tab" aria-selected="false" data-tab="transcripts">Chat Transcripts</button>
         <button id="adminTabReport" class="admin-tab" type="button" role="tab" aria-selected="false" data-tab="report">Daily Report</button>
+        <button id="adminTabAssistant" class="admin-tab" type="button" role="tab" aria-selected="false" data-tab="assistant">Assistant</button>
       </nav>
 
       <section id="adminPanelContact" role="tabpanel">
@@ -455,6 +459,25 @@
             </table>
           </div>
         </section>
+      </section>
+
+      <!-- M4 slice 18 (ADR-0017 §8): how the assistant is used across the site. -->
+      <section id="adminPanelAssistant" role="tabpanel" hidden>
+        <section class="admin-card admin-card--filters">
+          <div class="admin-card__header">
+            <h2>Assistant</h2>
+            <label class="admin-inline">
+              <span>Window</span>
+              <select id="assistantDays">
+                <option value="7">7 days</option>
+                <option value="30" selected>30 days</option>
+                <option value="90">90 days</option>
+              </select>
+            </label>
+          </div>
+          <p id="assistantStatus" class="admin-status" data-tone="muted">Opens, voice, chips and selection offers from first-party site events.</p>
+        </section>
+        <section id="assistantUsage" class="admin-card"></section>
       </section>
     </section>
   </main>

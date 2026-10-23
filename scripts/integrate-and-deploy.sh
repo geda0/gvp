@@ -88,34 +88,16 @@ case "${CHAT_DEPLOY_TARGET}" in
     ;;
 esac
 
-if [[ "${SKIP_SECRETS_MANAGER:-0}" != "1" && -f "$SECRETS_DIR/manifest.json" && -f "$SECRETS_DIR/config.manifest.json" ]]; then
-  if [[ ! -f "$SECRETS_DIR/deploy.env" ]]; then
-    echo "error: $SECRETS_DIR/deploy.env missing (required with manifest.json + config.manifest.json)" >&2
-    echo "  cp \"$ROOT/secrets.example/deploy.env.example\" \"$SECRETS_DIR/deploy.env\" && edit" >&2
-    exit 1
-  fi
-  ORCH_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-2}}"
-  export AWS_DEFAULT_REGION="${ORCH_REGION}"
-  echo "Secrets prep: seeding config exports (config.manifest.json)…"
-  python3 "$ROOT/scripts/seed_local_configs.py" --secrets-dir "$SECRETS_DIR"
-  echo "Secrets prep: pushing manifest files to AWS Secrets Manager…"
-  python3 "$ROOT/scripts/push_local_secrets_to_sm.py" --secrets-dir "$SECRETS_DIR" --region "${ORCH_REGION}"
-  set -a
-  # shellcheck source=/dev/null
-  source "$SECRETS_DIR/deploy.env"
-  if [[ -f "$SECRETS_DIR/config.generated.env" ]]; then
-    # shellcheck source=/dev/null
-    source "$SECRETS_DIR/config.generated.env"
-  fi
-  if [[ -f "$SECRETS_DIR/deploy.generated.env" ]]; then
-    # shellcheck source=/dev/null
-    source "$SECRETS_DIR/deploy.generated.env"
-  fi
-  set +a
-  gvp_restore_operator_intent
-fi
-
-
+# MOVED ABOVE THE SECRETS-PREP BLOCK, 2026-10-23, and it has to stay here. Two reasons,
+# both of which had already fired:
+#   1. The block below CALLS gvp_restore_operator_intent. Bash resolves a function at the
+#      moment of the call, so with the definition further down the script died with
+#      `command not found` and exit 127 - mid-deploy, AFTER it had written
+#      .secrets/config.generated.env and pushed a secret to Secrets Manager.
+#   2. The snapshot loop has to run BEFORE anything sources .secrets/*, or it captures
+#      values the secrets files have already clobbered and "restores" them to themselves,
+#      which is the exact override this mechanism exists to prevent.
+# Pinned by test/deploy-script-no-use-before-define.test.mjs.
 # OPERATOR INTENT WINS OVER THE SECRETS FILES. Snapshot any behaviour flag the caller set
 # BEFORE sourcing .secrets/*, then restore it after.
 # MEASURED 2026-10-13, and it had already fired: `.secrets/deploy.env` carries
@@ -127,7 +109,7 @@ fi
 # pointed every visitor's chat at a dead hostname.
 # These are flags that say WHAT TO DO, not credentials. A secrets file may supply a default for
 # them, but it must never override an operator who passed one on the command line.
-_GVP_INTENT_VARS='SYNC_API_URLS SKIP_SECRETS_MANAGER SKIP_CHAT_TESTS CHAT_ALWAYS_BUILD CHAT_DEPLOY_TARGET CHAT_SAM_STACK_NAME_PROD CHAT_SAM_STACK_NAME_STAGE CHAT_STREAM_RESERVED_CONCURRENCY CHAT_STREAM_FUNCTION_URL_AUTH_TYPE CHAT_PROD_CHAT_API_URL CHAT_STAGE_CHAT_API_URL GEMINI_API_KEY GEMINI_API_KEY_PROD GEMINI_API_KEY_STAGE GEMINI_API_KEY_SECRET_ARN GEMINI_API_KEY_SECRET_ARN_PROD GEMINI_API_KEY_SECRET_ARN_STAGE'
+_GVP_INTENT_VARS='SYNC_API_URLS SKIP_SECRETS_MANAGER SKIP_CHAT_TESTS CHAT_ALWAYS_BUILD CHAT_DEPLOY_TARGET CHAT_SAM_STACK_NAME_PROD CHAT_SAM_STACK_NAME_STAGE CHAT_STREAM_RESERVED_CONCURRENCY CHAT_STREAM_WAF CHAT_STREAM_FUNCTION_URL_AUTH_TYPE CHAT_PROD_CHAT_API_URL CHAT_STAGE_CHAT_API_URL GEMINI_API_KEY GEMINI_API_KEY_PROD GEMINI_API_KEY_STAGE GEMINI_API_KEY_SECRET_ARN GEMINI_API_KEY_SECRET_ARN_PROD GEMINI_API_KEY_SECRET_ARN_STAGE'
 for _v in $_GVP_INTENT_VARS; do
   if [[ -n "${!_v+x}" ]]; then
     eval "_GVP_CALLER_${_v}=\${${_v}}"
@@ -160,6 +142,36 @@ gvp_restore_operator_intent() {
     fi
   done
 }
+
+
+if [[ "${SKIP_SECRETS_MANAGER:-0}" != "1" && -f "$SECRETS_DIR/manifest.json" && -f "$SECRETS_DIR/config.manifest.json" ]]; then
+  if [[ ! -f "$SECRETS_DIR/deploy.env" ]]; then
+    echo "error: $SECRETS_DIR/deploy.env missing (required with manifest.json + config.manifest.json)" >&2
+    echo "  cp \"$ROOT/secrets.example/deploy.env.example\" \"$SECRETS_DIR/deploy.env\" && edit" >&2
+    exit 1
+  fi
+  ORCH_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-2}}"
+  export AWS_DEFAULT_REGION="${ORCH_REGION}"
+  echo "Secrets prep: seeding config exports (config.manifest.json)…"
+  python3 "$ROOT/scripts/seed_local_configs.py" --secrets-dir "$SECRETS_DIR"
+  echo "Secrets prep: pushing manifest files to AWS Secrets Manager…"
+  python3 "$ROOT/scripts/push_local_secrets_to_sm.py" --secrets-dir "$SECRETS_DIR" --region "${ORCH_REGION}"
+  set -a
+  # shellcheck source=/dev/null
+  source "$SECRETS_DIR/deploy.env"
+  if [[ -f "$SECRETS_DIR/config.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/config.generated.env"
+  fi
+  if [[ -f "$SECRETS_DIR/deploy.generated.env" ]]; then
+    # shellcheck source=/dev/null
+    source "$SECRETS_DIR/deploy.generated.env"
+  fi
+  set +a
+  gvp_restore_operator_intent
+fi
+
+
 
 # When not already exported (e.g. GitHub Actions exports secrets), load local .secrets/deploy.env
 if [[ -z "${RESEND_API_KEY:-}" && -f "$SECRETS_DIR/deploy.env" ]]; then
@@ -319,6 +331,11 @@ fi
 
 if [[ -n "${SMOKE_PROBE_KEY:-}" ]]; then
   PO+=("$(sam_param_override SmokeProbeKey "${SMOKE_PROBE_KEY}")")
+fi
+
+# M8 item 6 (ADR-0021): optional read-only admin key, omitted when unset (never a bare Key=).
+if [[ -n "${ADMIN_READONLY_KEY:-}" ]]; then
+  PO+=("$(sam_param_override AdminReadonlyKey "${ADMIN_READONLY_KEY}")")
 fi
 
 if [[ -n "${CONTACT_REPORT_EMAIL:-}" ]]; then
@@ -489,6 +506,10 @@ if [[ "${run_chat_sam}" == "true" ]]; then
   # unset in this repo's .secrets/*, so passing it unconditionally fails the whole deploy.
   if [[ -n "${SMOKE_PROBE_KEY:-}" ]]; then
     CHAT_PO+=("SmokeProbeKey=${SMOKE_PROBE_KEY}")
+  fi
+  # ADR-0025 filed-forward #4: /api/chat/host-status needs the admin key on this host.
+  if [[ -n "${ADMIN_API_KEY:-}" ]]; then
+    CHAT_PO+=("AdminApiKey=${ADMIN_API_KEY}")
   fi
   # Conditional for exactly the SMOKE_PROBE_KEY reason above: `sam deploy` rejects a bare
   # `GeminiApiKey=` for this PackageType: Image stack, so an empty value must be OMITTED
@@ -708,6 +729,11 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   else
     echo "chat tier-2 alert alarm [lambda-stream ${CHAT_STREAM_STACK}]: no topic (set CHAT_ALERT_ALARM_EMAIL or ALARM_EMAIL) — log group and metric still created" >&2
   fi
+  # ADR-0021 D2: the §15.3 cost alarms AND the account budgets share HasChatAlertAlarm, so a
+  # prod deploy without an alarm email silently creates none of them. Say so, loudly.
+  if [[ "${DEPLOY_ENV}" == prod && -z "${CHAT_STREAM_ALARM_EMAIL}" ]]; then
+    echo "::warning::prod stream stack has NO alarm email: the ADR-0022 §15.3 invocation/duration alarms and the \$15/\$70 budgets will NOT be created. Set CHAT_ALERT_ALARM_EMAIL or ALARM_EMAIL." >&2
+  fi
   # Reconciled against the template's Parameters: block. NOT passed, because it declares no such
   # parameter and an unknown parameter key fails the whole deploy: ChatAlertCooldownSeconds (ECS
   # Express only, refused here by the architect), ChatVoiceModel, SmokeProbeKey,
@@ -798,11 +824,40 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
     echo "  Set CHAT_SAM_STACK_NAME_STAGE / CHAT_SAM_STACK_NAME_PROD (so aws/chat-template.yaml deploys and exports ChatApiBaseUrl), or pass CHAT_STREAM_DEFAULT_ORIGIN_DOMAIN explicitly." >&2
   fi
 
+  # ADR-0021 D2 / ADR-0022 §15.3 - the per-IP request-rate ceiling (WAF, 300 / 5 min / IP).
+  # Required for prod, so ON by default there; optional on stage. A CloudFront web ACL can
+  # only live in us-east-1 (Scope CLOUDFRONT), hence its own stack and region. ~$6/month.
+  CHAT_STREAM_WAF="${CHAT_STREAM_WAF:-$( [[ "${DEPLOY_ENV}" == prod ]] && echo 1 || echo 0 )}"
+  CHAT_STREAM_WEB_ACL_ARN=""
+  if [[ "${CHAT_STREAM_WAF}" == 1 ]]; then
+    CHAT_WAF_STACK="${CHAT_WAF_STACK_NAME:-gvp-chat-waf-${DEPLOY_ENV}}"
+    echo "cfn deploy chat WAF stack=${CHAT_WAF_STACK} region=us-east-1 (per-IP 300 / 5 min)"
+    aws cloudformation deploy \
+      --template-file "${AWS_DIR}/chat-waf-template.yaml" \
+      --stack-name "${CHAT_WAF_STACK}" \
+      --region us-east-1 \
+      --no-fail-on-empty-changeset \
+      --parameter-overrides "StageName=${DEPLOY_ENV}"
+    CHAT_STREAM_WEB_ACL_ARN="$(aws cloudformation describe-stacks \
+      --stack-name "${CHAT_WAF_STACK}" \
+      --region us-east-1 \
+      --query "Stacks[0].Outputs[?OutputKey=='WebAclArn'].OutputValue" \
+      --output text)"
+    [[ "${CHAT_STREAM_WEB_ACL_ARN}" == arn:aws:wafv2:* ]] || {
+      echo "error: ${CHAT_WAF_STACK} returned no WebAclArn (got '${CHAT_STREAM_WEB_ACL_ARN}') — refusing to deploy the CDN stack without the rate ceiling it was asked for." >&2
+      exit 1
+    }
+    echo "chat WAF WebAclArn=${CHAT_STREAM_WEB_ACL_ARN}"
+  else
+    echo "note: CHAT_STREAM_WAF=0 - ${CHAT_STREAM_CDN_STACK} has no per-IP rate ceiling (ADR-0022 §15.3 requires one for prod)." >&2
+  fi
+
   CHAT_STREAM_CDN_PO=(
     "StreamFunctionName=${CHAT_STREAM_FN_NAME}"
     "StreamFunctionUrlDomain=${CHAT_STREAM_FN_HOST}"
     "DefaultOriginDomainName=${CHAT_STREAM_DEFAULT_ORIGIN}"
     "DefaultOriginPath=${CHAT_STREAM_DEFAULT_ORIGIN_PATH:-}"
+    "WebAclArn=${CHAT_STREAM_WEB_ACL_ARN:-}"
   )
   echo "cfn deploy chat stream CDN stack=${CHAT_STREAM_CDN_STACK} default-origin=${CHAT_STREAM_DEFAULT_ORIGIN:-<gate mode: the function url itself>}"
   # Plain CFN deploy, not sam: no image, no transform.

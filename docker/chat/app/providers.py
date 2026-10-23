@@ -98,12 +98,18 @@ def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
 
 
 def chat_tools() -> list[Any]:
-    """Function-call declarations for the Gemini text path: open_resume and
-    open_contact_form (the same two declarations Live uses, minus
-    navigate_to_section). Returned as a list of ``types.Tool`` for
-    ``GenerateContentConfig.tools``. Imported lazily so importing providers in
-    the mock path never requires google-genai."""
+    """Function-call declarations for the Gemini text path: open_resume,
+    open_contact_form and navigate_to_section - the SAME THREE Live declares
+    (ADR-0010 §2 shipped navigation parity on the text path; this docstring
+    formerly denied that the text path had the navigation tool at all, and was
+    contradicted by the function fifty lines below). The enum must stay equal to
+    live_gemini.py's; see docker/chat/tests/test_guide_tool_contract.py.
+    Returned as a list of ``types.Tool`` for ``GenerateContentConfig.tools``.
+    Imported lazily so importing providers in the mock path never requires
+    google-genai."""
     from google.genai import types
+
+    from app.project_refs import PROJECT_IDS
 
     return [
         types.Tool(
@@ -158,6 +164,39 @@ def chat_tools() -> list[Any]:
                         required=['section'],
                     ),
                 ),
+                *(
+                    [
+                        types.FunctionDeclaration(
+                            name='open_project',
+                            description=(
+                                "Open one project's detail card on THIS site so the visitor can see it while you talk about it. Call this when they ask about, or want to see, a specific project or role (e.g. Team Tactics, Apptio, JumpCloud). Use the project id from the enum."
+                            ),
+                            parameters=types.Schema(
+                                type=types.Type.OBJECT,
+                                properties={
+                                    'project': types.Schema(
+                                        type=types.Type.STRING,
+                                        # ONE tuple for text and voice (app/project_refs.py, ADR-0017 §3.1):
+                                        # equal by construction, not by a test written after they drift.
+                                        enum=list(PROJECT_IDS),
+                                        description='Project id.',
+                                    ),
+                                },
+                                required=['project'],
+                            ),
+                        ),
+                        types.FunctionDeclaration(
+                            name='close_project',
+                            description=(
+                                'Close the project card that is open, returning the visitor to the page behind it. Call this when they are done with the project or ask to go back.'
+                            ),
+                            parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+                        ),
+                    ]
+                    # An empty enum is rejected by Gemini, so a missing pack omits the tools instead.
+                    if PROJECT_IDS
+                    else []
+                ),
             ],
         ),
     ]
@@ -177,7 +216,13 @@ def _inject_retrieved(
     history_text = ' '.join(
         str(getattr(m, 'content', ''))[:300] for m in compacted[-6:]
     )
-    context = build_context(last, history_text, knowledge_pack)
+    # M4 (ADR-0017 §4.1): the visitor's open project, pinned into <relevant_projects> by
+    # explicit parameter. Read HERE so the real and the mock chain thread it identically.
+    pinned = inp.get("pinnedProjectId")
+    context = build_context(
+        last, history_text, knowledge_pack,
+        pinned_project_id=pinned if isinstance(pinned, str) else None,
+    )
     knowledge_xml = serialize_context_xml(context)
     messages = [Msg(role="human", content=knowledge_xml), *compacted]
     return {
@@ -256,6 +301,9 @@ def build_llm_runnable(
         return _MockChain(inject), model_id
 
     if provider == "gemini":
+        # ADR-0025 #2: a key that failed to resolve at cold start may recover here (cached
+        # when resolved; retried at most once per GEMINI_KEY_RETRY_SECONDS when it failed).
+        resolve_gemini_key_into_env()
         key = os.environ.get("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")

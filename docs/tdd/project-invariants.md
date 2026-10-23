@@ -1150,6 +1150,106 @@ proves it comes FIRST.
       declared subscription, only by a verified one — ADR-0022 §29.5 gives the one-call check and
       folds it into B-5.
 
+20. **A site-layout or navigation change never terminates a live voice session.** `[app]`
+    Recorded 2026-10-16 by **ADR-0015 §8**. No path reachable from a `siteState` write, a stage
+    transition, a navigation, a project dialog, or the contact dialog may call `stopVoice` or close
+    the live WebSocket. Voice ends only on an **explicit visitor act** — mic stop, panel close,
+    Start over — or on a transport failure.
+    **WHY THIS IS AN INVARIANT AND NOT A FEATURE TEST, measured.** The chain was intact end to end
+    (`js/app.js:243` → `collapseChatDialog` → `closePanel` → `snapClose` → `stopVoice` →
+    `chat-live.js` `ws = null`), and it fired on the assistant's OWN `navigate_to_section`: the
+    session that had just promised to move the visitor was torn down by the move. Two more emitters
+    reached the same place through `gvp:site-chat-collapse` — a project card and the contact
+    dialog. **One `classList`-level change restores it**, it is invisible in a diff review, and the
+    symptom (a reply that stops mid-sentence) reads as a network problem rather than a code defect.
+    **Two corrections that decide how it is pinned**, because without them a version of the pin
+    passes vacuously: (a) *"on every navigation" is FALSE* — the `app.js` call was guarded by
+    `state === 'portfolio' || state === 'labs'`, so navigating HOME never collapsed anything and a
+    probe exercising only `→ home` was green against the broken code; (b) `open_contact_form` and
+    `navigate_to_section` fail DIFFERENTLY — the first closed the panel synchronously, nulling
+    `ws` before the send-guard, so the `toolResponse` was **dropped** and the model waited forever;
+    the second queued `hashchange` as a task, so the response WAS sent and then the socket died
+    mid-sentence.
+    *Pin:* `test/site-events-never-stop-voice.test.mjs` (every writer in ADR-0015 §3.2 against a
+    `stopVoice` spy that must stay at **zero**, with preconditions in the same snapshot so a dead
+    probe cannot read as a pass), `test/chat-stage-wiring.test.mjs` (the same across every stage
+    transition), and `test/site-state-notes-wiring.test.mjs` (the live notifier, which runs on
+    every site change during a call and is handed a `send` and nothing else).
+
+21. **A tool result the agent can self-verify against is read back from the state, never
+    constructed from the request.** `[app]` Recorded 2026-10-16 by **ADR-0015 §8**. Any tool result
+    asserting a site change reads the **post-change** store snapshot; a change that did not apply
+    returns an error, not a success.
+    An echo built from the arguments agrees with the request **by construction**, which is exactly
+    the property a self-verification contract must not have. **Measured case:** assigning the
+    fragment the document already has dispatches no `hashchange` (HTML spec), so the router never
+    ran — and `navigateToSection` returned `{ result: 'navigated' }` unconditionally. Benign while
+    the visitor is already there, and a lie under a contract the model is meant to trust. False is
+    worse than missing.
+    *Pin:* `test/chat-tool-results.test.mjs` — the echo is compared against the store's own wire
+    snapshot, and the no-op-hash case must still show the section applied.
+
+22. **While the assistant is yielded (`docked` / `minimized`), the site remains operable.** `[app]`
+    Recorded 2026-10-16 by **ADR-0015 §8**. No backdrop intercepting clicks, no `body` scroll lock,
+    `aria-modal="false"`, no focus move on entry, no focus trap; the transcript keeps its
+    `aria-live`, and stage transitions honour `prefers-reduced-motion`.
+    **PROMOTED AGAINST THIS FILE'S OWN BAR, deliberately and with the argument stated** — the file
+    reserves itself for durability / safety / secret / correctness defects and declined to promote
+    the voice-résumé net on exactly that ground. This clears the bar anyway: the regression is **one
+    `classList.add` or one CSS line**; it is invisible in a diff review; it degrades the site
+    specifically for the users who depend on assistive technology; and it is the whole user-visible
+    claim of the milestone. **The backdrop clause is the load-bearing one, measured:** the backdrop
+    is a real `inset: 0` element with `backdrop-filter` (`index.html:299`), so FADING it instead of
+    hiding it leaves the site **visually operable and functionally dead** — every click swallowed,
+    with the suite still green.
+    *Pin:* `stageChrome` asserted per stage as DATA (`test/chat-stage.test.mjs`), the applied DOM
+    compared against it (`test/chat-stage-wiring.test.mjs`), and a browser hit-test that a click
+    over site content reaches the content while a click over the panel reaches the panel.
+
+23. **The starfield cull inflates, never shaves — and the width it assumes is the width that is
+    drawn.** `[app]`
+    Recorded 2026-10-23. Two halves of one rule, and both have already been broken once.
+    *Shaving:* `starDrawBounds` (`js/starfield-geom.js`) must bound a star by at least what it
+    puts on the canvas. A wrong `false` costs one `drawImage` the canvas then clips — free. A
+    wrong `true` **deletes a visible star**, which no unit test shows and which reads as flicker
+    at the edge of vision. So every bound is inflated and never shaved, and an untrusted input is
+    always drawn.
+    *Disagreement:* the cull's assumed streak width and the width passed to `drawImage` must be
+    **one number**. They were two — `STREAK_HALF_THICKNESS = 0.75` in the geom module was a silent
+    copy of `STREAK_THICKNESS / 2` in the renderer — so making the streak proportional to the star
+    silently under-covered the widest tails, selecting precisely for the **brightest** stars at the
+    screen edges.
+    **WHY THIS CLEARS THE BAR** that declined the voice-résumé net: it is a correctness defect in
+    the forbidden direction, invisible in a diff, invisible to the suite, and this repo has already
+    paid for it — `2d079aa` silently reverted three correct starfield fixes and both regressions
+    resurfaced on prod months later. The whole class is "a starfield change nothing fails for".
+    *Pin:* the width function as a pure seam, bounded on BOTH sides — the lollipop direction and
+    the "mantis ray" the owner rejected on staging 2026-07-09 (`test/starfield-streak.test.mjs`);
+    the bounds' fallback proven to only ever widen (`test/starfield-geom.test.mjs`); and — the one
+    that was missing, and that a probe showed the whole suite passing without — the DRAWN height
+    asserted equal to `streakThickness(radius)` and centred on its segment, at the call site
+    (`test/starfield-cull-wiring.test.mjs`).
+    *Implemented by:* `js/starfield-geom.js` (`starDrawBounds`, `starIsOffCanvas`),
+    `js/starfield.js` (`streakThickness`, and the single `thickness` passed to both the cull and
+    the `drawImage`).
+
+
+23. **Text a visitor selects reaches the model only through the composer, only when they send
+    it, and never reaches analytics.** `[app]` Recorded 2026-10-23 by **ADR-0017 §7** (M4
+    slice 16). Enforced at four seams:
+    1. `js/selection-offer.js` is a pure leaf with no network, analytics or DOM.
+    2. The only sink is `openPanelWithDraft`, which fills the composer and does not submit. No
+       module that imports the leaf may reference `openPanelWithMessage`; that is a source
+       assertion, because draft → message is a one-word edit a diff reads as a synonym.
+    3. `selection_assistant_offer` / `_chip` carry exactly `{ chars: <bucket>, section }`,
+       because a param would be persisted for 120 days on a public route.
+    4. An allowlist of content regions, because Firefox reports `<textarea>` selections and the
+       contact form's message is the visitor's own words.
+
+    **PROVEN** by `test/selection-offer.test.mjs`, including a behavioural run of the glue: a tap
+    fills the composer and sends nothing, the quote never appears in an event, and a
+    contact-form selection produces no offer.
+
 ## Out of scope / explicitly allowed
 
 - **"Single origin" is not literal in production.** The shipped meta tags point chat

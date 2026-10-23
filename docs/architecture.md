@@ -222,9 +222,47 @@ flowchart LR
 6. `initSpaceman()` — character + message cycle from `/data/spaceman.json` + resume merge
 7. `initSpacemanPosition()` — layout observers
 8. `initChat()` + `initAgentNode()` — hero/navbar chat + full dialog
-9. `initNavigation()` — hash routes; hooks spaceman state
+9. `initNavigation()` — hash routes; writes `section` to `js/site-state.js`; hooks spaceman state
 10. `loadProjects()` / `renderProjects()` — `data/projects.json`
 11. `initSpacemanProjectContext()` — playground/portfolio card context
+
+### Site state and the chat stage (ADR-0015)
+
+`js/site-state.js` is a small observable store — `section`, `project`, `contactOpen`,
+`chatStage`, `voiceActive` — with **one narrow writer per field**, and the writer *is* the
+permission. It replaced a `gvp:site-chat-collapse` event, and the difference is the point:
+an event said *"collapse the chat"*, so its only listener could do nothing but obey — and
+obeying reached `stopVoice`, which is how the assistant's own `navigate_to_section` tore
+down the live voice session that had just promised the move. State says *"the visitor is on
+portfolio"* and lets the chat decide what that means for itself.
+
+| field | writer | notes |
+|---|---|---|
+| `section` | `js/navigation.js` | `origin` `system` at boot, `agent` when a tool asked, else `visitor` |
+| `project` | `js/projects.js` | carries the title too, so §7's live note is sayable |
+| `contactOpen` | `js/contact.js` | on open **and** on close — the close is the return path |
+| `chatStage` | `js/chat.js` only | |
+| `voiceActive` | `js/chat.js` only | bridged from `chat-live.js` through `patchLiveUi` |
+
+`js/chat-stage.js` is a pure reducer over `closed | modal | docked | minimized`.
+`stageChrome(stage)` returns the accessibility contract **as data** (dialog hidden, backdrop
+hidden, scroll lock, `aria-modal`, focus, pointer events), which is what lets it be asserted
+with no DOM at all. `js/chat.js` is the only place that turns it into attributes.
+
+`origin` is mandatory on every write. An agent-caused change and a visitor-caused one are
+byte-identical in the state, so it is the only thing that can tell them apart — and §7's
+live-session note must never echo the agent's own action back at it, because the tool result
+already carried it.
+
+**On the wire:** `/api/chat` and `/api/live/session` accept an optional five-key
+`siteState`; absent means the server omits the prompt line entirely rather than defaulting
+it. `docker/chat/app/site_state.py` validates and renders it, and the rendered line is kept
+in step with `js/site-state-notes.js` by a shared table
+(`test/fixtures/site-state-lines.json`) that both suites assert against.
+
+Pinned by `test/chat-stage*.test.mjs`, `test/site-state*.test.mjs`,
+`docker/chat/tests/test_site_state*.py`, and the browser journeys in
+`scripts/qa/chat-stage-journeys.mjs`.
 
 ### Themes
 

@@ -3,6 +3,290 @@
 > Updated by the orchestrator every cycle. This is how any agent resumes cold.
 
 ## Current status
+
+- **2026-10-23 — the chat stack has TWO CI blockers, and a green pull does not retire the
+  first one.** Correcting a too-generous read of mine from the same day.
+
+  1. **ECR Public throttle — OPEN.** `5021dd5` added an `aws ecr-public get-login-password`
+     step before the deploy, and on run `39985355946` that step **FAILED**:
+     `AccessDeniedException … not authorized to perform: ecr-public:GetAuthorizationToken`
+     (same as `39939648430`). It fell back to an anonymous pull, which happened not to be
+     throttled that run — almost certainly because the time window had reset, not because
+     the login worked. **A clean pull is therefore not evidence.** Needs the
+     `ecr-public:GetAuthorizationToken` + `sts:GetServiceBearerToken` grants (us-east-1,
+     account-level, NOT us-east-2 resource-scoped), and the durable fix remains mirroring
+     the Lambda Web Adapter image into our own ECR so the build never touches
+     `public.ecr.aws`.
+  2. **IAM deny — OPEN.** `cloudformation:ListStackResources` on the stream CompanionStack.
+     Behind blocker 1, so fixing only this one still does not get the chat templates
+     deployed through CI.
+
+  **The lesson, which is the reusable part:** a step that fails and falls back can look
+  exactly like a step that worked, when the thing it was meant to prevent happens not to
+  occur. Read the step's own result, not the job's outcome — the same mistake shape as
+  trusting a task-completion exit code over the `.rc` file.
+
+- **2026-10-23 — PROMOTION BLOCKER, verified: the privacy note must not reach `main` yet.**
+  ADR-0021 D4 states the rule; this is the measurement behind it.
+
+  `aws dynamodb describe-time-to-live` on both transcript tables, just now:
+  ```
+  page-ChatTranscriptsTable-19J8X0K9P03AJ          TimeToLiveStatus = DISABLED
+  page-staging-ChatTranscriptsTable-1XSZI611F4WDM  TimeToLiveStatus = DISABLED
+  ```
+  So **TTL is off in prod and in stage**. M8 item 3 adds a `ttl` attribute on new writes
+  (`transcript_store.py`, via `#ttl` because TTL is a DynamoDB reserved word) and enables
+  TTL on the table — but until BOTH are deployed to prod, the footer's privacy note would
+  tell visitors their transcripts are kept 180 days while DynamoDB keeps them forever.
+  A promise the system does not keep is worse than no promise, and this one is about
+  people's conversations.
+
+  **UPDATE, same day, after M8's deploy to stage — the two environments have diverged:**
+  ```
+  page-staging-ChatTranscriptsTable-1XSZI611F4WDM   ENABLED   attribute `ttl`
+  page-ChatTranscriptsTable-19J8X0K9P03AJ           DISABLED  (unchanged)
+  ```
+  Stage's TABLE now honours `ttl`; prod's does not. But stage's chat functions still do not
+  WRITE the attribute, because that deploy died on the IAM deny — so stage is currently a
+  table that would expire rows nobody is stamping. Harmless (nothing expires), and worth
+  knowing: a table showing ENABLED is NOT evidence the retention promise is kept. Both
+  halves are needed, and on prod neither is there yet.
+
+  **The rule, for the promotion checklist:** `js/privacy-note.js` and its footer entry may
+  not reach `main` until (1) the `#ttl` writer is deployed to the prod chat host AND
+  (2) `TimeToLiveStatus` reads `ENABLED` on `page-ChatTranscriptsTable-*`. Re-run the
+  describe-time-to-live above as the check; do not take a green suite or a successful
+  deploy as evidence, because the table setting is not in the suite's reach.
+
+  Note the ordering trap: the TTL attribute is written on NEW rows only, with no backfill
+  (D3), so enabling TTL does not retroactively bound the rows already there. The note's
+  wording should be true of the data that exists, not only of the data written after the
+  deploy — worth a second look at the copy before promotion.
+
+- **2026-10-23 — STAGE IS DEPLOYED AND VERIFIED (frontend + backend). Two CI deploy roles
+  are broken and need the user; nothing is on prod.** `agent` @ `c8910ba`, `main` @
+  `33a514c`. App **415 / 414 pass / 1 skip**, chat **213**, journeys **17/17**.
+
+  **Verified live on stage, not inferred:**
+  - Frontend: Amplify serves `agent` HEAD. New CSP / HSTS / X-Frame-Options /
+    Permissions-Policy all present, **zero CSP violations** on the real page, and the
+    journey harness run against `https://agent.marwanelgendy.link` itself holds **17/17**,
+    hit-test included.
+  - Backend: both stage chat functions moved **2026-10-15 → 2026-10-23** with new
+    `CodeSha256`s (`319bd231→fbe35285`, `7d1b1adf→9b577fa6`). Checked as before/after
+    markers, because the task-completion notification reported **exit 0 for a failed run
+    twice today** — read the `.rc` file, never the notification.
+  - ADR-0015 §6, end to end against the deployed CloudFront endpoint: `siteState` present →
+    *"looking at the labs section, specifically the Team Tactics project"*; absent → the
+    model falls back to home (correct: absent asserts nothing); `section: "Labs"` → **400
+    validation_error** with the pattern, i.e. reject-not-clamp for identities, on real
+    infrastructure.
+
+  **THREE SEPARATE BLOCKERS stood between the push and a deployed backend. Only the first
+  was known, and two of them are still open:**
+  1. **CI IAM — OPEN, needs the user.** `gvp-staging-ci-deploy` was denied
+     `cloudformation:ListStackResources`, but the real fault is bigger: the whole
+     `gvp-<env>-chat-deploy` inline policy still describes the **deleted ECS Express**
+     architecture — `cloudformation:*` on `stack/gvp-chat-express-<env>/*`, IAM on
+     `role/gvp-chat-express-<env>-*`, plus `ecs`/`elb`/`ec2` on `*`. So every WRITE to the
+     stream and CDN stacks is denied too; the read action was just the first deny hit.
+     **Both roles are affected** — prod run `38822614809` (Oct 15) failed identically — so
+     **neither CI role has deployed chat since the Express teardown.** Note
+     `gvp-<env>-deploy` (the CONTACT policy) is fine and must be left alone; its
+     `CfnGlobalRead` already grants `DescribeStacks` on `*`, so that one is NOT missing.
+     A peer session has a repoint-and-narrow draft in `~/workspace/gvp/iam-draft/`;
+     nothing applied.
+  2. **`integrate-and-deploy.sh` use-before-define — FIXED (`c8910ba`).** It called
+     `gvp_restore_operator_intent` at line 115 and defined it at 138, so a local deploy died
+     at **exit 127 after writing `.secrets/config.generated.env` and pushing a secret to
+     Secrets Manager**. On `main` since 2026-10-13, fires only on the Secrets-Manager branch
+     CI never takes. The crash was also masking that the snapshot loop ran AFTER the
+     `source .secrets/*` it defends against. Pinned as a class by
+     `test/deploy-script-no-use-before-define.test.mjs`.
+  3. **`.secrets/chat-deploy.env` sets only the legacy `CHAT_SAM_STACK_NAME` — STILL OPEN.**
+     It resolves to `gvp-chat-stage` for BOTH envs, so the script correctly REFUSED rather
+     than write stage parameters into the stack prod uses. Workaround used for this run:
+     `CHAT_SAM_STACK_NAME_PROD=gvp-chat-prod CHAT_SAM_STACK_NAME_STAGE=gvp-chat-stage`.
+     Every local deploy hits this until the file sets both.
+
+  **Still true and still unfixed:** prod and stage resolve to the SAME Gemini API key, so
+  stage load draws down prod's per-project quota. Voice on stage is unverified.
+
+- **2026-10-23 (later) — M3 COMPLETE, all six slices. M1 and M2 complete. M8 item 4 done
+  opportunistically.** `main` @ `33a514c` (untouched), `agent` ahead by 40. App **413 / 412
+  pass / 1 skip**, chat **213 passed**, browser journeys **17/17**. STILL NOTHING DEPLOYED.
+
+  **M3 (ADR-0016, architect-authored, 958 lines).** The daytime sky had snow in all twelve
+  months everywhere; now `js/precipitation.js` decides and `js/starfield.js` obeys. Today
+  (2026-10-23, northern autumn, not a hail day) renders rain.
+  - **The constraint that bites, and it is invisible in a diff:**
+    `initPrecipitation('snow')` keeps `initSnow`'s exact FIVE `Math.random()` draws in the
+    order `x, y, r, phase, speed`, with NO shared pre-roll before the per-kind branch. The
+    A/B harness replays the render under a seeded `Math.random`, so one extra or reordered
+    draw shifts every subsequent particle and reports a full-stream difference for a change
+    that is visually nothing. **Gate, run it on every starfield change:**
+    `node scripts/qa/starfield-ab-draws.mjs HEAD 12 400 0 snow` → `identical: true`.
+  - **The hail sprite is 8px, not 4.** Three places in this repo identify a sprite by
+    `img.height === 4` and all three mean "star motion streak". A 4px pellet would have
+    been counted as one by the perf test's reduced-motion clause (which pins invariant #6's
+    live clause), the cull wiring test and the A/B harness.
+  - **The decision lives in `theme.js`, not the renderer**, for a MEASURED reason: the A/B
+    harness pins `Date.now` and `new Date()` does not consult it, so a calendar read inside
+    `starfield.js` would make the harness answer differently depending on the day you ran
+    it. A grep enforces the renderer knows no months, dates, hemispheres or hail odds.
+  - **Reduced motion now cuts SPEED as well as count** for rain and hail.
+    `snowSpeedMultiplierForPreference` returns exactly `1` under reduced motion — the
+    shipped tier cuts count only, which is fine for snow at 0.6-1.8px/frame and not for
+    rain at ten times that. Snow's behaviour is preserved byte-for-byte.
+  - Census at hour 12 / 120 frames: snow identical, rain 120 visible draws (one stroke per
+    frame), hail ~91/frame. Verified visually in headless Chrome over the real garden scene.
+
+  **M8 item 4 (CSP + security headers) landed out of order** while M3's ADR was being
+  written — `customHttp.yml`, verified against the running site with the policy served as a
+  real header and the violation listener installed BEFORE any page script. Zero violations;
+  positive control reports six. The API hosts are WILDCARDS because they differ per
+  environment and the 2026-06-04 incident is what a committed per-environment literal
+  produces — with a worse failure mode here, since a blocked `connect-src` is silent in the
+  UI. `wss://generativelanguage.googleapis.com` is the origin nobody guesses: voice is
+  browser-direct, so omitting it kills voice while text chat keeps working.
+
+  **Next:** M4 (ADR-0017, not written), M5, M6, M7, the rest of M8. And the promotion
+  question is now 40 commits deep — stage has seen none of it.
+
+- **2026-10-23 — M2 COMPLETE (journey harness included) and M1 COMPLETE. M3 blocked on
+  ADR-0016 (architect drafting).** `main` @ `33a514c` (unchanged), `agent` ahead by 33.
+  App suite **377 / 376 pass / 1 skip**, chat **213 passed**, browser journeys **17/17**.
+  NOTHING IS DEPLOYED — stage has not seen any of this.
+
+  **M2 shipped, then was audited by tdd-critic, which returned BLOCK. Ten real defects
+  found and fixed; four of them were introduced earlier in the same session.** Read these
+  before touching the chat again:
+  - **The site-state line was killing the implicit cache prefix.** It was folded in as a
+    SYSTEM message on the reasoning that gemini_routing appends those to the end of the
+    system instruction. That is true but irrelevant: `providers._inject_retrieved` puts the
+    ~4,000-token knowledge blob in `contents[0]`, NOT in the system instruction, which
+    precedes contents entirely. So the volatile line landed AHEAD of the blob and truncated
+    the cacheable prefix below the 4,096 minimum — the measured ~2.8x input-token / 429
+    regression this project already diagnosed on prod once. It is now a HUMAN turn placed
+    immediately before the visitor's newest message: after the blob, and inside the
+    twelve-message window `compact_history` keeps (at the front it was simply pruned, and
+    `summarize_pruned_messages` reads `type == 'human'` only, so a pruned system message
+    contributed nothing).
+  - **Escape while yielded ended the live call.** The document handler is guarded by
+    `isOpen()` = `!dialog.hidden`, and stageChrome keeps the dialog in the DOM for docked
+    and minimized — so pressing Escape to dismiss a PROJECT DIALOG closed the chat and
+    stopped voice. Invariant #20, by one keystroke. Escape now goes through the reducer and
+    does not `preventDefault` while yielded, because the key was aimed at the dialog.
+  - **7 of 13 reducer events had no caller.** A coverage row now asserts every event in
+    `CHAT_STAGE_EVENTS` is reachable from `js/chat.js`, with `minimize` exempted on the
+    record (no affordance until M4). That check immediately found the viewport rows unwired.
+  - **`setVoiceActive` was imported and never called**, so the wire carried `false` always
+    and §6.4 persisted that on every turn as the admin panel's "was this during a call".
+  - **`js/contact.js` hardcoded `origin: 'visitor'`**, so the agent's own
+    `open_contact_form` was read back to it — defeating §7.1's dedupe at the call site.
+    `navigate_to_section` was threaded correctly, which is why the existing dedupe row
+    passed: one tool covered, the other not, by the mechanism meant to cover both.
+  - **The browser could send a `siteState` the server 400s.** The producer bounded LENGTH,
+    the validator rejects on CHARSET. One project id with a space in `data/projects.json`
+    would have taken text chat AND voice down for every visitor who opened that card, both
+    suites green. Closed from both ends, and the patterns are read out of the Python.
+  - Plus: `resolveNavTarget('constructor')` returned a function; the notifier scheduled on
+    off-wire fields; `open_contact_form` reported success unconditionally (invariant #21's
+    error clause had no reachable case); two assertions passed against deleted code
+    (`pointerEvents || 'none'`, and the app.js guard anchored to a line start).
+
+  **M1 is done**, and the plan's §0 baseline for it is STALE — it describes a dust-GC
+  (`collectDustBand` / `DUST_SWEEP_ROWS`) that does not exist here; the night path does a
+  full `clearRect` and `drawSpace()`'s wash is `source-over`. Slices 1 and 6 are superseded.
+  Landed: the 8-bit trail-stall predicate (`trailFramesToClear8Bit`, pinning that 0.22 is
+  `Infinity`), off-canvas culling (`js/starfield-geom.js`, **44.3% fewer draw calls**), and
+  `Star.prototype` + one `setTransform` per streak. Slice 4 was already shipped (baked
+  sprites, not per-frame gradients).
+
+  **Two harnesses now exist and both are worth knowing about:**
+  - `scripts/qa/starfield-ab-draws.mjs` — renders a git revision and the working tree under
+    the same seeded `Math.random`, **pinned clock** and viewport, and compares the visible
+    draw stream. Stronger than a pixel diff and needs no browser. Clock pinning is not
+    optional: snow drift and firefly wander read `Date.now()`.
+  - `scripts/qa/chat-stage-journeys.mjs` + `scripts/qa/cdp.mjs` — the M2 journey harness,
+    real headless Chrome driven over CDP with **no dependencies** (Node 22 has a global
+    `WebSocket`). Only claims that need a compositor live here; everything a stub can settle
+    stays in `node --test`. Two flakes were fixed at the cause: a fragment-only URL change
+    is a SAME-DOCUMENT navigation (so state leaked between journeys), and `readyState`
+    complete is not "the app is wired" (initChat runs from DOMContentLoaded) — `goto` now
+    waits for `data-chat-stage`.
+
+  **Next:** M3 needs ADR-0016 (architect drafting; the plan's M3 text should be checked
+  against the repo the way §0 had to be). Then M4–M8. And `agent` is 33 commits ahead of
+  `main` with nothing on stage — the standing rule is stage must confirm before prod.
+
+- **2026-10-15 — M2 STARTED (slice 1 in flight). M0 + M1 done. A long credential/cost
+  detour between them is finished and verified.** `main` @ `33a514c`, `agent` @ `4617d27`.
+  App suite 255/254/1-skip, chat 174.
+
+  **M2 (`docs/plan-2026-09-port.md:118`, ADR-0015) — unblocked and begun.**
+  - ADR-0015 is now TRACKED (`4617d27`, 816 lines). It corrects the plan in four places and
+    adds a fifth cause. **Two corrections change how M2 must be tested:** (a) the plan's "on
+    every navigation" is FALSE — `js/app.js:243` guards the teardown with
+    `state === 'portfolio' || state === 'labs'`, so navigating HOME does not tear down and a
+    journey exercising only `→ home` passes against unfixed code; (b) `open_contact_form` and
+    `navigate_to_section` fail DIFFERENTLY — contact closes the panel synchronously so the
+    toolResponse is DROPPED, while navigation queues `hashchange` so the response IS sent and
+    then the socket dies mid-sentence. Do not merge them.
+  - ADR-0015 §2's BLOCKER is RESOLVED: ADR-0011 → `Reverted` (its `Supersedes:` line claimed
+    authority over a GREEN test — `test/labs-restructure.test.mjs`, 4/4 — which is how an
+    Accepted ADR came to say a passing test pinned obsolete behaviour); ADR-0010 §1 amended,
+    its enum having been explicitly conditional on that reverted merge. Shipped vocabulary
+    stays `home | portfolio | labs`; **M2 must not add a third** (§2.1: the registry becomes
+    data in `js/section-names.js`).
+  - ADR-0015 §6.7 is the SCOPED SECURITY_GLOB review for M2's chat half — it clears exactly
+    four edits on `main.py` / `live_gemini.py` and nothing else.
+  - **Slice 1 (in flight):** invariant #20, "a site-layout or navigation change never
+    terminates a live voice session", as a plain `node --test` with a `stopVoice` spy —
+    deliberately NOT inside the browser journey harness the plan buried it in. Root cause
+    verified in code: site event → `collapseChatDialog()` / `EV_COLLAPSE` →
+    `closePanel({immediate:true})` → `snapClose` → `js/chat.js:908 stopVoice`.
+  - Architect's slice reordering (ADR-0015 §11): the `stopVoice` spy goes FIRST; ADD a slice
+    aligning the `live_gemini.py` enum with `providers.py` (they have drifted —
+    `['home','portfolio','playground']` vs `['home','portfolio','labs']`, so the voice model
+    cannot emit `labs` at all and works only via the legacy alias); DROP
+    `inferPromisedNavigation` in favour of a `chat_nav_promise_gap` counter; SPLIT "confirmed
+    but never executed" into the five causes actually found; MOVE the journey harness to the
+    END and let no acceptance bullet depend on it alone (there is no browser E2E in this repo
+    and zero test dependencies).
+
+  **M1 — DONE and on prod.** Dust GC dropped, baked sprites restored, star count clamped
+  (a faster CPU is not a reason to draw a denser sky), manta-ray depth fix. See
+  [[starfield-revert-collateral]].
+
+  **The detour, all verified — see `docs/decisions/ADR-0025-...md` and the memory entries:**
+  - 429s were a measured ~3-turns/min *input-token* ceiling (per-MODEL quota), fixed by
+    ordering the knowledge blob so Gemini's implicit cache matches an identical PREFIX:
+    **2.4 → 5.3 turns/min measured ON PROD** (57% cached). Trimming was measured and REJECTED.
+  - Per-model token telemetry added, because the fix was otherwise unobservable:
+    `16000/billable` IS turns-per-minute, and `cached_pct` → 0 is the alarm.
+  - Voice barge-in: `interrupted` was a one-shot flush, not a cancellation. Turn-epoch gate
+    landed; it also caught a regression that would have left the NEXT session completely dead.
+  - Retrieval vocabulary closed: 20 of 39 record tags were unreachable by any question.
+  - Gemini key now resolves from Secrets Manager; **no chat function carries it in env**. The
+    leaked key is REVOKED (verified HTTP 400) and purged from AWS, including 69 ECS
+    task-definition revisions.
+  - **ECS Express is actually gone this time.** It kept returning because BOTH deploy
+    workflows hardcoded `CHAT_DEPLOY_TARGET: express` and fire on every push — so the
+    ~$41/mo I reported as saved on 2026-10-13 was never saved, and the cost line proved it
+    (flat ~$1.13/day across the "deletion"). Teardown now survives a CI run.
+  - `SECURITY_GLOB` widened from two of five credential surfaces to all of them.
+
+  **Open, not blocking M2:** `.secrets/chat-deploy.env` still holds the dead key (inert, should
+  become `GEMINI_API_KEY_SECRET_ARN_{PROD,STAGE}`); ECR Public rate-limits the Lambda Web
+  Adapter pull on shared runners (mirror it); ADR-0025's filed-forward list (lazy
+  re-resolution, dead `ADMIN_API_KEY`/`SMOKE_PROBE_KEY` diagnostics, deploys running as
+  account ROOT while a scoped CI role exists).
+
+---
+
+## Older entries (historical)
+
 - **2026-07-13 — night-trail fade fix on top of the prod-restored starfield (app, suite 194/0/1). UNCOMMITTED.**
   Navigator: "once the star is out of the view and gone, the trails should fade... preferably back to front."
   MEASURED on the restored prod build: `destination-out` rgba(0,0,0,0.22) fades ALPHA, which rounds at the bottom

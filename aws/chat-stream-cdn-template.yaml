@@ -26,10 +26,17 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional origin path for the default origin (e.g. /Prod for a non-$default HttpApi stage). Empty for $default.
+  WebAclArn:
+    Type: String
+    Default: ''
+    Description: >
+      ADR-0021 D2 - ARN of the us-east-1 CLOUDFRONT web ACL from aws/chat-waf-template.yaml
+      (per-IP 300 / 5 min). Empty = no web ACL. Required for prod by ADR-0022 §15.3.
 
 Conditions:
   HasDefaultOrigin: !Not [!Equals [!Ref DefaultOriginDomainName, '']]
   HasDefaultOriginPath: !Not [!Equals [!Ref DefaultOriginPath, '']]
+  HasWebAcl: !Not [!Equals [!Ref WebAclArn, '']]
 
 Resources:
   # SigningBehavior `always` + origin type `lambda` => CloudFront SigV4-signs each request to the
@@ -120,6 +127,7 @@ Resources:
         HttpVersion: http2and3
         IPV6Enabled: true
         PriceClass: PriceClass_100
+        WebACLId: !If [HasWebAcl, !Ref WebAclArn, !Ref 'AWS::NoValue']
         Origins:
           - Id: stream-function-url
             DomainName: !Ref StreamFunctionUrlDomain

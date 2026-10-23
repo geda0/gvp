@@ -1,4 +1,5 @@
-import crypto from 'node:crypto'
+import { adminAccess, adminDecision } from './common/admin-auth.js'
+import { assistantUsage, parseDays } from './admin/assistant-usage-core.js'
 import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwatch'
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import {
@@ -34,22 +35,6 @@ const CHAT_FLAGS = [
   'long_conversation',
   'tool_offered_not_taken'
 ]
-
-function requireAdminKey(event) {
-  const expected = process.env.ADMIN_API_KEY
-  const provided =
-    event?.headers?.['x-admin-key'] ||
-    event?.headers?.['X-Admin-Key'] ||
-    ''
-  if (!expected || typeof provided !== 'string' || !provided) return false
-  try {
-    const eh = crypto.createHash('sha256').update(expected, 'utf8').digest()
-    const ph = crypto.createHash('sha256').update(provided, 'utf8').digest()
-    return crypto.timingSafeEqual(eh, ph)
-  } catch {
-    return false
-  }
-}
 
 function getPath(event) {
   return event?.rawPath || event?.path || ''
@@ -903,7 +888,13 @@ export const handler = async (event) => {
 
   const method = getMethod(event)
   if (method === 'OPTIONS') return optionsResponse(origin)
-  if (!requireAdminKey(event)) return unauthorized()
+  // M8 item 6: one access decision before any route. The read-only key sees every GET and
+  // gets 403 on every mutation.
+  const decision = adminDecision(adminAccess(event?.headers || {}), method)
+  if (!decision.ok) {
+    if (decision.status === 401) return unauthorized()
+    return json(decision.status, { error: 'This admin key is read-only.', code: decision.code })
+  }
 
   const path = getPath(event)
 
@@ -979,6 +970,18 @@ export const handler = async (event) => {
       return json(400, { error: 'Cannot suppress report for a sent message' })
     }
     return json(200, { ok: true, reportSuppressed: true })
+  }
+
+  // M4 slice 17 (ADR-0017 §8.5): the Assistant tab's rollup. `days` is a value, clamped to
+  // [1, 90]; the core caps rows per day and keeps every facet a closed key space.
+  if (method === 'GET' && path.endsWith('/assistant-usage')) {
+    const days = parseDays(event?.queryStringParameters?.days)
+    const usage = await assistantUsage({
+      days,
+      queryDay: ({ day, maxItems }) =>
+        queryDay(ddb, { tableName: process.env.SITE_EVENTS_TABLE, listPk: 'EVENT', day, maxItems })
+    })
+    return json(200, usage)
   }
 
   if (method === 'GET' && path.endsWith('/daily-report')) {

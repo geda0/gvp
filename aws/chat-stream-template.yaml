@@ -182,6 +182,10 @@ Conditions:
   IsPublicUrl: !Equals [!Ref FunctionUrlAuthType, NONE]
   HasGeminiSecret: !Not [!Equals [!Ref GeminiApiKeySecretArn, '']]
   HasChatAlertAlarm: !Not [!Equals [!Ref ChatAlertAlarmEmail, '']]
+  # ADR-0021 D2: budgets are account-wide, so only the prod stack creates them.
+  IsProdWithAlertEmail: !And
+    - !Equals [!Ref StageName, prod]
+    - !Condition HasChatAlertAlarm
 
 Resources:
   # Explicit execution role: logs + DynamoDB writes to ONE table ARN. Nothing wider.
@@ -342,10 +346,13 @@ Resources:
     Type: AWS::Logs::MetricFilter
     Properties:
       LogGroupName: !Ref ChatStreamLogGroup
-      FilterPattern: '"CHAT_ALERT event="'
+      # M7: P1 = every Tier-1 line that is NOT P2, so a line with no prio field (code
+      # older than M7, or a new emitter) fails LOUD into P1 instead of falling between
+      # the two filters. Same quoted-term rule as §29.4.
+      FilterPattern: '"CHAT_ALERT event=" -"prio=P2"'
       MetricTransformations:
         - MetricNamespace: GvpChat
-          MetricName: !Sub 'ChatAlertLines-stream-${StageName}'
+          MetricName: !Sub 'ChatAlertLinesP1-stream-${StageName}'
           MetricValue: '1'
           # Publishes 0 for a NON-matching ingested event, so OK means the filter
           # ran and saw none, instead of INSUFFICIENT_DATA which is
@@ -371,14 +378,50 @@ Resources:
     Type: AWS::CloudWatch::Alarm
     Condition: HasChatAlertAlarm
     Properties:
-      AlarmName: !Sub 'gvp-chat-stream-${StageName}-tier1-alert-line'
+      AlarmName: !Sub 'gvp-chat-stream-${StageName}-P1-alert-line'
       AlarmDescription: >
-        A CHAT_ALERT Tier-1 line was written (invariant 19 Tier 2, ADR-0022 §29).
-        Says THAT one of six alert types fired, never WHICH — read the type from
+        [P1] A CHAT_ALERT Tier-1 line that is not prio=P2 was written (invariant 19
+        Tier 2, ADR-0022 §29; priority split by the ADR-0020 M7 amendment). Says THAT
+        a P1 alert fired, never WHICH — read the type from
         the log group: aws logs filter-log-events --log-group-name /gvp/chat-stream/<env>
         --filter-pattern '"CHAT_ALERT event="' --start-time <epoch-ms>
       Namespace: GvpChat
-      MetricName: !Sub 'ChatAlertLines-stream-${StageName}'
+      MetricName: !Sub 'ChatAlertLinesP1-stream-${StageName}'
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatStreamAlertTopic
+
+  # M7 (ADR-0020 amendment) — the P2 chain. Same log group, same quoted prefix, plus the
+  # prio=P2 term; its own metric name (env + host + priority) so no alarm fires on
+  # another's lines. P2 means degraded-but-serving, so it keeps the 300 s window.
+  ChatAlertP2MetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ChatStreamLogGroup
+      FilterPattern: '"CHAT_ALERT event=" "prio=P2"'
+      MetricTransformations:
+        - MetricNamespace: GvpChat
+          MetricName: !Sub 'ChatAlertLinesP2-stream-${StageName}'
+          MetricValue: '1'
+          DefaultValue: 0
+
+  ChatAlertP2LinesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatAlertAlarm
+    Properties:
+      AlarmName: !Sub 'gvp-chat-stream-${StageName}-P2-alert-line'
+      AlarmDescription: >
+        [P2] A prio=P2 CHAT_ALERT Tier-1 line was written (ADR-0020 M7 amendment).
+        Degraded but serving. Read the type from the log group: aws logs
+        filter-log-events --log-group-name /gvp/chat-stream/<env> --filter-pattern
+        '"CHAT_ALERT event=" "prio=P2"' --start-time <epoch-ms>
+      Namespace: GvpChat
+      MetricName: !Sub 'ChatAlertLinesP2-stream-${StageName}'
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
@@ -387,6 +430,138 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref ChatStreamAlertTopic
+
+  # M8 item 2 (ADR-0021 D2) - ADR-0022 §15.3's owed cost controls. /api/chat reaches this
+  # function through CloudFront with no API Gateway throttle, so these are the bill signal.
+
+  ChatStreamInvocationsBurstAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatAlertAlarm
+    Properties:
+      AlarmName: !Sub 'gvp-chat-stream-${StageName}-invocations-5m'
+      AlarmDescription: >
+        Stream function invoked 2,000+ times in 5 minutes (ADR-0022 §15.3, built by ADR-0021 D2). Kill switch: aws lambda
+        put-function-concurrency --function-name <fn> --reserved-concurrent-executions 0
+      Namespace: AWS/Lambda
+      MetricName: Invocations
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ChatStreamFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 2000
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatStreamAlertTopic
+
+  ChatStreamInvocationsHourAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatAlertAlarm
+    Properties:
+      AlarmName: !Sub 'gvp-chat-stream-${StageName}-invocations-1h'
+      AlarmDescription: >
+        Stream function invoked 20,000+ times in an hour (ADR-0022 §15.3, built by ADR-0021 D2). Kill switch: aws lambda
+        put-function-concurrency --function-name <fn> --reserved-concurrent-executions 0
+      Namespace: AWS/Lambda
+      MetricName: Invocations
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ChatStreamFunction
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 20000
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatStreamAlertTopic
+
+  ChatStreamDurationHourAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasChatAlertAlarm
+    Properties:
+      AlarmName: !Sub 'gvp-chat-stream-${StageName}-duration-1h'
+      AlarmDescription: >
+        Stream function billed 30+ minutes of compute in an hour (ADR-0022 §15.3, built by ADR-0021 D2). Kill switch: aws lambda
+        put-function-concurrency --function-name <fn> --reserved-concurrent-executions 0
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ChatStreamFunction
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1800000
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ChatStreamAlertTopic
+
+  # ADR-0022 §15.3: Lambda-scoped $15/month, ACTUAL at 80% and 100%.
+  LambdaMonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: IsProdWithAlertEmail
+    Properties:
+      Budget:
+        BudgetName: gvp-lambda-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 15
+          Unit: USD
+        CostFilters:
+          Service:
+            - AWS Lambda
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
+
+  # ADR-0022 §15.3: whole account $70/month, ACTUAL at 80% and 100%.
+  AccountMonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: IsProdWithAlertEmail
+    Properties:
+      Budget:
+        BudgetName: gvp-account-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 70
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref ChatAlertAlarmEmail
 
 Outputs:
   ChatStreamFunctionUrlAuthType:

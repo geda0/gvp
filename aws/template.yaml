@@ -18,6 +18,11 @@ Parameters:
   AdminApiKey:
     Type: String
     NoEcho: true
+  # M8 item 6 (ADR-0021): optional read-only admin key - every GET, 403 on every mutation.
+  AdminReadonlyKey:
+    Type: String
+    NoEcho: true
+    Default: ''
   IpHashPepper:
     Type: String
     NoEcho: true
@@ -81,6 +86,17 @@ Resources:
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
         'GET /api/contact/admin/health':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        # M4 slice 17 (ADR-0017 §8.5) + §12.4: the new route, and the two admin routes that
+        # had Events entries but no RouteSettings (so they inherited the looser default).
+        'GET /api/contact/admin/assistant-usage':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/contact/admin/smoke':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        'GET /api/contact/admin/session/{id}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
         'POST /api/contact/admin/retry/{id}':
@@ -168,6 +184,12 @@ Resources:
             ProjectionType: ALL
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+      # M8 item 3 (ADR-0021 D3): transcript_store.py refreshes `ttl` on every accepted
+      # turn (180 d, CHAT_TRANSCRIPT_TTL_DAYS; 0 = keep forever). Items written before
+      # this have no `ttl` and are not touched - there is no backfill.
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   # First-party site-interaction events (analytics we own). Same id+byCreatedAt
   # GSI shape as the other tables so the daily report can range-query a UTC day.
@@ -299,14 +321,27 @@ Resources:
             Path: /api/contact
             Method: OPTIONS
 
+  # M7 (ADR-0020 amendment) — stack-owned log group so the SITE_ALERT metric filters
+  # below can attach before the first invocation (the ADR-0022 §29 pattern). Custom name:
+  # Lambda's implicit /aws/lambda/<fn> group already exists and cannot be re-created.
+  EventsIngressLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/gvp/site-events/${AWS::StackName}'
+      RetentionInDays: 30
+
   EventsIngressFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
       Handler: events-ingress.handler
+      LoggingConfig:
+        LogGroup: !Ref EventsIngressLogGroup
       Environment:
         Variables:
           IP_HASH_PEPPER: !Ref IpHashPepper
+          # The env label on SITE_ALERT lines: page (prod) vs page-staging.
+          SITE_ENV: !Ref AWS::StackName
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SiteEventsTable
@@ -323,6 +358,72 @@ Resources:
             ApiId: !Ref ContactApi
             Path: /api/events
             Method: OPTIONS
+
+  # M7 (ADR-0020 amendment) — Tier 2 for visitor-side alerts: log line -> metric filter
+  # -> alarm -> ContactAlarmTopic. P1 is every SITE_ALERT line that is NOT prio=P2, so an
+  # unclassified line fails loud. Quoted terms, as §29.4 requires. Metric names carry the
+  # stack name, so stage and prod never alarm on each other's lines.
+  SiteAlertP1MetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref EventsIngressLogGroup
+      FilterPattern: '"SITE_ALERT event=" -"prio=P2"'
+      MetricTransformations:
+        - MetricNamespace: GvpSite
+          MetricName: !Sub 'SiteAlertLinesP1-${AWS::StackName}'
+          MetricValue: '1'
+          DefaultValue: 0
+
+  SiteAlertP2MetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref EventsIngressLogGroup
+      FilterPattern: '"SITE_ALERT event=" "prio=P2"'
+      MetricTransformations:
+        - MetricNamespace: GvpSite
+          MetricName: !Sub 'SiteAlertLinesP2-${AWS::StackName}'
+          MetricValue: '1'
+          DefaultValue: 0
+
+  SiteAlertP1Alarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-P1-site-alert'
+      AlarmDescription: >
+        [P1] A visitor hit a server-side failure (contact submit 5xx/network, or voice
+        failed to start). Read which: aws logs filter-log-events --log-group-name
+        /gvp/site-events/<stack> --filter-pattern '"SITE_ALERT event="'
+      Namespace: GvpSite
+      MetricName: !Sub 'SiteAlertLinesP1-${AWS::StackName}'
+      Statistic: Sum
+      # 300 s, not 60: /api/events is public, and the period bounds how often a forger
+      # can re-arm this alarm (critic D2; ADR-0020 §6.3 residual).
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ContactAlarmTopic
+
+  SiteAlertP2Alarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-P2-site-alert'
+      AlarmDescription: >
+        [P2] A visitor's page could not reach the voice host. Degraded, not down.
+        Read which: aws logs filter-log-events --log-group-name /gvp/site-events/<stack>
+        --filter-pattern '"SITE_ALERT event=" "prio=P2"'
+      Namespace: GvpSite
+      MetricName: !Sub 'SiteAlertLinesP2-${AWS::StackName}'
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref ContactAlarmTopic
 
   DailyReportFunction:
     Type: AWS::Serverless::Function
@@ -387,6 +488,7 @@ Resources:
       Environment:
         Variables:
           ADMIN_API_KEY: !Ref AdminApiKey
+          ADMIN_READONLY_KEY: !Ref AdminReadonlyKey
           CONTACT_DELIVERY_DLQ_URL: !Ref ContactDeliveryDlq
           CONTACT_DLQ_ALARM_NAME: !Ref ContactDlqAlarm
           CHAT_TRANSCRIPTS_TABLE: !Ref ChatTranscriptsTable
@@ -449,6 +551,12 @@ Resources:
           Properties:
             ApiId: !Ref ContactApi
             Path: /api/contact/admin/session/{id}
+            Method: GET
+        ContactAdminAssistantUsage:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ContactApi
+            Path: /api/contact/admin/assistant-usage
             Method: GET
         ContactAdminDailyReport:
           Type: HttpApi

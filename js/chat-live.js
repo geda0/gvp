@@ -6,7 +6,11 @@ import { trackEvent } from './analytics.js'
 import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { shouldRevealResumeButton } from './voice-resume-button.js'
+import { hasNavPromiseGap } from './nav-promise-gap.js'
 import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
+import { subscribe as subscribeSiteState, getSiteStateForWire, siteStateWireIfNotable } from './site-state.js'
+import { createSiteStateNotifier } from './site-state-notes.js'
+import { micAttachPlan } from './mic-attach-plan.js'
 
 const INPUT_RATE = 16000
 
@@ -83,10 +87,16 @@ async function postLiveVoiceSession(postUrl, sessionId, { onRetry } = {}) {
   let lastError = null
   const maxAttempts = LIVE_SESSION_MAX_RETRIES + 1
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // siteState rides along on the mint (ADR-0015 ss6). The voice path needs it MORE than
+    // the text path: a live session is minted once and then talks for minutes, so the
+    // system instruction is the only chance to tell it where the visitor already is. ss7
+    // keeps it current from there. Omitted when there is nothing worth saying - the server
+    // then leaves the line out rather than asserting the default.
+    const site = siteStateWireIfNotable()
     const fetchOpts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId })
+      body: JSON.stringify(site ? { sessionId, siteState: site } : { sessionId })
     }
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
       fetchOpts.signal = AbortSignal.timeout(LIVE_SESSION_ATTEMPT_MS)
@@ -529,6 +539,25 @@ export function bindChatLiveVoice(opts) {
   let active = false
   /** True after POST /api/live/session succeeds; ensures ws.onclose cleans partial setup. */
   let voiceSessionOpen = false
+
+  // ADR-0015 ss7: while the visitor is talking, the site keeps changing under the
+  // conversation. The session was minted with one snapshot of where they were, and without
+  // this it stays frozen at that snapshot for the whole call.
+  //
+  // Everything that touches the outside is injected, so the notifier itself has no way to
+  // end a session (invariant #20) - it is given a send and nothing else. voiceActive comes
+  // from `voiceSessionOpen` rather than the store so the gate is the socket's real state,
+  // not a flag something else might have written.
+  const siteStateNotifier = createSiteStateNotifier({
+    getWireState: () => (voiceSessionOpen ? { ...getSiteStateForWire(), voiceActive: true } : null),
+    isSessionOpen: () => voiceSessionOpen && ws != null && ws.readyState === WebSocket.OPEN,
+    send: (payload) => { ws.send(JSON.stringify(payload)) },
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (id) => clearTimeout(id)
+  })
+  const unsubscribeSiteState = subscribeSiteState((_snapshot, change) => {
+    if (change) siteStateNotifier.onChange(change)
+  })
   /** True while startVoice is past UI gates (blocks overlapping starts that orphan the WebSocket). */
   let voiceConnectInFlight = false
   /** Last POST /api/live/session `liveVoiceTransport` for close-message context. */
@@ -623,6 +652,50 @@ export function bindChatLiveVoice(opts) {
     if (!warmFollowupTimer) return
     clearTimeout(warmFollowupTimer)
     warmFollowupTimer = null
+  }
+
+  // M4 slice 14 (ADR-0017 §5): a deferred mic attach - after the greeting's first
+  // turnComplete, or the plan's fallback, whichever comes first. One pending record and one
+  // in-flight flag make the two triggers idempotent; stopVoiceInternal clears both, so ending
+  // the call during the greeting never raises a permission prompt for a dead session.
+  let deferredMicTimer = null
+  let pendingMicAttach = null
+  let deferredMicAttachRunning = false
+
+  const clearDeferredMicAttach = () => {
+    if (deferredMicTimer) clearTimeout(deferredMicTimer)
+    deferredMicTimer = null
+    pendingMicAttach = null
+  }
+
+  const runDeferredMicAttach = async () => {
+    const pending = pendingMicAttach
+    if (!pending || deferredMicAttachRunning) return
+    clearDeferredMicAttach()
+    if (!voiceSessionOpen) return
+    deferredMicAttachRunning = true
+    try {
+      await attachMicrophoneInternal()
+      setStatus('Listening… speak about Marwan\'s work.')
+      // The cold path never had a follow-up nudge; deferring the attach would have widened
+      // that silence, so the deferred case schedules one (ADR-0017 §5.2).
+      if (pending.nudge && !userSpokeAfterGreeting) {
+        clearWarmFollowupTimer()
+        warmFollowupTimer = setTimeout(() => {
+          warmFollowupTimer = null
+          if (!voiceSessionOpen || !active || userSpokeAfterGreeting) return
+          sendWarmFollowup()
+        }, VOICE_WARM_FOLLOWUP_MS)
+      }
+    } catch (micErr) {
+      // A timer callback has no surrounding try: handle 'session not ready' and mic errors here.
+      if (!voiceSessionOpen) return
+      patchLiveUi({ active: false, connecting: false, sessionOpen: true })
+      setStatus(micAccessUserMessage(micErr), 'error')
+      scheduleNoMicIdleClose()
+    } finally {
+      deferredMicAttachRunning = false
+    }
   }
 
   const scheduleNoMicIdleClose = () => {
@@ -724,6 +797,8 @@ export function bindChatLiveVoice(opts) {
     clearVoiceTimers()
     clearNoMicIdleTimer()
     clearWarmFollowupTimer()
+    clearDeferredMicAttach()
+    siteStateNotifier.reset()
     voiceSessionOpen = false
     wsOpened = false
     active = false
@@ -860,6 +935,13 @@ export function bindChatLiveVoice(opts) {
     if (userBubble) finalizeBubble(userBubble, userDraft.trim())
     if (assistantBubble) finalizeBubble(assistantBubble, assistantDraft.trim())
     maybeRevealPromisedResumeButton()
+    // RECORDED, NEVER ACTED ON (ADR-0015 ss5.2). The alternative - navigating on the
+    // strength of the model's prose - was rejected: a wrong reveal is a redundant button, a
+    // wrong navigation hijacks someone mid-paragraph. If this number turns out non-trivial
+    // on real traffic, THAT is the evidence for revisiting it.
+    if (hasNavPromiseGap(assistantDraft, turnToolCalls)) {
+      trackEvent('chat_nav_promise_gap', { modality: 'voice' })
+    }
     // Fire-and-forget persist before clearing drafts. Mirrors the text-chat
     // persistence path so the admin panel sees voice turns alongside text turns.
     persistVoiceTurn(userDraft, assistantDraft, turnToolCalls, {
@@ -900,6 +982,9 @@ export function bindChatLiveVoice(opts) {
     if (setupPayload != null && setupPayload !== false) {
       setupDone = true
       voiceUnavailableOnHost = false
+      // A NEW session has been told nothing, so the dedupe memory starts empty - otherwise
+      // the first note of this call is swallowed because the last call already said it.
+      siteStateNotifier.reset()
       patchLiveUi({ sessionOpen: true })
       if (pendingSetupLatch) {
         if (pendingSetupLatch.timeoutId != null) clearTimeout(pendingSetupLatch.timeoutId)
@@ -960,6 +1045,7 @@ export function bindChatLiveVoice(opts) {
         // auto-follow-up because the visitor still needs to grant mic permission.
         if (!greetingTurnComplete) {
           greetingTurnComplete = true
+          if (pendingMicAttach) void runDeferredMicAttach()
           if (sessionIntent === 'warm' && active && !userSpokeAfterGreeting) {
             clearWarmFollowupTimer()
             warmFollowupTimer = setTimeout(() => {
@@ -1155,11 +1241,22 @@ export function bindChatLiveVoice(opts) {
 
   /** Get mic permission, build the AudioWorklet (or ScriptProcessor fallback),
    *  and start streaming PCM frames. Assumes the session is already open. */
-  const attachMicrophoneInternal = async () => {
+  // ONE attach in flight at a time (M4 critic): a manual mic tap during the greeting and the
+  // deferred attach at its turnComplete used to both reach getUserMedia - `active` is still false
+  // while the browser's permission prompt is open - and the first stream was overwritten and
+  // never stopped, leaving the mic indicator on after hang-up. Every trigger shares this promise.
+  let attachInFlight = null
+  const attachMicrophoneInternal = () => {
+    if (attachInFlight) return attachInFlight
+    attachInFlight = attachMicrophoneOnce().finally(() => { attachInFlight = null })
+    return attachInFlight
+  }
+
+  const attachMicrophoneOnce = async () => {
     if (active) return
     if (!voiceSessionOpen || !setupDone) throw new Error('voice session not ready')
 
-    stream = await navigator.mediaDevices.getUserMedia({
+    const acquired = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -1167,6 +1264,13 @@ export function bindChatLiveVoice(opts) {
       },
       video: false
     })
+    // The permission prompt can outlive the call: the visitor hangs up, THEN clicks Allow.
+    // Release that stream at once rather than building a pipeline nothing will ever stop.
+    if (!voiceSessionOpen) {
+      try { acquired.getTracks().forEach((t) => t.stop()) } catch (_) {}
+      throw new Error('voice session ended before the microphone was allowed')
+    }
+    stream = acquired
 
     audioCtx = new AudioContext()
     const inRate = audioCtx.sampleRate
@@ -1283,9 +1387,11 @@ export function bindChatLiveVoice(opts) {
     setStatus('Connecting voice…')
     chatBus.emit('thinking', { source: 'chat-live' })
 
+    // The permission STATE drives the mic plan (ADR-0017 §5); warm/cold still picks the
+    // greeting text. Read it once, for every intent, not only 'auto'.
+    const perm = await detectMicPermissionState()
     let resolvedIntent = intent
     if (resolvedIntent === 'auto') {
-      const perm = await detectMicPermissionState()
       resolvedIntent = perm === 'granted' ? 'warm' : 'cold'
     }
     sessionIntent = resolvedIntent
@@ -1309,7 +1415,14 @@ export function bindChatLiveVoice(opts) {
         chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
       }
 
-      if (resolvedIntent === 'warm') {
+      const plan = micAttachPlan({ permission: perm, assistantSpeaksFirst: shouldGreet })
+      if (plan.attach === 'after-first-turn') {
+        // A permission sheet over the speaking greeting cuts it off: attach after the
+        // greeting's first turnComplete, with the plan's fallback below the 60 s no-mic sweep.
+        pendingMicAttach = { nudge: plan.nudgeAfterAttach }
+        deferredMicTimer = setTimeout(() => { void runDeferredMicAttach() }, plan.deferFallbackMs)
+        setStatus('Say hello once the greeting ends — your browser will ask for the microphone.')
+      } else if (resolvedIntent === 'warm') {
         // Permission previously granted: attach mic right after greeting starts.
         // The greeting audio plays while we acquire the stream; both end up
         // mixed into the same Web Audio context (mic input is muted to local
@@ -1366,10 +1479,14 @@ export function bindChatLiveVoice(opts) {
       return startVoice({ intent: 'auto' })
     }
     if (active) return
+    // A manual tap supersedes a deferred attach: the shared in-flight promise covers the
+    // overlap, and clearing the pending record stops the fallback timer firing later.
+    clearDeferredMicAttach()
     try {
       await attachMicrophoneInternal()
       setStatus('Listening… speak about Marwan\'s work.')
     } catch (micErr) {
+      if (!voiceSessionOpen) return // the visitor hung up; not an error worth reporting
       setStatus(micAccessUserMessage(micErr), 'error')
       trackEvent('chat_live_error', { phase: 'attach_mic', message: micAccessUserMessage(micErr) })
     }
@@ -1423,6 +1540,10 @@ export function bindChatLiveVoice(opts) {
       delete btn.dataset.gvpChatLiveVoice
       btn.removeEventListener('click', onMicClick)
     }
+    // The store is a module singleton that outlives this binding, so a subscription left
+    // behind here keeps a dead session's notifier alive for the rest of the page — and, in
+    // a test file where each case boots its own chat, for the rest of the file.
+    unsubscribeSiteState()
     stopVoiceInternal({ silent: true })
   }
 

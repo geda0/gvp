@@ -1,0 +1,164 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ChatCfnStacks",
+      "Effect": "Allow",
+      "Action": "cloudformation:*",
+      "Resource": [
+        "arn:aws:cloudformation:us-east-2:__ACCOUNT__:stack/gvp-chat-__ENV__/*",
+        "arn:aws:cloudformation:us-east-2:__ACCOUNT__:stack/gvp-chat-__ENV__-*/*",
+        "arn:aws:cloudformation:us-east-2:__ACCOUNT__:stack/gvp-chat-lambda-stream-__ENV__/*",
+        "arn:aws:cloudformation:us-east-2:__ACCOUNT__:stack/gvp-chat-lambda-stream-__ENV__-*/*",
+        "arn:aws:cloudformation:us-east-2:__ACCOUNT__:stack/gvp-chat-stream-cdn-__ENV__/*",
+        "arn:aws:cloudformation:us-east-1:__ACCOUNT__:stack/gvp-chat-waf-__ENV__/*"
+      ]
+    },
+    {
+      "Sid": "EcrAuth",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPublicPull",
+      "Effect": "Allow",
+      "Action": [
+        "ecr-public:GetAuthorizationToken",
+        "ecr-public:BatchCheckLayerAvailability",
+        "ecr-public:GetDownloadUrlForLayer",
+        "ecr-public:BatchGetImage",
+        "ecr-public:DescribeImageTags",
+        "ecr-public:DescribeImages",
+        "ecr-public:DescribeRepositories",
+        "sts:GetServiceBearerToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrRepos",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:DescribeImages",
+        "ecr:DescribeRepositories",
+        "ecr:CreateRepository",
+        "ecr:TagResource",
+        "ecr:ListTagsForResource",
+        "ecr:GetRepositoryPolicy",
+        "ecr:SetRepositoryPolicy",
+        "ecr:PutLifecyclePolicy",
+        "ecr:GetLifecyclePolicy"
+      ],
+      "Resource": [
+        "arn:aws:ecr:us-east-2:__ACCOUNT__:repository/gvp-chat",
+        "arn:aws:ecr:us-east-2:__ACCOUNT__:repository/gvpchat*"
+      ]
+    },
+    {
+      "Sid": "ChatCloudFront",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:DeleteDistribution",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:ListDistributions",
+        "cloudfront:CreateFunction",
+        "cloudfront:UpdateFunction",
+        "cloudfront:DeleteFunction",
+        "cloudfront:DescribeFunction",
+        "cloudfront:GetFunction",
+        "cloudfront:PublishFunction",
+        "cloudfront:CreateOriginAccessControl",
+        "cloudfront:UpdateOriginAccessControl",
+        "cloudfront:DeleteOriginAccessControl",
+        "cloudfront:GetOriginAccessControl",
+        "cloudfront:GetOriginAccessControlConfig",
+        "cloudfront:CreateResponseHeadersPolicy",
+        "cloudfront:UpdateResponseHeadersPolicy",
+        "cloudfront:DeleteResponseHeadersPolicy",
+        "cloudfront:GetResponseHeadersPolicy",
+        "cloudfront:GetResponseHeadersPolicyConfig",
+        "cloudfront:CreateInvalidation",
+        "cloudfront:TagResource",
+        "cloudfront:UntagResource",
+        "cloudfront:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ChatWafv2",
+      "Effect": "Allow",
+      "Action": [
+        "wafv2:CreateWebACL",
+        "wafv2:UpdateWebACL",
+        "wafv2:DeleteWebACL",
+        "wafv2:GetWebACL",
+        "wafv2:ListWebACLs",
+        "wafv2:AssociateWebACL",
+        "wafv2:DisassociateWebACL",
+        "wafv2:GetWebACLForResource",
+        "wafv2:TagResource",
+        "wafv2:UntagResource",
+        "wafv2:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ChatBudgets",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:CreateBudget",
+        "budgets:ModifyBudget",
+        "budgets:DeleteBudget",
+        "budgets:DescribeBudget",
+        "budgets:ViewBudget"
+      ],
+      "Resource": "arn:aws:budgets::__ACCOUNT__:budget/gvp-*"
+    },
+    {
+      "Sid": "ChatIam",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:PassRole",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:ListInstanceProfilesForRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::__ACCOUNT__:role/gvp-chat-__ENV__-*",
+        "arn:aws:iam::__ACCOUNT__:role/gvp-chat-lambda-stream-__ENV__-*"
+      ]
+    },
+    {
+      "Sid": "NoEcsRevival",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:*",
+        "elasticloadbalancing:*",
+        "application-autoscaling:*",
+        "apprunner:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

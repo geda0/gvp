@@ -23,7 +23,14 @@ function makeCtx(counters) {
     fillRect() { counters.fillRect++ },
     // Record the args: "the frame clears" is only true if it clears the WHOLE canvas.
     clearRect(...a) { counters.clearRect++; counters.clearRectArgs.push(a) },
-    drawImage() { counters.drawImage++ },
+    drawImage(img) {
+      counters.drawImage++
+      // Which sprite, not just how many: the streak strip is 64x4 and the star glow 64x64
+      // (js/starfield.js). Counting the DRAW is what pins "no motion streaks"; counting the
+      // transform call that happened to precede it pinned which canvas API the renderer
+      // used, and broke the moment save/translate/rotate became one setTransform.
+      if (img && img.height === 4) counters.streakDraws++
+    },
     stroke() { counters.stroke++ },
     beginPath() {}, arc() {}, fill() {},
     moveTo() {}, lineTo() {},
@@ -50,7 +57,7 @@ const VIEWPORT = { width: 1200, height: 800 }
 async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   const counters = {
     createRadialGradient: 0, createLinearGradient: 0,
-    fillRect: 0, clearRect: 0, drawImage: 0, stroke: 0, translate: 0,
+    fillRect: 0, clearRect: 0, drawImage: 0, streakDraws: 0, stroke: 0, translate: 0,
     clearRectArgs: [],
     compositeOps: new Set()
   }
@@ -92,6 +99,7 @@ function reset(counters) {
   counters.fillRect = 0
   counters.clearRect = 0
   counters.drawImage = 0
+  counters.streakDraws = 0
   counters.stroke = 0
   counters.translate = 0
   counters.clearRectArgs = []
@@ -135,11 +143,11 @@ test('reduced motion draws stars but no motion streaks (invariant #6, live claus
   rm.pump(); rm.pump(); rm.pump()
 
   assert.ok(rm.counters.drawImage > 0, 'reduced-motion users must still see stars')
-  assert.equal(rm.counters.translate, 0, 'reduced motion must draw zero motion streaks')
+  assert.equal(rm.counters.streakDraws, 0, 'reduced motion must draw zero motion streaks')
   assert.ok(rm.counters.clearRect >= 1, 'reduced-motion night must still clear each frame')
 
   const normal = await bootStarfield({ reducedMotion: false })
   reset(normal.counters)
   normal.pump(); normal.pump(); normal.pump()
-  assert.ok(normal.counters.translate > 0, 'default motion should draw streaks (guards against a vacuous assertion above)')
+  assert.ok(normal.counters.streakDraws > 0, 'default motion should draw streaks (guards against a vacuous assertion above)')
 })

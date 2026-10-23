@@ -235,3 +235,128 @@ def test_a_fallback_also_announces_itself_on_stderr(monkeypatch, capsys):
 
     assert err.strip(), 'a fallback must be announced, not silent'
     assert 'fallback-env-key' not in err, 'and it must not print the key it fell back to'
+
+
+# ------------------------------------------- ADR-0025 filed-forward #2: lazy re-resolution
+# A SUCCESS is cached for the process. A FAILURE is not cached forever any more: one throttled
+# or denied read at cold start used to disable that container's key for its whole warm life.
+# It is retried, at most once per GEMINI_KEY_RETRY_SECONDS (default 60), so a broken secret
+# costs one Secrets Manager call per minute per container, not one per turn.
+
+class _FlakyClient(_FakeClient):
+    def __init__(self, fail_times, payload):
+        super().__init__(payload=payload)
+        self._fail_times = fail_times
+
+    def get_secret_value(self, SecretId):  # noqa: N803
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise RuntimeError('ThrottlingException')
+        return {'SecretString': self._payload}
+
+
+def test_a_failed_resolution_is_retried_after_the_cooldown(monkeypatch):
+    import os
+    monkeypatch.setenv('GEMINI_API_KEY_SECRET_ARN', 'arn:aws:secretsmanager:::secret:gvp/gemini')
+    client = _install(monkeypatch, _FlakyClient(fail_times=1, payload='recovered-key'))
+    clock = [1000.0]
+    monkeypatch.setattr(secret_resolver, '_now', lambda: clock[0])
+
+    assert secret_resolver.resolve_gemini_key_into_env() is False
+    clock[0] += 30
+    assert secret_resolver.resolve_gemini_key_into_env() is False, 'inside the cooldown: no new call'
+    assert client.calls == 1
+    clock[0] += 31
+    assert secret_resolver.resolve_gemini_key_into_env() is True
+    assert os.environ['GEMINI_API_KEY'] == 'recovered-key'
+    clock[0] += 3600
+    secret_resolver.resolve_gemini_key_into_env()
+    assert client.calls == 2, 'once resolved, never fetched again'
+
+
+def test_the_retry_cooldown_is_configurable(monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY_SECRET_ARN', 'arn:aws:secretsmanager:::secret:gvp/gemini')
+    monkeypatch.setenv('GEMINI_KEY_RETRY_SECONDS', '5')
+    client = _install(monkeypatch, _FlakyClient(fail_times=1, payload='k'))
+    clock = [0.0]
+    monkeypatch.setattr(secret_resolver, '_now', lambda: clock[0])
+    secret_resolver.resolve_gemini_key_into_env()
+    clock[0] += 6
+    assert secret_resolver.resolve_gemini_key_into_env() is True
+    assert client.calls == 2
+
+
+def test_no_arn_is_still_settled_once_and_never_retried(monkeypatch):
+    client = _install(monkeypatch, _FakeClient(payload='x'))
+    clock = [0.0]
+    monkeypatch.setattr(secret_resolver, '_now', lambda: clock[0], raising=False)
+    for step in range(3):
+        clock[0] += 3600
+        assert secret_resolver.resolve_gemini_key_into_env() is False
+    assert client.calls == 0
+
+
+# The resolver now runs on the REQUEST path (chain factory + voice mint), so a retry must not
+# turn a missing-key 503 into a hung request. boto3's default read timeout is 60 s; the client
+# is bounded to a couple of seconds with no SDK-level retry storm.
+def test_the_secrets_client_is_bounded_for_the_request_path(monkeypatch):
+    import sys
+    import types
+
+    captured = {}
+
+    class _Config:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+    fake_boto3 = types.SimpleNamespace(client=lambda name, config=None: captured.setdefault('client', (name, config)))
+    monkeypatch.setitem(sys.modules, 'boto3', fake_boto3)
+    monkeypatch.setitem(sys.modules, 'botocore', types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, 'botocore.config', types.SimpleNamespace(Config=_Config))
+
+    secret_resolver._build_client()
+
+    assert captured['client'][0] == 'secretsmanager'
+    assert captured['client'][1] is not None, 'the client must carry a bounded Config'
+    assert captured['connect_timeout'] <= 2 and captured['read_timeout'] <= 3
+    assert captured['retries']['max_attempts'] <= 2
+
+
+def test_a_failing_resolve_costs_nothing_inside_the_window(monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY_SECRET_ARN', 'arn:aws:secretsmanager:::secret:gvp/gemini')
+    calls = {'n': 0}
+
+    def _slow_failing():
+        calls['n'] += 1
+        raise RuntimeError('timeout')
+
+    monkeypatch.setattr(secret_resolver, '_build_client', lambda: type('C', (), {'get_secret_value': lambda self, SecretId: _slow_failing()})())
+    clock = [0.0]
+    monkeypatch.setattr(secret_resolver, '_now', lambda: clock[0])
+    secret_resolver.resolve_gemini_key_into_env()
+    for _ in range(50):
+        clock[0] += 1
+        assert secret_resolver.resolve_gemini_key_into_env() is False
+    assert calls['n'] == 1, 'inside the 60 s window every call returns without touching Secrets Manager'
+
+
+def test_the_chain_factory_re_resolves_the_key_before_reading_it(monkeypatch):
+    """ADR-0025 #2: building the Gemini chain asks the resolver first, so a key that failed at
+    cold start can recover on a later build instead of raising 'GEMINI_API_KEY is not set'."""
+    import os
+    from app import providers
+
+    monkeypatch.delenv('GEMINI_API_KEY', raising=False)
+    asked = []
+
+    def _recover():
+        asked.append(True)
+        os.environ['GEMINI_API_KEY'] = 'recovered'
+        return True
+
+    monkeypatch.setattr(providers, 'resolve_gemini_key_into_env', _recover)
+    try:
+        providers.build_llm_runnable('gemini', 'gemini-3.1-flash-lite', knowledge_pack='')
+    except Exception as exc:  # anything AFTER the key read is out of scope here
+        assert 'GEMINI_API_KEY is not set' not in str(exc)
+    assert asked, 'the factory must call the resolver before reading GEMINI_API_KEY'

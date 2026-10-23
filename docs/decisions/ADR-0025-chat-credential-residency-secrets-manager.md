@@ -143,6 +143,14 @@ a wrong premise in the original proposal.
 
 ## Filed forward — explicitly NOT in this slice
 
+> **Status, 2026-10-23:**
+> - **#2:** the resolver side is done (`ed82c51`). A failed read is retried at most once per
+>   `GEMINI_KEY_RETRY_SECONDS`. The two read-site hooks (`providers.py` chain factory,
+>   `main.py` mint) are pending with the M4 owner.
+> - **#3:** closed. `SECURITY_GLOB` gates every `aws/*.yaml` as a class (`595984e`).
+> - **#4:** the `/api/chat/host-status` half is done: `AdminApiKey` on `chat-template.yaml`.
+> - **#1, #5, #6 and #7** are unchanged and need the account owner.
+
 1. **The disclosed 39-char key is still live, serving staging.** Rotating prod demoted it
    rather than retiring it. It must be deleted at the provider and staging given a fresh key
    of its own. This outranks everything else here: no IAM change mitigates a published

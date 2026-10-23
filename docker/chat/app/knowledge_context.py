@@ -339,6 +339,7 @@ def build_context(
     pack: dict[str, Any],
     max_roles: int = DEFAULT_MAX_ROLE_MATCHES,
     max_projects: int = DEFAULT_MAX_PROJECT_MATCHES,
+    pinned_project_id: str | None = None,
 ) -> dict[str, Any]:
     query = f'{user_message} {history_text}'
     tags = extract_tags(query)
@@ -354,6 +355,17 @@ def build_context(
     project_fallback = len(matched_projects) == 0
     roles = matched_roles if not role_fallback else roles_all[:2]
     projects = matched_projects if not project_fallback else projects_all[:2]
+    # M4 (ADR-0017 §4.1): the project the visitor has OPEN rides in this already-dynamic
+    # section through an explicit parameter - prepended, cap raised by one so the question's
+    # own matches keep their slots, deduplicated. Never appended to the query (that would move
+    # role retrieval and <retrieval_tags>), never in the cached head. Unknown ids change nothing.
+    if isinstance(pinned_project_id, str) and pinned_project_id:
+        pinned = next(
+            (p for p in projects_all if isinstance(p, dict) and p.get('id') == pinned_project_id),
+            None,
+        )
+        if pinned is not None:
+            projects = [pinned, *[p for p in projects if p.get('id') != pinned_project_id]]
     # True when tag-based retrieval yielded no role/project hits and defaults were used.
     retrieval_fallback = role_fallback or project_fallback
 
@@ -473,7 +485,11 @@ def _compact_project(project: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> str:
+def build_live_system_instruction(
+    system_prompt: str,
+    pack: dict[str, Any],
+    site_state_line: str = '',
+) -> str:
     """Compact portfolio grounding + voice instructions for Gemini Live setup.
 
     ``system_prompt`` uses the same markdown shape as text chat (including a
@@ -483,6 +499,13 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
     Optional ``CHAT_VOICE_SYSTEM_APPEND`` appends a short block after the
     portfolio XML (truncated in code); use for small posture tweaks without a
     dedicated voice prompt file.
+
+    ``site_state_line`` is one rendered line from ``site_state.format_site_state_line``
+    (ADR-0015 ss6). It is RESERVED FOR inside the pack budget below, not appended
+    afterwards: appending it after the arithmetic pushes the combined instruction past
+    ``max_total``, and the final truncate then eats the TAIL of the portfolio XML. That
+    raises nothing and logs nothing - the symptom is the voice agent quietly forgetting
+    part of the portfolio, with every test still green.
     """
     lines = [ln for ln in (system_prompt or '').splitlines() if ln.strip()]
     body_lines = lines[1:] if len(lines) > 1 else lines
@@ -496,7 +519,9 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
     except ValueError:
         max_total = 14000
     max_total = max(6000, min(max_total, 32000))
-    budget_pack = max(3500, max_total - len(prompt_body) - 900)
+    # 900 is the reserve for voice_rules; the site-state line gets its own on top of it.
+    site_line = (site_state_line or '').strip()
+    budget_pack = max(3500, max_total - len(prompt_body) - 900 - len(site_line))
     if len(blob) > budget_pack:
         blob = _truncate_text(blob, budget_pack)
 
@@ -517,7 +542,10 @@ def build_live_system_instruction(system_prompt: str, pack: dict[str, Any]) -> s
         'spoken answers short by default — a sentence or two unless asked for '
         'depth.\n\n'
     )
-    combined = f'{voice_rules}{prompt_body}\n\n--- Portfolio context (XML) ---\n{blob}'
+    # The site-state line goes FIRST, where the model reads it as present-tense context,
+    # and before the XML so a later truncate of the pack tail cannot reach it.
+    head = f'{site_line}\n\n' if site_line else ''
+    combined = f'{head}{voice_rules}{prompt_body}\n\n--- Portfolio context (XML) ---\n{blob}'
     append = (os.environ.get('CHAT_VOICE_SYSTEM_APPEND') or '').strip()
     if append:
         combined = f'{combined}\n\n{_truncate_text(append, 1200)}'

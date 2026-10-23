@@ -1,9 +1,10 @@
 import { contactApiUrl } from './site-config.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
 import { trackEvent } from './analytics.js'
+import { setContactOpen } from './site-state.js'
 
 /** Assigned in initContactForm; opens #contactDialog without synthetic button click. */
-let openContactDialogImpl = (_prefill) => {}
+let openContactDialogImpl = (_prefill, _opts) => {}
 
 function applyContactPrefill (prefill) {
   if (!prefill || typeof prefill !== 'object') return
@@ -23,8 +24,8 @@ function applyContactPrefill (prefill) {
   })
 }
 
-export function openContactDialog (prefill) {
-  openContactDialogImpl(prefill)
+export function openContactDialog (prefill, opts) {
+  openContactDialogImpl(prefill, opts)
 }
 
 export function initContactForm() {
@@ -70,11 +71,19 @@ export function initContactForm() {
   showFormView(true)
   setStatus(CONTACT_HELPER_TEXT, 'muted')
 
-  const openDialog = (prefill) => {
+  // `opts.origin` because the AGENT opens this dialog too, through open_contact_form. A
+  // hardcoded 'visitor' defeats ss7.1's dedupe at the call site - the model is then told
+  // about its own action a second time, ~250ms after the tool result already carried it.
+  // Defaults to the visitor, since every other door into this dialog is theirs; the click
+  // handlers below pass no opts and are unaffected.
+  const openDialog = (prefill, opts) => {
     lastFocus = document.activeElement
     setDialogVisibility(dialog, true)
     document.body.classList.add('contact-dialog-open')
-    window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'))
+    // Was: dispatch 'gvp:site-chat-collapse'. That event said "collapse the chat", so its
+    // one listener could only obey - and obeying reached stopVoice (ADR-0015 ss9.1). State
+    // says "the form is open" and lets the chat decide what that means for itself.
+    setContactOpen(true, { origin: (opts && opts.origin) || 'visitor' })
     showFormView(true)
     applyContactPrefill(prefill)
     ;(form.querySelector('input[name="name"]') || form.querySelector('input[name="email"]'))?.focus()
@@ -85,6 +94,10 @@ export function initContactForm() {
   const closeDialog = () => {
     setDialogVisibility(dialog, false)
     document.body.classList.remove('contact-dialog-open')
+    // The close write is the RETURN PATH (ADR-0015 ss4.3): without it a visitor who opens the
+    // form and closes it again is left with a minimised pill and nowhere for an assistant
+    // mid-sentence to speak from.
+    setContactOpen(false, { origin: 'visitor' })
     if (lastFocus && typeof lastFocus.focus === 'function') {
       lastFocus.focus()
     }

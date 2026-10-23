@@ -2,10 +2,16 @@
 import { trackProjectInteraction } from './analytics.js'
 import { isContactProjectLink } from './project-link.js'
 import { bindEscapeClosesDialogWhenOpen, setDialogVisibility } from './dialog-helpers.js'
+import { setProject } from './site-state.js'
+import { resolveProjectRef } from './project-ref.js'
 // Detail cache keyed by project id. Bounded in practice by the project count
 // in data/projects.json (populated once per render, small N) — no eviction needed.
 const projectDetailsById = new Map();
 let dialogBootstrapped = false;
+// Assigned in initProjectDetailDialog, so the agent entry points below can reach the
+// dialog's closures. Same pattern js/contact.js and js/navigation.js already use.
+let openDialogImpl = null;
+let closeDialogImpl = null;
 // How long to wait for a dialog image before giving up and revealing the
 // dialog anyway, so a hung image request never leaves it stuck loading.
 const DIALOG_IMAGE_TIMEOUT_MS = 8000;
@@ -137,7 +143,7 @@ export function initProjectDetailDialog() {
   const backdrop = dialog.querySelector('.project-dialog__backdrop');
   let lastFocus = null;
 
-  function closeDialog() {
+  function closeDialog(opts) {
     if (imageEl) {
       imageEl.removeAttribute('src');
       imageEl.alt = '';
@@ -147,6 +153,8 @@ export function initProjectDetailDialog() {
     setDialogVisibility(dialog, false);
     dialog.removeAttribute('data-project-id')
     document.body.classList.remove('project-dialog-open');
+    // The RETURN PATH (ADR-0015 ss4.3) - see the same note in js/contact.js.
+    setProject(null, { origin: (opts && opts.origin) || 'visitor' });
     window.dispatchEvent(new CustomEvent('projectdialogclose'));
     if (lastFocus && typeof lastFocus.focus === 'function') {
       lastFocus.focus();
@@ -154,7 +162,7 @@ export function initProjectDetailDialog() {
     lastFocus = null;
   }
 
-  function openDialog(id) {
+  function openDialog(id, opts) {
     const data = projectDetailsById.get(id);
     if (!data) return;
     dialog.setAttribute('data-project-id', id)
@@ -225,7 +233,11 @@ export function initProjectDetailDialog() {
 
     setDialogVisibility(dialog, true);
     document.body.classList.add('project-dialog-open');
-    window.dispatchEvent(new CustomEvent('gvp:site-chat-collapse'));
+    // Was: dispatch 'gvp:site-chat-collapse', whose one listener could only obey - and
+    // obeying reached stopVoice (ADR-0015 ss9.1), so a visitor tapping a project card ended
+    // the conversation they were having about it. The TITLE travels with the id because
+    // ss7's live note has to be sayable: "you are looking at Team Tactics" needs the words.
+    setProject({ id, title: data.title || '' }, { origin: (opts && opts.origin) || 'visitor' });
     window.dispatchEvent(
       new CustomEvent('projectdialogopen', {
         detail: {
@@ -280,6 +292,9 @@ export function initProjectDetailDialog() {
   })
 
   bindEscapeClosesDialogWhenOpen(dialog, closeDialog);
+
+  openDialogImpl = openDialog;
+  closeDialogImpl = closeDialog;
 }
 
 function createProjectCard(project) {
@@ -378,4 +393,34 @@ function createProjectCard(project) {
   }
 
   return div;
+}
+
+/**
+ * Open a project on someone else's behalf — today the assistant's `open_project` tool.
+ *
+ * `opts.origin` is NOT optional decoration. ADR-0015 §3.3: an agent-caused change and a
+ * visitor-caused one are byte-identical in the state, so origin is the only discriminator,
+ * and §7.1 uses it to decide whether a live voice session gets a context note. Hard-coded
+ * to 'visitor' — as this module did until M4 — the agent's own open_project pushes a note
+ * telling the model about the change it just made and already received in the tool result.
+ * That is the double-notify the dedupe exists to prevent, and it is invisible: the state is
+ * right, the UI is right, and the model simply hears itself twice.
+ *
+ * @param {unknown} ref  an id or a title, as the model said it
+ * @param {{origin?: string}} [opts]
+ * @returns {{id: string, title: string} | {error: 'unknown_project', received: unknown}}
+ */
+export function requestProjectOpen(ref, opts) {
+  const registry = [...projectDetailsById.entries()]
+    .map(([id, data]) => ({ id, title: (data && data.title) || '' }));
+  const match = resolveProjectRef(ref, registry);
+  if (match.error) return match;
+  if (!openDialogImpl) return { error: 'unknown_project', received: ref };
+  openDialogImpl(match.id, opts);
+  return match;
+}
+
+/** Close whatever project is open. A no-op close is a SUCCESS, not an error (§3.4). */
+export function requestProjectClose(opts) {
+  if (closeDialogImpl) closeDialogImpl(opts);
 }

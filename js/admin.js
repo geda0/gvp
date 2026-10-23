@@ -1,3 +1,6 @@
+import { attentionItems, renderAttention } from './admin-attention.js'
+import { assistantViewModel, renderAssistant } from './admin-assistant.js'
+
 const CHAT_FLAGS = [
   'no_retrieval_match',
   'negative_feedback',
@@ -40,11 +43,39 @@ const refreshBtn = document.getElementById('adminRefreshBtn')
 const signOutBtn = document.getElementById('adminSignOutBtn')
 
 const tabContactBtn = document.getElementById('adminTabContact')
+// M8 item 7: the Attention strip reads only what the loaders below already fetched.
+const attentionEl = document.getElementById('adminAttention')
+const attentionData = { contactSummary: null, health: null, smoke: null, chatSummary: null }
+function refreshAttention() {
+  if (!attentionEl) return
+  renderAttention(attentionEl, attentionItems(attentionData), (tab) => setActiveTab(tab))
+}
 const tabTranscriptsBtn = document.getElementById('adminTabTranscripts')
 const tabReportBtn = document.getElementById('adminTabReport')
 const panelContact = document.getElementById('adminPanelContact')
 const panelTranscripts = document.getElementById('adminPanelTranscripts')
 const panelReport = document.getElementById('adminPanelReport')
+// M4 slice 18: the Assistant tab.
+const tabAssistantBtn = document.getElementById('adminTabAssistant')
+const panelAssistant = document.getElementById('adminPanelAssistant')
+const assistantDaysEl = document.getElementById('assistantDays')
+let assistantHasLoaded = false
+
+async function loadAssistantUsage() {
+  const root = document.getElementById('assistantUsage')
+  const status = document.getElementById('assistantStatus')
+  if (!root) return
+  const days = Number(assistantDaysEl?.value || 30)
+  setStatus(status, 'Loading assistant usage…')
+  try {
+    const usage = await requestContact(`/assistant-usage?days=${days}`)
+    renderAssistant(root, assistantViewModel(usage))
+    assistantHasLoaded = true
+    setStatus(status, `Assistant usage for the last ${days} days.`, 'success')
+  } catch (error) {
+    setStatus(status, error.message || 'Could not load assistant usage.', 'error')
+  }
+}
 const reportDateEl = document.getElementById('reportDate')
 const reportStatusEl = document.getElementById('reportStatus')
 let reportHasLoaded = false
@@ -263,8 +294,13 @@ function renderSmoke(smoke) {
 // never blocks the rest of the dashboard.
 async function loadSmoke() {
   try {
-    renderSmoke(await requestContact('/smoke'))
+    const smoke = await requestContact('/smoke')
+    renderSmoke(smoke)
+    attentionData.smoke = smoke
+    refreshAttention()
   } catch (error) {
+    attentionData.smoke = { overall: 'unavailable' }
+    refreshAttention()
     if (smokeTableEl) smokeTableEl.innerHTML = `<tr><td colspan="4">Smoke unavailable: ${escapeHtml(error.message || 'error')}</td></tr>`
   }
 }
@@ -407,12 +443,22 @@ async function loadContactDashboard() {
     const limit = Number(limitEl.value || 25)
     messagesNextCursor = ''
     if (loadMoreBtn) loadMoreBtn.hidden = true
-    const [summary, messages, health] = await Promise.all([
+    const [summary, messages, health, chatSummary] = await Promise.all([
       requestContact('/summary'),
       requestContact(`/messages?limit=${limit}`),
-      requestContact('/health')
+      requestContact('/health'),
+      // For the Attention strip only; a failure here is shown as an item, never fatal. The
+      // admin API answers 503 "Chat transcript table is not configured" where there is no
+      // chat table - that is configuration, not an outage, so it is not an item.
+      requestChat('/transcripts/summary').catch((err) =>
+        /not configured/i.test(String(err?.message || '')) ? { notConfigured: true } : null
+      )
     ])
 
+    // Smoke runs after this paint; until it answers, the strip must not read as all clear.
+    attentionData.smoke = { overall: 'pending' }
+    Object.assign(attentionData, { contactSummary: summary, health, chatSummary })
+    refreshAttention()
     renderSummary(summary)
     messagesNextCursor = messages.nextCursor || ''
     if (loadMoreBtn) loadMoreBtn.hidden = !messagesNextCursor
@@ -429,6 +475,8 @@ async function loadContactDashboard() {
     setStatus(globalStatus, 'Contact dashboard updated.', 'success')
   } catch (error) {
     setStatus(globalStatus, error.message || 'Could not load contact dashboard.', 'error')
+    Object.assign(attentionData, { contactSummary: null, health: null, chatSummary: null })
+    refreshAttention()
     if (/Unauthorized/i.test(String(error.message || ''))) {
       app.hidden = true
       authCard.hidden = false
@@ -852,6 +900,8 @@ async function loadChatDashboard() {
     ])
     renderChatSummary(summary)
     refreshPromptVersionFilter(summary)
+    attentionData.chatSummary = summary
+    refreshAttention()
 
     chatNextCursor = listBody.nextCursor || ''
     if (chatLoadMoreBtn) chatLoadMoreBtn.hidden = !chatNextCursor
@@ -866,6 +916,8 @@ async function loadChatDashboard() {
     chatHasLoaded = true
     setStatus(globalStatus, 'Chat transcript dashboard updated.', 'success')
   } catch (error) {
+    attentionData.chatSummary = null
+    refreshAttention()
     setStatus(globalStatus, error.message || 'Could not load transcripts.', 'error')
   }
 }
@@ -889,7 +941,11 @@ async function loadMoreChatTranscripts() {
 }
 
 function setActiveTab(tab) {
-  activeTab = ['transcripts', 'report'].includes(tab) ? tab : 'contact'
+  activeTab = ['transcripts', 'report', 'assistant'].includes(tab) ? tab : 'contact'
+  tabAssistantBtn?.classList.toggle('is-active', activeTab === 'assistant')
+  tabAssistantBtn?.setAttribute('aria-selected', activeTab === 'assistant' ? 'true' : 'false')
+  if (panelAssistant) panelAssistant.hidden = activeTab !== 'assistant'
+  if (activeTab === 'assistant' && !assistantHasLoaded) void loadAssistantUsage()
   tabContactBtn.classList.toggle('is-active', activeTab === 'contact')
   tabTranscriptsBtn.classList.toggle('is-active', activeTab === 'transcripts')
   tabReportBtn?.classList.toggle('is-active', activeTab === 'report')
@@ -1015,6 +1071,8 @@ function syncSmokeProbeKey() {
 tabContactBtn?.addEventListener('click', () => setActiveTab('contact'))
 tabTranscriptsBtn?.addEventListener('click', () => setActiveTab('transcripts'))
 tabReportBtn?.addEventListener('click', () => setActiveTab('report'))
+tabAssistantBtn?.addEventListener('click', () => setActiveTab('assistant'))
+assistantDaysEl?.addEventListener('change', () => { void loadAssistantUsage() })
 smokeProbeKeyEl?.addEventListener('change', syncSmokeProbeKey)
 smokeProbeKeyEl?.addEventListener('input', syncSmokeProbeKey)
 deepProbeBtn?.addEventListener('click', runDeepProbe)
