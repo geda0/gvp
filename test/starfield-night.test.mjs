@@ -1,10 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { trailFramesToClear8Bit, spaceTrailAlphaForPreference } from '../js/starfield-prefs.js'
 
-// No jsdom in this repo — a counting canvas stub is enough to pin the two
-// invariants that make the starfield cheap and clean:
-//   1. a frame allocates ZERO gradients (sprites are built once, at init)
-//   2. the night frame FULLY clears (no `destination-out` residue trail)
+// The night sky as RESTORED to the original (c7a09b6) on 2026-10-23 - see
+// test/starfield-original.test.mjs for the code-identity pin. A counting canvas stub pins:
+//   1. the night frame applies the ORIGINAL trail: keep (1 - trail) of the last frame, as a
+//      full-canvas destination-out (the canvas is transparent over the CSS sky), at an alpha
+//      that converges in 8-bit - so no permanently-stuck ghost pixels;
+//   2. invariant #6: reduced motion still draws stars but draws ZERO motion streaks.
+// This file used to pin the opposite (zero gradients, a full clear): that was the design the
+// owner rejected, retired with it.
 
 function makeGradient() {
   return { addColorStop() {} }
@@ -20,7 +25,7 @@ function makeCtx(counters) {
     lineCap: 'butt',
     createRadialGradient() { counters.createRadialGradient++; return makeGradient() },
     createLinearGradient() { counters.createLinearGradient++; return makeGradient() },
-    fillRect() { counters.fillRect++ },
+    fillRect(...a) { counters.fillRect++; counters.fillRectArgs.push([ctx._composite, ctx.fillStyle, ...a]) },
     // Record the args: "the frame clears" is only true if it clears the WHOLE canvas.
     clearRect(...a) { counters.clearRect++; counters.clearRectArgs.push(a) },
     drawImage(img) {
@@ -32,7 +37,7 @@ function makeCtx(counters) {
       if (img && img.height === 4) counters.streakDraws++
     },
     stroke() { counters.stroke++ },
-    beginPath() {}, arc() {}, fill() {},
+    beginPath() {}, arc() { counters.arc++ }, fill() { counters.fill++ },
     moveTo() {}, lineTo() {},
     save() {}, restore() {},
     // Only the streak draw translates — a cheap, exact probe for "was a streak drawn".
@@ -58,7 +63,7 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   const counters = {
     createRadialGradient: 0, createLinearGradient: 0,
     fillRect: 0, clearRect: 0, drawImage: 0, streakDraws: 0, stroke: 0, translate: 0,
-    clearRectArgs: [],
+    clearRectArgs: [], fillRectArgs: [], arc: 0, fill: 0,
     compositeOps: new Set()
   }
   const mainCanvas = makeCanvas(counters)
@@ -91,63 +96,43 @@ async function bootStarfield({ reducedMotion = false, hours = '22' } = {}) {
   return { counters, pump: () => frameCb() }
 }
 
-const bootNightStarfield = bootStarfield
 
 function reset(counters) {
-  counters.createRadialGradient = 0
-  counters.createLinearGradient = 0
-  counters.fillRect = 0
-  counters.clearRect = 0
-  counters.drawImage = 0
-  counters.streakDraws = 0
-  counters.stroke = 0
-  counters.translate = 0
+  for (const k of ['createRadialGradient', 'createLinearGradient', 'fillRect', 'clearRect', 'drawImage', 'streakDraws', 'stroke', 'translate', 'arc', 'fill']) counters[k] = 0
   counters.clearRectArgs = []
+  counters.fillRectArgs = []
   counters.compositeOps = new Set()
 }
 
-test('drawing frames allocates zero gradients (star sprites are built once, at init)', async () => {
-  const { counters, pump } = await bootNightStarfield()
-  reset(counters) // gradients built during init/sprite-bake are fine — frames must allocate none
-
-  pump(); pump(); pump() // 2nd+ frames have a previous position, so streaks draw too
-
-  assert.equal(counters.createRadialGradient, 0,
-    `star bodies must drawImage a cached sprite, not build a radial gradient per star per frame (saw ${counters.createRadialGradient})`)
-  assert.equal(counters.createLinearGradient, 0,
-    `motion streaks must not build a linear gradient per star per frame (saw ${counters.createLinearGradient})`)
-  assert.ok(counters.drawImage > 0, 'stars should still be drawn (via sprite drawImage)')
-})
-
-test('the night frame fully clears — no destination-out residue trail', async () => {
-  const { counters, pump } = await bootNightStarfield()
+test('the night frame applies the original trail: a full-canvas erase at the original alpha', async () => {
+  const { counters, pump } = await bootStarfield()
   reset(counters)
-
   pump()
-
-  assert.ok(counters.clearRect >= 1, 'night frame must clear the canvas each frame')
-  // "Clears" is only honest if it clears the WHOLE canvas — a clearRect(0,0,1,1) must not pass.
-  assert.deepEqual(counters.clearRectArgs[0], [0, 0, VIEWPORT.width, VIEWPORT.height],
-    'the night frame must clear the entire canvas, not a sub-rect')
-  assert.equal(counters.fillRect, 0,
-    'a full-canvas fillRect on a night frame means a partial erase (the residue bug) is back')
-  assert.ok(!counters.compositeOps.has('destination-out'),
-    'the partial destination-out erase leaves permanently-stuck pixels (8-bit alpha rounding) — clear instead')
+  const erase = counters.fillRectArgs.find(([op]) => op === 'destination-out')
+  assert.ok(erase, 'the night frame must fade the last frame (the original trail), not clear it')
+  const [, style, x, y, w, h] = erase
+  assert.deepEqual([x, y, w, h], [0, 0, VIEWPORT.width, VIEWPORT.height], 'the WHOLE canvas fades')
+  assert.equal(style, `rgba(0, 0, 0, ${spaceTrailAlphaForPreference(false)})`)
+  assert.equal(counters.clearRect, 0, 'no full clear at night - that is what erased the original look')
 })
 
-// Project invariant #6 (reduced motion), live-render clause: the ONLY reduced-motion
-// behaviour in the shipped night path is that streaks are suppressed. Nothing pinned it.
+test('the original trail alpha converges in 8-bit: no permanently-stuck ghost pixels', () => {
+  const frames = trailFramesToClear8Bit(spaceTrailAlphaForPreference(false), 255)
+  assert.ok(Number.isFinite(frames) && frames <= 8, `a full-bright pixel must fade out within 8 frames (got ${frames})`)
+  // The value that DID stall, kept as the counter-example this guards against.
+  assert.equal(trailFramesToClear8Bit(0.22, 255), Infinity)
+})
+
+// Project invariant #6 (reduced motion), live-render clause: streaks are suppressed, stars stay.
 test('reduced motion draws stars but no motion streaks (invariant #6, live clause)', async () => {
   const rm = await bootStarfield({ reducedMotion: true })
   reset(rm.counters)
   rm.pump(); rm.pump(); rm.pump()
-
-  assert.ok(rm.counters.drawImage > 0, 'reduced-motion users must still see stars')
-  assert.equal(rm.counters.streakDraws, 0, 'reduced motion must draw zero motion streaks')
-  assert.ok(rm.counters.clearRect >= 1, 'reduced-motion night must still clear each frame')
+  assert.ok(rm.counters.arc > 0 && rm.counters.fill > 0, 'reduced-motion users must still see stars')
+  assert.equal(rm.counters.stroke, 0, 'reduced motion must draw zero motion streaks')
 
   const normal = await bootStarfield({ reducedMotion: false })
   reset(normal.counters)
   normal.pump(); normal.pump(); normal.pump()
-  assert.ok(normal.counters.streakDraws > 0, 'default motion should draw streaks (guards against a vacuous assertion above)')
+  assert.ok(normal.counters.stroke > 0, 'default motion draws streaks (guards against a vacuous assertion above)')
 })

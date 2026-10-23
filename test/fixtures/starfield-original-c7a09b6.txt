@@ -1,0 +1,118 @@
+// VERBATIM from git show c7a09b6:js/starfield.js, lines 68-183 (the original star renderer).
+// Do not edit: test/starfield-original.test.mjs asserts js/starfield.js contains this block.
+  /** Set in drawSpace each frame; Star.move multiplies depth speed by this. */
+  let starSpeedScale = 1;
+
+  // Precomputed color palette: stars pick from this instead of building an
+  // hsl() string on every spawn/respawn. Visually equivalent to randomColor().
+  const STAR_PALETTE_SIZE = 64;
+  const starPalette = [];
+  for (let i = 0; i < STAR_PALETTE_SIZE; i++) {
+    starPalette.push(randomColor());
+  }
+
+  function paletteColor() {
+    return starPalette[(Math.random() * STAR_PALETTE_SIZE) | 0];
+  }
+
+  function Star() {
+    this.x = Math.random() * canvas.width;
+    this.y = Math.random() * canvas.height;
+    this.z = Math.random() * canvas.width;
+    this.color = paletteColor();
+    this.size = Math.random() / 2;
+    this.px = null;
+    this.py = null;
+
+    this.move = function () {
+      var speed =
+        (config.baseSpeed + (canvas.width - this.z) / canvas.width * 4) *
+        starSpeedScale;
+      this.z = this.z - speed;
+
+      if (this.z <= 0 || this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+        this.z = canvas.width;
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.color = paletteColor();
+        this.px = null;
+        this.py = null;
+      }
+    };
+
+    this.show = function () {
+      var x, y, s;
+      x = (this.x - centerX) * (fl / this.z);
+      x = x + centerX;
+
+      y = (this.y - centerY) * (fl / this.z);
+      y = y + centerY;
+
+      s = this.size * (fl / this.z);
+
+      this.glow = (canvas.width - this.z) / canvas.width * 15;
+
+      // Motion streaks: default only (reduced-motion users get stars without streaks)
+      if (
+        !prefersReducedMotion &&
+        this.px !== null &&
+        this.py !== null
+      ) {
+        const dist = Math.hypot(x - this.px, y - this.py);
+        if (dist < 150) {
+          // Create linear gradient along the streak: transparent at tail, star color at head
+          const streakGradient = c.createLinearGradient(this.px, this.py, x, y);
+          // Convert HSL color to HSLA with opacity (hsl(360, 100%, 50%) -> hsla(360, 100%, 50%, 0.5))
+          // Lower opacity than before — streaks should suggest motion, not draw the eye.
+          const colorWithOpacity = this.color.replace('hsl(', 'hsla(').replace(')', ', 0.38)');
+          streakGradient.addColorStop(0, 'transparent');
+          streakGradient.addColorStop(1, colorWithOpacity);
+
+          c.save();
+          c.strokeStyle = streakGradient;
+          c.lineWidth = 1.5;
+          c.lineCap = 'round';
+          c.beginPath();
+          c.moveTo(this.px, this.py);
+          c.lineTo(x, y);
+          c.stroke();
+          c.restore();
+        }
+      }
+
+      // Draw the star
+      var gradient = c.createRadialGradient(x, y, 0, x, y, s * (1.5 + this.glow / 10));
+      gradient.addColorStop(0, this.color);
+      gradient.addColorStop(1, 'transparent');
+
+      c.beginPath();
+      c.fillStyle = gradient;
+      c.arc(x, y, s * (1.5 + this.glow / 10), 0, Math.PI * 2);
+      c.fill();
+
+      // Update previous position for next frame
+      this.px = x;
+      this.py = y;
+    };
+  }
+
+  /** Elegant night-sky palette: mostly cool whites + soft periwinkles, rare warm
+   *  sparks. Saturation kept low (~35–55%) so stars feel like distant suns, not
+   *  colored dots. */
+  function randomColor() {
+    const r = Math.random();
+    let h;
+    if (r < 0.7) {
+      // 70% — cool whites / periwinkles (210–245°)
+      h = 210 + Math.random() * 35;
+    } else if (r < 0.92) {
+      // 22% — soft lilac / dusky violet
+      h = 250 + Math.random() * 30;
+    } else {
+      // 8% — rare warm spark (amber / soft red)
+      h = (Math.random() < 0.5 ? 30 : 350) + Math.random() * 14 - 7;
+    }
+    const s = Math.random() * 22 + 32;   // 32–54% (was 88–100%)
+    const l = Math.random() * 14 + 74;   // 74–88% (slightly brighter to stay visible)
+    return `hsl(${h}, ${s}%, ${l}%)`;
+  }

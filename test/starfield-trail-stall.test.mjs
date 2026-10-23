@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
-import { trailFramesToClear8Bit } from '../js/starfield-prefs.js'
+import { trailFramesToClear8Bit, spaceTrailAlphaForPreference } from '../js/starfield-prefs.js'
 
 const REPO = fileURLToPath(new URL('..', import.meta.url))
 
@@ -28,12 +28,10 @@ const REPO = fileURLToPath(new URL('..', import.meta.url))
 // instant someone proposes an erase alpha that cannot converge — before it is wired to
 // anything.
 //
-// WHAT THE REPO DOES TODAY, measured so this test is not read as describing live code: the
-// time-mode night path does a FULL `clearRect` every frame (js/starfield.js), and the legacy
-// `drawSpace()` wash is `source-over` with an opaque colour, which composites colour rather
-// than multiplying alpha and so has no stall of this kind. There is no partial
-// `destination-out` erase in the renderer. This predicate exists so that if one is ever
-// proposed again — and it was, twice — the number has to clear the bar before it ships.
+// WHAT THE REPO DOES TODAY: the night sky is the original (c7a09b6) renderer again, which
+// DOES build its tails with a partial `destination-out` erase — at the spaceTrailAlpha tier
+// (0.59, or 0.66 for reduced motion), both of which converge. The last test pins that the
+// alpha the renderer uses comes from that tier and clears.
 
 test('the shipped 0.22 erase NEVER clears, and the predicate says so in one call', () => {
   assert.equal(
@@ -98,20 +96,28 @@ test('a nonsensical erase alpha is refused rather than answered', () => {
   }
 })
 
-test('the renderer has no partial destination-out erase to stall on', () => {
-  // The other half of the regression: the predicate is only a bar if something checks that
-  // the renderer has not quietly gone back to a partial erase. MEASURED today — the night
-  // path clears fully, and drawSpace()'s wash is source-over with an opaque colour, which
-  // composites colour instead of multiplying alpha.
+test('the renderer\'s destination-out erase uses the trail tier, and that tier clears', () => {
+  // The other half of the regression: the predicate is only a bar if the renderer's erase
+  // alpha is the one it was checked against, not a literal typed next to the composite op.
   const src = readFileSync(join(REPO, 'js', 'starfield.js'), 'utf8')
   const code = src
     .split('\n')
     .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
     .join('\n')
-  assert.doesNotMatch(
-    code, /globalCompositeOperation\s*=\s*['"]destination-out['"]/,
-    'the renderer sets destination-out. If a partial trail erase is coming back, it has to ' +
-    'come with an alpha that trailFramesToClear8Bit says converges — and with this ' +
-    'assertion updated to say which path is allowed to use it, deliberately'
-  )
+  const erases = code.match(/globalCompositeOperation\s*=\s*['"]destination-out['"][\s\S]{0,200}?fillRect/g) || []
+  assert.ok(erases.length > 0, 'the night path builds its tails with a destination-out erase')
+  for (const block of erases) {
+    assert.match(
+      block, /spaceTrailAlphaForPreference\(/,
+      'every destination-out erase takes its alpha from spaceTrailAlphaForPreference, so the ' +
+      'number checked below is the number that ships'
+    )
+  }
+  for (const reduced of [false, true]) {
+    const alpha = spaceTrailAlphaForPreference(reduced)
+    assert.ok(
+      Number.isFinite(trailFramesToClear8Bit(alpha, 255)),
+      `trail alpha ${alpha} (reducedMotion=${reduced}) must converge in 8-bit`
+    )
+  }
 })
