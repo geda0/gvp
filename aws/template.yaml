@@ -374,7 +374,9 @@ Resources:
       Namespace: GvpSite
       MetricName: !Sub 'SiteAlertLinesP1-${AWS::StackName}'
       Statistic: Sum
-      Period: 60
+      # 300 s, not 60: /api/events is public, and the period bounds how often a forger
+      # can re-arm this alarm (critic D2; ADR-0020 §6.3 residual).
+      Period: 300
       EvaluationPeriods: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold

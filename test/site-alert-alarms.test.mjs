@@ -38,7 +38,7 @@ test('M7: P1 and P2 SITE_ALERT chains end at ContactAlarmTopic, per-stack metric
   const alarms = ofType(res, 'AWS::CloudWatch::Alarm')
   const broken = []
   for (const [prio, test, maxPeriod] of [
-    ['P1', p => p.includes(quoted) && p.includes('-"prio=P2"'), 60],
+    ['P1', p => p.includes(quoted) && p.includes('-"prio=P2"'), 300],
     ['P2', p => p.includes(quoted) && /(^|[^-])"prio=P2"/.test(p), 300]
   ]) {
     const f = filters.find(([, b]) => test(field(b, 'FilterPattern') || ''))
@@ -52,4 +52,15 @@ test('M7: P1 and P2 SITE_ALERT chains end at ContactAlarmTopic, per-stack metric
     if (!new RegExp(prio).test(field(a[1], 'AlarmName') || '')) broken.push(`${prio} AlarmName must say ${prio}`)
   }
   assert.deepEqual(broken, [], broken.join('\n'))
+})
+
+// Critic D2: /api/events is public, so ONE forged qualifying row per window re-arms the alarm.
+// An ALARM->OK->ALARM cycle needs at least two periods, so the period bounds the forged-page
+// rate: 300 s caps it near 6 emails/hour per chain, where 60 s allowed ~30. The chat-host P1
+// alarms keep 60 s because only the app can write their lines.
+test('the public-triggerable SITE_ALERT P1 alarm evaluates over at least 300 s', () => {
+  const res = resources(tpl)
+  const p1 = ofType(res, 'AWS::CloudWatch::Alarm').find(([, b]) => /SiteAlertLinesP1/.test(field(b, 'MetricName') || ''))
+  assert.ok(p1, 'no SITE_ALERT P1 alarm')
+  assert.ok(Number(field(p1[1], 'Period')) >= 300, `Period is ${field(p1[1], 'Period')}`)
 })
