@@ -155,7 +155,24 @@ TTL are deployed to prod**, or prod will display a retention promise that nothin
   - **Prod is still DISABLED and still unwritten.** D4's promotion rule stands.
 - **E2, alarm validation with `set-alarm-state`: not run.** Both sessions' permission
   classifiers refuse it, so it is with the account owner as a one-liner. **E3, budgets:**
-  prod only, so not yet created. **E5, from-data cost:** not yet computed.
+  prod only, so not yet created.
+- **E5, expected monthly cost from data: PASS by three orders of magnitude** (window
+  2026-09-23 → 10-23).
+  - **Turns:** full table scans, nothing truncated. Measured as the sum of `turnCount` over
+    sessions updated in the window: 96 on prod and 110 on stage, 206 in total. That
+    over-counts slightly at the window's edge.
+  - **Compute:** four functions at 512 MB, 446 invocations and 1,172 s billed, which is
+    586 GB-s. That costs **$0.0098/month**, about $0.00005 per turn, against M-4's < $2 gate.
+    The Lambda free tier absorbs it to $0.
+  - **Cross-check:** prod's 34 stream invocations equal prod's 34 sessions updated in the
+    window. Two unrelated services, same number.
+  - **What it means:**
+    - The gate measures "nothing spins while idle", not per-turn economics, and it would pass
+      at 200× today's traffic.
+    - If the account bill is still about $40/month, **none of it is chat compute**. Look at
+      CloudFront, NAT/VPC leftovers and any surviving Express service.
+    - Prod stream has the fewest invocations but an 8.7 s average, against 2.6 s on stage.
+      Streaming turns are long-lived, so any future chat cost appears there first.
 
 ## Consequences
 
