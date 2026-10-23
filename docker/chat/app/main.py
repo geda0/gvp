@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.alerts import fire_alert, log_alert_gate_status
 from app.secret_resolver import resolve_gemini_key_into_env
-from app.project_refs import project_grounding_line
+from app.project_refs import PROJECT_IDS, project_grounding_line
 from app.gemini_routing import GeminiRoutingChain
 from app.messages import Msg, MsgChunk, _Acc
 from .site_state import SiteStateIn, format_site_state_line
@@ -347,6 +347,17 @@ def _actions_from_result(result: Any) -> list[dict[str, Any]]:
                 sec = section.strip()
                 labels = {'home': 'Go to Home', 'portfolio': 'See the Portfolio', 'labs': 'See the Labs'}
                 actions.append({'id': 'navigate', 'section': sec, 'label': labels.get(sec, f'Go to {sec}')})
+            continue
+        # M4 (stage-found defect): both project tools were declared but dropped here, so the
+        # model's call vanished and the turn came back empty. Every declared tool must map to an
+        # action - pinned by test_every_declared_text_tool_becomes_an_action.
+        if name == 'open_project':
+            project = args.get('project')
+            if isinstance(project, str) and project.strip() in PROJECT_IDS:
+                actions.append({'id': 'open-project', 'project': project.strip(), 'label': 'Open the project'})
+            continue
+        if name == 'close_project':
+            actions.append({'id': 'close-project', 'label': 'Close the project'})
             continue
         if name == 'open_contact_form':
             action: dict[str, Any] = {'id': 'open-contact', 'label': 'Open contact form'}

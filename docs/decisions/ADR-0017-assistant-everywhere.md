@@ -1372,3 +1372,18 @@ still the right one.
     two streams;
   - a mic allowed after hang-up is released at once.
 
+**Stage-found defect, 2026-10-23 (peer session's live probe after the M4 deploy):**
+- "Open the Apptio project" returned an **empty turn**: no text, no action, persisted as a
+  normal turn. That happened on both the streaming and the non-streaming text paths.
+- **Cause:** `main._actions_from_result` mapped only the three original tools, so the model's
+  `open_project` / `close_project` calls were dropped.
+- **Fixed:**
+  - The tools now become `open-project` (carrying the registry-validated id) and
+    `close-project` actions.
+  - The frontend renders them as buttons; the tap is the visitor's.
+  - `deriveReplyText` gives a tool-only turn a real line.
+- **The contract test that would have caught it** is
+  `test_every_declared_text_tool_becomes_an_action`: every tool the text path declares must
+  map to an action. Voice was unaffected, because its tool calls go straight to the frontend
+  handlers from slice 12.
+

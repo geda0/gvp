@@ -43,3 +43,15 @@ test('critic: a project-chip prompt is not also counted as a composer submit', (
   const branch = chat.slice(chat.indexOf("if (source === 'hero') {"), chat.indexOf("trackEvent('chat_composer_submit'"))
   assert.match(branch, /source === 'project_chip'/, 'project_chip must be its own branch before the composer default')
 })
+
+// Stage-found defect: the text path renders open_project / close_project as action BUTTONS
+// (the assistant cannot move the page on text; the tap is the visitor's), so the button must
+// carry the project id and the click handler must open / close the card.
+test('open-project / close-project action buttons are wired', () => {
+  const chat = read('js/chat.js')
+  const make = chat.slice(chat.indexOf('const createActionButton'), chat.indexOf('const createActionButton') + 700)
+  assert.match(make, /button\.dataset\.project = action\.project/)
+  const click = chat.slice(chat.indexOf("const actionEl = event.target.closest('[data-action]')"), chat.indexOf("const actionEl = event.target.closest('[data-action]')") + 2600)
+  assert.match(click, /action === 'open-project'[\s\S]{0,300}requestProjectOpen\(actionEl\.dataset\.project/)
+  assert.match(click, /action === 'close-project'[\s\S]{0,200}requestProjectClose\(/)
+})
