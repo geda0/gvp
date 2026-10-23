@@ -4,6 +4,28 @@
 
 ## Current status
 
+- **2026-10-23 — the chat stack has TWO CI blockers, and a green pull does not retire the
+  first one.** Correcting a too-generous read of mine from the same day.
+
+  1. **ECR Public throttle — OPEN.** `5021dd5` added an `aws ecr-public get-login-password`
+     step before the deploy, and on run `39985355946` that step **FAILED**:
+     `AccessDeniedException … not authorized to perform: ecr-public:GetAuthorizationToken`
+     (same as `39939648430`). It fell back to an anonymous pull, which happened not to be
+     throttled that run — almost certainly because the time window had reset, not because
+     the login worked. **A clean pull is therefore not evidence.** Needs the
+     `ecr-public:GetAuthorizationToken` + `sts:GetServiceBearerToken` grants (us-east-1,
+     account-level, NOT us-east-2 resource-scoped), and the durable fix remains mirroring
+     the Lambda Web Adapter image into our own ECR so the build never touches
+     `public.ecr.aws`.
+  2. **IAM deny — OPEN.** `cloudformation:ListStackResources` on the stream CompanionStack.
+     Behind blocker 1, so fixing only this one still does not get the chat templates
+     deployed through CI.
+
+  **The lesson, which is the reusable part:** a step that fails and falls back can look
+  exactly like a step that worked, when the thing it was meant to prevent happens not to
+  occur. Read the step's own result, not the job's outcome — the same mistake shape as
+  trusting a task-completion exit code over the `.rc` file.
+
 - **2026-10-23 — PROMOTION BLOCKER, verified: the privacy note must not reach `main` yet.**
   ADR-0021 D4 states the rule; this is the measurement behind it.
 
