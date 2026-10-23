@@ -15,6 +15,7 @@ from google.genai import _common, _live_converters
 from google.genai import _transformers as genai_transformers
 
 from app.live_env import live_model_id
+from app.project_refs import PROJECT_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,39 @@ _LIVE_TOOLS = types.Tool(
                 },
                 required=['section'],
             ),
+        ),
+        *(
+            [
+                types.FunctionDeclaration(
+                    name='open_project',
+                    description=(
+                        "Open one project's detail card on THIS site so the visitor can see it while you talk about it. Call this when they ask about, or want to see, a specific project or role (e.g. Team Tactics, Apptio, JumpCloud). Use the project id from the enum."
+                    ),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            'project': types.Schema(
+                                type=types.Type.STRING,
+                                # ONE tuple for text and voice (app/project_refs.py, ADR-0017 §3.1):
+                                # equal by construction, not by a test written after they drift.
+                                enum=list(PROJECT_IDS),
+                                description='Project id.',
+                            ),
+                        },
+                        required=['project'],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name='close_project',
+                    description=(
+                        'Close the project card that is open, returning the visitor to the page behind it. Call this when they are done with the project or ask to go back.'
+                    ),
+                    parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+                ),
+            ]
+            # An empty enum is rejected by Gemini, so a missing pack omits the tools instead.
+            if PROJECT_IDS
+            else []
         ),
     ],
 )

@@ -45,7 +45,14 @@ def test_handshake_has_full_setup_shape(_stub_api_key: None) -> None:
     decls = tools[0].get('functionDeclarations')
     assert isinstance(decls, list) and decls, tools
     names = {d.get('name') for d in decls}
-    assert names == {'open_resume', 'open_contact_form', 'navigate_to_section'}, names
+    # M4 slice 2 (ADR-0017 §3.1): the project tools ride the same handshake, and the project
+    # enum survives serialisation - it is the only roster the voice model gets (§4.2).
+    assert names == {
+        'open_resume', 'open_contact_form', 'navigate_to_section', 'open_project', 'close_project'
+    }, names
+    from app.project_refs import PROJECT_IDS
+    open_project = next(d for d in decls if d.get('name') == 'open_project')
+    assert open_project['parameters']['properties']['project']['enum'] == list(PROJECT_IDS)
 
     assert 'config' not in handshake, handshake
 
