@@ -10,7 +10,10 @@ import {
   defaultExperienceStarCount,
   defaultExperienceSnowflakeCount,
   starSpeedMultiplierForPreference,
-  snowSpeedMultiplierForPreference
+  snowSpeedMultiplierForPreference,
+  precipitationCountForPreference,
+  precipitationSpeedMultiplierForPreference,
+  defaultExperiencePrecipitationCount
 } from './starfield-prefs.js'
 import { sceneParamsAt } from './theme-time.js'
 
@@ -128,13 +131,39 @@ export function initStarfield(canvasId, options = {}) {
   let centerX, centerY, fl;
   const cores = window.navigator.hardwareConcurrency || 4;
 
-  // Snow state (garden theme)
-  let snowflakes = [];
+  // Daytime precipitation (ADR-0016). ONE HOMOGENEOUS POOL: every particle in it is the
+  // current kind, and the per-kind branch is hoisted OUT of the draw loop. A per-particle
+  // `kind` tag would mean an unpredictable branch and a polymorphic property read 183-260
+  // times a frame on a value that is constant across the whole array - which is exactly the
+  // class of per-particle work M1 spent six slices removing. Three arrays would mean two
+  // always-empty guards per frame, forever.
+  //
+  // The renderer knows a KIND STRING and nothing about why: no months, no hemispheres, no
+  // hail odds. js/theme.js writes `data-precipitation` and this reads it per frame, the
+  // same way it already reads `data-time-hours`.
+  let precipitation = [];
+  let precipitationKind = 'snow';
   const snowSpeedMin = 0.6;
   const snowSpeedMax = 1.8;
   const snowRadiusMin = 1;
   const snowRadiusMax = 3;
   const snowDriftAmplitude = 0.3;
+  // Rain falls far faster than snow and almost straight down; its streak length is DERIVED
+  // from the per-frame displacement (see drawRainParticles) rather than being a second knob,
+  // so one speed controls both and they cannot disagree.
+  const rainSpeedMin = 9;
+  const rainSpeedMax = 16;
+  const rainTailFrames = 2.2;
+  const RAIN_STROKE = 'rgba(176, 206, 232, 0.55)';
+  const RAIN_WIDTH = 1.1;
+  // Hail is slower than rain, heavier than snow, and its tail is shorter and brighter.
+  const hailSpeedMin = 6;
+  const hailSpeedMax = 10;
+  const hailRadiusMin = 1.6;
+  const hailRadiusMax = 3.2;
+  const hailTailFrames = 1.1;
+  const HAIL_STROKE = 'rgba(226, 240, 252, 0.5)';
+  const HAIL_WIDTH = 1.3;
 
   // Snowflake sprite — render the radial gradient once at max radius, then
   // drawImage it per flake. Previously we built a fresh createRadialGradient
@@ -156,6 +185,28 @@ export function initStarfield(canvasId, options = {}) {
     sc.beginPath();
     sc.arc(cx, cy, SNOW_SPRITE_RADIUS, 0, Math.PI * 2);
     sc.fill();
+  }
+
+  // Hail pellet sprite. EIGHT pixels, NOT four: three places in this repo identify a sprite
+  // by `img.height === 4` and all three mean "star motion streak" (STREAK_SPRITE_H). A hail
+  // sprite baked at 4 would be silently counted as a star streak by the perf test's
+  // reduced-motion clause, the cull wiring test and the A/B harness. No two sprite kinds may
+  // share a height; test/precipitation-render.test.mjs asserts it.
+  const HAIL_SPRITE_SIZE = 8;
+  const hailSprite = document.createElement('canvas');
+  hailSprite.width = HAIL_SPRITE_SIZE;
+  hailSprite.height = HAIL_SPRITE_SIZE;
+  {
+    const hc = hailSprite.getContext('2d');
+    const hr = HAIL_SPRITE_SIZE / 2;
+    const hg = hc.createRadialGradient(hr * 0.7, hr * 0.7, 0, hr, hr, hr);
+    hg.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+    hg.addColorStop(0.55, 'rgba(214, 234, 250, 0.8)');
+    hg.addColorStop(1, 'rgba(188, 214, 236, 0)');
+    hc.fillStyle = hg;
+    hc.beginPath();
+    hc.arc(hr, hr, hr, 0, Math.PI * 2);
+    hc.fill();
   }
 
   // Firefly state (living theme, dusk/evening). Warm golden motes drifting low.
@@ -434,6 +485,17 @@ export function initStarfield(canvasId, options = {}) {
     return defaultExperienceSnowflakeCount();
   }
 
+  function precipitationCountForCurrentPreference(kind) {
+    if (prefersReducedMotion) return precipitationCountForPreference(kind, true);
+    return defaultExperiencePrecipitationCount(kind);
+  }
+
+  /** The kind js/theme.js decided, read per frame like the hour already is. */
+  function currentPrecipitationKind() {
+    const raw = document.documentElement.dataset.precipitation;
+    return raw === 'snow' || raw === 'rain' || raw === 'hail' ? raw : 'rain';
+  }
+
   function initStars(count) {
     stars = [];
     for (var i = 0; i < count; i++) {
@@ -441,11 +503,47 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
-  function initSnow() {
-    snowflakes = [];
-    const count = snowflakeCountForCurrentPreference();
+  /**
+   * Seed the pool for one kind.
+   *
+   * THE SNOW BRANCH'S RANDOM DRAWS ARE FROZEN: five values, in the order x, y, r, phase,
+   * speed, with no shared pre-roll before the branch. scripts/qa/starfield-ab-draws.mjs
+   * replays the whole render under a seeded Math.random, so ONE extra or reordered draw
+   * here shifts every subsequent particle and the harness reports a full-stream difference
+   * for a change that is visually nothing. Rain and hail seed in their own branches, after,
+   * so they consume from the stream only when they are the active kind.
+   *
+   * Per-kind object literals rather than one union shape with unused fields - each draw
+   * loop then sees a single hidden class, and a union would have forced the snow literal to
+   * change, which the paragraph above forbids.
+   */
+  function initPrecipitation(kind) {
+    precipitationKind = kind;
+    precipitation = [];
+    const count = precipitationCountForCurrentPreference(kind);
+    if (kind === 'rain') {
+      for (let i = 0; i < count; i++) {
+        precipitation.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          speed: rainSpeedMin + Math.random() * (rainSpeedMax - rainSpeedMin)
+        });
+      }
+      return;
+    }
+    if (kind === 'hail') {
+      for (let i = 0; i < count; i++) {
+        precipitation.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          r: hailRadiusMin + Math.random() * (hailRadiusMax - hailRadiusMin),
+          speed: hailSpeedMin + Math.random() * (hailSpeedMax - hailSpeedMin)
+        });
+      }
+      return;
+    }
     for (let i = 0; i < count; i++) {
-      snowflakes.push({
+      precipitation.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
         r: snowRadiusMin + Math.random() * (snowRadiusMax - snowRadiusMin),
@@ -488,12 +586,12 @@ export function initStarfield(canvasId, options = {}) {
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
       initFireflies();
-      initSnow();
+      initPrecipitation(currentPrecipitationKind());
     } else if (theme === 'space') {
       numStars = starCountForCurrentPreference(w, h, cores);
       initStars(numStars);
     } else if (theme === 'garden') {
-      initSnow();
+      initPrecipitation(currentPrecipitationKind());
     }
     // studio: no allocation, drawStudio() just clears the canvas
   }
@@ -526,6 +624,83 @@ export function initStarfield(canvasId, options = {}) {
     }
   }
 
+  /**
+   * Move and draw the pool. ONE dispatch per frame, not per particle: the kind is constant
+   * across the whole array, so the branch is hoisted out of the loop exactly as `drift` and
+   * `snowSpeedScale` already are.
+   */
+  function drawPrecipitationParticles() {
+    if (precipitationKind === 'rain') return drawRainParticles();
+    if (precipitationKind === 'hail') return drawHailParticles();
+    return drawSnowParticles();
+  }
+
+  /**
+   * Rain: ONE path, N moveTo/lineTo pairs, ONE stroke. Zero drawImage, zero gradients.
+   *
+   * Batching is right here precisely because rain is UNIFORM - one colour, one width - which
+   * is why the star streak could not use it: every star has its own colour, hence a baked
+   * per-colour sprite. (M1 rejected batching streaks-then-discs because it changes blend
+   * order; that does not transfer, because rain and the star field never draw in the same
+   * branch.)
+   *
+   * The tail is DERIVED from the per-frame displacement through the same `streakLength` the
+   * stars use, so one knob - speed - controls how fast a drop falls AND how long it looks,
+   * and the reduced-motion speed cut shortens the streaks for free.
+   */
+  function drawRainParticles() {
+    const w = canvas.width;
+    const h = canvas.height;
+    const scale = precipitationSpeedMultiplierForPreference('rain', prefersReducedMotion);
+
+    c.strokeStyle = RAIN_STROKE;
+    c.lineWidth = RAIN_WIDTH;
+    c.beginPath();
+    for (let i = 0; i < precipitation.length; i++) {
+      const drop = precipitation[i];
+      const step = drop.speed * scale;
+      drop.y += step;
+      if (drop.y > h) {
+        drop.y = -20;
+        drop.x = Math.random() * w;
+      }
+      const tail = streakLength(step, rainTailFrames);
+      c.moveTo(drop.x, drop.y - tail);
+      c.lineTo(drop.x, drop.y);
+    }
+    c.stroke();
+  }
+
+  /** Hail: one batched stroke for the tails, plus one drawImage per pellet. */
+  function drawHailParticles() {
+    const w = canvas.width;
+    const h = canvas.height;
+    const scale = precipitationSpeedMultiplierForPreference('hail', prefersReducedMotion);
+
+    c.strokeStyle = HAIL_STROKE;
+    c.lineWidth = HAIL_WIDTH;
+    c.beginPath();
+    for (let i = 0; i < precipitation.length; i++) {
+      const stone = precipitation[i];
+      const step = stone.speed * scale;
+      stone.y += step;
+      if (stone.y > h + stone.r * 2) {
+        stone.y = -stone.r * 2;
+        stone.x = Math.random() * w;
+      }
+      const tail = streakLength(step, hailTailFrames);
+      c.moveTo(stone.x, stone.y - tail);
+      c.lineTo(stone.x, stone.y);
+    }
+    c.stroke();
+
+    for (let i = 0; i < precipitation.length; i++) {
+      const stone = precipitation[i];
+      const size = stone.r * 2;
+      c.drawImage(hailSprite, stone.x - stone.r, stone.y - stone.r, size, size);
+    }
+  }
+
   function drawSnowParticles() {
     const w = canvas.width;
     const h = canvas.height;
@@ -533,8 +708,8 @@ export function initStarfield(canvasId, options = {}) {
     const drift = prefersReducedMotion ? 0 : snowDriftAmplitude;
     const snowSpeedScale = snowSpeedMultiplierForPreference(prefersReducedMotion);
 
-    for (let i = 0; i < snowflakes.length; i++) {
-      const d = snowflakes[i];
+    for (let i = 0; i < precipitation.length; i++) {
+      const d = precipitation[i];
       d.y += d.speed * snowSpeedScale;
       d.x += Math.sin(time + d.phase) * drift;
       if (d.y > h + d.r * 2) {
@@ -554,12 +729,12 @@ export function initStarfield(canvasId, options = {}) {
 
   function drawSnow() {
     c.clearRect(0, 0, canvas.width, canvas.height);
-    drawSnowParticles();
+    drawPrecipitationParticles();
   }
 
   function drawStudio() {
     // Studio (paper) theme: no canvas animation. Clear once per frame so any
-    // leftover space trails or snowflakes fade out cleanly on theme switch.
+    // leftover space trails or precipitation fade out cleanly on theme switch.
     c.clearRect(0, 0, canvas.width, canvas.height);
   }
 
@@ -586,8 +761,9 @@ export function initStarfield(canvasId, options = {}) {
     const dayScene = sp.sun >= sp.star; // daytime (garden) vs night (space)
 
     if (dayScene) {
-      // Daytime: FULL clear every frame so snow renders as soft, soothing
-      // snowflakes with no motion trails — exactly like the original garden snow.
+      // Daytime: FULL clear every frame so precipitation renders with no motion trails —
+      // exactly like the original garden snow. Rain and hail draw their own streaks from
+      // per-frame displacement rather than relying on an uncleared canvas.
       // (Stars are ~0 by day, so there's no trail to preserve.)
       c.clearRect(0, 0, w, h);
       if (sp.star > 0.01) {
@@ -602,11 +778,19 @@ export function initStarfield(canvasId, options = {}) {
         }
         c.restore();
       }
-      if (snowflakes.length && sp.sun > 0.01) {
-        // Snow falls only in daylight; it fades in at dawn and out toward dusk.
+      if (precipitation.length && sp.sun > 0.01) {
+        // RE-SEED ON A KIND CHANGE, compared per frame rather than driven by an event: an
+        // event-driven re-seed goes stale the moment anything sets the attribute without
+        // dispatching - a QA override, devtools, a future module. A string compare per
+        // frame is self-healing and costs one property read against the 183-plus draws this
+        // frame already makes. Almost always invisible in practice: the kind can only
+        // change at local midnight, when this daytime branch is not running at all.
+        const wantKind = currentPrecipitationKind();
+        if (wantKind !== precipitationKind) initPrecipitation(wantKind);
+        // Precipitation falls only in daylight; it fades in at dawn and out toward dusk.
         c.save();
         c.globalAlpha = Math.min(1, sp.sun);
-        drawSnowParticles();
+        drawPrecipitationParticles();
         c.restore();
       }
       return;
@@ -681,18 +865,18 @@ export function initStarfield(canvasId, options = {}) {
       // Time mode fires themechange as the chrome flips garden/space at dawn/dusk.
       // Keep the pools (drawTime modulates star opacity; snow is always on); just
       // ensure they exist. Re-allocating on every flip would reset the scene.
-      if (!stars.length || !snowflakes.length) resizeCanvas();
+      if (!stars.length || !precipitation.length) resizeCanvas();
       return;
     }
     const theme = getTheme();
     if (theme === 'space') {
-      snowflakes = [];
+      precipitation = [];
     } else if (theme === 'garden') {
       stars = [];
       numStars = 0;
     } else {
       // studio: drop both pools so we don't keep allocating idle objects
-      snowflakes = [];
+      precipitation = [];
       stars = [];
       numStars = 0;
     }
