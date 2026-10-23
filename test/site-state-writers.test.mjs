@@ -318,10 +318,17 @@ test('the contact dialog reports WHO opened it, not always the visitor', async (
 })
 
 test('gvp:site-chat-collapse is GONE from js/, not adapted', () => {
+  // RECURSIVE. readdirSync without it is flat, and M5 moves js/ into js/lib + js/components
+  // (plan §M5) — at which point a surviving emitter in a subdirectory is invisible to the
+  // grep that §3.6 says is its only possible referee.
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (
+    e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]
+  ))
   const offenders = []
-  for (const name of readdirSync(join(REPO, 'js'))) {
+  for (const file of walk(join(REPO, 'js'))) {
+    const name = file.slice(join(REPO, 'js').length + 1)
     if (!name.endsWith('.js')) continue
-    const source = readFileSync(join(REPO, 'js', name), 'utf8')
+    const source = readFileSync(file, 'utf8')
     for (const [i, line] of source.split('\n').entries()) {
       // The explanatory references in js/site-state.js are the record of WHY it went; a
       // dispatch or a listener is the defect. Distinguish by looking for live code.
@@ -340,10 +347,34 @@ test('gvp:site-chat-collapse is GONE from js/, not adapted', () => {
   )
 })
 
-test('js/app.js no longer tears the chat down on navigation', () => {
+test('js/app.js no longer tears the chat down on navigation', async () => {
+  // ASSERT THE SEAM, not the formatting. This row used to be a regex anchored to the start
+  // of a line, so re-adding the teardown exactly as it was — but on one line, as
+  // `if (state === 'portfolio' || state === 'labs') collapseChatDialog()` — was invisible
+  // to it, and so was `chat.collapseChatDialog()`. js/app.js is never executed by any test
+  // (the harness wires initNavigation straight to syncChatLaunchers), so this was the only
+  // guard on the module that held the original defect, and it was guarding whitespace.
+  //
+  // The export existing at all is what makes the teardown re-addable, so that is the fact
+  // to pin: no entry point means no call site, whatever its formatting.
+  const chat = await import('../js/chat.js')
+  assert.equal(
+    typeof chat.collapseChatDialog, 'undefined',
+    'js/chat.js must export no collapse-the-panel entry point. While one exists, any module ' +
+    'can reach closePanel -> snapClose -> stopVoice again, and the stage decision stops ' +
+    'being the reducer\'s (§3.2: app.js writes nothing and commands nothing — it wires)'
+  )
+
+  // Comment lines stripped first: js/app.js keeps a note recording what was removed and
+  // why, and a bare match on the name fails on the explanation — the same mention-vs-call
+  // trap that made an earlier row in this milestone fail on its own doc comment. The fix
+  // for that failure would have been to delete the explanation, which is backwards.
   const app = readFileSync(join(REPO, 'js', 'app.js'), 'utf8')
+    .split('\n')
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .join('\n')
   assert.doesNotMatch(
-    app, /^\s*collapseChatDialog\(\)/m,
+    app, /collapseChatDialog/,
     'js/app.js:243 is the §9.1 teardown\'s first link, and §3.2 says app.js writes nothing ' +
     'and commands nothing: it wires. The stage decision belongs to the reducer, driven by ' +
     'the store — not to a guarded if in the navigation callback (and the guard is why ' +

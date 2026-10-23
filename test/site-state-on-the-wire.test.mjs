@@ -98,14 +98,20 @@ test('the /api/chat body carries siteState, inside the bytes the digest covers',
   // The digest has to match the EXACT bytes. If siteState were merged in after
   // buildChatRequest serialized the payload, this is where it shows up — and in production
   // it shows up as a 403 at the CloudFront edge, i.e. the chat is down.
+  // UNCONDITIONAL. This used to be wrapped in `if (header)`, which meant the one assertion
+  // that stands between a mis-serialized body and a 403 at the CloudFront edge could opt
+  // itself out — and a missing header is itself the failure, not a reason to skip.
   const header = chatCall.opts.headers?.['x-amz-content-sha256']
-  if (header) {
-    assert.equal(
-      header, await sha256Hex(chatCall.opts.body),
-      'x-amz-content-sha256 must cover the bytes that went out. A payload serialized twice ' +
-      '(once to hash, once to send) is a 403 InvalidSignatureException at the edge'
-    )
-  }
+  assert.ok(
+    header,
+    'the request must carry x-amz-content-sha256. CloudFront + OAC in front of a Lambda ' +
+    'Function URL requires it and rejects unsigned payloads'
+  )
+  assert.equal(
+    header, await sha256Hex(chatCall.opts.body),
+    'the digest must cover the bytes that went out. A payload serialized twice — once to ' +
+    'hash, once to send — is a 403 InvalidSignatureException at the edge, i.e. chat down'
+  )
   void getEl
 })
 
