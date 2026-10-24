@@ -111,13 +111,15 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ### Track C — guided-tour agent + navigation parity + stop defaulting to résumé
 
+_Built and VERIFIED ON STAGE 2026-10-23: `scripts/qa/chat-guide-journeys.mjs` 12/12 at 1280 and at 390 against the real model; app 538 · chat 319 green; tdd-critic PASS (round 3). Prod promotion pending the owner's go-ahead (the merge to `main` was refused by the session's permission classifier)._
+
 5. **Text agent has navigation parity with voice** — `[chat pytest]` `[frontend-manual]` —
    _owner #3: the text agent can move the visitor around the site like voice already can._
    - [x] ~~The text-chat tool surface includes a navigation tool (parity with voice's
          `navigate_to_section`)~~ — **SHIPPED**; `providers.chat_tools()` declares it. The
          "Work / Experience / Home destinations" wording is moot: the IA merge was reverted,
          so the shipped enum is `home | portfolio | labs`.
-   - [ ] When the visitor asks to "go to / show me your work / experience / projects," the text agent
+   - [x] When the visitor asks to "go to / show me your work / experience / projects," the text agent
          navigates the page to that section (the page actually moves), not just describes it in text.
    - [x] ~~A chat pytest pins that the text tool surface now declares the navigation tool~~ —
          the `providers.chat_tools()` gap is ALREADY closed. Still OPEN and worth a slice: the
@@ -125,7 +127,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
          `['home','portfolio','playground']` while `providers.py` says
          `['home','portfolio','labs']`, so the voice model cannot emit `labs` at all and only
          works via the legacy alias. Pin enum EQUALITY, not presence.
-   - [ ] qa-verifier confirms in a browser that a text request to navigate actually scrolls/switches
+   - [x] qa-verifier confirms in a browser that a text request to navigate actually scrolls/switches
          the page.
    - _Decision (design-notes): the navigation enum must be updated to the new section ids (work /
      experience / home), and the legacy `portfolio`/`playground` enum values kept as aliases so older
@@ -133,14 +135,14 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 6. **"Show me around" triggers a guided tour that scrolls with narration** — `[chat pytest]`
    `[frontend-manual]` — _owner #3: the headline new behavior — a narrated tour._
-   - [ ] When the visitor asks for a tour ("show me around," "give me a tour," "walk me through the
+   - [x] When the visitor asks for a tour ("show me around," "give me a tour," "walk me through the
          site"), the agent runs a guided tour: it moves the page through the sections in order and
          narrates each stop (a line or two per section), rather than dumping one wall of text.
-   - [ ] The tour ends in a clear, non-dead-end state (e.g. back at the work/contact area with an
+   - [x] The tour ends in a clear, non-dead-end state (e.g. back at the work/contact area with an
          offer to go deeper or get in touch).
-   - [ ] The tour works from the text agent (parity is the point); if voice also supports it, that's a
+   - [x] The tour works from the text agent (parity is the point); if voice also supports it, that's a
          bonus, not required for this item.
-   - [ ] A test pins the tour contract (the agent emits an ordered sequence of navigate-and-narrate
+   - [x] A test pins the tour contract (the agent emits an ordered sequence of navigate-and-narrate
          steps for a tour request), and qa-verifier confirms the scroll-through-with-narration UX in a
          browser.
    - _Decision (design-notes): tour step ORDER and the per-stop narration lines are copy the owner
@@ -158,14 +160,14 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 7. **Agent leads with the work and never defaults to dumping the résumé PDF** — `[chat pytest]`
    `[frontend-manual]` — _owner #3: the agent is a guide who shows the work; the PDF is mentioned only
    when explicitly asked._
-   - [ ] When asked an open question about Marwan's background/experience (not specifically "the
+   - [x] When asked an open question about Marwan's background/experience (not specifically "the
          resume PDF"), the agent answers with the work and offers to scroll to the on-page Experience
          section or a relevant project — it does NOT open/recommend the PDF as the default.
-   - [ ] `open_resume` (the PDF) only fires when the visitor explicitly asks for the resume/CV file or
+   - [x] `open_resume` (the PDF) only fires when the visitor explicitly asks for the resume/CV file or
          a download — not for general "tell me about your experience" asks.
-   - [ ] When asked about a specific piece of work, the agent navigates to that specific project/
+   - [x] When asked about a specific piece of work, the agent navigates to that specific project/
          experience entry (item 5's navigation), leading with what it demonstrates.
-   - [ ] qa-verifier confirms in a browser: "tell me about your experience" scrolls to / surfaces the
+   - [x] qa-verifier confirms in a browser: "tell me about your experience" scrolls to / surfaces the
          on-page Experience, not a new PDF tab; "open your resume PDF" still works.
    - _This is the agent-posture change. The system-instruction copy (the guide posture) is in
      design-notes; the owner should bless the agent's new voice. Decision: keep the PDF tool, just
