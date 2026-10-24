@@ -32,18 +32,23 @@ _clients_lock = threading.Lock()
 _text_clients: dict[str, Any] = {}
 
 
+# ADR-0026 §4.1 / invariant #26: at most three model attempts per turn (primary,
+# one primary retry after a 503, fallback).
+MAX_MODEL_ATTEMPTS = 3
+_DEFAULT_FIRST_CHUNK_TIMEOUT_SECONDS = 5.0
+
+
 def _first_chunk_timeout(total_timeout: float) -> float:
-    """Per-attempt budget for a NON-final model's first chunk. A primary that
-    produces no first token within this window is abandoned in favour of the
-    fallback — well inside the overall request deadline so the fallback still has
-    room to answer. Configurable via GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS; capped at
-    60% of the total budget so it never starves the fallback."""
+    """Per-attempt first-chunk budget (ADR-0026 §4.2). Configurable via
+    GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS (default 5 s) and capped so that every
+    attempt together stays within 60 % of the request deadline:
+    ``min(env, 0.6 * total / MAX_MODEL_ATTEMPTS)``."""
     raw = os.environ.get('GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS')
     try:
-        val = float(raw) if raw else 12.0
+        val = float(raw) if raw else _DEFAULT_FIRST_CHUNK_TIMEOUT_SECONDS
     except ValueError:
-        val = 12.0
-    return max(0.1, min(val, total_timeout * 0.6))
+        val = _DEFAULT_FIRST_CHUNK_TIMEOUT_SECONDS
+    return max(0.1, min(val, 0.6 * total_timeout / MAX_MODEL_ATTEMPTS))
 
 
 async def _aclose_quietly(iterator: Any) -> None:

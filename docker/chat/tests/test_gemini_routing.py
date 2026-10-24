@@ -614,3 +614,91 @@ async def test_ainvoke_timeout_falls_back(
     result = await chain.ainvoke({"messages": []})
 
     assert result.content == "from-fallback"
+
+
+# ---------------------------------------------------------------------------
+# ADR-0026 §4 / invariant #26 — the routing latency budget.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def virtual_clock(monkeypatch: pytest.MonkeyPatch):
+    """Run the test's event loop on VIRTUAL time: `loop.time()` reads a counter,
+    and whenever the loop would block in select() waiting for its next timer it
+    advances the counter by that timeout instead of sleeping. A 5 s stall then
+    costs no wall time and is measured exactly — the budget is asserted in the
+    loop's own seconds, not inferred from a flaky wall clock. Call the returned
+    installer from INSIDE the async test (it needs the running loop)."""
+
+    class _Clock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+    clock = _Clock()
+
+    def install() -> _Clock:
+        loop = asyncio.get_running_loop()
+        selector = loop._selector  # type: ignore[attr-defined]
+        real_select = selector.select
+
+        def select(timeout=None):
+            if timeout is not None and timeout > 0:
+                clock.now += timeout
+                return real_select(0)
+            return real_select(timeout)
+
+        monkeypatch.setattr(loop, "time", lambda: clock.now)
+        monkeypatch.setattr(selector, "select", select)
+        return clock
+
+    return install
+
+
+class _StampedOkStream:
+    """A healthy model that records the loop time at which it was STARTED, so a
+    test can read exactly when the chain abandoned the previous attempt."""
+
+    def __init__(self) -> None:
+        self.started_at: float | None = None
+
+    def astream(self, _payload, config=None):
+        self.started_at = asyncio.get_running_loop().time()
+
+        async def gen():
+            yield MsgChunk(text="from-fallback")
+
+        return gen()
+
+
+def _chain(timeout: float = 28.0) -> GeminiRoutingChain:
+    return GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=timeout,
+    )
+
+
+@pytest.mark.asyncio
+async def test_first_chunk_budget_defaults_to_five_seconds(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.1: with GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS unset the per-attempt
+    first-chunk budget is 5 s (was 12) under the default 28 s request deadline —
+    a stalled primary is abandoned for the fallback at t = 5 s."""
+    monkeypatch.delenv("GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS", raising=False)
+    clock = virtual_clock()
+    chain = _chain(28.0)
+    fallback = _StampedOkStream()
+    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": fallback}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    chunks = [c async for c in chain.astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert fallback.started_at == pytest.approx(5.0, abs=0.01)
+    assert clock.now == pytest.approx(5.0, abs=0.01)
