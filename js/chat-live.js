@@ -410,6 +410,10 @@ class PcmJitterPlayer {
     this.sources = []
     this.scheduledEnd = 0
     this.onLevel = typeof onLevel === 'function' ? onLevel : null
+    // Bumped by interrupt(). enqueue is async (it awaits ensure/resume), so a chunk the gate
+    // accepted just before an interrupt could otherwise resume after it and start a source on
+    // the cleared queue (ADR-0026 §3.3).
+    this.epoch = 0
   }
 
   async ensure(sampleRate) {
@@ -425,6 +429,7 @@ class PcmJitterPlayer {
   }
 
   interrupt() {
+    this.epoch += 1
     for (const s of this.sources) {
       try {
         s.stop()
@@ -436,7 +441,9 @@ class PcmJitterPlayer {
   }
 
   async enqueue(floats, sampleRate) {
+    const epoch = this.epoch
     const ctx = await this.ensure(sampleRate)
+    if (epoch !== this.epoch) return
     const sr = ctx.sampleRate
     const now = ctx.currentTime
     if (this.sources.length >= PCM_JITTER_MAX_QUEUED_CHUNKS) {

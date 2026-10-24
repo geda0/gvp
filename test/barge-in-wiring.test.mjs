@@ -305,6 +305,30 @@ test('a chip sent mid-greeting drops the rest of the greeting, audio and transcr
   )
 })
 
+test('a chunk accepted just before an interrupt never starts playing after it (enqueue epoch)', async () => {
+  // Arrange — the player's AudioContext starts suspended (autoplay policy), so enqueue is
+  // parked on `await resume()` with a chunk the gate already accepted.
+  const v = await bootVoice({ permission: 'prompt', mic: 'deny' })
+  let startedAfterResume = null
+  try {
+    v.audio.suspendNext = true
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+    // Act — the visitor barges in while that enqueue is parked, then the context resumes.
+    await v.send({ serverContent: { interrupted: true } })
+    for (const release of v.audio.resumeGates) release()
+    await settle()
+    startedAfterResume = v.audio.started()
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.equal(
+    startedAfterResume, 0,
+    'ADR-0026 §3.3: interrupt() bumps the player epoch and a parked enqueue from an older epoch ' +
+    'must not schedule — or a fragment of the cut-off sentence plays after the visitor stopped it'
+  )
+})
+
 test('interruptAssistant is the single door: nothing else in chat-live.js cuts playback or cancels the gate', async () => {
   // Arrange — the source, comments stripped, with the door's own body cut out.
   const { readFileSync } = await import('node:fs')
