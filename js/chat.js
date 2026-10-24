@@ -1045,6 +1045,18 @@ export function initChat() {
     dispatchStage('minimize', 'visitor')
   })
 
+  // ADR-0027 §4.1: the size toggle. Flips the PREFERENCE, persists it, re-applies the size -
+  // and nothing else: no dispatchStage (size is not a stage), no focus() (the button is not
+  // re-rendered, so focus stays on it), nothing voice (invariant #20). stopPropagation, like
+  // minimise, so the dialog's own click handler never sees it.
+  dialog?.querySelector('[data-chat-size-toggle]')?.addEventListener('click', (event) => {
+    event.stopPropagation()
+    chatSize = chatSize === 'wide' ? 'compact' : 'wide'
+    try { localStorage.setItem(CHAT_SIZE_STORAGE_KEY, chatSize) } catch (_) { /* lives for the page */ }
+    applyChatSize()
+    trackEvent('chat_size_toggle', { to: chatSize })
+  })
+
   subscribeSiteState((snapshot, change) => {
     syncActiveChip(snapshot)
     if (!change) return

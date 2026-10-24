@@ -628,3 +628,54 @@ test('ADR-0027 §6: a stored compact is honoured on first open; throwing storage
     'blocked storage must not stop the chat opening, and falls back to the wide default'
   )
 })
+
+test('ADR-0027 §4.1: the size toggle flips and persists the size, with no stage write and no stopVoice', async (t) => {
+  const writes = []
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: { getItem () { return null }, setItem (k, v) { writes.push([k, v]) } },
+    configurable: true,
+    writable: true
+  })
+  t.after(() => { delete globalThis.localStorage })
+  const { api, getEl, siteState, gtagCalls } = await boot('size-toggle', WIDE)
+  t.after(() => api.disposeChatLiveVoice())
+
+  // To the docked card the way a visitor gets there mid-call: a navigation from the modal
+  // the harness opened. The live session is the precondition, in the same snapshot.
+  siteState.setSection('portfolio', { origin: 'visitor' })
+  await settle()
+  const dialog = getEl('chatDialog')
+  assert.equal(siteState.getSiteState().chatStage, 'docked', 'harness: must be docked')
+  assert.equal(api.liveVoice.isSessionOpen(), true, 'harness: the call must be live')
+  assert.equal(dialog.dataset.chatSize, 'wide', 'harness: starts wide')
+
+  const stops = []
+  api.liveVoice.stopVoice = (o) => { stops.push(o || {}) }
+  const storeChanges = []
+  siteState.subscribe((_s, change) => { if (change) storeChanges.push(change.field) })
+  const toggle = dialog.querySelector('[data-chat-size-toggle]')
+  const click = () => toggle.events.fire('click', { stopPropagation () {}, target: toggle })
+
+  assert.ok(click() > 0, 'the toggle must have a click listener, or this row is blind')
+  await settle()
+  assert.deepEqual(
+    [dialog.dataset.chatSize, dialog.style.getPropertyValue('--chat-dock-width')],
+    ['compact', '384px']
+  )
+  click()
+  await settle()
+  assert.deepEqual(
+    [dialog.dataset.chatSize, dialog.style.getPropertyValue('--chat-dock-width')],
+    ['wide', '720px'], 'and back'
+  )
+
+  assert.deepEqual(writes, [['gvp-chat-size', 'compact'], ['gvp-chat-size', 'wide']],
+    'only the toggle writes the preference (ADR-0027 §6)')
+  assert.deepEqual(storeChanges, [], 'size is chat-local: no store field moves on a toggle')
+  assert.equal(siteState.getSiteState().chatStage, 'docked', 'and the stage does not move')
+  assert.deepEqual(stops, [], 'invariant #20: a size change never ends the call')
+  assert.equal(api.liveVoice.isSessionOpen(), true)
+  const toggles = gtagCalls.filter((c) => c[0] === 'event' && c[1] === 'chat_size_toggle')
+  assert.deepEqual(toggles.map((c) => c[2].to), ['compact', 'wide'],
+    'analytics: chat_size_toggle with a closed-enum `to`')
+})
