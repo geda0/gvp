@@ -85,6 +85,8 @@ export async function launch (opts = {}) {
     '--disable-gpu',
     `--window-size=${width},${height}`,
     ...(opts.reducedMotion ? ['--force-prefers-reduced-motion'] : []),
+    // Opt-in extras, e.g. the fake-microphone flags scripts/qa/voice-stage-probe.mjs needs.
+    ...(Array.isArray(opts.chromeArgs) ? opts.chromeArgs : []),
     'about:blank'
   ], { stdio: 'ignore' })
 
