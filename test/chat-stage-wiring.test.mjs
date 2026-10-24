@@ -940,3 +940,46 @@ test('ADR-0029 §3: a project opening beside a docked card reserves its column, 
   )
   assert.deepEqual(h.stops, [], 'invariant #20: a layout change never ends the call')
 })
+
+test('ADR-0029 §3: project-close, minimise and close each clear the reserve, and the size returns to the preference', async (t) => {
+  const h = await bootDocked(t, 'reserve-clear', 1280)
+  const read = () => [h.siteState.getSiteState().chatStage, reserveOf(), h.dialog.dataset.chatBeside, h.dialog.dataset.chatSize]
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(read(), ['docked', '424px', 'true', 'compact'], '1280: a compact column is reserved')
+
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(read(), ['docked', '', 'false', 'wide'], 'project-close clears it; the stored wide comes back')
+
+  h.siteState.setProject({ id: 'gvp', title: 'This site' }, { origin: 'visitor' })
+  await settle()
+  h.getEl('chatDialog').querySelector('.chat-dialog__minimize').events.fire('click', { stopPropagation () {} })
+  await settle()
+  assert.deepEqual(read().slice(0, 3), ['minimized', '', 'false'], 'a minimised chat reserves nothing')
+
+  h.getEl('agentActiveChip').events.fire('click', {})
+  await settle()
+  assert.deepEqual(read().slice(0, 3), ['docked', '424px', 'true'], 'restoring over the dialog reserves again')
+
+  h.api.closePanelImmediate()
+  await settle()
+  assert.deepEqual(read().slice(1, 3), ['', 'false'], 'a closed chat reserves nothing')
+  assert.equal(h.stops.length, 1, 'only the visitor closing the chat ends the call (#20)')
+})
+
+test('ADR-0029 §4: at 1000 a page-opened project tucks the docked card, and closing it brings the card back docked', async (t) => {
+  const h = await bootDocked(t, 'reserve-1000', 1000)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, reserveOf(), h.dialog.dataset.chatBeside],
+    ['minimized', '', 'false'], 'no column at 1000: the card tucks into the pill, nothing reserved')
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize],
+    ['docked', 'wide'], 'project-close is the return path, at the stored size')
+  assert.deepEqual(h.stops, [], 'invariant #20: neither move ends the call')
+  assert.equal(h.api.liveVoice.isSessionOpen(), true)
+})
