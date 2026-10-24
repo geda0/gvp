@@ -871,3 +871,46 @@ test('critic: the beside lift is re-checked on resize, so a narrower window drop
   await settle()
   assert.equal(h.dialog.dataset.chatBeside, 'true', 'and widening with the dialog still open lifts it again')
 })
+
+test('critic: a chip pressed while the WIDE card is already docked re-sizes it to compact beside the dialog', async (t) => {
+  // open-beside from docked is docked -> docked, a same-stage no-op in dispatchStage, so no
+  // applyStage runs. Without the explicit re-apply after it, the card stays 720px wide and
+  // unmarked - overlapping the dialog it was asked to sit beside, under its scrim.
+  const h = await bootBeside(t, 'beside-from-docked', 1920)
+  h.api.openPanel()
+  await settle()
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize],
+    ['docked', 'wide'], 'harness: the wide main window is already docked when the dialog opens'
+  )
+  await h.tapChip()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize,
+      h.dialog.style.getPropertyValue('--chat-dock-width'), h.dialog.dataset.chatBeside],
+    ['docked', 'compact', '384px', 'true'],
+    '1920 beside 739.59: compact fits, wide does not - and the card is lifted above the scrim'
+  )
+})
+
+test('critic: closing the chat forgets the dialog it sat beside', async (t) => {
+  // Beside at 1920, then the visitor closes the chat with the X while the dialog stays open.
+  // A reopen is a plain open: if the old beside width survived the close, the next apply
+  // would re-measure the dialog and lift a card nobody asked to dock beside it.
+  const h = await bootBeside(t, 'beside-close', 1920)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  await h.tapChip()
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: beside')
+
+  h.api.closePanelImmediate()
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'closed', 'harness: closed')
+
+  h.api.openPanel() // a plain launcher open; the project dialog is still up
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked')
+  assert.equal(h.dialog.dataset.chatBeside, 'false', 'a plain reopen is not beside the dialog')
+  assert.equal(h.dialog.dataset.chatSize, 'wide', 'and is sized as the main window, not as beside')
+})
