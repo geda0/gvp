@@ -11,13 +11,14 @@
  *
  * The microphone is a FILE: Chrome's fake capture device plays <speech.wav> as the visitor's
  * voice from the moment getUserMedia runs (which, since ADR-0026 §2, is right after the
- * greeting is sent), and the permission prompt is auto-accepted. The instrument below sends
- * SILENCE in place of the mic until the first greeting audio frame arrives, so the speech
- * reaches the model DURING the greeting, never before it starts. The WAV's leading silence must
- * outlast the greeting's first-audio latency and its speech must land before the greeting ends
- * (a precondition claim reports it when it did not). The WAV needs a PLAIN header (RIFF, fmt,
+ * greeting is sent), and the permission prompt is auto-accepted. The instrument below DELAYS
+ * the mic so the WAV's t=0 is the greeting's first audio frame: its leading silence is then
+ * the offset into the greeting where the speech lands. Keep it short enough that the speech
+ * goes out before the SERVER finishes sending the greeting (Live sends faster than real time),
+ * or the server-side claims report INCONCLUSIVE and fail; ~1 s works for a several-second
+ * greeting. The WAV needs a PLAIN header (RIFF, fmt,
  * data): macOS `say` writes a JUNK/FLLR chunk Chrome reads as silence, so on macOS:
- *   say -o raw.wav --data-format=LEI16@48000 "[[slnc 3000]] Show me your work. [[slnc 9000]]"
+ *   say -o raw.wav --data-format=LEI16@48000 "[[slnc 1000]] Show me your work. [[slnc 9000]]"
  *   python3 -c "import wave;r=wave.open('raw.wav');p=r.getparams();f=r.readframes(p.nframes);\
  *     w=wave.open('speech.wav','wb');w.setnchannels(1);w.setsampwidth(2);w.setframerate(p.framerate);w.writeframes(f)"
  * The audio-loudness claim below fails loudly if the file is still being read as silence. So this measures the
@@ -27,12 +28,14 @@
  * SOUNDS clean through real speakers. Those stay a human check (G3, human-staging gated).
  *
  * Journeys:
- *   - barge-in: the visitor speaks over the greeting; `interrupted` must arrive before the
- *     greeting's turnComplete and model audio for that turn must stop within GRACE_MS.
+ *   - barge-in: the visitor speaks over the greeting; PLAYBACK must reach zero within
+ *     GRACE_MS of the first voiced frame, `interrupted` must arrive before the greeting's
+ *     turnComplete, and model audio for that turn must stop within GRACE_MS of it.
  *   - silent-mic control: the same start with the mic sending silence; the greeting must
  *     complete with no `interrupted` (the assistant does not barge in on itself).
- *   - chip mid-greeting: a project chip tapped while the greeting plays stops playback
- *     locally at once and its reply is heard (ADR-0026 §3.2's residual is a probe claim).
+ *   - chip mid-greeting (one chip, then two quick chips): a project chip tapped on the
+ *     greeting's first play-start stops playback locally at once and the (last) chip's reply
+ *     is heard (ADR-0026 §3.2's residual is a probe claim; a drained greeting is INCONCLUSIVE).
  *   - voice chips: a chip during a live call reaches the model and answers by voice.
  */
 
@@ -81,11 +84,19 @@ const INSTRUMENT = `(() => {
           window.__vpAudioFrames = (window.__vpAudioFrames || 0) + 1
           if (window.__vpAudioFrames === 1) log('first-audio-frame', JSON.stringify(Object.keys(m.realtimeInput)))
           const chunk = m.realtimeInput.audio || (m.realtimeInput.mediaChunks || [])[0]
-          // The mic is live from the start (ADR-0026 §2). Send SILENCE in its place until the
-          // greeting's first audio frame (so the speech lands DURING the greeting), and for
-          // the whole run when the journey asks for a silent mic (the control).
-          if (chunk && chunk.data && (window.__VP_SILENT_MIC__ === true || !window.__vpGreetingAudioSeen)) {
-            chunk.data = btoa('\\0'.repeat(atob(chunk.data).length))
+          const zeros = (b64) => btoa('\\0'.repeat(atob(b64).length))
+          // The mic is live from the start (ADR-0026 §2), but the WAV's t=0 should be the
+          // greeting's FIRST AUDIO FRAME, so its leading silence decides where in the greeting
+          // the speech lands. A delay line: until that frame, every real frame is queued and
+          // silence is sent; after it, each send carries the oldest queued frame. A silent-mic
+          // journey (the control) zeroes every frame instead.
+          if (chunk && chunk.data) {
+            const q = (window.__vpMicQueue = window.__vpMicQueue || [])
+            if (window.__VP_SILENT_MIC__ === true) chunk.data = zeros(chunk.data)
+            else {
+              q.push(chunk.data)
+              chunk.data = window.__vpGreetingAudioSeen ? q.shift() : zeros(chunk.data)
+            }
             data = JSON.stringify(m)
           }
           // Loudness of what is actually sent: a stream of zeros is "audio" to a frame counter.
@@ -97,7 +108,11 @@ const INSTRUMENT = `(() => {
               if (v > peak) peak = v
             }
             window.__vpPeak = Math.max(window.__vpPeak || 0, peak)
-            if (peak > 1000 && !window.__vpVoiced) { window.__vpVoiced = true; log('first-voiced-frame', String(peak)) }
+            if (peak > 1000 && !window.__vpVoiced) {
+              window.__vpVoiced = true
+              // Detail = how much assistant audio was queued/sounding when the voice went out.
+              log('first-voiced-frame', String(window.__vpPlaying || 0))
+            }
           }
         }
         if (m.toolResponse) log('toolResponse', JSON.stringify(m.toolResponse.functionResponses.map((r) => r.response && (r.response.result || r.response.error))))
@@ -117,7 +132,14 @@ const INSTRUMENT = `(() => {
     window.__vpPlaying = 0
     const start = ABS.prototype.start
     const stop = ABS.prototype.stop
-    const off = (node) => { if (node.__vpOn) { node.__vpOn = false; window.__vpPlaying -= 1; return true } return false }
+    // 'play-idle' = the moment nothing of the assistant is queued or sounding any more.
+    const off = (node) => {
+      if (!node.__vpOn) return false
+      node.__vpOn = false
+      window.__vpPlaying -= 1
+      if (window.__vpPlaying === 0) log('play-idle')
+      return true
+    }
     ABS.prototype.start = function (...args) {
       if (!this.__vpOn) {
         this.__vpOn = true
@@ -168,6 +190,17 @@ function bargeInClaims (ev) {
   const lateAudio = cut
     ? ev.filter((e) => e.kind === 'model-audio' && e.t > cut.t + GRACE_MS && e.t < firstTurn.t)
     : []
+  // Measured against PLAYBACK, not the server: Live sends faster than real time, so its
+  // turnComplete can land while seconds of greeting are still queued here. What the visitor
+  // hears stops when the page's last source stops ('play-idle').
+  const quietAfterVoice = voiced && ev.find((e) => e.kind === 'play-idle' && e.t >= voiced.t)
+  const playingAtVoice = voiced ? Number(voiced.detail) : 0
+  const lastStopBeforeVoice = [...ev].reverse().find((e) => (e.kind === 'play-stop' || e.kind === 'play-idle') && (!voiced || e.t <= voiced.t))
+  // The server half is only testable when the speech went out BEFORE the server finished
+  // sending; otherwise there is no turn for Live to interrupt (the client's 'voice_local' cut
+  // covers that, and the playback claim above still measures it). Never a vacuous pass.
+  const serverHalfTestable = Boolean(voiced && firstTurn && voiced.t < firstTurn.t)
+  const inconclusive = 'INCONCLUSIVE: the speech went out after the server\'s turnComplete - shorten the WAV\'s leading silence'
   return [
     {
       claim: 'cold path: the mic is requested at once, BEFORE the greeting turn completes',
@@ -175,19 +208,27 @@ function bargeInClaims (ev) {
       detail: `getUserMedia@${gum && gum.t} turnComplete@${firstTurn && firstTurn.t}`
     },
     {
-      claim: 'precondition: the visitor\'s speech reaches the model DURING the greeting (after its first audio, before its turnComplete)',
-      ok: Boolean(voiced && greetingAudio && firstTurn && voiced.t > greetingAudio.t && voiced.t < firstTurn.t),
-      detail: `model-audio@${greetingAudio && greetingAudio.t} first-voiced-frame@${voiced && voiced.t} turnComplete@${firstTurn && firstTurn.t}`
+      claim: 'precondition: the visitor\'s speech goes out while the greeting is PLAYING (after its first audio, with audio queued or sounding)',
+      ok: Boolean(voiced && greetingAudio && voiced.t > greetingAudio.t && playingAtVoice > 0),
+      detail: `model-audio@${greetingAudio && greetingAudio.t} first-voiced-frame@${voiced && voiced.t} (sources playing: ${playingAtVoice}) server turnComplete@${firstTurn && firstTurn.t}`
     },
     {
-      claim: 'the visitor\'s voice cuts the greeting off: `interrupted` arrives before the greeting\'s turnComplete',
-      ok: Boolean(cut),
-      detail: cut ? `interrupted@${cut.t} turnComplete@${firstTurn.t}` : `no interrupted before turnComplete@${firstTurn && firstTurn.t}`
+      claim: `the visitor's voice silences the greeting: playback reaches zero within ${GRACE_MS} ms of the first voiced frame`,
+      ok: Boolean(voiced && playingAtVoice > 0 && quietAfterVoice && quietAfterVoice.t - voiced.t <= GRACE_MS),
+      detail: `first-voiced-frame@${voiced && voiced.t} play-idle@${quietAfterVoice && quietAfterVoice.t}` +
+        ` (${quietAfterVoice && voiced ? quietAfterVoice.t - voiced.t : '?'} ms); playback ran ` +
+        `${firstTurn && quietAfterVoice ? quietAfterVoice.t - firstTurn.t : '?'} ms past the server turnComplete` +
+        `${lastStopBeforeVoice ? `; last play-stop before the voice @${lastStopBeforeVoice.t}` : ''}`
+    },
+    {
+      claim: 'the visitor\'s voice cuts the greeting off at the server: `interrupted` arrives before the greeting\'s turnComplete',
+      ok: serverHalfTestable && Boolean(cut),
+      detail: !serverHalfTestable ? inconclusive : (cut ? `interrupted@${cut.t} turnComplete@${firstTurn.t}` : `no interrupted before turnComplete@${firstTurn && firstTurn.t}`)
     },
     {
       claim: `model audio for the cut-off greeting stops within ${GRACE_MS} ms of \`interrupted\``,
-      ok: Boolean(cut) && lateAudio.length === 0,
-      detail: cut ? (lateAudio.length ? `model-audio at ${lateAudio.map((e) => e.t).join(', ')} (interrupted@${cut.t})` : '') : 'no interrupted to measure from'
+      ok: serverHalfTestable && Boolean(cut) && lateAudio.length === 0,
+      detail: !serverHalfTestable ? inconclusive : (cut ? (lateAudio.length ? `model-audio at ${lateAudio.map((e) => e.t).join(', ')} (interrupted@${cut.t})` : '') : 'no interrupted to measure from')
     }
   ]
 }
@@ -202,15 +243,6 @@ async function startVoice (page, tag) {
   await evaluate(page, () => document.getElementById('chatVoiceStartBtn').click())
 }
 
-// Poll the timeline until `kind` appears (or the budget runs out); returns the event or null.
-async function waitFor (page, kind, ms) {
-  for (let waited = 0; waited < ms; waited += 100) {
-    const hit = (await timeline(page)).find((e) => e.kind === kind)
-    if (hit) return hit
-    await sleep(100)
-  }
-  return null
-}
 
 // Control (G3): with a SILENT mic streaming during the greeting, the greeting completes and is
 // not interrupted - the assistant does not barge in on itself through its own audio.
@@ -233,52 +265,94 @@ async function silentMicControl (page) {
 // done it - nothing more of the greeting plays, and the chip's reply is heard. ADR-0026 §3.2's
 // residual: if Live abandoned the greeting without a turnComplete, the gate would stay shut and
 // the last claim fails.
-async function chipMidGreeting (page) {
+//
+// Timing is the whole point, so the project card is opened BEFORE voice starts (its chips are
+// already in the DOM) and the tap happens in-page on the greeting's first play-start, polled
+// every 10 ms - not from the driver, whose round trips let a short greeting finish first. If the
+// server had still finished the greeting before the tap, the residual claim is INCONCLUSIVE and
+// FAILS: a pass there would prove nothing about the gate.
+// `count` chips are tapped `gapMs` apart (the two-quick-chips run: the LAST chip's reply must
+// not be swallowed by the turns the earlier taps abandoned).
+async function chipsMidGreeting (page, { tag, count, gapMs }) {
   const out = []
-  await startVoice(page, 'voicechipmid')
-  const greetingAudio = await waitFor(page, 'model-audio', 20000)
-  out.push({ claim: 'mid-greeting: the greeting starts', ok: Boolean(greetingAudio), detail: greetingAudio ? `model-audio@${greetingAudio.t}` : 'no model audio in 20 s' })
-  if (!greetingAudio) return out
+  await goto(page, `${ORIGIN}/?${tag}=${Date.now()}`)
+  await sleep(2000)
   const chips = await evaluate(page, async () => {
     const projects = await import('/js/projects.js')
     projects.requestProjectOpen('apptio', { origin: 'visitor' })
-    for (let i = 0; i < 30; i++) {
-      if (document.querySelector('#projectDialog [data-project-chip="summarize"]')) return true
+    for (let i = 0; i < 60; i++) {
+      const found = [...document.querySelectorAll('#projectDialog [data-project-chip]')].map((b) => b.dataset.projectChip)
+      if (found.length) return found
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    return false
+    return []
   })
-  out.push({ claim: 'mid-greeting: the project card shows its chips', ok: chips })
-  if (!chips) return out
-  const tap = await evaluate(page, () => {
-    const before = window.__vpPlaying || 0
-    document.querySelector('#projectDialog [data-project-chip="summarize"]').click()
-    const after = window.__vpPlaying || 0
-    const at = (window.__vp || []).length
-    return { before, after, at }
-  })
+  out.push({ claim: `mid-greeting: the project card shows at least ${count} chip(s) before voice starts`, ok: chips.length >= count, detail: JSON.stringify(chips) })
+  if (chips.length < count) return out
+  await evaluate(page, () => document.getElementById('heroVoiceMic').click())
+  await sleep(1200)
+  await evaluate(page, () => document.getElementById('chatVoiceStartBtn').click())
+  const taps = await evaluate(page, async ({ names, gap }) => {
+    const deadline = performance.now() + 20000
+    while (!(window.__vp || []).some((e) => e.kind === 'play-start')) {
+      if (performance.now() > deadline) return null
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    const out = []
+    for (const name of names) {
+      const btn = document.querySelector(`#projectDialog [data-project-chip="${name}"]`)
+      if (!btn) { out.push({ name, missing: true, at: (window.__vp || []).length }); continue }
+      const before = window.__vpPlaying || 0
+      btn.click()
+      out.push({ name, before, after: window.__vpPlaying || 0, at: (window.__vp || []).length })
+      await new Promise((resolve) => setTimeout(resolve, gap))
+    }
+    return out
+  }, { names: chips.slice(0, count), gap: gapMs })
+  out.push({ claim: 'mid-greeting: the greeting starts playing', ok: Boolean(taps), detail: taps ? '' : 'no play-start in 20 s' })
+  if (!taps) return out
   await sleep(18000)
   const all = await timeline(page)
-  const tapT = all[tap.at - 1] ? all[tap.at - 1].t : 0
-  const ev = all.slice(tap.at)
-  const greetingDone = all.slice(0, tap.at).some((e) => e.kind === 'turnComplete')
-  const abandonedEnd = greetingDone ? null : ev.find((e) => e.kind === 'turnComplete')
-  const greetingTail = abandonedEnd ? ev.filter((e) => e.kind === 'play-start' && e.t < abandonedEnd.t) : []
-  const replyEnd = abandonedEnd ? abandonedEnd.t : tapT
-  const replyPlays = ev.filter((e) => e.kind === 'play-start' && e.t >= replyEnd)
-  const said = ev.filter((e) => e.kind === 'said').map((e) => e.detail).join('')
-  const closed = ev.find((e) => e.kind === 'ws-close')
-  out.push({ claim: 'precondition: greeting audio was playing when the chip was tapped', ok: tap.before > 0, detail: JSON.stringify(tap) })
-  out.push({ claim: 'the chip stops playback locally at once (before any server frame)', ok: tap.before > 0 && tap.after === 0, detail: JSON.stringify(tap) })
+  const first = taps[0]
+  const last = taps[taps.length - 1]
+  const tapT = (tap) => (all[tap.at - 1] ? all[tap.at - 1].t : 0)
+  const greetingDone = all.slice(0, first.at).some((e) => e.kind === 'turnComplete')
+  const afterFirst = all.slice(first.at)
+  const abandonedEnd = greetingDone ? null : afterFirst.find((e) => e.kind === 'turnComplete')
+  const greetingTail = abandonedEnd ? afterFirst.filter((e) => e.kind === 'play-start' && e.t < abandonedEnd.t) : []
+  // The last chip's reply = the FINAL turn after the last tap: every turn a tap abandoned ends
+  // with its own turnComplete first, so the reply's audio is what plays between the
+  // second-to-last boundary (or the last tap) and the last turnComplete (or the end of the run).
+  const afterLast = all.slice(last.at)
+  const ends = afterLast.filter((e) => e.kind === 'turnComplete')
+  const lastTurnEnd = ends[ends.length - 1]
+  const replyFrom = ends.length >= 2 ? ends[ends.length - 2].t : tapT(last)
+  const replyTo = lastTurnEnd ? lastTurnEnd.t : Infinity
+  const replyPlays = afterLast.filter((e) => e.kind === 'play-start' && e.t > replyFrom && e.t <= replyTo)
+  const said = afterLast.filter((e) => e.kind === 'said' && e.t > replyFrom && e.t <= replyTo).map((e) => e.detail).join('')
+  const sent = all.filter((e) => e.kind === 'clientContent').length
+  const closed = afterFirst.find((e) => e.kind === 'ws-close')
+  out.push({ claim: 'precondition: greeting audio was playing when the first chip was tapped', ok: first.before > 0, detail: JSON.stringify(taps) })
+  out.push({ claim: 'every chip tap stops playback locally at once (read synchronously around the click)', ok: first.before > 0 && taps.every((tap) => tap.after === 0), detail: JSON.stringify(taps) })
   out.push({
-    claim: 'nothing more of the cut-off greeting plays after the tap',
-    ok: greetingTail.length === 0,
-    detail: greetingDone ? 'n/a: the greeting was fully delivered before the tap (only the local queue was cut)' : `play-start before the greeting's turnComplete@${abandonedEnd && abandonedEnd.t}: ${greetingTail.length}`
+    claim: 'nothing more of the cut-off greeting plays after the tap (the gate held until its turnComplete)',
+    ok: !greetingDone && Boolean(abandonedEnd) && greetingTail.length === 0,
+    detail: greetingDone
+      ? 'INCONCLUSIVE: the server had finished the greeting before the tap, so the gate was never tested'
+      : (abandonedEnd ? `play-start before the greeting's turnComplete@${abandonedEnd.t}: ${greetingTail.length}` : 'no turnComplete for the abandoned greeting (the ADR-0026 §3.2 residual - the gate would stay shut)')
   })
-  out.push({ claim: 'the chip\'s reply is heard (played, by voice, about the project)', ok: replyPlays.length > 0 && /apptio|ibm|spark|pipeline|financial/i.test(said), detail: `reply play-starts: ${replyPlays.length} | voice said: ${said.slice(0, 160)}` })
-  out.push({ claim: 'the call survives the chip tap (no socket close)', ok: !closed, detail: closed ? closed.detail : '' })
+  out.push({ claim: `every chip went to the call (${count} clientContent after the greeting)`, ok: sent >= count + 1, detail: `clientContent sent: ${sent}` })
+  out.push({
+    claim: `the ${count > 1 ? 'last ' : ''}chip's reply is heard (played, by voice, about the project)`,
+    ok: replyPlays.length > 0 && /apptio|ibm|spark|pipeline|financial|cost|cloud/i.test(said),
+    detail: `reply play-starts: ${replyPlays.length} | last turnComplete@${lastTurnEnd && lastTurnEnd.t} | voice said: ${said.slice(0, 160)}`
+  })
+  out.push({ claim: 'the call survives the chip taps (no socket close)', ok: !closed, detail: closed ? closed.detail : '' })
   return out
 }
+
+const chipMidGreeting = (page) => chipsMidGreeting(page, { tag: 'voicechipmid', count: 1, gapMs: 0 })
+const twoChipsMidGreeting = (page) => chipsMidGreeting(page, { tag: 'voicechips2', count: 2, gapMs: 300 })
 
 async function greetingAndNavigation (page) {
   const out = []
@@ -368,6 +442,7 @@ async function main () {
     ['cold-path barge-in over the greeting, navigation while speaking', greetingAndNavigation, {}],
     ['silent-mic control: the greeting completes uninterrupted', silentMicControl, { silentMic: true }],
     ['chip mid-greeting: local stop, reply heard', chipMidGreeting, { silentMic: true }],
+    ['two quick chips mid-greeting: the last reply is not swallowed', twoChipsMidGreeting, { silentMic: true }],
     ['voice chips', voiceChip, {}]
   ]
   for (const [name, journey, { silentMic }] of journeys) {
