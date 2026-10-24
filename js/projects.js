@@ -291,7 +291,8 @@ export function initProjectDetailDialog() {
     }
   })
 
-  bindEscapeClosesDialogWhenOpen(dialog, closeDialog);
+  // ADR-0029 §6.2: Escape typed in the chat beside this dialog is the chat's, not ours.
+  bindEscapeClosesDialogWhenOpen(dialog, closeDialog, { ignoreFocusWithin: '#chatDialog' });
 
   openDialogImpl = openDialog;
   closeDialogImpl = closeDialog;

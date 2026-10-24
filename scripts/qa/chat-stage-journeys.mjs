@@ -32,11 +32,24 @@
  */
 
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
+import { readFileSync } from 'node:fs'
 import { launch, goto, evaluate, clickAt, pressKey, sleep, findChrome } from './cdp.mjs'
 
-const PORT = 8771
-const ORIGIN = process.argv[2] || `http://127.0.0.1:${PORT}`
+// A FREE port, never a fixed one: with a fixed 8771 a second run (another worktree, another
+// agent) failed to bind, and this harness then silently tested the OTHER tree's server.
+const freePort = () => new Promise((resolve, reject) => {
+  const srv = createServer()
+  srv.unref()
+  srv.on('error', reject)
+  srv.listen(0, '127.0.0.1', () => {
+    const { port } = srv.address()
+    srv.close(() => resolve(port))
+  })
+})
 const OWN_SERVER = !process.argv[2]
+const PORT = OWN_SERVER ? await freePort() : null
+const ORIGIN = process.argv[2] || `http://127.0.0.1:${PORT}`
 
 // ---------------------------------------------------------------- page helpers
 
@@ -687,16 +700,15 @@ async function journeyTransitionMotion (page) {
 }
 
 async function journeyBesideProjectDialog (page) {
-  // ADR-0027 §9's flagged drift, reproduced: a card docked BESIDE a project dialog sits at
-  // z 1085 under .project-dialog (inset:0, z 1100, 72% scrim + blur). If it is covered, the
-  // visitor can see a blurred card they cannot type into. Also W6's size rule beside a dialog.
+  // ADR-0027 §9's drift, now under ADR-0029: a card docked BESIDE a project dialog by a chip
+  // reserves its column and is lifted above the scrim; the dialog moves left of it. Narrowing
+  // below 1016 drops the reserve, and over any card/panel overlap the DIALOG wins.
   const out = []
   await setViewport(page, 1920, 1080)
   await goto(page, `${ORIGIN}/#portfolio`)
   await clearSizePref(page)
   await goto(page, `${ORIGIN}/#portfolio`)
-  await evaluate(page, () => { document.querySelector('#portfolioProjects .project').click() })
-  await sleep(700)
+  await openProjectFromPage(page)
   // The chips sit at the foot of the panel, which scrolls - bring the chip into view first,
   // or the "real click" lands on the scrim below the fold.
   await evaluate(page, () => {
@@ -708,8 +720,8 @@ async function journeyBesideProjectDialog (page) {
   await sleep(900)
   const c = await card(page)
   out.push({
-    claim: '1920x1080 beside the project dialog: docked COMPACT (no room for wide), toggle hidden',
-    ok: Boolean(chipBox) && c.stage === 'docked' && c.size === 'compact' && !c.toggleShown,
+    claim: '1920x1080 chip: docked WIDE beside the dialog (a wide column is reserved), toggle shown',
+    ok: Boolean(chipBox) && c.stage === 'docked' && c.size === 'wide' && c.toggleShown,
     detail: chipBox ? fmt(c) : 'no project chip'
   })
   const hit = await topAt(page, c.left + c.w / 2, c.top + c.h / 2)
@@ -725,10 +737,9 @@ async function journeyBesideProjectDialog (page) {
   })
   out.push({ claim: 'and the project dialog itself is still on top of its own area', ok: dialogHit })
 
-  // tdd-critic: the lift must not outlive the room. Narrow the window with the dialog still
-  // open - the card no longer fits beside it and overlaps the panel; over that overlap the
-  // DIALOG must win (the card drops back under the scrim), not the lifted chat.
-  await setViewport(page, 1280, 1080)
+  // Narrow below 1016 with the dialog still open: nothing is reserved any more and the card
+  // overlaps the (re-centred) panel; over that overlap the DIALOG must win.
+  await setViewport(page, 1000, 900)
   await evaluate(page, () => { window.dispatchEvent(new Event('resize')) })
   await sleep(500)
   const overlap = await evaluate(page, () => {
@@ -736,35 +747,321 @@ async function journeyBesideProjectDialog (page) {
     const b = document.querySelector('#projectDialog .project-dialog__panel').getBoundingClientRect()
     const l = Math.max(a.left, b.left); const r = Math.min(a.right, b.right)
     const t = Math.max(a.top, b.top); const btm = Math.min(a.bottom, b.bottom)
-    if (r - l < 2 || btm - t < 2) return { none: true }
+    const beside = document.getElementById('chatDialog').dataset.chatBeside
+    const reserve = document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')
+    if (r - l < 2 || btm - t < 2) return { none: true, beside, reserve }
     const el = document.elementFromPoint((l + r) / 2, (t + btm) / 2)
     return {
       width: r - l,
       top: el && el.closest('#projectDialog') ? 'project-dialog' : el && el.closest('#chatDialog') ? 'chat' : 'other',
-      beside: document.getElementById('chatDialog').dataset.chatBeside
+      beside,
+      reserve
     }
   })
+  const tucked = await stage(page)
   out.push({
-    claim: '1920 -> 1280 with the dialog open: over the card/panel overlap the PROJECT DIALOG wins (beside mark dropped)',
-    ok: !overlap.none && overlap.top === 'project-dialog' && overlap.beside === 'false',
-    detail: JSON.stringify(overlap)
+    claim: '1920 -> 1000 with the dialog open: the card TUCKS into the pill, the reserve clears, and over any overlap the PROJECT DIALOG wins',
+    ok: tucked === 'minimized' && overlap.beside === 'false' && overlap.reserve === '' && (overlap.none || overlap.top === 'project-dialog'),
+    detail: JSON.stringify({ stage: tucked, ...overlap })
   })
   await setViewport(page, 1920, 1080)
   await evaluate(page, () => { window.dispatchEvent(new Event('resize')) })
   await sleep(500)
+  const widened = await evaluate(page, () => ({
+    stage: document.getElementById('chatDialog').dataset.chatStage,
+    beside: document.getElementById('chatDialog').dataset.chatBeside
+  }))
   out.push({
-    claim: 'and widening back with the dialog still open lifts it again',
-    ok: (await evaluate(page, () => document.getElementById('chatDialog').dataset.chatBeside)) === 'true'
+    claim: 'and widening back does not promote the pill, but reserves its column and lifts it again',
+    ok: widened.stage === 'minimized' && widened.beside === 'true',
+    detail: JSON.stringify(widened)
   })
 
+  await evaluate(page, () => document.querySelector('#projectDialog .project-dialog__close').focus())
   await pressKey(page, 'Escape')
   await sleep(600)
   const after = await card(page)
   out.push({
-    claim: 'closing the dialog returns the card to the stored size (wide) and drops it back under dialogs',
+    claim: 'closing the dialog returns the card docked at the stored size (wide) and drops it back under dialogs',
     ok: after.stage === 'docked' && after.size === 'wide' &&
       (await evaluate(page, () => getComputedStyle(document.getElementById('chatDialog')).zIndex)) === '1085',
     detail: fmt(after)
+  })
+  await setViewport(page, 1280, 900)
+  return out
+}
+
+// ---------------------------------------------------------------- ADR-0029 (the reserved column)
+
+const openProjectFromPage = async (page) => {
+  await evaluate(page, () => { document.querySelector('#portfolioProjects .project').click() })
+  await sleep(700)
+}
+
+/** Everything ADR-0029 §7 asks a compositor about, in one read. */
+const reserveState = (page) => evaluate(page, async () => {
+  const m = await import('/js/chat-stage.js')
+  const d = document.getElementById('chatDialog')
+  const p = d.querySelector('.chat-dialog__panel')
+  const pd = document.getElementById('projectDialog')
+  const pp = pd.querySelector('.project-dialog__panel')
+  const rect = (el) => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, w: b.width, h: b.height } }
+  const tag = (el) => !el ? 'nothing'
+    : el.closest('#chatDialog') ? 'chat'
+      : el.closest('#projectDialog .project-dialog__panel') ? 'project-panel'
+        : el.closest('#projectDialog') ? 'project-scrim' : 'page'
+  const c = rect(p)
+  const composer = document.getElementById('chatComposerInput').getBoundingClientRect()
+  const panel = pd.hidden ? null : rect(pp)
+  const layout = m.besideLayout({ viewportWidth: innerWidth, preferred: localStorage.getItem('gvp-chat-size') })
+  return {
+    vw: innerWidth,
+    stage: d.dataset.chatStage,
+    size: d.dataset.chatSize,
+    beside: d.dataset.chatBeside,
+    reserve: document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end'),
+    layout,
+    projectOpen: !pd.hidden,
+    card: c,
+    panel,
+    hitCard: tag(document.elementFromPoint(c.left + c.w / 2, c.top + c.h / 2)),
+    hitComposer: tag(document.elementFromPoint(composer.left + composer.width / 2, composer.top + composer.height / 2)),
+    hitPanel: panel ? tag(document.elementFromPoint(panel.left + panel.w / 2, panel.top + panel.h / 2)) : null,
+    hitFarLeft: tag(document.elementFromPoint(6, innerHeight / 2)),
+    hScroll: document.documentElement.scrollWidth > innerWidth,
+    panelAriaModal: pp.getAttribute('aria-modal'),
+    pageInert: ['body > header', 'body > main', 'body > footer'].map((s) => Boolean(document.querySelector(s)?.closest('[inert]')))
+  }
+})
+
+const r1 = (n) => Math.round(n * 10) / 10
+
+// The open's seed animation scales the panel from the launcher, and a headless background tab
+// throttles its timers (see W7) - so a rect read too early is the launcher-sized card. Wait for
+// the panel to be handed back to the stylesheet before measuring or clicking it.
+const waitChatIdle = async (page) => {
+  await page.send('Page.bringToFront').catch(() => {})
+  const deadline = Date.now() + 8000
+  while (Date.now() < deadline) {
+    const idle = await evaluate(page, () => {
+      const p = document.querySelector('#chatDialog .chat-dialog__panel')
+      return !p.style.transform && !p.style.transition && p.getAnimations().length === 0
+    })
+    if (idle) return
+    await sleep(150)
+  }
+}
+
+async function journeyReservedColumn (page) {
+  // ADR-0029 §7, in a real browser: at 1280/1440/1920, for each stored size, in both opening
+  // orders, the conversation stays usable beside an open project dialog.
+  const out = []
+  for (const [vw, vh] of [[1280, 800], [1440, 900], [1920, 1080]]) {
+    for (const pref of ['wide', 'compact']) {
+      for (const order of ['chat-then-project', 'project-then-chat']) {
+        const tag = `${vw} ${pref} ${order}`
+        await setViewport(page, vw, vh)
+        await goto(page, `${ORIGIN}/#portfolio`)
+        await evaluate(page, (p) => localStorage.setItem('gvp-chat-size', p), pref)
+        await goto(page, `${ORIGIN}/#portfolio`)
+        await evaluate(page, async () => {
+          const m = await import('/js/site-state.js')
+          m.setVoiceActive(true, { origin: 'system' })
+        })
+        if (order === 'chat-then-project') {
+          await openChat(page)
+          await waitChatIdle(page)
+          await openProjectFromPage(page)
+        } else {
+          await openProjectFromPage(page)
+          await openChat(page)
+        }
+        await waitChatIdle(page)
+        await sleep(300)
+        const s = await reserveState(page)
+        const gap = s.panel ? s.card.left - s.panel.right : null
+        const panelOk = s.panel && s.panel.w >= 559.5 && s.panel.w <= s.layout.panelMax + 0.5
+        out.push({
+          claim: `${tag}: docked ${s.layout.size} and reserved; card, composer -> chat; panel -> panel; far left -> scrim`,
+          ok: s.stage === 'docked' && s.size === s.layout.size && s.beside === 'true' &&
+            s.reserve === `${s.layout.reserve}px` && s.hitCard === 'chat' && s.hitComposer === 'chat' &&
+            s.hitPanel === 'project-panel' && s.hitFarLeft === 'project-scrim',
+          detail: JSON.stringify({ stage: s.stage, size: s.size, beside: s.beside, reserve: s.reserve, hits: [s.hitCard, s.hitComposer, s.hitPanel, s.hitFarLeft] })
+        })
+        out.push({
+          claim: `${tag}: no overlap (gap >= 20), panel width in [560, panelMax], no horizontal scroll`,
+          ok: gap !== null && gap >= 20 && panelOk && !s.hScroll,
+          detail: s.panel
+            ? `card [${r1(s.card.left)}, ${r1(s.card.right)}] panel [${r1(s.panel.left)}, ${r1(s.panel.right)}] w=${r1(s.panel.w)} panelMax=${s.layout.panelMax} gap=${r1(gap)} hScroll=${s.hScroll}`
+            : 'no project panel'
+        })
+        out.push({
+          claim: `${tag}: a11y swap - panel aria-modal=false, header/main/footer inert`,
+          ok: s.panelAriaModal === 'false' && s.pageInert.every(Boolean),
+          detail: JSON.stringify({ ariaModal: s.panelAriaModal, inert: s.pageInert })
+        })
+        if (vw === 1440 && pref === 'wide' && order === 'chat-then-project') {
+          out.push({
+            claim: `1440 wide numbers: card [${r1(s.card.left)}, ${r1(s.card.right)}] (w ${r1(s.card.w)}), panel [${r1(s.panel.left)}, ${r1(s.panel.right)}] (w ${r1(s.panel.w)}), gap ${r1(gap)}`,
+            ok: true
+          })
+        }
+
+        // Only in one order per width/size: the interaction claims don't depend on order.
+        if (order !== 'chat-then-project') continue
+
+        // A click inside the chat (on its transcript area) never closes the dialog.
+        await clickAt(page, s.card.left + s.card.w / 2, s.card.top + 60)
+        await sleep(300)
+        const afterChatClick = await evaluate(page, () => !document.getElementById('projectDialog').hidden)
+        out.push({ claim: `${tag}: clicking inside the chat never closes the project dialog`, ok: afterChatClick })
+
+        // Escape with focus in the composer while reserved: a no-op for the chat AND the dialog
+        // (ADR-0029 addendum) - minimising there used to strand the pill under the scrim.
+        await evaluate(page, () => document.getElementById('chatComposerInput').focus())
+        await pressKey(page, 'Escape')
+        await sleep(400)
+        const esc = await evaluate(page, () => ({
+          project: !document.getElementById('projectDialog').hidden,
+          stage: document.getElementById('chatDialog').dataset.chatStage
+        }))
+        out.push({
+          claim: `${tag}: Escape in the composer while reserved leaves the chat docked and the dialog open`,
+          ok: esc.project && esc.stage === 'docked',
+          detail: JSON.stringify(esc)
+        })
+        // The minimise button still minimises; the pill stays above the scrim and restores.
+        const minBox = await box(page, '#chatDialog .chat-dialog__minimize')
+        if (minBox) await clickAt(page, minBox.cx, minBox.cy)
+        await sleep(500)
+        const pill = await evaluate(page, () => {
+          const d = document.getElementById('chatDialog')
+          const r = d.querySelector('.chat-dialog__panel').getBoundingClientRect()
+          const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          return {
+            stage: d.dataset.chatStage,
+            project: !document.getElementById('projectDialog').hidden,
+            hit: el && el.closest('#chatDialog') ? 'chat' : el && el.closest('#projectDialog') ? 'project-dialog' : 'page',
+            inert: Boolean(d.closest('[inert]')),
+            cx: r.left + r.width / 2,
+            cy: r.top + r.height / 2
+          }
+        })
+        out.push({
+          claim: `${tag}: the minimise button gives a pill that is hit-testable above the scrim (not inert), dialog still open`,
+          ok: Boolean(minBox) && pill.stage === 'minimized' && pill.project && pill.hit === 'chat' && !pill.inert,
+          detail: JSON.stringify(pill)
+        })
+        await clickAt(page, pill.cx, pill.cy)
+        await sleep(500)
+        const back = await evaluate(page, () => ({
+          stage: document.getElementById('chatDialog').dataset.chatStage,
+          beside: document.getElementById('chatDialog').dataset.chatBeside,
+          reserve: document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')
+        }))
+        out.push({
+          claim: `${tag}: a real click on the pill restores the card, reserved beside the still-open dialog`,
+          ok: back.stage === 'docked' && back.beside === 'true' && back.reserve !== '',
+          detail: JSON.stringify(back)
+        })
+        await waitChatIdle(page)
+
+        // Tab only cycles between the project dialog and the chat.
+        await evaluate(page, () => document.querySelector('#projectDialog .project-dialog__close').focus())
+        const where = []
+        for (let i = 0; i < 40; i++) {
+          await pressKey(page, 'Tab')
+          where.push(await evaluate(page, () => {
+            const a = document.activeElement
+            if (!a || a === document.body || a === document.documentElement) return 'body'
+            if (a.closest('#projectDialog')) return 'project'
+            if (a.closest('#chatDialog')) return 'chat'
+            return `page:${a.id || a.tagName}`
+          }))
+        }
+        const strays = where.filter((w) => w.startsWith('page:'))
+        out.push({
+          claim: `${tag}: Tab moves only between the project dialog and the chat`,
+          ok: strays.length === 0 && where.includes('project') && where.includes('chat'),
+          detail: JSON.stringify([...new Set(where)])
+        })
+
+        // The grey area LEFT of the dialog closes it; the chat and the call are untouched.
+        await clickAt(page, 6, vh / 2)
+        await sleep(500)
+        const closed = await evaluate(page, async () => {
+          const m = await import('/js/site-state.js')
+          return {
+            project: !document.getElementById('projectDialog').hidden,
+            stage: document.getElementById('chatDialog').dataset.chatStage,
+            reserve: document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end'),
+            inert: Boolean(document.querySelector('main')?.closest('[inert]')),
+            voiceActive: m.getSiteState().voiceActive
+          }
+        })
+        out.push({
+          claim: `${tag}: a click on the grey area left of the dialog closes it; chat stays docked, reserve and inert cleared, voice untouched`,
+          ok: !closed.project && closed.stage === 'docked' && closed.reserve === '' && !closed.inert && closed.voiceActive,
+          detail: JSON.stringify(closed)
+        })
+      }
+    }
+  }
+  await setViewport(page, 1280, 900)
+  return out
+}
+
+async function journeyTuckBelow1016 (page) {
+  // ADR-0029 §4 + N-P3: at 1000 px a page-opened project tucks the docked card into the pill
+  // and closing it brings the card back; a chip there still opens the modal over the dialog.
+  const out = []
+  await setViewport(page, 1000, 768)
+  await goto(page, `${ORIGIN}/#portfolio`)
+  await clearSizePref(page)
+  await goto(page, `${ORIGIN}/#portfolio`)
+  await evaluate(page, async () => {
+    const m = await import('/js/site-state.js')
+    m.setVoiceActive(true, { origin: 'system' })
+  })
+  await openChat(page)
+  await waitChatIdle(page)
+  const before = await stage(page)
+  await openProjectFromPage(page)
+  const s = await reserveState(page)
+  out.push({
+    claim: '1000: a page-opened project tucks the docked card into the pill; nothing reserved, no h-scroll',
+    ok: before === 'docked' && s.stage === 'minimized' && s.reserve === '' && s.beside === 'false' && !s.hScroll,
+    detail: JSON.stringify({ before, stage: s.stage, reserve: s.reserve, hScroll: s.hScroll })
+  })
+  await evaluate(page, () => document.querySelector('#projectDialog .project-dialog__close').click())
+  await sleep(500)
+  const back = await evaluate(page, async () => {
+    const m = await import('/js/site-state.js')
+    return { stage: document.getElementById('chatDialog').dataset.chatStage, size: document.getElementById('chatDialog').dataset.chatSize, voiceActive: m.getSiteState().voiceActive }
+  })
+  out.push({
+    claim: '1000: closing the project restores the docked card at the stored size, voice untouched',
+    ok: back.stage === 'docked' && back.size === 'wide' && back.voiceActive,
+    detail: JSON.stringify(back)
+  })
+
+  // N-P3: the chip below 1016 keeps today's behaviour - the modal over the dialog.
+  await openProjectFromPage(page)
+  await evaluate(page, () => {
+    document.querySelector('#projectDialog [data-project-chip="summarize"]')?.scrollIntoView({ block: 'center' })
+  })
+  await sleep(200)
+  const chipBox = await box(page, '#projectDialog [data-project-chip="summarize"]')
+  if (chipBox) await clickAt(page, chipBox.cx, chipBox.cy)
+  await sleep(800)
+  const chip = await evaluate(page, () => ({
+    stage: document.getElementById('chatDialog').dataset.chatStage,
+    project: !document.getElementById('projectDialog').hidden
+  }))
+  out.push({
+    claim: '1000 chip (N-P3): the chat goes modal over the still-open dialog',
+    ok: Boolean(chipBox) && chip.stage === 'modal' && chip.project,
+    detail: chipBox ? JSON.stringify(chip) : 'no project chip'
   })
   await setViewport(page, 1280, 900)
   return out
@@ -785,7 +1082,9 @@ const JOURNEYS = [
   ['W5 narrow is unchanged', journeyNarrowUnchanged],
   ['W3/W6 minimise, restore, reload keep the size', journeyMinimizeRestoreKeepsSize],
   ['W7 motion', journeyTransitionMotion],
-  ['W6 beside a project dialog (z-index drift)', journeyBesideProjectDialog]
+  ['W6 beside a project dialog (z-index drift)', journeyBesideProjectDialog],
+  ['ADR-0029 a dialog reserves the chat column', journeyReservedColumn],
+  ['ADR-0029 below 1016 the card tucks; the chip stays modal', journeyTuckBelow1016]
 ]
 
 async function main () {
@@ -807,6 +1106,14 @@ async function main () {
       const up = await fetch(`${ORIGIN}/index.html`).then((r) => r.ok, () => false)
       if (up) break
       await sleep(150)
+    }
+    // FAIL, don't test someone else's tree: the server must serve THIS checkout's code.
+    const local = readFileSync(new URL('../../js/chat.js', import.meta.url), 'utf8')
+    const served = await fetch(`${ORIGIN}/js/chat.js`).then((r) => r.text(), () => '')
+    if (served !== local) {
+      console.error(`${ORIGIN} is not serving this checkout (js/chat.js differs) - refusing to run.`)
+      server.kill()
+      process.exit(2)
     }
   }
 

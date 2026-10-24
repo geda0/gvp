@@ -28,11 +28,13 @@ test('the chips are inside the project dialog panel', () => {
   for (const { id } of PROJECT_CHIPS) assert.match(panel, new RegExp(`data-project-chip="${id}"`))
 })
 
-test('js/chat.js wires the chips to open-beside with a MEASURED roomBeside, and sends the canned prompt', () => {
+// ADR-0029 §2.1 (deliberate test-writer change): the room is besideLayout's reserve, a
+// function of the viewport - no live panel measurement any more.
+test('js/chat.js wires the chips to open-beside with roomBeside from besideLayout, and sends the canned prompt', () => {
   const chat = read('js/chat.js')
   const block = chat.slice(chat.indexOf('[data-project-chip]'), chat.indexOf('[data-project-chip]') + 2600)
-  assert.match(block, /hasRoomBesideDialog\(/)
-  assert.match(block, /getBoundingClientRect\(\)/)
+  assert.match(block, /roomBeside = besideLayout\([^)]*\)\.reserve > 0/)
+  assert.doesNotMatch(block, /getBoundingClientRect\(\)|hasRoomBesideDialog/)
   assert.match(block, /dispatchStage\('open-beside', 'visitor', \{ roomBeside/)
   assert.match(block, /projectChipPrompt\(/)
   assert.match(block, /sendMessage\(/)

@@ -706,16 +706,13 @@ test('ADR-0027 §7: a resize across 840px flips the effective size, never the pr
     'widening brings wide back with no visitor act: the fallback never overwrote the preference')
 })
 
-test('ADR-0027 §3.2: beside a project dialog the card is wide only if wide fits, else compact, else modal', async (t) => {
-  // Three outcomes, in order: wide beside -> compact beside -> modal. Never the pill (it
-  // would sit under the project backdrop). The dialog width is the browser-measured 739.59.
+test('ADR-0029 §2.1: a chip docks beside the dialog at besideLayout\'s size - wide, else compact, else modal (N-P3)', async (t) => {
+  // Deliberate test-writer change: the ladder was decided by a MEASURED centred panel
+  // (wide >= 2220, compact >= 1547, else modal). The dialog now moves left of a reserved
+  // column, so the ladder is besideLayout's: wide >= 1352, compact >= 1016, else modal.
   const tapAt = async (tag, vw) => {
     const h = await boot(tag, vw, { startClosed: true, voice: false })
     t.after(() => h.api.disposeChatLiveVoice())
-    const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: 739.59, height: 500 }
-    document.querySelector = (sel) => (
-      sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => panelRect } : null
-    )
     h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
     await settle()
     h.docEvents.fire('click', {
@@ -727,21 +724,20 @@ test('ADR-0027 §3.2: beside a project dialog the card is wide only if wide fits
     return { h, dialog, toggle, read: () => [h.siteState.getSiteState().chatStage, dialog.dataset.chatSize, dialog.style.getPropertyValue('--chat-dock-width'), Boolean(toggle.hidden)] }
   }
 
-  const wide = await tapAt('beside-2560', 2560)
-  assert.deepEqual(wide.read(), ['docked', 'wide', '720px', false], '2560: (2560 - 739.59)/2 >= 740')
+  const wide = await tapAt('beside-1440', 1440)
+  assert.deepEqual(wide.read(), ['docked', 'wide', '720px', false], '1440: a wide column is reserved')
 
-  const compact = await tapAt('beside-1920', 1920)
+  const compact = await tapAt('beside-1280', 1280)
   assert.deepEqual(compact.read(), ['docked', 'compact', '384px', true],
-    '1920: room for compact (590 >= 404) but not wide (590 < 740); the toggle hides - a wide ' +
-    'card there would overlap the dialog')
+    '1280: only a compact column leaves the panel >= 560; the toggle hides')
   // The dialog closes: the temporary compact was never written to the preference.
   compact.h.siteState.setProject(null, { origin: 'visitor' })
   await settle()
   assert.deepEqual(compact.read(), ['docked', 'wide', '720px', false],
     'closing the dialog brings the stored (wide) size back')
 
-  const modal = await tapAt('beside-1280', 1280)
-  assert.equal(modal.read()[0], 'modal', '1280: no room even for compact -> modal (ADR-0017 rule)')
+  const modal = await tapAt('beside-1000', 1000)
+  assert.equal(modal.read()[0], 'modal', '1000: no column -> modal over the dialog (N-P3)')
 })
 
 test('ADR-0027 W7: the open animation hands the panel back to CSS, so a size toggle can animate', async (t) => {
@@ -768,20 +764,13 @@ test('ADR-0027 W7: the open animation hands the panel back to CSS, so a size tog
   assert.equal(panel.style.transform || 'none', 'none')
 })
 
-test('ADR-0027 §9 drift: a card docked BESIDE a project dialog is marked, so it can sit above the scrim', async (t) => {
-  // MEASURED in the browser journey (W6 beside a project dialog): at 1920x1080 the beside
-  // card is docked at z 1085, and .project-dialog is inset:0 at z 1100 with a 72% scrim +
-  // blur, so elementFromPoint over the card returned the PROJECT DIALOG - a blurred card the
-  // visitor asked for and cannot type into. The card only docks beside when it fits WITHOUT
-  // overlapping the panel, so lifting exactly that case covers scrim, never the dialog.
-  // A YIELD to a project dialog (project-open while docked) is not marked: that card stays
-  // below the dialog the visitor turned to (test/chat-stage-layering.test.mjs).
+test('ADR-0029 §3: the lift above the scrim is exactly the reserve, by chip or by plain yield', async (t) => {
+  // ADR-0027 §9 measured a beside card at z 1085 under the dialog's inset:0 scrim. ADR-0029
+  // (deliberate test-writer change): the lift no longer depends on HOW the card came to be
+  // beside the dialog - the dialog moves out of the reserved column, so lifting covers scrim,
+  // never panel. The old row asserted a plain yield stays under the dialog; it is now reserved.
   const h = await boot('beside-marked', 1920, { startClosed: true, voice: false })
   t.after(() => h.api.disposeChatLiveVoice())
-  const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: 739.59, height: 500 }
-  document.querySelector = (sel) => (
-    sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => panelRect } : null
-  )
   const dialog = h.getEl('chatDialog')
   h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
   await settle()
@@ -796,80 +785,76 @@ test('ADR-0027 §9 drift: a card docked BESIDE a project dialog is marked, so it
   await settle()
   assert.equal(dialog.dataset.chatBeside, 'false', 'and unmarked once the dialog is gone')
 
-  // A plain yield: docked first, THEN a project dialog opens. Not beside by request.
+  // A plain yield: docked first, THEN a project dialog opens.
   h.siteState.setProject({ id: 'gvp', title: 'This site' }, { origin: 'visitor' })
   await settle()
   assert.equal(h.siteState.getSiteState().chatStage, 'docked')
-  assert.equal(dialog.dataset.chatBeside, 'false', 'a yielded card stays below the dialog')
+  assert.equal(dialog.dataset.chatBeside, 'true', 'a page-opened dialog reserves the column too')
 })
 
-test('a chip with NO room goes modal, and a later yield from it is not marked beside', async (t) => {
-  // The raise above the scrim is safe ONLY because a beside card was measured not to overlap
-  // the dialog panel. At 1280 there is no such room: the chip goes modal, and if a site event
-  // then yields that modal to docked while the dialog is still open, the card OVERLAPS the
-  // panel - marking it beside would lift it on top of the dialog the visitor is reading.
-  const h = await boot('beside-no-room', 1280, { startClosed: true, voice: false })
+test('N-P3: a chip with NO room (1000) goes modal, and a later yield from it is not lifted over the panel', async (t) => {
+  // The lift is safe ONLY because the dialog moved out of a reserved column. At 1000 nothing
+  // is reserved: the chip goes modal over the dialog (N-P3, today's behaviour), and if a site
+  // event then yields that modal to docked, marking it beside would lift it over the panel.
+  // (Deliberate test-writer change: the no-room width was 1280 under the centred-panel rule.)
+  const h = await boot('beside-no-room', 1000, { startClosed: true, voice: false })
   t.after(() => h.api.disposeChatLiveVoice())
-  const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: 739.59, height: 500 }
-  document.querySelector = (sel) => (
-    sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => panelRect } : null
-  )
   h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
   await settle()
   h.docEvents.fire('click', {
     target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
   })
   await settle()
-  assert.equal(h.siteState.getSiteState().chatStage, 'modal', 'harness: no room -> modal')
+  assert.equal(h.siteState.getSiteState().chatStage, 'modal', 'no room -> modal over the dialog (N-P3)')
 
   h.siteState.setSection('labs', { origin: 'agent' })
   await settle()
   const dialog = h.getEl('chatDialog')
   assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'harness: the modal yielded')
-  assert.equal(dialog.dataset.chatBeside, 'false', 'an overlapping yield must stay under the dialog')
-  assert.equal(dialog.dataset.chatSize, 'wide', 'and it is not sized as if it were beside')
+  assert.equal(dialog.dataset.chatBeside, 'false', 'an unreserved yield must stay under the dialog')
+  assert.equal(document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end'), '',
+    'and nothing is reserved at 1000')
 })
 
-// Shared by the critic-pass rows below: boot at a width, stub the live project panel, open a
-// project dialog in the store, and tap a chip the way a visitor does.
-async function bootBeside (t, tag, vw, { panelWidth = 739.59, startClosed = true } = {}) {
+// Shared by the critic-pass rows below: boot at a width and tap a chip the way a visitor
+// does. (ADR-0029 removed the live project-panel measurement, so the rect stub that lived
+// here is gone - a deliberate test-writer change; nothing reads the panel's width now.)
+async function bootBeside (t, tag, vw, { startClosed = true } = {}) {
   const h = await boot(tag, vw, { startClosed, voice: false })
   t.after(() => h.api.disposeChatLiveVoice())
-  const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: panelWidth, height: 500 }
-  document.querySelector = (sel) => (
-    sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => ({ ...panelRect }) } : null
-  )
   const tapChip = async () => {
     h.docEvents.fire('click', {
       target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
     })
     await settle()
   }
-  return { ...h, panelRect, tapChip, dialog: h.getEl('chatDialog') }
+  return { ...h, tapChip, dialog: h.getEl('chatDialog') }
 }
 
-test('critic: the beside lift is re-checked on resize, so a narrower window drops the card back under the scrim', async (t) => {
-  // tdd-critic, measured: dock beside at 1920, then narrow to 1440 / 800 - the card stayed
-  // marked beside at z 1102 and covered 54-370px of the project dialog's OWN panel
-  // (elementFromPoint over the overlap returned the chat). The lift is only safe while the
-  // card measurably fits beside the LIVE panel, so it must be re-decided, not remembered.
-  const h = await bootBeside(t, 'beside-resize', 1920)
+test('ADR-0029 §3: the reserve is re-decided on resize - below 1016 it clears, widening reserves again', async (t) => {
+  // tdd-critic (ADR-0027 era), measured: a remembered beside decision lifted the card over the
+  // dialog's own panel after a narrowing resize. The reserve is a function of the live
+  // viewport, so it is re-decided on every resize (deliberate test-writer change: the
+  // threshold is besideLayout's 1016, not the centred-panel 1547).
+  const h = await bootBeside(t, 'beside-resize', 1440)
   h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
   await settle()
   await h.tapChip()
-  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: beside at 1920')
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: beside at 1440')
 
-  window.innerWidth = 1280 // (1280 - 739.59)/2 = 270 < 384 + 20: no room any more
+  window.innerWidth = 1000
   h.winEvents.fire('resize', {})
   await settle()
-  assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'still docked (>= 768)')
-  assert.equal(h.dialog.dataset.chatBeside, 'false',
-    'a card that no longer fits beside the dialog must go back under its scrim, not over its panel')
+  assert.deepEqual(
+    [h.dialog.dataset.chatBeside, document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')],
+    ['false', ''], 'below 1016 nothing is reserved and the card is not lifted over the panel')
 
-  window.innerWidth = 1920
+  window.innerWidth = 1440
   h.winEvents.fire('resize', {})
   await settle()
-  assert.equal(h.dialog.dataset.chatBeside, 'true', 'and widening with the dialog still open lifts it again')
+  assert.deepEqual(
+    [h.dialog.dataset.chatBeside, document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')],
+    ['true', '760px'], 'and widening with the dialog still open reserves it again')
 })
 
 test('critic: a chip pressed while the WIDE card is already docked re-sizes it to compact beside the dialog', async (t) => {
@@ -889,15 +874,16 @@ test('critic: a chip pressed while the WIDE card is already docked re-sizes it t
   assert.deepEqual(
     [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize,
       h.dialog.style.getPropertyValue('--chat-dock-width'), h.dialog.dataset.chatBeside],
-    ['docked', 'compact', '384px', 'true'],
-    '1920 beside 739.59: compact fits, wide does not - and the card is lifted above the scrim'
+    // ADR-0029 (deliberate test-writer change): 1920 reserves a wide column.
+    ['docked', 'wide', '720px', 'true'],
+    '1920 beside: the wide column is reserved - and the card is lifted above the scrim'
   )
 })
 
-test('critic: closing the chat forgets the dialog it sat beside', async (t) => {
-  // Beside at 1920, then the visitor closes the chat with the X while the dialog stays open.
-  // A reopen is a plain open: if the old beside width survived the close, the next apply
-  // would re-measure the dialog and lift a card nobody asked to dock beside it.
+test('ADR-0029 §3: closing the chat clears the reserve; reopening over the dialog reserves again', async (t) => {
+  // Deliberate test-writer change: the old row said a plain reopen is NOT beside the dialog.
+  // ADR-0029 §3: the chat opening or restoring over a showing project dialog reserves -
+  // otherwise the reopened card is a blurred card under the scrim, the bug itself.
   const h = await bootBeside(t, 'beside-close', 1920)
   h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
   await settle()
@@ -907,10 +893,214 @@ test('critic: closing the chat forgets the dialog it sat beside', async (t) => {
   h.api.closePanelImmediate()
   await settle()
   assert.equal(h.siteState.getSiteState().chatStage, 'closed', 'harness: closed')
+  assert.deepEqual(
+    [h.dialog.dataset.chatBeside, document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')],
+    ['false', ''], 'a closed chat reserves nothing')
 
   h.api.openPanel() // a plain launcher open; the project dialog is still up
   await settle()
   assert.equal(h.siteState.getSiteState().chatStage, 'docked')
-  assert.equal(h.dialog.dataset.chatBeside, 'false', 'a plain reopen is not beside the dialog')
-  assert.equal(h.dialog.dataset.chatSize, 'wide', 'and is sized as the main window, not as beside')
+  assert.deepEqual(
+    [h.dialog.dataset.chatBeside, h.dialog.dataset.chatSize,
+      document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')],
+    ['true', 'wide', '760px'], 'reopening over the dialog reserves the (wide) column')
+})
+
+// ---------------------------------------------------------------- ADR-0029 §3 (the reserve)
+
+const RESERVE = '--overlay-reserve-inline-end'
+const reserveOf = () => document.documentElement.style.getPropertyValue(RESERVE)
+
+/** Docked at `vw` with voice up (so #20 is observable), a stopVoice spy installed. */
+async function bootDocked (t, tag, vw) {
+  const h = await boot(tag, vw)
+  t.after(() => h.api.disposeChatLiveVoice())
+  h.siteState.setSection('labs', { origin: 'visitor' })
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'harness: docked')
+  const stops = []
+  h.api.liveVoice.stopVoice = (o) => { stops.push(o || {}) }
+  return { ...h, stops, dialog: h.getEl('chatDialog') }
+}
+
+test('ADR-0029 §3: a project opening beside a docked card reserves its column, though the stage did not change', async (t) => {
+  // RCA: docked, then project-open, is a same-stage no-op in dispatchStage, so nothing was
+  // applied and the card stayed blurred under the dialog's scrim at every common width.
+  const h = await bootDocked(t, 'reserve-open', 1440)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'the card stays docked at 1440')
+  assert.deepEqual(
+    [reserveOf(), h.dialog.dataset.chatBeside, h.dialog.dataset.chatSize],
+    ['760px', 'true', 'wide'],
+    'the page-level inset is besideLayout(1440, wide).reserve and the card is lifted above the scrim'
+  )
+  assert.deepEqual(h.stops, [], 'invariant #20: a layout change never ends the call')
+})
+
+test('ADR-0029 §3: project-close and close clear the reserve, minimise keeps it for the pill, and the size returns to the preference', async (t) => {
+  const h = await bootDocked(t, 'reserve-clear', 1280)
+  const read = () => [h.siteState.getSiteState().chatStage, reserveOf(), h.dialog.dataset.chatBeside, h.dialog.dataset.chatSize]
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(read(), ['docked', '424px', 'true', 'compact'], '1280: a compact column is reserved')
+
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(read(), ['docked', '', 'false', 'wide'], 'project-close clears it; the stored wide comes back')
+
+  h.siteState.setProject({ id: 'gvp', title: 'This site' }, { origin: 'visitor' })
+  await settle()
+  h.getEl('chatDialog').querySelector('.chat-dialog__minimize').events.fire('click', { stopPropagation () {} })
+  await settle()
+  // ADR-0029 addendum (coordinator, deliberate test-writer change): the minimised pill keeps the
+  // column and is lifted above the scrim, so the visitor can always restore it - it used to drop
+  // under the scrim, unreachable until the dialog closed.
+  assert.deepEqual(read().slice(0, 3), ['minimized', '424px', 'true'],
+    'a pill minimised beside the dialog keeps the column and is lifted above the scrim')
+
+  h.getEl('agentActiveChip').events.fire('click', {})
+  await settle()
+  assert.deepEqual(read().slice(0, 3), ['docked', '424px', 'true'], 'restoring over the dialog reserves again')
+
+  h.api.closePanelImmediate()
+  await settle()
+  assert.deepEqual(read().slice(1, 3), ['', 'false'], 'a closed chat reserves nothing')
+  assert.equal(h.stops.length, 1, 'only the visitor closing the chat ends the call (#20)')
+})
+
+test('ADR-0029 §4: at 1000 a page-opened project tucks the docked card, and closing it brings the card back docked', async (t) => {
+  const h = await bootDocked(t, 'reserve-1000', 1000)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, reserveOf(), h.dialog.dataset.chatBeside],
+    ['minimized', '', 'false'], 'no column at 1000: the card tucks into the pill, nothing reserved')
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize],
+    ['docked', 'wide'], 'project-close is the return path, at the stored size')
+  assert.deepEqual(h.stops, [], 'invariant #20: neither move ends the call')
+  assert.equal(h.api.liveVoice.isSessionOpen(), true)
+})
+
+test('ADR-0029 §6.1: while reserved two dialogs are interactive - the panel is not aria-modal and the rest of the page is inert', async (t) => {
+  const { makeEl } = await import('./fixtures/chat-harness.mjs')
+  const h = await bootDocked(t, 'reserve-a11y', 1440)
+  // The body's element children, as index.html has them (abridged).
+  const named = (id) => { const el = makeEl('div'); el.id = id; return el }
+  const header = named('siteHeader')
+  const main = named('main')
+  const already = named('somethingElseMadeInert')
+  already.inert = true
+  const projectDialog = named('projectDialog')
+  const chatDialog = h.dialog
+  chatDialog.id = 'chatDialog'
+  const footer = named('footer')
+  document.body.children.push(header, main, already, projectDialog, chatDialog, footer)
+  const projectPanel = makeEl('div')
+  projectPanel.setAttribute('aria-modal', 'true')
+  document.querySelector = (sel) => (sel === '#projectDialog .project-dialog__panel' ? projectPanel : null)
+  const inertMap = () => Object.fromEntries(
+    document.body.children.map((el) => [el.id, [Boolean(el.inert), el.getAttribute('data-overlay-inert')]])
+  )
+
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(projectPanel.getAttribute('aria-modal'), 'false',
+    'two dialogs are interactive: neither may tell AT the rest of the page does not exist')
+  assert.deepEqual(inertMap(), {
+    siteHeader: [true, 'true'],
+    main: [true, 'true'],
+    somethingElseMadeInert: [true, null],
+    projectDialog: [false, null],
+    chatDialog: [false, null],
+    footer: [true, 'true']
+  }, 'every body child but the two dialogs is inert, and only what the reserve set is marked')
+
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.equal(projectPanel.getAttribute('aria-modal'), 'true', 'cleared: the project panel is modal again')
+  assert.deepEqual(inertMap(), {
+    siteHeader: [false, null],
+    main: [false, null],
+    somethingElseMadeInert: [true, null],
+    projectDialog: [false, null],
+    chatDialog: [false, null],
+    footer: [false, null]
+  }, 'only what the reserve made inert is released - an element something else made inert stays')
+})
+
+test('ADR-0029 §6.2: Escape minimises a docked card only when focus is inside the chat, and never while reserved', async (t) => {
+  // Two dialogs are interactive while reserved, and both bound Escape at the document: one
+  // keystroke in the project dialog minimised the chat too. Escape is routed by focus now -
+  // with focus on the page (or in the project dialog), it is not the chat's key.
+  const h = await bootDocked(t, 'escape-focus', 1440)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  const panel = h.dialog.querySelector('.chat-dialog__panel')
+  const composer = h.getEl('chatComposerInput')
+  const projectClose = makeElLike()
+  panel.contains = (el) => el === composer
+  let prevented = false
+  const esc = () => h.docEvents.fire('keydown', { key: 'Escape', preventDefault () { prevented = true } })
+
+  document.activeElement = projectClose
+  esc()
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked',
+    'focus in the project dialog: Escape is the dialog\'s, the chat stays docked')
+  assert.equal(prevented, false, 'and the chat must not swallow it')
+
+  // ADR-0029 addendum (coordinator, deliberate test-writer change): while the column is
+  // reserved, Escape in the chat is a NO-OP for the chat. Minimising there used to leave the
+  // pill under the scrim - a conversation with no way back until the dialog closed.
+  document.activeElement = composer
+  esc()
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked',
+    'focus in the composer while reserved: Escape neither minimises the chat nor closes the dialog')
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'and the column stays reserved')
+
+  // With no dialog showing, Escape in the composer still minimises (ADR-0027 N-W3).
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  esc()
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'minimized', 'no dialog: Escape in the composer minimises')
+  assert.deepEqual(h.stops, [], 'invariant #20: no keystroke ends the call')
+})
+
+function makeElLike () {
+  return { closest: () => null, focus () {}, blur () {} }
+}
+
+test('ADR-0029 addendum: narrowing below 1016 with a dialog open tucks the docked card; widening does not promote it; closing returns it docked', async (t) => {
+  // A resize used to clear the reserve and leave a docked card blurred under the scrim - the
+  // very bug this ADR fixes, reached by dragging the window edge.
+  const h = await bootDocked(t, 'resize-tuck', 1440)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: reserved at 1440')
+
+  window.innerWidth = 1000
+  h.winEvents.fire('resize', {})
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, reserveOf(), h.dialog.dataset.chatBeside],
+    ['minimized', '', 'false'], '1000 with the dialog open: tucked into the pill, nothing reserved')
+
+  window.innerWidth = 1440
+  h.winEvents.fire('resize', {})
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'minimized', 'widening is not consent: the pill stays a pill')
+
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize],
+    ['docked', 'wide'], 'closing the dialog returns the card docked at the stored size')
+  assert.deepEqual(h.stops, [], 'invariant #20: no resize ends the call')
+  assert.equal(h.api.liveVoice.isSessionOpen(), true)
 })

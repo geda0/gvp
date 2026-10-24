@@ -60,13 +60,18 @@ const TABLE = [
   ['contact-open', 'closed', 'closed', 'closed', 'PLAN-SILENT'],
 
   ['navigate', 'modal', 'docked', 'minimized'],
-  ['project-open', 'modal', 'docked', 'minimized'],
+  // ADR-0029 §4 (deliberate test-writer change): project-open no longer shares navigate's
+  // row. With no `reserveRoom` in ctx (this table injects only `wide`) there is no room, and a
+  // card must not stay under the dialog's scrim - it tucks into the pill at every width. The
+  // rows WITH room are in the ADR-0029 test below.
+  ['project-open', 'modal', 'minimized', 'minimized', 'ADR-0029'],
 
   // Site events are IDEMPOTENT in the yielded stages: a second navigation while docked does
   // not re-promote. Promotion is a visitor act only.
   ['navigate', 'docked', 'docked', 'docked', 'PLAN-SILENT'],
   ['navigate', 'minimized', 'minimized', 'minimized', 'PLAN-SILENT'],
-  ['project-open', 'docked', 'docked', 'docked', 'PLAN-SILENT'],
+  ['project-open', 'docked', 'minimized', 'minimized', 'ADR-0029'],
+  ['project-open', 'minimized', 'minimized', 'minimized', 'ADR-0029'],
 
   // contact-open → minimized at EVERY width. The contact dialog is itself aria-modal and
   // binds Escape; a docked card beside it competes for the same key and focus ring.
@@ -246,52 +251,13 @@ test('stageChrome refuses an unknown stage rather than inventing chrome', () => 
 
 // ---------------------------------------------------------------- M4 (ADR-0017 §2.4-2.6)
 
-test('hasRoomBesideDialog is a function of measured widths, not a breakpoint', async () => {
-  const { hasRoomBesideDialog } = await import('../js/chat-stage.js')
-
-  // THE THREE BROWSER-MEASURED GEOMETRIES. The project panel is 739.59px wide and the
-  // docked card 384px, both measured rather than computed from the CSS, because
-  // `min(42rem, …)` plus padding-inline-end is not something to derive by hand.
-  //
-  // The plan said "≥1100px the dialog shifts left beside the docked card". Both halves are
-  // wrong: centred, no-overlap needs W ≥ ~1547, and at 1512 — a common laptop — the two
-  // still overlap by ~18px. 1100 is not close.
-  const P = 739.59
-  const C = 384
-  const g = 20
-  assert.equal(
-    hasRoomBesideDialog({ viewportWidth: 1280, dialogWidth: P, cardWidth: C, gutter: g }), false,
-    'at 1280 browser-measurement puts 134 of the card\'s 384px behind the dialog panel'
-  )
-  assert.equal(
-    hasRoomBesideDialog({ viewportWidth: 1512, dialogWidth: P, cardWidth: C, gutter: g }), false,
-    'at 1512 they still overlap by ~18px — this is the row that makes the plan\'s 1100 ' +
-    'obviously wrong rather than arguably wrong'
-  )
-  assert.equal(
-    hasRoomBesideDialog({ viewportWidth: 1600, dialogWidth: P, cardWidth: C, gutter: g }), true
-  )
-
-  // The boundary is arithmetic, not a constant: (W - dialog) / 2 >= card + gutter.
-  const exact = P + 2 * (C + g)
-  assert.equal(hasRoomBesideDialog({ viewportWidth: exact, dialogWidth: P, cardWidth: C, gutter: g }), true)
-  assert.equal(hasRoomBesideDialog({ viewportWidth: exact - 1, dialogWidth: P, cardWidth: C, gutter: g }), false)
-
-  // A MEASUREMENT THAT DID NOT HAPPEN MUST NOT READ AS ROOM. The caller measures a live
-  // element; before the dialog exists that rect is 0, and a predicate that answered `true`
-  // on zeros would dock the chat beside a dialog that is not there.
-  for (const bad of [
-    { viewportWidth: 0, dialogWidth: 0, cardWidth: 0, gutter: 0 },
-    { viewportWidth: NaN, dialogWidth: P, cardWidth: C, gutter: g },
-    { viewportWidth: 1600, dialogWidth: NaN, cardWidth: C, gutter: g },
-    {},
-    null
-  ]) {
-    assert.equal(
-      hasRoomBesideDialog(bad), false,
-      `${JSON.stringify(bad)} must answer false — an unmeasured geometry is not room`
-    )
-  }
+test('ADR-0029 §2.1: hasRoomBesideDialog is gone - its centred-dialog geometry describes no layout the site renders', async () => {
+  // Deliberate test-writer change: this row used to pin the predicate's measured-width table
+  // (no room below ~1547). ADR-0029 deletes it, as ADR-0026 deleted micAttachPlan: a pure
+  // function nothing should call is a seam a future edit quietly re-opens. besideLayout's rows
+  // (below) replace it; the 'an unmeasured geometry is not room' rule lives on there.
+  const mod = await import('../js/chat-stage.js')
+  assert.equal('hasRoomBesideDialog' in mod, false, 'hasRoomBesideDialog must no longer be exported')
 })
 
 test('open-beside docks when there is room and goes modal when there is not', async () => {
@@ -371,7 +337,7 @@ test('stageChrome moves focus when the stage was REQUESTED, not when it was yiel
 // ---------------------------------------------------------------- ADR-0027: wide + compact
 
 // The size dimension is ORTHOGONAL to the stage (ADR-0027 §2): a pure geometry seam in
-// js/chat-stage.js, beside hasRoomBesideDialog, taking plain numbers and never `window`.
+// js/chat-stage.js, beside besideLayout, taking plain numbers and never `window`.
 // Imported per test so a missing export fails as an assertion, not as an import error.
 const sizeApi = () => import('../js/chat-stage.js')
 
@@ -463,34 +429,36 @@ test('invariant #27: at every docked width, either size leaves 320px of the site
 test('dockedSizeChrome: the effective size is the preference only where wide can render', async () => {
   const { dockedSizeChrome } = await sizeApi()
   assert.equal(typeof dockedSizeChrome, 'function', 'dockedSizeChrome must be exported (ADR-0027 §3.3)')
-  const P = 739.59 // the browser-measured project panel (ADR-0017 §2.4)
-  const at = (viewportWidth, besideDialogWidth, preferred = 'wide', stage = 'docked') =>
-    dockedSizeChrome({ stage, viewportWidth, preferred, besideDialogWidth })
+  // ADR-0029 §2.1 (deliberate test-writer change, not a regression): `besideDialogWidth`
+  // (a measured centred panel) became `beside: boolean`. Beside a dialog, wide renders exactly
+  // where besideLayout reserves a WIDE column (>= 1352); the centred-panel crossover of 2220
+  // no longer describes any layout the site renders.
+  const at = (viewportWidth, beside, preferred = 'wide', stage = 'docked') =>
+    dockedSizeChrome({ stage, viewportWidth, preferred, beside })
 
-  // Not beside a dialog (null): wide where wide exists.
-  assert.deepEqual(at(1280, null),
+  // Not beside a dialog: wide where wide exists.
+  assert.deepEqual(at(1280, false),
     { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
-  assert.deepEqual(at(1280, null, 'compact'),
+  assert.deepEqual(at(1280, false, 'compact'),
     { size: 'compact', width: 384, toggleHidden: false, togglePressed: 'false' })
   // Below 840 wide cannot render: compact, and the toggle is HIDDEN, not disabled. The
   // preference is not overwritten - only the toggle writes it (that is the caller's half).
-  assert.deepEqual(at(800, null),
+  assert.deepEqual(at(800, false),
     { size: 'compact', width: 384, toggleHidden: true, togglePressed: 'false' })
 
-  // Beside a dialog: null and 0 are DIFFERENT. 0 is "beside a dialog nobody measured",
-  // which is no room - the same rule as hasRoomBesideDialog.
-  assert.equal(at(2560, 0).size, 'compact', 'an unmeasured dialog is not room for wide')
-  assert.equal(at(2560, 0).toggleHidden, true)
-  // (1920 - 739.59)/2 = 590.2 < 720 + 20 -> compact. Crossover 739.59 + 2*740 = 2219.59.
-  assert.equal(at(1280, P).size, 'compact')
-  assert.equal(at(1920, P).size, 'compact')
-  assert.equal(at(2219, P).size, 'compact')
-  assert.deepEqual(at(2220, P),
-    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
+  // Beside a dialog: the size is besideLayout's.
+  assert.deepEqual(at(1280, true),
+    { size: 'compact', width: 384, toggleHidden: true, togglePressed: 'false' },
+    '1280 beside: no wide column (1280 - 760 - 32 < 560) - compact, toggle hidden')
+  assert.equal(at(1351, true).size, 'compact')
+  assert.deepEqual(at(1440, true),
+    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' },
+    '1440 beside: the wide column fits (panel 648)')
+  assert.equal(at(1440, true, 'compact').size, 'compact', 'beside never promotes a compact preference')
 
   // The toggle exists only on the docked card.
   for (const stage of ['closed', 'modal', 'minimized']) {
-    assert.equal(at(1280, null, 'wide', stage).toggleHidden, true, `toggle hidden in ${stage}`)
+    assert.equal(at(1280, false, 'wide', stage).toggleHidden, true, `toggle hidden in ${stage}`)
   }
 })
 
@@ -509,4 +477,91 @@ test('minimising a focused card hands focus to the resume chip, and only then', 
   // And focusInside means nothing to the other stages.
   assert.equal(stageChrome('docked', { requested: true, focusInside: true }).moveFocus, 'composer')
   assert.equal(stageChrome('docked', { focusInside: true }).moveFocus, 'none')
+})
+
+// ---------------------------------------------------------------- ADR-0029 §2 (besideLayout)
+
+test('ADR-0029: besideLayout reserves the chat column only where the panel still reads (>= 560)', async () => {
+  const mod = await import('../js/chat-stage.js')
+  assert.equal(typeof mod.besideLayout, 'function', 'besideLayout must be exported (ADR-0029 §2)')
+  const { besideLayout } = mod
+  // [viewportWidth, preferred, expected]
+  const rows = [
+    // < 1016: no room for either size beside a >= 560 panel - nothing is reserved.
+    [1015, 'wide', { size: 'wide', reserve: 0, panelMax: 739.6 }],
+    [1015, 'compact', { size: 'compact', reserve: 0, panelMax: 739.6 }],
+    [1016, 'wide', { size: 'compact', reserve: 424, panelMax: 560 }],
+    [1016, 'compact', { size: 'compact', reserve: 424, panelMax: 560 }],
+    [1195, 'compact', { size: 'compact', reserve: 424, panelMax: 739 }],
+    [1196, 'compact', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    [1351, 'wide', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    [1352, 'wide', { size: 'wide', reserve: 760, panelMax: 560 }],
+    // The stored preference is an input, never an output: compact never comes back wide.
+    [1352, 'compact', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    [1531, 'wide', { size: 'wide', reserve: 760, panelMax: 739 }],
+    [1532, 'wide', { size: 'wide', reserve: 760, panelMax: 739.6 }],
+    [1920, 'compact', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    // Junk preference reads as the wide default, like every other stored size.
+    [1440, 'nonsense', { size: 'wide', reserve: 760, panelMax: 648 }]
+  ]
+  const wrong = []
+  for (const [vw, preferred, expected] of rows) {
+    const got = besideLayout({ viewportWidth: vw, preferred })
+    try { assert.deepEqual(got, expected) } catch (_) {
+      wrong.push(`${vw}/${preferred}: got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`)
+    }
+  }
+  // An unmeasured viewport is not room - the rule hasRoomBesideDialog had.
+  for (const bad of [NaN, -1, Infinity, undefined]) {
+    const got = besideLayout({ viewportWidth: bad, preferred: 'wide' })
+    if (got.reserve !== 0) wrong.push(`viewport ${bad}: reserve ${got.reserve}, expected 0`)
+  }
+  assert.deepEqual(wrong, [], 'besideLayout rows (ADR-0029 §7.1):\n  ' + wrong.join('\n  '))
+})
+
+test('ADR-0029 §4: project-open keeps the card docked only where its column is reserved', () => {
+  const rows = [
+    // [from, ctx, expected]
+    ['docked', { wide: true, reserveRoom: true }, 'docked'],
+    ['docked', { wide: true, reserveRoom: false }, 'minimized'],
+    ['docked', { wide: true }, 'minimized'],
+    ['modal', { wide: true, reserveRoom: true }, 'docked'],
+    ['modal', { wide: true, reserveRoom: false }, 'minimized'],
+    ['modal', { wide: false }, 'minimized'],
+    // closed and minimized are absorbing: a site event never opens or promotes the chat.
+    ['closed', { wide: true, reserveRoom: true }, 'closed'],
+    ['minimized', { wide: true, reserveRoom: true }, 'minimized']
+  ]
+  const wrong = []
+  for (const [from, ctx, expected] of rows) {
+    const got = nextChatStage(from, 'project-open', ctx)
+    if (got !== expected) wrong.push(`project-open from ${from} ${JSON.stringify(ctx)}: got ${got}, expected ${expected}`)
+  }
+  // The return path and navigate are unchanged.
+  if (nextChatStage('minimized', 'project-close', { wide: true }) !== 'docked') wrong.push('project-close from minimized (wide) must be docked')
+  if (nextChatStage('modal', 'navigate', { wide: true }) !== 'docked') wrong.push('navigate from modal (wide) must stay docked')
+  if (nextChatStage('docked', 'navigate', { wide: true }) !== 'docked') wrong.push('navigate from docked must stay docked')
+  assert.deepEqual(wrong, [], wrong.join('\n'))
+})
+
+test('ADR-0029 addendum (N-P3): opening or restoring over a showing project dialog tucks when no column is reserved', () => {
+  const wrong = []
+  const check = (from, event, ctx, expected) => {
+    const got = nextChatStage(from, event, ctx)
+    if (got !== expected) wrong.push(`${event} from ${from} ${JSON.stringify(ctx)}: got ${got}, expected ${expected}`)
+  }
+  for (const event of ['open-text', 'open-voice']) {
+    check('closed', event, { wide: true, projectShowing: true, reserveRoom: false }, 'minimized')
+    check('closed', event, { wide: true, projectShowing: true, reserveRoom: true }, 'docked')
+    check('closed', event, { wide: true, projectShowing: false }, 'docked')
+    // Narrow is unchanged: the modal sits above the dialog (z 1105 > 1100).
+    check('closed', event, { wide: false, projectShowing: true }, 'modal')
+  }
+  check('minimized', 'restore', { wide: true, projectShowing: true, reserveRoom: false }, 'minimized')
+  check('minimized', 'restore', { wide: true, projectShowing: true, reserveRoom: true }, 'docked')
+  check('minimized', 'restore', { wide: true, projectShowing: false }, 'docked')
+  check('closed', 'restore', { wide: true, projectShowing: true, reserveRoom: true }, 'closed')
+  // The chip is the exception (N-P3): no room -> modal over the dialog, as today.
+  check('closed', 'open-beside', { wide: true, projectShowing: true, roomBeside: false }, 'modal')
+  assert.deepEqual(wrong, [], wrong.join('\n'))
 })
