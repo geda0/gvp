@@ -163,6 +163,25 @@ export function hasRoomBesideDialog (m) {
   return (viewportWidth - dialogWidth) / 2 >= cardWidth + gutter
 }
 
+// ---------------------------------------------------------------- size (ADR-0027 §3)
+//
+// SIZE IS ORTHOGONAL TO STAGE. `docked` at wide and `docked` at compact have identical chrome
+// (stageChrome never sees size), so size is a second dimension of the docked card, held in
+// js/chat.js and never fed to nextChatStage. Everything here takes plain numbers.
+
+export const CHAT_SIZES = Object.freeze(['wide', 'compact'])
+// Owner decision (2026-10-24): the first open is WIDE.
+export const DEFAULT_CHAT_SIZE = 'wide'
+
+/**
+ * A stored preference is visitor-controlled data, so anything that is not exactly one of the
+ * two sizes reads as the default - no case folding, no guessing.
+ * @returns {'wide' | 'compact'}
+ */
+export function parseChatSize (raw) {
+  return raw === 'compact' ? 'compact' : DEFAULT_CHAT_SIZE
+}
+
 /**
  * The normative accessibility contract per stage (§4.4), as data.
  *

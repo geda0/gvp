@@ -367,3 +367,24 @@ test('stageChrome moves focus when the stage was REQUESTED, not when it was yiel
     'a minimised pill has no composer to focus, so requested changes nothing there'
   )
 })
+
+// ---------------------------------------------------------------- ADR-0027: wide + compact
+
+// The size dimension is ORTHOGONAL to the stage (ADR-0027 §2): a pure geometry seam in
+// js/chat-stage.js, beside hasRoomBesideDialog, taking plain numbers and never `window`.
+// Imported per test so a missing export fails as an assertion, not as an import error.
+const sizeApi = () => import('../js/chat-stage.js')
+
+test('parseChatSize reads only the two sizes, and anything else is the WIDE default', async () => {
+  const { parseChatSize, CHAT_SIZES, DEFAULT_CHAT_SIZE } = await sizeApi()
+  assert.equal(typeof parseChatSize, 'function', 'parseChatSize must be exported (ADR-0027 §3)')
+  assert.deepEqual([...CHAT_SIZES], ['wide', 'compact'])
+  assert.equal(DEFAULT_CHAT_SIZE, 'wide', 'owner decision O1: the first open is WIDE')
+  // A stored value is visitor-controlled data: case is NOT folded, so 'WIDE' is junk, and
+  // junk reads as the default rather than as whatever it happens to resemble.
+  for (const raw of [null, undefined, '', 'WIDE', 'huge', 42]) {
+    assert.equal(parseChatSize(raw), 'wide', `${JSON.stringify(raw)} must read as 'wide'`)
+  }
+  assert.equal(parseChatSize('wide'), 'wide')
+  assert.equal(parseChatSize('compact'), 'compact')
+})
