@@ -102,6 +102,39 @@ test('the warm URL is the gvp:chat-api-url the browser uses, read from the commi
   assert.equal(none.stdout.trim(), '')
 })
 
+// tdd-critic finding: the warm URL comes from the CHECKED-OUT index.html, so a manual or local
+// `integrate-and-deploy.sh prod` run from `agent` would warm the STAGE host and print
+// "chat warm (prod) … 204" — a false proof. The warm target must be THIS run's distribution.
+// Measured 2026-10-24 (read-only describe-stacks): gvp-chat-stream-cdn-stage DistributionDomainName
+// = d2lw3pyns4zzyb.cloudfront.net, -prod = dlkbine9cip5c.cloudfront.net — exactly the committed
+// metas, so strict host equality holds in CI.
+test('the warm target check passes only when the meta host is this run\'s CDN domain', async () => {
+  const ok = await run('chat_warm_target_check stage "https://d2lw3pyns4zzyb.cloudfront.net/api/chat" d2lw3pyns4zzyb.cloudfront.net')
+  assert.equal(ok.code, 0, ok.stderr)
+
+  const crossed = await run('chat_warm_target_check prod "https://d2lw3pyns4zzyb.cloudfront.net/api/chat" dlkbine9cip5c.cloudfront.net')
+  assert.notEqual(crossed.code, 0, 'a prod run must not warm the stage host')
+  assert.match(crossed.stderr, /prod/)
+  assert.match(crossed.stderr, /d2lw3pyns4zzyb\.cloudfront\.net/)
+  assert.match(crossed.stderr, /dlkbine9cip5c\.cloudfront\.net/)
+
+  const noCdn = await run('chat_warm_target_check stage "https://d2lw3pyns4zzyb.cloudfront.net/api/chat" ""')
+  assert.notEqual(noCdn.code, 0, 'no CDN domain = nothing to prove the target against')
+  assert.match(noCdn.stderr, /stage/)
+
+  const noMeta = await run('chat_warm_target_check stage "" d2lw3pyns4zzyb.cloudfront.net')
+  assert.notEqual(noMeta.code, 0)
+  assert.match(noMeta.stderr, /stage/)
+})
+
+test('integrate-and-deploy.sh refuses (not merely notes) a warm target that is not this run\'s distribution, before warming', () => {
+  const check = DEPLOY.search(/chat_warm_target_check "\$\{DEPLOY_ENV\}" "\$\{CHAT_WARM_URL\}" "\$\{CHAT_STREAM_CDN_DOMAIN\}" \|\| exit 1/)
+  const warm = DEPLOY.search(/chat_post_deploy_warm "\$\{DEPLOY_ENV\}"/)
+  assert.ok(check > -1, 'the target check must exit the deploy on a mismatch')
+  assert.ok(check < warm, 'the target check must run before the warm')
+  assert.doesNotMatch(DEPLOY, /note: gvp:chat-api-url host/, 'a mismatch must not be a mere note')
+})
+
 test('integrate-and-deploy.sh sources the warm helper', () => {
   assert.match(DEPLOY, /^\. "\$\{ROOT\}\/scripts\/lib\/chat-warm\.sh"/m)
 })
