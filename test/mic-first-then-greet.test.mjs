@@ -195,6 +195,8 @@ async function bootChat({ permission, relay = false, holdMint = false } = {}) {
     socket,
     advance: (ms) => { clock.now += ms },
     releaseMint: async () => { for (const r of mint.held.splice(0)) r(); await settle() },
+    /** 20 s timers still armed (the permission wait, a socket's open timeout). */
+    armed20s: () => heldTimers.size,
     status: () => (statuses.length ? statuses[statuses.length - 1] : null),
     start: async () => { void live.startVoice({ intent: 'auto' }); await settle() },
     open: async () => { socket().onopen(); await settle() },
@@ -392,14 +394,16 @@ test('cold path, no usable microphone (NotFoundError): the call closes, no greet
 
     // Assert
     assert.deepEqual(
-      { socketOpen: v.socket().readyState === 1, sessionOpen: v.live.isSessionOpen(), greetingsSent: v.greetingsSent(), status: v.status() },
+      { socketOpen: v.socket().readyState === 1, sessionOpen: v.live.isSessionOpen(), greetingsSent: v.greetingsSent(), status: v.status(), transcript: v.assistantBubbles() },
       {
         socketOpen: false,
         sessionOpen: false,
         greetingsSent: 0,
-        status: { text: 'No microphone was found. Connect a mic or pick an input device, then try again.', kind: 'error' }
+        status: { text: 'No microphone was found. Connect a mic or pick an input device, then try again.', kind: 'error' },
+        transcript: []
       },
-      'ADR-0028 §3.2: every non-granted outcome closes the session and sends no greeting'
+      'ADR-0028 §3.2: every non-granted outcome closes the session and sends no greeting — and ' +
+      'only a denial gets the text greeting (a missing device means "fix it and try voice again")'
     )
   } finally { v.live.dispose() }
 })
@@ -732,6 +736,210 @@ test('End while the granted mic waits on a still-CONNECTING socket: the mic is r
       { released: true, askedAgain: 1, errorCopy: [] },
       'critic (ADR-0028 §3.2): an ended start must not hold the mic, Start, or a late ' +
       '"did not connect" for a socket the visitor already abandoned'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('a start ended while its socket was CONNECTING never touches the next call: socket 2 survives and greets after the grant', async () => {
+  // Arrange — tap Start; hang up before socket 1 opens; tap Start again.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.tapMic()
+    await v.start()
+    const second = v.socket()
+
+    // Act — call 2 comes up and is allowed; then every 20 s timer still held (socket 1's open
+    // timeout included, if anything left it armed) fires.
+    await v.open()
+    await v.setupComplete()
+    v.gum.allow()
+    await settle()
+    await v.fireWaitTimeout()
+
+    // Assert
+    assert.deepEqual(
+      {
+        sockets: v.sockets.length,
+        secondOpen: second.readyState === 1 && v.live.isSessionOpen(),
+        secondGreeted: second.sent.filter((p) => JSON.parse(p).clientContent).length,
+        errorCopy: v.statuses.filter((s) => s.kind === 'error').map((s) => s.text)
+      },
+      { sockets: 2, secondOpen: true, secondGreeted: 1, errorCopy: [] },
+      'critic M2: the abandoned connect\'s failure path must not stop `ws` — by then it is call 2\'s'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('a session that dies under the open bubble is a connect error, not a hang-up: error copy, outcome "error", chat_live_error', async () => {
+  // Arrange — the session is ready and waiting on the bubble.
+  const { chatBus } = await import('../js/chat-bus.js')
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — the server closes the session.
+    v.socket().onclose({ code: 1011, reason: 'internal error' })
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      {
+        statusKind: v.status().kind,
+        outcome: voiceStarts(v).map((s) => s.outcome),
+        liveErrors: v.events.filter((e) => e.name === 'chat_live_error').length,
+        lifecycle: chatBus.getState().state,
+        hintLeft: v.status().text !== MIC_PERMISSION_HINT
+      },
+      { statusKind: 'error', outcome: ['error'], liveErrors: 1, lifecycle: 'error', hintLeft: true },
+      'critic M3: only the visitor or the page ends the wait as a hang-up; a dead session is reported'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('a session that dies after the bubble is answered Allow still releases the mic (failure while the grant waits on setup)', async () => {
+  // Arrange — the socket is open, the visitor allows, setup has not completed.
+  const v = await bootChat({ permission: 'prompt', relay: false })
+  try {
+    await v.start()
+    await v.open()
+    v.gum.allow()
+    await settle()
+
+    // Act — the socket dies before setup.
+    v.socket().onclose({ code: 1006, reason: '' })
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { released: v.gum.allTracksStopped(), statusKind: v.status().kind, greetingsSent: v.greetingsSent() },
+      { released: true, statusKind: 'error', greetingsSent: 0 },
+      'a granted mic is never left live for a call that failed to come up'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('hanging up while the session mint is in flight: no socket is ever opened for the ended call', async () => {
+  // Arrange — the mint has not answered yet; the bubble is open.
+  const v = await bootChat({ permission: 'prompt', holdMint: true })
+  try {
+    await v.start()
+
+    // Act — End, then the mint answers.
+    await v.tapMic()
+    await v.releaseMint()
+
+    // Assert
+    assert.equal(v.sockets.length, 0, 'ADR-0028 §3.2 stale-start guard: a mint that returns after the call ended opens nothing')
+  } finally { v.live.dispose() }
+})
+
+test('relay: a socket that closes before it is ready is still retried while the bubble is open', async () => {
+  // Arrange — a relay session; the bubble is open; the first socket has not opened.
+  const v = await bootChat({ permission: 'prompt', relay: true })
+  try {
+    await v.start()
+
+    // Act — the relay drops it before ready; the connect loop backs off (800 ms) and retries.
+    v.socket().onclose({ code: 1006, reason: '' })
+    await new Promise((resolve) => realSetTimeout(resolve, 1100))
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { sockets: v.sockets.length, hintStillUp: v.statuses.some((s) => s.text === MIC_PERMISSION_HINT) && v.gum.pending.length === 1 },
+      { sockets: 2, hintStillUp: true },
+      'a pre-ready close is a connect retry (retrying: !ready), not the end of the start'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('no Permissions API (unknown) and NotAllowedError: the denied copy and the text fallback, never "not yet"', async () => {
+  // Arrange
+  const v = await bootChat({ permission: undefined })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act
+    v.gum.reject('NotAllowedError')
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { status: v.status(), transcript: v.assistantBubbles() },
+      { status: { text: DENIED_COPY, kind: 'error' }, transcript: ['Hi! I\'m Marwan\'s AI assistant. What would you like to know about his work?'] },
+      'ADR-0028 §3.2: a dismissal is claimed only when the browser SAYS the state is still prompt'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('cold grant, then a mic tap while the greeting plays: the tap ends the call and releases the mic', async () => {
+  // Arrange — granted, wired, greeting audio arriving.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+    v.gum.allow()
+    await settle()
+    const audio = { inlineData: { mimeType: 'audio/pcm;rate=24000', data: btoa(String.fromCharCode(0, 1, 0, 2)) } }
+    v.socket().onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [audio] } } }) })
+    await settle()
+    const liveBefore = v.live.isActive()
+
+    // Act
+    await v.tapMic()
+
+    // Assert
+    assert.deepEqual(
+      { liveBefore, sessionOpen: v.live.isSessionOpen(), socketOpen: v.socket().readyState === 1, released: v.gum.allTracksStopped() },
+      { liveBefore: true, sessionOpen: false, socketOpen: false, released: true },
+      'invariant #20/#25: on a live mic the tap is the visitor\'s End, on the cold path too'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('End after Allow while the session mint is still in flight: the mic is released at once, not when the mint returns', async () => {
+  // Arrange — Allow arrives before the mint has answered.
+  const v = await bootChat({ permission: 'prompt', holdMint: true })
+  try {
+    await v.start()
+    v.gum.allow()
+    await settle()
+
+    // Act — End; the mint is still out.
+    await v.tapMic()
+    const released = v.gum.allTracksStopped()
+    const asksBefore = v.gum.calls
+    await v.start()
+
+    // Assert
+    assert.deepEqual(
+      { released, askedAgain: v.gum.calls - asksBefore },
+      { released: true, askedAgain: 1 },
+      'critic M1: the granted mic waits on the session OR a stop, whichever comes first'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('End while the socket is CONNECTING leaves no 20 s open-timeout armed for the abandoned socket', async () => {
+  // Arrange — the bubble is open and socket 1 has not opened.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+
+    // Act
+    await v.tapMic()
+
+    // Assert — the permission wait and the socket's open wait both ended with the call.
+    assert.equal(
+      v.armed20s(), 0,
+      'critic M1: a stop rejects the pending socket-open wait (LiveSetupAbort) instead of leaving ' +
+      'a LIVE_WS_OPEN_MS timer to report "did not connect" — or stop the next call — later'
     )
   } finally { v.live.dispose() }
 })
