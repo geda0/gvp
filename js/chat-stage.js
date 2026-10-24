@@ -57,9 +57,13 @@ export function nextChatStage (stage, event, ctx) {
     // Opening is a VISITOR act and always focuses the panel, from any stage. On a wide
     // viewport the docked card IS the main chat (ADR-0027 §2.4): it opens there, floating
     // beside the site. Narrow keeps the modal - a card on a phone leaves no usable page.
+    //
+    // ADR-0029 addendum (N-P3): over a showing project dialog with no reserved column, a wide
+    // open lands the pill - a docked card there would sit blurred under the dialog's scrim.
     case 'open-text':
     case 'open-voice':
-      return ctx && ctx.wide ? 'docked' : 'modal'
+      if (!(ctx && ctx.wide)) return 'modal'
+      return ctx.projectShowing && !ctx.reserveRoom ? 'minimized' : 'docked'
 
     // `restore` means "bring back the panel you already have". It cannot resurrect a CLOSED
     // conversation — opening is `open-*`. Keeping them distinct is what lets M4's launcher
@@ -69,7 +73,8 @@ export function nextChatStage (stage, event, ctx) {
       // Wide: back to the main docked card (ADR-0027 §2.4), at whatever size the visitor
       // last chose - size is chat-local and never a reducer input.
       if (stage === 'closed') return 'closed'
-      return ctx && ctx.wide ? 'docked' : 'modal'
+      if (!(ctx && ctx.wide)) return 'modal'
+      return ctx.projectShowing && !ctx.reserveRoom ? 'minimized' : 'docked'
 
     // Site events. `closed` is ABSORBING for all of them: a visitor who has never opened the
     // chat must not acquire a dock on their first nav click — the single most likely way to

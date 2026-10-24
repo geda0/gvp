@@ -951,6 +951,14 @@ export function initChat() {
   const sizeToggle = dialog?.querySelector('[data-chat-size-toggle]') || null
 
   // The ONLY writer of data-chat-size / --chat-dock-width, from dockedSizeChrome alone.
+  // The reducer's injected context (ADR-0029 §4 + addendum): the viewport class, whether a
+  // project dialog is showing, and whether it leaves the chat's column reserved.
+  const stageCtx = () => ({
+    wide: isWideViewport(),
+    projectShowing: getSiteState().project != null,
+    reserveRoom: besideLayout({ viewportWidth: window.innerWidth, preferred: chatSize }).reserve > 0
+  })
+
   const applyChatSize = () => {
     // Beside a dialog, RE-MEASURE its live panel on every apply (resize, restore, toggle):
     // the room decided at the chip tap does not survive a narrower window, and a remembered
@@ -1034,11 +1042,7 @@ export function initChat() {
    * else is chrome only - which is the whole point: a yield must not touch the session.
    */
   const dispatchStage = (event, origin, extraCtx = {}) => {
-    const next = nextChatStage(chatStage, event, {
-      wide: isWideViewport(),
-      reserveRoom: besideLayout({ viewportWidth: window.innerWidth, preferred: chatSize }).reserve > 0,
-      ...extraCtx
-    })
+    const next = nextChatStage(chatStage, event, { ...stageCtx(), ...extraCtx })
     if (next === chatStage) return
     if (next === 'closed') {
       closePanel({ restoreFocus: origin === 'visitor', immediate: true })
@@ -1189,9 +1193,7 @@ export function initChat() {
       // asking for the chat has to PROMOTE it, or tapping a launcher while it sits
       // minimised would set the dock mode and return with nothing moving on screen, and on
       // a narrow viewport that is a conversation with no way back to it.
-      const promoted = nextChatStage(chatStage, wantVoice ? 'open-voice' : 'open-text', {
-        wide: isWideViewport()
-      })
+      const promoted = nextChatStage(chatStage, wantVoice ? 'open-voice' : 'open-text', stageCtx())
       if (promoted !== chatStage) applyStage(promoted, 'visitor')
       setDockMode(wantVoice ? 'voice' : 'text', {
         awaitingVoice: wantVoice
@@ -1215,7 +1217,7 @@ export function initChat() {
     // the main window - and only a narrow one takes the screen. A literal 'modal' here is the
     // one-line regression invariant #27 names.
     applyStage(
-      nextChatStage(chatStage, wantVoice ? 'open-voice' : 'open-text', { wide: isWideViewport() }),
+      nextChatStage(chatStage, wantVoice ? 'open-voice' : 'open-text', stageCtx()),
       'visitor'
     )
     agentInput.readOnly = true

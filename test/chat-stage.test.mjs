@@ -582,3 +582,25 @@ test('ADR-0029 §4: project-open keeps the card docked only where its column is 
   if (nextChatStage('docked', 'navigate', { wide: true }) !== 'docked') wrong.push('navigate from docked must stay docked')
   assert.deepEqual(wrong, [], wrong.join('\n'))
 })
+
+test('ADR-0029 addendum (N-P3): opening or restoring over a showing project dialog tucks when no column is reserved', () => {
+  const wrong = []
+  const check = (from, event, ctx, expected) => {
+    const got = nextChatStage(from, event, ctx)
+    if (got !== expected) wrong.push(`${event} from ${from} ${JSON.stringify(ctx)}: got ${got}, expected ${expected}`)
+  }
+  for (const event of ['open-text', 'open-voice']) {
+    check('closed', event, { wide: true, projectShowing: true, reserveRoom: false }, 'minimized')
+    check('closed', event, { wide: true, projectShowing: true, reserveRoom: true }, 'docked')
+    check('closed', event, { wide: true, projectShowing: false }, 'docked')
+    // Narrow is unchanged: the modal sits above the dialog (z 1105 > 1100).
+    check('closed', event, { wide: false, projectShowing: true }, 'modal')
+  }
+  check('minimized', 'restore', { wide: true, projectShowing: true, reserveRoom: false }, 'minimized')
+  check('minimized', 'restore', { wide: true, projectShowing: true, reserveRoom: true }, 'docked')
+  check('minimized', 'restore', { wide: true, projectShowing: false }, 'docked')
+  check('closed', 'restore', { wide: true, projectShowing: true, reserveRoom: true }, 'closed')
+  // The chip is the exception (N-P3): no room -> modal over the dialog, as today.
+  check('closed', 'open-beside', { wide: true, projectShowing: true, roomBeside: false }, 'modal')
+  assert.deepEqual(wrong, [], wrong.join('\n'))
+})
