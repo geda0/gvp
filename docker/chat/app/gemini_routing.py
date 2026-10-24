@@ -35,6 +35,7 @@ _text_clients: dict[str, Any] = {}
 # ADR-0026 §4.1 / invariant #26: at most three model attempts per turn (primary,
 # one primary retry after a 503, fallback).
 MAX_MODEL_ATTEMPTS = 3
+PRIMARY_503_RETRY_DELAY_SECONDS = 0.3
 _DEFAULT_FIRST_CHUNK_TIMEOUT_SECONDS = 5.0
 
 
@@ -417,12 +418,15 @@ class GeminiRoutingChain:
         from app.upstream_errors import (
             is_upstream_rate_limit,
             is_upstream_retryable,
+            is_upstream_unavailable,
         )
 
-        order = self._model_order()
+        pending = self._model_order()
+        primary_retried = False
         last_exc: BaseException | None = None
-        for idx, model_id in enumerate(order):
-            is_last = idx == len(order) - 1
+        while pending:
+            model_id = pending.pop(0)
+            is_last = not pending
             chain = self._build_chain(model_id)
             stream = chain.astream(inp, config=config)
             iterator = stream.__aiter__()
@@ -444,7 +448,7 @@ class GeminiRoutingChain:
                 logger.warning(
                     'gemini stream first_chunk_timeout model=%s remaining_attempts=%s',
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(
@@ -468,10 +472,20 @@ class GeminiRoutingChain:
                     raise
                 if model_id == self.primary_id and is_upstream_rate_limit(e):
                     note_primary_rate_limited()
+                if (
+                    model_id == self.primary_id
+                    and not primary_retried
+                    and is_upstream_unavailable(e)
+                ):
+                    # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
+                    primary_retried = True
+                    pending.insert(0, model_id)
+                    await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
+                    continue
                 logger.warning(
                     'gemini stream rate_limited model=%s remaining_attempts=%s',
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(

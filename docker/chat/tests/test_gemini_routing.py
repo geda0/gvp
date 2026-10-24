@@ -728,3 +728,50 @@ async def test_every_ainvoke_attempt_is_capped_at_a_third_of_the_deadline(
         await chain.ainvoke({"messages": []})
 
     assert clock.now == pytest.approx(20.0, abs=0.01)
+
+
+class _Recorded:
+    """Wraps a fake model and appends `(model_id, loop time)` to a shared log
+    every time the chain STARTS an attempt on it — the observable attempt order."""
+
+    def __init__(self, model_id: str, inner, log: list) -> None:
+        self._id = model_id
+        self._inner = inner
+        self._log = log
+
+    def astream(self, payload, config=None):
+        self._log.append((self._id, asyncio.get_running_loop().time()))
+        return self._inner.astream(payload, config=config)
+
+    async def ainvoke(self, payload, config=None):
+        self._log.append((self._id, asyncio.get_running_loop().time()))
+        return await self._inner.ainvoke(payload, config=config)
+
+
+def _install(monkeypatch: pytest.MonkeyPatch, fakes: dict, log: list) -> None:
+    recorded = {mid: _Recorded(mid, fake, log) for mid, fake in fakes.items()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: recorded[model_id]
+    )
+
+
+@pytest.mark.asyncio
+async def test_astream_primary_503_is_retried_once_on_the_primary_then_falls_back(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3: a primary 503 UNAVAILABLE is retried on the SAME primary
+    once, after PRIMARY_503_RETRY_DELAY_SECONDS (0.3 s); a second 503 goes to the
+    fallback — never a third primary attempt."""
+    clock = virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableFirstChunk(), "m-fallback": _OkStream()},
+        log,
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
+    assert log[1][1] == pytest.approx(0.3, abs=0.01)
