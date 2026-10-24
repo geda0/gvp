@@ -605,9 +605,11 @@ test('telemetry: the Start button\'s click tracking (data-track) does not reuse 
   // second chat_voice_start {event_category: 'Outbound'} for every tap, next to startVoice's.
   const { readFileSync } = await import('node:fs')
   const src = readFileSync(new URL('../js/chat.js', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 
-  // Act
-  const reused = [...src.matchAll(/['"]data-track['"]\s*,\s*['"]chat_voice_start['"]/g)].length
+  // Act — chat.js re-labels the button at runtime; index.html labels it before chat.js runs.
+  const reused = [...src.matchAll(/['"]data-track['"]\s*,\s*['"]chat_voice_start['"]/g)].length +
+    [...html.matchAll(/data-track="chat_voice_start"/g)].length
 
   // Assert
   assert.equal(
