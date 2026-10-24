@@ -65,7 +65,11 @@ export function nextChatStage (stage, event, ctx) {
     // conversation — opening is `open-*`. Keeping them distinct is what lets M4's launcher
     // "Assistant active" chip be a restore without becoming an accidental cold open.
     case 'restore':
-      return stage === 'closed' ? 'closed' : 'modal'
+      //
+      // Wide: back to the main docked card (ADR-0027 §2.4), at whatever size the visitor
+      // last chose - size is chat-local and never a reducer input.
+      if (stage === 'closed') return 'closed'
+      return ctx && ctx.wide ? 'docked' : 'modal'
 
     // Site events. `closed` is ABSORBING for all of them: a visitor who has never opened the
     // chat must not acquire a dock on their first nav click — the single most likely way to

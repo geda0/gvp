@@ -46,7 +46,11 @@ const TABLE = [
   // restore cannot resurrect a closed conversation — opening is open-*. Keeping them
   // distinct is what lets M4's "Assistant active" chip restore without a cold open.
   ['restore', 'closed', 'closed', 'closed', 'PLAN-SILENT'],
-  ['restore', 'minimized', 'modal', 'modal', 'PLAN-SILENT'],
+  // ADR-0027 §2.4: restore on wide comes back to the main window (docked), not a modal.
+  // Deliberate test-writer change; narrow column unchanged.
+  ['restore', 'minimized', 'docked', 'modal', 'ADR-0027'],
+  ['restore', 'modal', 'docked', 'modal', 'ADR-0027'],
+  ['restore', 'docked', 'docked', 'modal', 'ADR-0027'],
 
   // `closed` is ABSORBING for every site event. A visitor who never opened the chat must not
   // acquire a dock on their first nav click — the single most likely way to turn "the
@@ -110,7 +114,8 @@ test('the transition table matches ADR-0015 §4.3 exactly', () => {
       if (got !== expected) {
         wrong.push(
           `${event} from ${from} (wide=${wide}): got ${got}, expected ${expected}` +
-          (note ? `  [${note}: stated in the ADR, NOT in the plan]` : '')
+          (note === 'PLAN-SILENT' ? `  [${note}: stated in the ADR, NOT in the plan]` : '') +
+          (note && note !== 'PLAN-SILENT' ? `  [${note}]` : '')
         )
       }
     }
