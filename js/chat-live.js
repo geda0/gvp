@@ -1675,13 +1675,16 @@ export function bindChatLiveVoice(opts) {
       // granted after all connects now.)
       const connecting = sessionP || openVoiceSessionInternal()
       const session = await new Promise((resolve) => {
-        connecting.then(() => resolve({}), (error) => resolve({ error }))
+        connecting.then(() => resolve({ ok: true }), (error) => resolve({ error }))
         permissionWaitAbort = (ended) => resolve(ended)
       })
       clearPermissionWait()
-      if (session.error || session.failed || session.aborted || epoch !== startEpoch) releaseStream(acquired)
-      if (session.error || session.failed) throw session.error || session.failed
-      if (session.aborted || epoch !== startEpoch) return
+      // Anything but a session that came up for THIS start releases the granted mic.
+      if (!session.ok || epoch !== startEpoch) {
+        releaseStream(acquired)
+        if (session.error || session.failed) throw session.error || session.failed
+        return
+      }
       await wireMicrophone(acquired)
       // The mic is live: the greeting's first frame is heard, so it can be talked over (#25).
       greet()
