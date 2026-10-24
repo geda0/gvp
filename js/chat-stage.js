@@ -182,6 +182,20 @@ export function parseChatSize (raw) {
   return raw === 'compact' ? 'compact' : DEFAULT_CHAT_SIZE
 }
 
+// == min(24rem, 100vw - 2rem) at a 16px root, browser-measured (ADR-0017 §2.4).
+export const DOCK_COMPACT_WIDTH = 384
+// The `- 2rem` in that rule, per side.
+export const DOCK_EDGE_INSET = 16
+
+/**
+ * The docked card's width in px - the ONE source of truth for it. CSS reads it back as
+ * --chat-dock-width; hasRoomBesideDialog is fed the same number.
+ * @param {{viewportWidth: number, size: string}} m
+ */
+export function dockedCardWidth ({ viewportWidth, size } = {}) {
+  return Math.max(0, Math.min(DOCK_COMPACT_WIDTH, viewportWidth - 2 * DOCK_EDGE_INSET))
+}
+
 /**
  * The normative accessibility contract per stage (§4.4), as data.
  *

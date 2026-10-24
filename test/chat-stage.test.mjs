@@ -388,3 +388,17 @@ test('parseChatSize reads only the two sizes, and anything else is the WIDE defa
   assert.equal(parseChatSize('wide'), 'wide')
   assert.equal(parseChatSize('compact'), 'compact')
 })
+
+test('the compact card is byte-identical to the shipped min(24rem, 100vw - 2rem)', async () => {
+  const { dockedCardWidth, DOCK_COMPACT_WIDTH, DOCK_EDGE_INSET } = await sizeApi()
+  assert.equal(typeof dockedCardWidth, 'function', 'dockedCardWidth must be exported (ADR-0027 §3)')
+  assert.equal(DOCK_COMPACT_WIDTH, 384, 'browser-measured docked card (ADR-0017 §2.4)')
+  assert.equal(DOCK_EDGE_INSET, 16)
+  // Compact must not move by a pixel: 384 at every docked width, the CSS clamp below it.
+  for (const vw of [767, 768, 839, 840, 1024, 1080, 1280, 1920]) {
+    assert.equal(dockedCardWidth({ viewportWidth: vw, size: 'compact' }), 384, `compact at ${vw}`)
+  }
+  assert.equal(dockedCardWidth({ viewportWidth: 400, size: 'compact' }), 368, '400 - 2*16')
+  // An unknown size is compact - never a surprise wide card.
+  assert.equal(dockedCardWidth({ viewportWidth: 1280, size: 'huge' }), 384)
+})
