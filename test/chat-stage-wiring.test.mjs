@@ -829,3 +829,45 @@ test('a chip with NO room goes modal, and a later yield from it is not marked be
   assert.equal(dialog.dataset.chatBeside, 'false', 'an overlapping yield must stay under the dialog')
   assert.equal(dialog.dataset.chatSize, 'wide', 'and it is not sized as if it were beside')
 })
+
+// Shared by the critic-pass rows below: boot at a width, stub the live project panel, open a
+// project dialog in the store, and tap a chip the way a visitor does.
+async function bootBeside (t, tag, vw, { panelWidth = 739.59, startClosed = true } = {}) {
+  const h = await boot(tag, vw, { startClosed, voice: false })
+  t.after(() => h.api.disposeChatLiveVoice())
+  const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: panelWidth, height: 500 }
+  document.querySelector = (sel) => (
+    sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => ({ ...panelRect }) } : null
+  )
+  const tapChip = async () => {
+    h.docEvents.fire('click', {
+      target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
+    })
+    await settle()
+  }
+  return { ...h, panelRect, tapChip, dialog: h.getEl('chatDialog') }
+}
+
+test('critic: the beside lift is re-checked on resize, so a narrower window drops the card back under the scrim', async (t) => {
+  // tdd-critic, measured: dock beside at 1920, then narrow to 1440 / 800 - the card stayed
+  // marked beside at z 1102 and covered 54-370px of the project dialog's OWN panel
+  // (elementFromPoint over the overlap returned the chat). The lift is only safe while the
+  // card measurably fits beside the LIVE panel, so it must be re-decided, not remembered.
+  const h = await bootBeside(t, 'beside-resize', 1920)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  await h.tapChip()
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: beside at 1920')
+
+  window.innerWidth = 1280 // (1280 - 739.59)/2 = 270 < 384 + 20: no room any more
+  h.winEvents.fire('resize', {})
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'still docked (>= 768)')
+  assert.equal(h.dialog.dataset.chatBeside, 'false',
+    'a card that no longer fits beside the dialog must go back under its scrim, not over its panel')
+
+  window.innerWidth = 1920
+  h.winEvents.fire('resize', {})
+  await settle()
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'and widening with the dialog still open lifts it again')
+})

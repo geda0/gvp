@@ -951,6 +951,20 @@ export function initChat() {
 
   // The ONLY writer of data-chat-size / --chat-dock-width, from dockedSizeChrome alone.
   const applyChatSize = () => {
+    // Beside a dialog, RE-MEASURE its live panel on every apply (resize, restore, toggle):
+    // the room decided at the chip tap does not survive a narrower window, and a remembered
+    // answer lifted the card over the dialog's own panel (tdd-critic, measured 54-370px).
+    if (besideDialogWidth !== null) {
+      const live = document.querySelector('#projectDialog .project-dialog__panel')
+      const rect = live ? live.getBoundingClientRect() : null
+      besideDialogWidth = rect ? rect.width : 0
+    }
+    const besideRoom = besideDialogWidth !== null && hasRoomBesideDialog({
+      viewportWidth: window.innerWidth,
+      dialogWidth: besideDialogWidth,
+      cardWidth: dockedCardWidth({ viewportWidth: window.innerWidth, size: 'compact' }),
+      gutter: DOCK_GUTTER
+    })
     const chrome = dockedSizeChrome({
       stage: chatStage,
       viewportWidth: window.innerWidth,
@@ -960,8 +974,9 @@ export function initChat() {
     dialog.dataset.chatSize = chrome.size
     // Docked BESIDE a project dialog by request: css/chat.css lifts exactly this card above
     // the dialog's inset:0 scrim (z 1100), which otherwise covered it (measured, ADR-0027 §9).
-    // It only docks beside when it fits without overlapping the panel, so it covers scrim.
-    dialog.dataset.chatBeside = chatStage === 'docked' && besideDialogWidth !== null ? 'true' : 'false'
+    // Only while it fits beside the LIVE panel right now - so it covers scrim, never the
+    // panel; when it stops fitting it drops back under the scrim with the other yields.
+    dialog.dataset.chatBeside = chatStage === 'docked' && besideRoom ? 'true' : 'false'
     // 0 = unmeasurable: drop the property so the CSS fallback (the shipped compact rule) holds.
     if (chrome.width > 0) dialog.style.setProperty('--chat-dock-width', `${chrome.width}px`)
     else dialog.style.removeProperty('--chat-dock-width')
