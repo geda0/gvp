@@ -1487,6 +1487,17 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
+    // The permission sheet is still open (an attach is pending): the tap is the visitor's
+    // "End". startVoice is still awaiting that attach, so without this the tap could only cut
+    // playback. stopVoiceInternal ends the call; attachMicrophoneOnce releases a mic the
+    // visitor allows afterwards.
+    if (attachInFlight) {
+      trackEvent('chat_live_stop', { reason: 'abort_mic_prompt' })
+      stopVoiceInternal({ silent: false })
+      setStatus('')
+      return
+    }
+
     // Session open but the mic is not live (attach refused / failed, greeting playing).
     // Tapping the mic now means "stop, I'm ready": cut the assistant off locally BEFORE the
     // permission sheet can appear over still-playing audio (ADR-0026 §3.1), then attach.

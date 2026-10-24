@@ -526,6 +526,35 @@ for (const [pathName, permission, answer] of [['cold', 'prompt', 'allow'], ['col
   })
 }
 
+// While the sheet is pending the mic button is the visitor's only "End": startVoice is still
+// awaiting the attach, so before this fix the tap only cut playback locally and the call could
+// not be ended from the mic at all until the sheet was answered.
+for (const [pathName, permission] of [['cold', 'prompt'], ['warm', 'granted']]) {
+  test(`${pathName} path: tapping the mic while the permission sheet is open hangs up, and a later Allow is released`, async () => {
+    // Arrange — the call is up, the sheet is open, the greeting is playing.
+    const v = await bootVoice({ permission, mic: 'pending' })
+    let observed = null
+    try {
+      await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+      // Act — the tap, then the visitor clicks Allow on the sheet anyway.
+      await v.tapMic()
+      const afterTap = { sessionOpen: v.live.isSessionOpen(), playing: v.audio.playing() }
+      v.gum.allow()
+      await settle()
+
+      observed = { afterTap, micTracksStopped: v.gum.tracks.length > 0 && v.gum.tracks.every((t) => t.stopped) }
+    } finally { v.live.dispose() }
+
+    // Assert
+    assert.deepEqual(
+      observed,
+      { afterTap: { sessionOpen: false, playing: 0 }, micTracksStopped: true },
+      'a mic tap during a pending attach ends the call (#20\'s explicit act); the mic allowed afterwards is released'
+    )
+  })
+}
+
 test('a chunk accepted just before an interrupt never starts playing after it (enqueue epoch)', async () => {
   // Arrange — the player's AudioContext starts suspended (autoplay policy), so enqueue is
   // parked on `await resume()` with a chunk the gate already accepted.
