@@ -86,7 +86,7 @@ const settle = async (turns = 10) => {
  *               `v.perm.state` may be changed by the test (the re-query after a rejection).
  * getUserMedia is the browser's bubble: pending until the test calls v.gum.allow() / v.gum.reject(name).
  */
-async function bootChat({ permission } = {}) {
+async function bootChat({ permission, relay = false, holdMint = false } = {}) {
   const sockets = []
   const messagesEl = makeEl('ul')
   const micButton = makeEl('button')
@@ -165,7 +165,11 @@ async function bootChat({ permission } = {}) {
     }
     close() { this.readyState = 3 }
   })
-  defineGlobal('fetch', async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ websocketUrl: 'wss://chat.test/r', handshake: { setup: {} }, liveVoiceTransport: 'relay' }) }))
+  // relay: a /api/live/relay/ URL (its pre-ready closes are retried). holdMint: the mint
+  // answers only when the test calls v.releaseMint().
+  const mint = { held: [] }
+  const mintResponse = () => ({ ok: true, status: 200, text: async () => JSON.stringify({ websocketUrl: relay ? 'wss://chat.test/api/live/relay/r' : 'wss://chat.test/r', handshake: { setup: {} }, liveVoiceTransport: 'relay' }) })
+  defineGlobal('fetch', async () => (holdMint ? new Promise((resolve) => mint.held.push(() => resolve(mintResponse()))) : mintResponse()))
   const clock = { now: 5_000_000 }
   Date.now = () => clock.now
   heldTimers.clear()
@@ -190,6 +194,7 @@ async function bootChat({ permission } = {}) {
     composerFocus,
     socket,
     advance: (ms) => { clock.now += ms },
+    releaseMint: async () => { for (const r of mint.held.splice(0)) r(); await settle() },
     status: () => (statuses.length ? statuses[statuses.length - 1] : null),
     start: async () => { void live.startVoice({ intent: 'auto' }); await settle() },
     open: async () => { socket().onopen(); await settle() },
@@ -701,6 +706,32 @@ test('cold path: a session that fails after the grant releases the granted mic a
       { micReleased: true, greetingsSent: 0, statusKind: 'error' },
       'ADR-0028 §3.2: no mic may stay on for a call that never came up (the grant is not wasted: ' +
       'the next tap is warm)'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('End while the granted mic waits on a still-CONNECTING socket: the mic is released at once, Start works again, no error copy', async () => {
+  // Arrange — the visitor allows before the socket has opened.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    v.gum.allow()
+    await settle()
+
+    // Act — the mic tap ("End"); the dead socket's open timeout (20 s) elapses; Start again.
+    await v.tapMic()
+    const released = v.gum.allTracksStopped()
+    await v.fireWaitTimeout()
+    const asksBefore = v.gum.calls
+    await v.start()
+    const askedAgain = v.gum.calls - asksBefore
+
+    // Assert
+    assert.deepEqual(
+      { released, askedAgain, errorCopy: v.statuses.filter((s) => s.kind === 'error').map((s) => s.text) },
+      { released: true, askedAgain: 1, errorCopy: [] },
+      'critic (ADR-0028 §3.2): an ended start must not hold the mic, Start, or a late ' +
+      '"did not connect" for a socket the visitor already abandoned'
     )
   } finally { v.live.dispose() }
 })
