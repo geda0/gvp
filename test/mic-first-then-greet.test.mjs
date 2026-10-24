@@ -309,4 +309,38 @@ test('cold path, bubble dismissed (state still prompt): the call closes, no gree
     )
   } finally { v.live.dispose() }
 })
+test('cold path, bubble denied: the call closes with no voice greeting and falls back to text — greeting in the transcript, composer focused, denied copy', async () => {
+  // Arrange — the session is ready and waiting on the bubble.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — the visitor clicks Block: the permission is now 'denied'.
+    v.perm.state = 'denied'
+    v.gum.reject('NotAllowedError')
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      {
+        socketOpen: v.socket().readyState === 1,
+        greetingsSent: v.greetingsSent(),
+        transcript: v.assistantBubbles(),
+        composerFocused: v.composerFocus.count > 0,
+        status: v.status()
+      },
+      {
+        socketOpen: false,
+        greetingsSent: 0,
+        transcript: ['Hi! I\'m Marwan\'s AI assistant. What would you like to know about his work?'],
+        composerFocused: true,
+        status: { text: DENIED_COPY, kind: 'error' }
+      },
+      'design-notes P2 / N-P1: a visitor who cannot answer by voice is not spoken to — the ' +
+      'greeting arrives as text and the composer is ready'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END

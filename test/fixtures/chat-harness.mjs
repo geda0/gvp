@@ -262,6 +262,10 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '',
     }
   })
   defineGlobal('navigator', {
+    // A session that stays OPEN with no live mic. Since ADR-0028 a refused mic on the cold
+    // path (prompt / unknown / denied) closes the call, so that state is reached only when the
+    // permission reads 'granted' and getUserMedia still fails (the mic busy).
+    permissions: { query: async () => ({ state: 'granted' }) },
     mediaDevices: {
       getUserMedia: async () => {
         const err = new Error('mic not granted in harness')

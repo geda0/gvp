@@ -2142,6 +2142,8 @@ export function initChat() {
     patchLiveUi,
     onToolCall: applyVoiceToolCall,
     onAudioLevels: handleAudioLevels,
+    // ADR-0028 addendum (N-P1): a denied mic falls back to text with the composer ready.
+    focusComposer: () => focusDockTarget('text'),
     onVoiceLauncherRequest: () => {
       if (liveUi.active || liveUi.connecting) return false
       if (liveVoice?.isSessionOpen?.()) return false

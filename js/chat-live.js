@@ -552,7 +552,9 @@ export function bindChatLiveVoice(opts) {
      *  Both are RMS in [0,1]. Phase 3b's aura subscribes to drive CSS vars. */
     onAudioLevels,
     /** When true, mic launcher opens the Start gate instead of connecting voice. */
-    onVoiceLauncherRequest
+    onVoiceLauncherRequest,
+    /** Optional: move focus to the text composer (the denied → text fallback, ADR-0028). */
+    focusComposer
   } = opts
 
   const emitLevel = typeof onAudioLevels === 'function'
@@ -1505,6 +1507,17 @@ export function bindChatLiveVoice(opts) {
       conversationGreeted = true
       chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
     }
+    // ADR-0028 addendum (N-P1): the denied fallback — the greeting as a transcript line, and the
+    // composer ready for the text answer.
+    const greetAsText = () => {
+      if (!conversationGreeted) {
+        appendChatBubble(messagesEl, 'assistant', greetText, false)
+        conversationGreeted = true
+        syncEmptyState()
+        scrollMessagesToBottom()
+      }
+      if (typeof focusComposer === 'function') focusComposer()
+    }
 
     try {
       if (perm === 'granted') {
@@ -1551,6 +1564,13 @@ export function bindChatLiveVoice(opts) {
         if (after === 'prompt') {
           stopVoiceInternal({ silent: true })
           setStatus(MIC_DISMISSED_MSG, 'error')
+          return
+        }
+        if (blocked) {
+          // Denied (N-P1): nobody is spoken to who cannot answer by voice. Text fallback.
+          stopVoiceInternal({ silent: true })
+          setStatus(micAccessUserMessage(micErr), 'error')
+          greetAsText()
           return
         }
         await sessionP
