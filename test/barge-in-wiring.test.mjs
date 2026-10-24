@@ -223,6 +223,40 @@ test('cold path: once the visitor allows the mic, its audio goes upstream while 
   } finally { v.live.dispose() }
 })
 
+test('cold path: `interrupted` during the greeting stops playback at once, drops its tail, and the next turn plays', async () => {
+  // Arrange — first visit, mic allowed at once, the greeting speaking (two chunks playing).
+  const v = await bootVoice({ permission: 'prompt', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+
+    // Act — Live's activity detection fires on the visitor's voice; the dead greeting's tail
+    // still arrives before its turnComplete; then the answer.
+    await v.send({ serverContent: { interrupted: true } })
+    const playingAfterInterrupt = v.audio.playing()
+    const startedAtInterrupt = v.audio.started()
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Hi! I am the greeting' } } })
+    const tailStarted = v.audio.started() - startedAtInterrupt
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'He builds AI agents.' } } })
+
+    observed = {
+      playingAfterInterrupt,
+      tailStarted,
+      answerPlaying: v.audio.playing(),
+      assistantBubbles: v.bubbleTexts('assistant')
+    }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { playingAfterInterrupt: 0, tailStarted: 0, answerPlaying: 1, assistantBubbles: ['He builds AI agents.'] },
+    'G1: on the cold path the greeting must stop at once, nothing of it may play or be appended ' +
+    'after the cut, and the visitor\'s next turn must not be stuck muted'
+  )
+})
+
 // G2: an explicit act stops playback LOCALLY — no server round-trip — on both paths.
 // Before ADR-0026 a chip or text turn into the call relied on the server to cut the audio,
 // and a mic tap on an open session only attached the mic: buffered greeting audio kept
