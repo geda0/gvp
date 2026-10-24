@@ -946,11 +946,8 @@ export function initChat() {
   try {
     chatSize = parseChatSize(localStorage.getItem(CHAT_SIZE_STORAGE_KEY))
   } catch (_) { /* storage blocked - the default stands */ }
-  // null = not beside a project dialog; a number = beside one, at that measured width.
-  let besideDialogWidth = null
   const sizeToggle = dialog?.querySelector('[data-chat-size-toggle]') || null
 
-  // The ONLY writer of data-chat-size / --chat-dock-width, from dockedSizeChrome alone.
   // The reducer's injected context (ADR-0029 §4 + addendum): the viewport class, whether a
   // project dialog is showing, and whether it leaves the chat's column reserved.
   const stageCtx = () => ({
@@ -959,33 +956,35 @@ export function initChat() {
     reserveRoom: besideLayout({ viewportWidth: window.innerWidth, preferred: chatSize }).reserve > 0
   })
 
+  // ADR-0029 §3: the ONE page-level inset a project dialog consumes, and the lift that goes
+  // with it. The dialog knows nothing about the chat; the chat is the inset's only writer.
+  // 0 = not reserved: the property is REMOVED, so the dialog's geometry is byte-identical to
+  // the one it had before any of this existed.
+  const RESERVE_PROP = '--overlay-reserve-inline-end'
+  const applyOverlayReserve = (reserve) => {
+    const root = document.documentElement
+    if (reserve > 0) root?.style?.setProperty(RESERVE_PROP, `${reserve}px`)
+    else root?.style?.removeProperty(RESERVE_PROP)
+    // css/chat.css lifts exactly this card above the dialog's inset:0 scrim (z 1100) - safe
+    // because the dialog has moved out of the reserved column, so it covers scrim, never panel.
+    dialog.dataset.chatBeside = reserve > 0 ? 'true' : 'false'
+  }
+
+  // The ONLY writer of data-chat-size / --chat-dock-width (from dockedSizeChrome alone) and of
+  // the overlay reserve. Run on every project change, open-beside, applyStage and resize - the
+  // reserve is a function of (stage, project showing, viewport, preference) and nothing else.
   const applyChatSize = () => {
-    // Beside a dialog, RE-MEASURE its live panel on every apply (resize, restore, toggle):
-    // the room decided at the chip tap does not survive a narrower window, and a remembered
-    // answer lifted the card over the dialog's own panel (tdd-critic, measured 54-370px).
-    if (besideDialogWidth !== null) {
-      const live = document.querySelector('#projectDialog .project-dialog__panel')
-      const rect = live ? live.getBoundingClientRect() : null
-      besideDialogWidth = rect ? rect.width : 0
-    }
-    const besideRoom = besideDialogWidth !== null && hasRoomBesideDialog({
-      viewportWidth: window.innerWidth,
-      dialogWidth: besideDialogWidth,
-      cardWidth: dockedCardWidth({ viewportWidth: window.innerWidth, size: 'compact' }),
-      gutter: DOCK_GUTTER
-    })
+    const projectShowing = getSiteState().project != null
+    const layout = besideLayout({ viewportWidth: window.innerWidth, preferred: chatSize })
+    const reserved = chatStage === 'docked' && projectShowing && layout.reserve > 0
     const chrome = dockedSizeChrome({
       stage: chatStage,
       viewportWidth: window.innerWidth,
       preferred: chatSize,
-      beside: besideRoom
+      beside: projectShowing
     })
     dialog.dataset.chatSize = chrome.size
-    // Docked BESIDE a project dialog by request: css/chat.css lifts exactly this card above
-    // the dialog's inset:0 scrim (z 1100), which otherwise covered it (measured, ADR-0027 §9).
-    // Only while it fits beside the LIVE panel right now - so it covers scrim, never the
-    // panel; when it stops fitting it drops back under the scrim with the other yields.
-    dialog.dataset.chatBeside = chatStage === 'docked' && besideRoom ? 'true' : 'false'
+    applyOverlayReserve(reserved ? layout.reserve : 0)
     // 0 = unmeasurable: drop the property so the CSS fallback (the shipped compact rule) holds.
     if (chrome.width > 0) dialog.style.setProperty('--chat-dock-width', `${chrome.width}px`)
     else dialog.style.removeProperty('--chat-dock-width')
@@ -1110,18 +1109,16 @@ export function initChat() {
   subscribeSiteState((snapshot, change) => {
     syncActiveChip(snapshot)
     if (!change) return
-    // The project dialog closed: the card is no longer beside anything, so a temporary
-    // compact gives way to the visitor's stored size (ADR-0027 §7).
-    if (change.field === 'project' && !change.to && besideDialogWidth !== null) {
-      besideDialogWidth = null
-      applyChatSize()
-    }
     const event = stageEventForChange(change)
     if (!event) return
     // 'system': a layout-driven stage change is neither the visitor moving the chat nor the
     // agent doing it (ss3.3). Mislabelling it would make ss7's live note either announce
     // something the visitor did not do, or dedupe away a note the agent does need.
     dispatchStage(event, 'system')
+    // ADR-0029 §3: UNCONDITIONALLY on every project change, after the stage. dispatchStage
+    // returns early on a same-stage result (docked stays docked), and that early return is
+    // why the reserve never applied (RCA). Closing clears it the same way.
+    if (change.field === 'project') applyChatSize()
   })
 
   const snapClose = ({ restoreFocus = true, keepVoice = false } = {}) => {
@@ -1160,7 +1157,6 @@ export function initChat() {
     }
     clearVoiceAwaitingStart()
     dockMode = 'voice'
-    besideDialogWidth = null
     applyStage('closed', 'visitor')
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -1686,33 +1682,18 @@ export function initChat() {
     else if (chatStage !== 'modal') dispatchStage('restore', 'visitor')
   })
 
-  // M4 slice 13 (ADR-0017 §2.5, §7.5): the project chips are open-beside's caller. The
-  // MEASUREMENT is here (one rect on the live project panel); the DECISION is
-  // hasRoomBesideDialog. The STAGE is decided with the COMPACT width, exactly today's rule
-  // (ADR-0027 §3.2); the SIZE beside the dialog is dockedSizeChrome's, fed the same measured
-  // width - so wide beside -> compact beside -> modal. No room -> modal, never the pill
-  // (untappable under the project backdrop). The prompt is canned + the store's title,
-  // never visitor text.
+  // M4 slice 13 (ADR-0017 §2.5, §7.5): the project chips are open-beside's caller. ADR-0029
+  // §2.1: the room is besideLayout's reserve - a function of the viewport alone, since the
+  // dialog now moves left of the reserved column instead of staying centred. No room (< 1016)
+  // -> modal over the dialog (N-P3: today's behaviour), never the pill (untappable under the
+  // project backdrop). The prompt is canned + the store's title, never visitor text.
   document.addEventListener('click', (event) => {
     const chip = event.target.closest('#projectDialog [data-project-chip]')
     if (!chip) return
     const project = getSiteState().project
     const prompt = projectChipPrompt(chip.dataset.projectChip, project && project.title)
     if (!prompt) return
-    const panelEl = document.querySelector('#projectDialog .project-dialog__panel')
-    const rect = panelEl ? panelEl.getBoundingClientRect() : null
-    const dialogWidth = rect ? rect.width : 0
-    const roomBeside = hasRoomBesideDialog({
-      viewportWidth: window.innerWidth,
-      dialogWidth,
-      cardWidth: dockedCardWidth({ viewportWidth: window.innerWidth, size: 'compact' }),
-      gutter: DOCK_GUTTER
-    })
-    // Set BEFORE the stage applies, so the first frame beside the dialog is already the
-    // right size. Cleared when the dialog closes (project -> null) or the chat closes. Only
-    // when there IS room: a no-room modal that later yields to docked overlaps the panel,
-    // and must stay a plain yield below the dialog rather than be lifted above it.
-    besideDialogWidth = roomBeside ? dialogWidth : null
+    const roomBeside = besideLayout({ viewportWidth: window.innerWidth, preferred: chatSize }).reserve > 0
     trackEvent('project_assistant_chip', { chip: chip.dataset.projectChip, beside: roomBeside })
     // Opening is more than chrome, so a closed chat opens through openPanel first; open-beside
     // then docks it beside the card when there is room.
