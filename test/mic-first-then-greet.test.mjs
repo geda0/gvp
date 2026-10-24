@@ -244,4 +244,47 @@ test('cold path: while the bubble is open the voice panel explains it, in exactl
     )
   } finally { v.live.dispose() }
 })
+test('cold path, grant after setup: the mic is wired BEFORE the greeting is sent, and the hint gives way to Listening', async () => {
+  // Arrange — the session is ready and waiting on the bubble.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — the visitor clicks Allow.
+    v.gum.allow()
+    await settle()
+
+    // Assert — the order, not just both: a greeting whose first frame plays to a mic that is
+    // not yet live cannot be talked over (#25), and the AEC would start cold mid-sentence.
+    assert.deepEqual(
+      { order: v.timeline.filter((e) => e === 'mic wired' || e === 'greeting'), status: v.status().text },
+      { order: ['mic wired', 'greeting'], status: 'Listening… speak about Marwan\'s work.' },
+      'ADR-0028 §3.2 / §6.2: wired → greeting, in the grant\'s own continuation'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('cold path, grant before setupComplete: the greeting waits for setup, then wire, then greet', async () => {
+  // Arrange — the visitor allows while the session is still connecting.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    v.gum.allow()
+    await settle()
+    await v.open()
+    const beforeSetup = v.timeline.filter((e) => e === 'mic wired' || e === 'greeting')
+
+    // Act — setup completes.
+    await v.setupComplete()
+
+    // Assert
+    assert.deepEqual(
+      { beforeSetup, after: v.timeline.filter((e) => e === 'mic wired' || e === 'greeting') },
+      { beforeSetup: [], after: ['mic wired', 'greeting'] },
+      'ADR-0028 §6.3: wiring needs an open, set-up session; the greeting needs a live mic'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END
