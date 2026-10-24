@@ -493,6 +493,39 @@ test('a server `interrupted` with no turn in flight still cancels: the server re
   )
 })
 
+// The permission sheet is now open OVER the greeting on every first visit (ADR-0026 §2), so
+// "hang up, then answer the sheet" is a common path. Whatever the answer, the dead call must
+// not come back to life in the UI: no sessionOpen:true patch, no error status, no no-mic sweep.
+for (const [pathName, permission, answer] of [['cold', 'prompt', 'allow'], ['cold', 'prompt', 'deny'], ['warm', 'granted', 'deny']]) {
+  test(`${pathName} path: hanging up while the permission sheet is open, then ${answer === 'allow' ? 'Allow' : 'Deny'}, leaves the call ended and silent`, async () => {
+    // Arrange — the call is up and getUserMedia is waiting on the sheet.
+    const v = await bootVoice({ permission, mic: 'pending' })
+    let observed = null
+    try {
+      // Act — hang up, then the visitor answers the sheet.
+      v.live.stopVoice()
+      await settle()
+      const patchesAt = v.patches.length
+      const statusesAt = v.statuses.length
+      v.gum[answer]()
+      await settle()
+
+      observed = {
+        sessionOpen: v.live.isSessionOpen(),
+        reopenedInUi: v.patches.slice(patchesAt).some((p) => p.sessionOpen === true),
+        errorStatuses: v.statuses.slice(statusesAt).filter((s) => s.kind === 'error').map((s) => s.text)
+      }
+    } finally { v.live.dispose() }
+
+    // Assert
+    assert.deepEqual(
+      observed,
+      { sessionOpen: false, reopenedInUi: false, errorStatuses: [] },
+      'a mic answer that arrives after the call ended must not re-patch the UI open or report an error'
+    )
+  })
+}
+
 test('a chunk accepted just before an interrupt never starts playing after it (enqueue epoch)', async () => {
   // Arrange — the player's AudioContext starts suspended (autoplay policy), so enqueue is
   // parked on `await resume()` with a chunk the gate already accepted.

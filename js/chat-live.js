@@ -1413,6 +1413,9 @@ export function bindChatLiveVoice(opts) {
           await attachMicrophoneInternal()
           setStatus('Listening… speak about Marwan\'s work.')
         } catch (micErr) {
+          // The visitor hung up while getUserMedia was pending: the call is over, so the late
+          // answer must not re-open the UI, report an error, or arm the no-mic sweep.
+          if (!voiceSessionOpen) return
           // Permission "granted" but stream acquisition failed (mic busy, denied,
           // etc.). Fall back to the cold path: session stays open for the
           // greeting; visitor can retry by tapping the big mic.
@@ -1427,6 +1430,8 @@ export function bindChatLiveVoice(opts) {
           await attachMicrophoneInternal()
           setStatus('Listening… speak about Marwan\'s work.')
         } catch (micErr) {
+          // Hung up while the permission sheet was open (see the warm branch).
+          if (!voiceSessionOpen) return
           patchLiveUi({ active: false, connecting: false, sessionOpen: true })
           setStatus(micAccessUserMessage(micErr), 'error')
           scheduleNoMicIdleClose()
