@@ -382,7 +382,7 @@ test('parseChatSize reads only the two sizes, and anything else is the WIDE defa
   assert.equal(DEFAULT_CHAT_SIZE, 'wide', 'owner decision O1: the first open is WIDE')
   // A stored value is visitor-controlled data: case is NOT folded, so 'WIDE' is junk, and
   // junk reads as the default rather than as whatever it happens to resemble.
-  for (const raw of [null, undefined, '', 'WIDE', 'huge', 42]) {
+  for (const raw of [null, undefined, '', 'WIDE', 'COMPACT', ' compact', 'huge', 42]) {
     assert.equal(parseChatSize(raw), 'wide', `${JSON.stringify(raw)} must read as 'wide'`)
   }
   assert.equal(parseChatSize('wide'), 'wide')

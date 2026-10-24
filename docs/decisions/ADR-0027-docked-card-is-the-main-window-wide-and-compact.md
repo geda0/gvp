@@ -372,4 +372,12 @@ session running (invariant #20's pin list).
   `inset: 0` backdrop (z 1100, 72 % alpha + blur, ADR-0017 §2.2). If a beside-docked card is in
   fact covered and untappable, that is pre-existing and independent of size; this ADR's "wide only
   if it fits beside" rule does not make it worse.
+  **Resolved by the loop (2026-10-24):** reproduced in the journey (at 1920×1080
+  `elementFromPoint` over the beside card returned the project dialog). `applyChatSize` sets
+  `data-chat-beside="true"` and `css/chat.css` lifts that card to z 1102 (above the 1100 scrim,
+  below the 1105 modal and the 1150 tour) — **only while** `hasRoomBesideDialog` holds for the
+  compact card against the project panel **re-measured live** on every apply (resize, restore,
+  toggle). A beside card that stops fitting (narrower window) loses the mark and drops back under
+  the scrim instead of covering the dialog's own panel (tdd-critic, measured 54–370 px overlap
+  when the lift was remembered). A plain yield to a dialog is never marked.
 - No backend, wire, store or voice change. ADR-0015's store stays at five fields.

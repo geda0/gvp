@@ -193,16 +193,26 @@ export async function goto (page, url) {
   // stage from boot" is what makes this reliable). Waiting on a real readiness marker
   // instead of a longer sleep is the difference between a harness people run and one they
   // learn to ignore.
+  //
+  // NOT `readyState === 'complete'`: that also waits for third-party subresources (Google
+  // Fonts, gtag), which on a COLD throwaway profile could stall past the deadline - the first
+  // journey of a run failed "never became ready" while every later one (warm cache) passed.
+  // The app is wired at DOMContentLoaded; chatStage is the signal that matters.
   const deadline = Date.now() + 15000
   while (Date.now() < deadline) {
     const ready = await evaluate(page, () => (
-      document.readyState === 'complete'
+      document.readyState !== 'loading'
       && Boolean(document.getElementById('chatDialog')?.dataset.chatStage)
     )).catch(() => false)
     if (ready) return
     await sleep(80)
   }
-  throw new Error(`page never became ready: ${url}`)
+  const seen = await evaluate(page, () => JSON.stringify({
+    href: location.href,
+    readyState: document.readyState,
+    chatStage: document.getElementById('chatDialog')?.dataset.chatStage || null
+  })).catch((err) => `unreadable: ${err && err.message}`)
+  throw new Error(`page never became ready: ${url} (saw ${seen})`)
 }
 
 /** A REAL click at viewport coordinates — the thing a stub DOM cannot do. */

@@ -725,6 +725,38 @@ async function journeyBesideProjectDialog (page) {
   })
   out.push({ claim: 'and the project dialog itself is still on top of its own area', ok: dialogHit })
 
+  // tdd-critic: the lift must not outlive the room. Narrow the window with the dialog still
+  // open - the card no longer fits beside it and overlaps the panel; over that overlap the
+  // DIALOG must win (the card drops back under the scrim), not the lifted chat.
+  await setViewport(page, 1280, 1080)
+  await evaluate(page, () => { window.dispatchEvent(new Event('resize')) })
+  await sleep(500)
+  const overlap = await evaluate(page, () => {
+    const a = document.querySelector('#chatDialog .chat-dialog__panel').getBoundingClientRect()
+    const b = document.querySelector('#projectDialog .project-dialog__panel').getBoundingClientRect()
+    const l = Math.max(a.left, b.left); const r = Math.min(a.right, b.right)
+    const t = Math.max(a.top, b.top); const btm = Math.min(a.bottom, b.bottom)
+    if (r - l < 2 || btm - t < 2) return { none: true }
+    const el = document.elementFromPoint((l + r) / 2, (t + btm) / 2)
+    return {
+      width: r - l,
+      top: el && el.closest('#projectDialog') ? 'project-dialog' : el && el.closest('#chatDialog') ? 'chat' : 'other',
+      beside: document.getElementById('chatDialog').dataset.chatBeside
+    }
+  })
+  out.push({
+    claim: '1920 -> 1280 with the dialog open: over the card/panel overlap the PROJECT DIALOG wins (beside mark dropped)',
+    ok: !overlap.none && overlap.top === 'project-dialog' && overlap.beside === 'false',
+    detail: JSON.stringify(overlap)
+  })
+  await setViewport(page, 1920, 1080)
+  await evaluate(page, () => { window.dispatchEvent(new Event('resize')) })
+  await sleep(500)
+  out.push({
+    claim: 'and widening back with the dialog still open lifts it again',
+    ok: (await evaluate(page, () => document.getElementById('chatDialog').dataset.chatBeside)) === 'true'
+  })
+
   await pressKey(page, 'Escape')
   await sleep(600)
   const after = await card(page)

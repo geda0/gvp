@@ -2370,9 +2370,10 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 /* ...EXCEPT a card docked BESIDE a project dialog by request (the project chips, ADR-0017
  * §2.5). At 1085 it sat under .project-dialog's inset:0 scrim (1100) - MEASURED in the
  * journey: elementFromPoint over it returned the dialog, a blurred card the visitor asked for
- * and could not type into (ADR-0027 §9). js/chat.js marks it only when it was measured to
- * fit WITHOUT overlapping the panel, so lifting it covers scrim, never the dialog. Still
- * below a modal chat (1105) and the tour card (1150). */
+ * and could not type into (ADR-0027 §9). js/chat.js marks it only WHILE it fits beside the
+ * LIVE project panel without overlapping it - re-measured on every resize, restore and
+ * toggle - so lifting it covers scrim, never the dialog; when it stops fitting the mark
+ * drops and it goes back under the scrim. Still below a modal chat (1105) and the tour (1150). */
 #chatDialog[data-chat-stage='docked'][data-chat-beside='true'] {
     z-index: 1102;
 }
