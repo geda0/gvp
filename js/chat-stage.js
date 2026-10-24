@@ -186,14 +186,33 @@ export function parseChatSize (raw) {
 export const DOCK_COMPACT_WIDTH = 384
 // The `- 2rem` in that rule, per side.
 export const DOCK_EDGE_INSET = 16
+// The docked shell's padding at >= 1000px, and the gutter hasRoomBesideDialog is fed.
+export const DOCK_GUTTER = 20
+export const DOCK_WIDE_MAX_WIDTH = 720
+// Below this "wide" is not meaningfully wider than compact, so it falls back instead.
+export const DOCK_WIDE_MIN_WIDTH = 480
+// px of page the card must ALWAYS leave beside it (invariant #27). 320 is the narrowest
+// layout the site already supports, so the uncovered strip is always a usable column -
+// "floats, may cover part of the content" is the owner's ruling; "the site stays usable"
+// is his constraint, and it has to be a number to be testable.
+export const DOCK_MIN_UNCOVERED = 320
 
 /**
  * The docked card's width in px - the ONE source of truth for it. CSS reads it back as
  * --chat-dock-width; hasRoomBesideDialog is fed the same number.
+ *
+ * `0` means "not measurable": the caller removes the custom property and the CSS fallback
+ * (the shipped compact rule) applies.
  * @param {{viewportWidth: number, size: string}} m
  */
 export function dockedCardWidth ({ viewportWidth, size } = {}) {
-  return Math.max(0, Math.min(DOCK_COMPACT_WIDTH, viewportWidth - 2 * DOCK_EDGE_INSET))
+  if (typeof viewportWidth !== 'number' || !Number.isFinite(viewportWidth) || viewportWidth < 0) {
+    return 0
+  }
+  const compact = Math.max(0, Math.min(DOCK_COMPACT_WIDTH, viewportWidth - 2 * DOCK_EDGE_INSET))
+  if (size !== 'wide') return compact
+  const wide = Math.min(DOCK_WIDE_MAX_WIDTH, viewportWidth - 2 * DOCK_GUTTER - DOCK_MIN_UNCOVERED)
+  return wide < DOCK_WIDE_MIN_WIDTH ? compact : wide
 }
 
 /**

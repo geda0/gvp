@@ -402,3 +402,28 @@ test('the compact card is byte-identical to the shipped min(24rem, 100vw - 2rem)
   // An unknown size is compact - never a surprise wide card.
   assert.equal(dockedCardWidth({ viewportWidth: 1280, size: 'huge' }), 384)
 })
+
+test('the wide card leaves 320px of page and falls back to compact rather than a sliver', async () => {
+  const { dockedCardWidth, DOCK_WIDE_MAX_WIDTH, DOCK_WIDE_MIN_WIDTH, DOCK_MIN_UNCOVERED, DOCK_GUTTER } = await sizeApi()
+  assert.deepEqual(
+    [DOCK_WIDE_MAX_WIDTH, DOCK_WIDE_MIN_WIDTH, DOCK_MIN_UNCOVERED, DOCK_GUTTER], [720, 480, 320, 20],
+    'ADR-0027 §3 constants'
+  )
+  // wide = min(720, vw - 2*20 - 320), compact (384) when that is < 480. The derived numbers
+  // in ADR-0027 §3.1: available from 840, capped at 720 from 1080.
+  const wide = (vw) => dockedCardWidth({ viewportWidth: vw, size: 'wide' })
+  assert.equal(wide(767), 384, '767: wide is not available, fallback to compact')
+  assert.equal(wide(768), 384)
+  assert.equal(wide(839), 384, '839 - 360 = 479 < 480 - a sliver is not wide')
+  assert.equal(wide(840), 480, 'the first width at which wide exists')
+  assert.equal(wide(1024), 664)
+  assert.equal(wide(1080), 720, 'the cap is reached')
+  assert.equal(wide(1280), 720)
+  assert.equal(wide(1920), 720)
+  // An unmeasured viewport is 0 - the caller then drops the custom property and the CSS
+  // fallback (the shipped compact rule) applies.
+  for (const size of ['wide', 'compact']) {
+    assert.equal(dockedCardWidth({ viewportWidth: NaN, size }), 0, `NaN, ${size}`)
+    assert.equal(dockedCardWidth({ viewportWidth: -5, size }), 0, `negative, ${size}`)
+  }
+})
