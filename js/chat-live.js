@@ -10,7 +10,6 @@ import { hasNavPromiseGap } from './nav-promise-gap.js'
 import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
 import { subscribe as subscribeSiteState, getSiteStateForWire, siteStateWireIfNotable } from './site-state.js'
 import { createSiteStateNotifier } from './site-state-notes.js'
-import { micAttachPlan } from './mic-attach-plan.js'
 
 const INPUT_RATE = 16000
 
@@ -654,50 +653,6 @@ export function bindChatLiveVoice(opts) {
     warmFollowupTimer = null
   }
 
-  // M4 slice 14 (ADR-0017 §5): a deferred mic attach - after the greeting's first
-  // turnComplete, or the plan's fallback, whichever comes first. One pending record and one
-  // in-flight flag make the two triggers idempotent; stopVoiceInternal clears both, so ending
-  // the call during the greeting never raises a permission prompt for a dead session.
-  let deferredMicTimer = null
-  let pendingMicAttach = null
-  let deferredMicAttachRunning = false
-
-  const clearDeferredMicAttach = () => {
-    if (deferredMicTimer) clearTimeout(deferredMicTimer)
-    deferredMicTimer = null
-    pendingMicAttach = null
-  }
-
-  const runDeferredMicAttach = async () => {
-    const pending = pendingMicAttach
-    if (!pending || deferredMicAttachRunning) return
-    clearDeferredMicAttach()
-    if (!voiceSessionOpen) return
-    deferredMicAttachRunning = true
-    try {
-      await attachMicrophoneInternal()
-      setStatus('Listening… speak about Marwan\'s work.')
-      // The cold path never had a follow-up nudge; deferring the attach would have widened
-      // that silence, so the deferred case schedules one (ADR-0017 §5.2).
-      if (pending.nudge && !userSpokeAfterGreeting) {
-        clearWarmFollowupTimer()
-        warmFollowupTimer = setTimeout(() => {
-          warmFollowupTimer = null
-          if (!voiceSessionOpen || !active || userSpokeAfterGreeting) return
-          sendWarmFollowup()
-        }, VOICE_WARM_FOLLOWUP_MS)
-      }
-    } catch (micErr) {
-      // A timer callback has no surrounding try: handle 'session not ready' and mic errors here.
-      if (!voiceSessionOpen) return
-      patchLiveUi({ active: false, connecting: false, sessionOpen: true })
-      setStatus(micAccessUserMessage(micErr), 'error')
-      scheduleNoMicIdleClose()
-    } finally {
-      deferredMicAttachRunning = false
-    }
-  }
-
   const scheduleNoMicIdleClose = () => {
     clearNoMicIdleTimer()
     noMicIdleTimer = setTimeout(() => {
@@ -797,7 +752,6 @@ export function bindChatLiveVoice(opts) {
     clearVoiceTimers()
     clearNoMicIdleTimer()
     clearWarmFollowupTimer()
-    clearDeferredMicAttach()
     siteStateNotifier.reset()
     voiceSessionOpen = false
     wsOpened = false
@@ -1045,7 +999,6 @@ export function bindChatLiveVoice(opts) {
         // auto-follow-up because the visitor still needs to grant mic permission.
         if (!greetingTurnComplete) {
           greetingTurnComplete = true
-          if (pendingMicAttach) void runDeferredMicAttach()
           if (sessionIntent === 'warm' && active && !userSpokeAfterGreeting) {
             clearWarmFollowupTimer()
             warmFollowupTimer = setTimeout(() => {
@@ -1242,7 +1195,7 @@ export function bindChatLiveVoice(opts) {
   /** Get mic permission, build the AudioWorklet (or ScriptProcessor fallback),
    *  and start streaming PCM frames. Assumes the session is already open. */
   // ONE attach in flight at a time (M4 critic): a manual mic tap during the greeting and the
-  // deferred attach at its turnComplete used to both reach getUserMedia - `active` is still false
+  // start-of-session attach can both reach getUserMedia - `active` is still false
   // while the browser's permission prompt is open - and the first stream was overwritten and
   // never stopped, leaving the mic indicator on after hang-up. Every trigger shares this promise.
   let attachInFlight = null
@@ -1387,8 +1340,8 @@ export function bindChatLiveVoice(opts) {
     setStatus('Connecting voice…')
     chatBus.emit('thinking', { source: 'chat-live' })
 
-    // The permission STATE drives the mic plan (ADR-0017 §5); warm/cold still picks the
-    // greeting text. Read it once, for every intent, not only 'auto'.
+    // The permission STATE picks warm/cold (and so the greeting text). Read it once, for
+    // every intent, not only 'auto'.
     const perm = await detectMicPermissionState()
     let resolvedIntent = intent
     if (resolvedIntent === 'auto') {
@@ -1415,14 +1368,11 @@ export function bindChatLiveVoice(opts) {
         chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
       }
 
-      const plan = micAttachPlan({ permission: perm, assistantSpeaksFirst: shouldGreet })
-      if (plan.attach === 'after-first-turn') {
-        // A permission sheet over the speaking greeting cuts it off: attach after the
-        // greeting's first turnComplete, with the plan's fallback below the 60 s no-mic sweep.
-        pendingMicAttach = { nudge: plan.nudgeAfterAttach }
-        deferredMicTimer = setTimeout(() => { void runDeferredMicAttach() }, plan.deferFallbackMs)
-        setStatus('Say hello once the greeting ends — your browser will ask for the microphone.')
-      } else if (resolvedIntent === 'warm') {
+      // ADR-0026 §2 / invariant #25: the mic is requested right after the greeting is sent on
+      // EVERY path. Never defer it behind the greeting's turnComplete - with no upstream audio
+      // Gemini Live cannot raise `interrupted`, and the greeting becomes un-interruptible. The
+      // permission sheet appearing over the greeting on a first visit is the accepted cost.
+      if (resolvedIntent === 'warm') {
         // Permission previously granted: attach mic right after greeting starts.
         // The greeting audio plays while we acquire the stream; both end up
         // mixed into the same Web Audio context (mic input is muted to local
@@ -1479,9 +1429,6 @@ export function bindChatLiveVoice(opts) {
       return startVoice({ intent: 'auto' })
     }
     if (active) return
-    // A manual tap supersedes a deferred attach: the shared in-flight promise covers the
-    // overlap, and clearing the pending record stops the fallback timer firing later.
-    clearDeferredMicAttach()
     try {
       await attachMicrophoneInternal()
       setStatus('Listening… speak about Marwan\'s work.')
