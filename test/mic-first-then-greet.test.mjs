@@ -425,4 +425,44 @@ test('cold path, bubble ignored for 20 s: the call closes with the "not yet" cop
     )
   } finally { v.live.dispose() }
 })
+test('hanging up (stopVoice) while the bubble is open: the hint goes, a later Allow is released silently, and Start works again at once', async () => {
+  // Arrange — the session is ready and waiting on the bubble.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — the panel is closed (snapClose → stopVoice) with the bubble still up; the visitor
+    // taps Start again before answering it; then answers the old bubble with Allow.
+    v.live.stopVoice()
+    await settle()
+    const afterHangUp = { socketOpen: v.sockets[0].readyState === 1, status: v.status() }
+    const statusesAt = v.statuses.length
+    await v.start()
+    const askedAgain = v.gum.calls
+    v.gum.allow()
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      {
+        afterHangUp,
+        askedAgain,
+        firstMicReleased: v.gum.streams[0].tracks.every((t) => t.stopped),
+        greetingsOnFirstSocket: v.sockets[0].sent.filter((p) => JSON.parse(p).clientContent).length,
+        errorCopy: v.statuses.slice(statusesAt).filter((s) => s.kind === 'error')
+      },
+      {
+        afterHangUp: { socketOpen: false, status: { text: '', kind: undefined } },
+        askedAgain: 2,
+        firstMicReleased: true,
+        greetingsOnFirstSocket: 0,
+        errorCopy: []
+      },
+      'ADR-0028 §3.2 stale-start guard: an ended start never greets, reports or holds the next ' +
+      'Start hostage to a bubble nobody will answer'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END
