@@ -225,3 +225,23 @@ for (const permission of ['prompt', undefined]) {
     } finally { v.live.dispose() }
   })
 }
+
+test('cold path: while the bubble is open the voice panel explains it, in exactly the owner\'s words', async () => {
+  // Arrange
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    // Act — the session is ready; the bubble is still open.
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Assert
+    assert.deepEqual(
+      v.status(),
+      { text: MIC_PERMISSION_HINT, kind: undefined },
+      'design-notes P1: the visitor is told what the browser sheet is and which choice stops it ' +
+      'asking again (Chrome\'s one-time grant is why the owner was asked every visit)'
+    )
+  } finally { v.live.dispose() }
+})
+//@@END

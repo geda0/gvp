@@ -293,6 +293,10 @@ function voiceCaptureGateMessage() {
   return ''
 }
 
+/** ADR-0028 §3.1 — shown only while the cold path's mic request is pending. Owner copy. */
+const MIC_PERMISSION_HINT =
+  'Your browser is asking for the microphone — choose “Allow while visiting the site” so we don\'t ask again.'
+
 /** The one getUserMedia request, identical on every call (a changing constraint must never be
  *  why a browser asks again — design-notes P1). Frozen so nothing can drift it at runtime. */
 const MIC_CONSTRAINTS = Object.freeze({
@@ -1526,6 +1530,7 @@ export function bindChatLiveVoice(opts) {
       const micP = acquireMicStream()
       const sessionP = openVoiceSessionInternal()
       sessionP.catch(() => {}) // awaited below only after the grant; never unhandled meanwhile
+      setStatus(MIC_PERMISSION_HINT)
       let acquired
       try {
         acquired = await micP
