@@ -188,3 +188,52 @@ test('ADR-0027 §4.1: the size toggle is a pressed-state button with a fixed nam
   assert.equal(getEl('chatDialog').querySelector('.chat-dialog__panel').getAttribute('aria-modal'), 'false',
     'docked at both sizes is non-modal')
 })
+
+test('ADR-0027 §5.2: minimising the focused main window hands focus to the resume chip', async (t) => {
+  // Docked is now the default window, so the composer usually HOLDS focus when the visitor
+  // presses minimise or Escape. Hiding it would drop focus to <body>; the "Assistant active"
+  // chip (whose click is restore) is where it goes instead. A SYSTEM minimise (the contact
+  // dialog opening) must not move it - that dialog is taking focus itself.
+  const { api, getEl, siteState, docEvents } = await boot('a11y-resume-chip')
+  t.after(() => api.disposeChatLiveVoice())
+  const dialog = getEl('chatDialog')
+  const panel = dialog.querySelector('.chat-dialog__panel')
+  const composer = getEl('chatComposerInput')
+  const chip = getEl('agentActiveChip')
+  panel.contains = (el) => el === composer
+  const focused = []
+  chip.focus = () => focused.push(chip.hidden ? 'hidden-chip' : 'chip')
+
+  const toDocked = async () => {
+    api.openPanel()
+    await settle()
+    assert.equal(siteState.getSiteState().chatStage, 'docked', 'harness: docked')
+    document.activeElement = composer
+  }
+
+  await toDocked()
+  dialog.querySelector('.chat-dialog__minimize').events.fire('click', { stopPropagation () {} })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized')
+  assert.deepEqual(focused, ['chip'], 'the minimise button must hand focus to the VISIBLE resume chip')
+
+  await toDocked()
+  docEvents.fire('keydown', { key: 'Escape', preventDefault () {} })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized', 'Escape on docked minimises (N-W3)')
+  assert.deepEqual(focused, ['chip', 'chip'], 'and so does Escape')
+
+  await toDocked()
+  siteState.setContactOpen(true, { origin: 'visitor' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized')
+  assert.deepEqual(focused, ['chip', 'chip'], 'a system minimise never moves focus')
+
+  // Focus outside the card: a requested minimise leaves it where the visitor put it.
+  siteState.setContactOpen(false, { origin: 'visitor' })
+  await settle()
+  document.activeElement = getEl('somewhereOnThePage')
+  dialog.querySelector('.chat-dialog__minimize').events.fire('click', { stopPropagation () {} })
+  await settle()
+  assert.deepEqual(focused, ['chip', 'chip'], 'focus outside the card is not ours to move')
+})

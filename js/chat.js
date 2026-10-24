@@ -992,10 +992,18 @@ export function initChat() {
 
   /** Apply a stage: chrome, local field, store. Never routes through closePanel. */
   const applyStage = (stage, origin) => {
+    // Measured BEFORE the chrome applies: once the card is a pill the composer that held
+    // focus is gone, and the question is where focus WAS (ADR-0027 §5.2).
+    const active = document.activeElement
+    const focusInside = Boolean(active && panel && panel.contains(active))
     chatStage = stage
     applyStageChrome(stage)
     applyChatSize()
     setChatStage(stage, { origin })
+    // After the store write, so the resume chip is already un-hidden and can take focus.
+    if (stageChrome(stage, { requested: origin === 'visitor', focusInside }).moveFocus === 'resume-chip') {
+      document.getElementById('agentActiveChip')?.focus()
+    }
   }
 
   /**
