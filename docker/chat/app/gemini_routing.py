@@ -52,6 +52,15 @@ def _first_chunk_timeout(total_timeout: float) -> float:
     return max(0.1, min(val, 0.6 * total_timeout / MAX_MODEL_ATTEMPTS))
 
 
+def _retryable_alert(rate_limited: bool) -> tuple[str, str]:
+    """(alert type, words) for a retryable first-attempt failure. A 429 is a quota
+    event; every other retryable status (503 above all) is capacity, and must not
+    be labelled a rate limit (ADR-0023 §5)."""
+    if rate_limited:
+        return 'chat_primary_rate_limit', 'rate-limited'
+    return 'chat_primary_unavailable', 'unavailable'
+
+
 async def _aclose_quietly(iterator: Any) -> None:
     """Close an abandoned async iterator (e.g. a stalled primary stream) without
     letting teardown errors mask the fallback."""
@@ -384,32 +393,34 @@ class GeminiRoutingChain:
                         detail=str(e)[:300],
                     )
                     raise
-                if model_id == self.primary_id and is_upstream_rate_limit(e):
+                rate_limited = is_upstream_rate_limit(e)
+                if model_id == self.primary_id and rate_limited:
                     note_primary_rate_limited()
+                kind, what = _retryable_alert(rate_limited)
                 if (
                     model_id == self.primary_id
                     and not primary_retried
                     and is_upstream_unavailable(e)
                 ):
+                    # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
                     primary_retried = True
+                    fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
                     pending.insert(0, model_id)
                     await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
                     continue
                 logger.warning(
-                    'gemini rate_limited model=%s remaining_attempts=%s',
+                    'gemini %s model=%s remaining_attempts=%s',
+                    what,
                     model_id,
                     len(pending),
                 )
                 if is_last:
                     fire_alert(
                         'chat_upstream_unavailable',
-                        f'all chat models failed (last={model_id}: rate-limited)',
+                        f'all chat models failed (last={model_id}: {what})',
                     )
                     raise
-                fire_alert(
-                    'chat_primary_rate_limit',
-                    f'{model_id} rate-limited; switching to {pending[0]}',
-                )
+                fire_alert(kind, f'{model_id} {what}; switching to {pending[0]}')
         assert last_exc is not None
         raise last_exc
 
@@ -482,8 +493,10 @@ class GeminiRoutingChain:
                         detail=str(e)[:300],
                     )
                     raise
-                if model_id == self.primary_id and is_upstream_rate_limit(e):
+                rate_limited = is_upstream_rate_limit(e)
+                if model_id == self.primary_id and rate_limited:
                     note_primary_rate_limited()
+                kind, what = _retryable_alert(rate_limited)
                 if (
                     model_id == self.primary_id
                     and not primary_retried
@@ -491,24 +504,23 @@ class GeminiRoutingChain:
                 ):
                     # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
                     primary_retried = True
+                    fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
                     pending.insert(0, model_id)
                     await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
                     continue
                 logger.warning(
-                    'gemini stream rate_limited model=%s remaining_attempts=%s',
+                    'gemini stream %s model=%s remaining_attempts=%s',
+                    what,
                     model_id,
                     len(pending),
                 )
                 if is_last:
                     fire_alert(
                         'chat_upstream_unavailable',
-                        f'all chat models failed (last={model_id}: rate-limited)',
+                        f'all chat models failed (last={model_id}: {what})',
                     )
                     raise
-                fire_alert(
-                    'chat_primary_rate_limit',
-                    f'{model_id} rate-limited; switching to {pending[0]}',
-                )
+                fire_alert(kind, f'{model_id} {what}; switching to {pending[0]}')
                 continue
 
             self.last_model_id = model_id

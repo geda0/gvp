@@ -881,3 +881,36 @@ async def test_switch_alert_names_the_model_that_failed_and_the_one_tried_next(
     summary = fired[0][1]
     assert summary.startswith("m-fallback ")
     assert summary.endswith("switching to m-primary")
+
+
+@pytest.mark.asyncio
+async def test_a_primary_503_alerts_as_unavailable_naming_the_retry_then_the_switch(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0023 §5 / ADR-0026 §4.3: a primary 503 fires `chat_primary_unavailable`
+    (P2) — not the mislabelled `chat_primary_rate_limit` — and each alert names
+    what happens next: the same-model retry, then the switch to the fallback."""
+    from app import alerts
+
+    virtual_clock()
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        alerts, "fire_alert", lambda kind, summary, detail="": fired.append((kind, summary))
+    )
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableFirstChunk(), "m-fallback": _OkStream()},
+        [],
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert [kind for kind, _s in fired] == [
+        "chat_primary_unavailable",
+        "chat_primary_unavailable",
+    ]
+    assert fired[0][1].startswith("m-primary ")
+    assert fired[0][1].endswith("retrying m-primary")
+    assert fired[1][1].startswith("m-primary ")
+    assert fired[1][1].endswith("switching to m-fallback")
