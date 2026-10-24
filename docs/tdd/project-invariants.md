@@ -220,6 +220,9 @@ proves it comes FIRST.
 
 9. **On a RETRYABLE upstream failure of the first attempt the chat chain transparently falls
    back to the secondary model; once any chunk has flushed it is committed.**
+   **AMENDED 2026-10-24 by ADR-0026 / #26:** "the rest of the UTC day" below now reads "for
+   `GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES` (default 10)", and a primary `503` is retried on the
+   primary once before the fallback. Commit-on-first-chunk is unchanged.
    **AMENDED 2026-10-06 by ADR-0023** — the trigger was "a first-chunk **rate limit**" and this
    invariant used to state *"Non-rate-limit errors are not retried."* **That sentence was the bug:**
    a Gemini `503 UNAVAILABLE` re-raised on the first attempt and the healthy fallback was never
@@ -438,7 +441,10 @@ proves it comes FIRST.
       defensive: nullish / out-of-range hours never throw"*. Run: `node --test`.
 
 13. **On a primary first-chunk TIMEOUT (a stall) the chat chain falls back too — not only
-    on a rate limit; and the FINAL attempt is uncapped.** `[chat]` The stall sibling of #9:
+    on a rate limit; and the FINAL attempt is uncapped.** `[chat]`
+    **AMENDED 2026-10-24 by ADR-0026 / #26:** the final attempt is now capped like every other
+    (default 5 s, not 12), and the fallback preference expires after a TTL in minutes, not at UTC
+    midnight. The text below describes the pre-amendment behaviour until the loop rewrites it. The stall sibling of #9:
     if the primary produces no first chunk within the per-attempt first-chunk budget
     (`min(GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS|12s, 60% of the request deadline)`),
     `GeminiRoutingChain` abandons it and tries the fallback on **both** `astream` and
@@ -1206,9 +1212,26 @@ proves it comes FIRST.
     compared against it (`test/chat-stage-wiring.test.mjs`), and a browser hit-test that a click
     over site content reaches the content while a click over the panel reaches the panel.
 
-23. **The starfield cull inflates, never shaves — and the width it assumes is the width that is
+23. **Text a visitor selects reaches the model only through the composer, only when they send
+    it, and never reaches analytics.** `[app]` Recorded 2026-10-23 by **ADR-0017 §7** (M4
+    slice 16). Enforced at four seams:
+    1. `js/selection-offer.js` is a pure leaf with no network, analytics or DOM.
+    2. The only sink is `openPanelWithDraft`, which fills the composer and does not submit. No
+       module that imports the leaf may reference `openPanelWithMessage`; that is a source
+       assertion, because draft → message is a one-word edit a diff reads as a synonym.
+    3. `selection_assistant_offer` / `_chip` carry exactly `{ chars: <bucket>, section }`,
+       because a param would be persisted for 120 days on a public route.
+    4. An allowlist of content regions, because Firefox reports `<textarea>` selections and the
+       contact form's message is the visitor's own words.
+
+    **PROVEN** by `test/selection-offer.test.mjs`, including a behavioural run of the glue: a tap
+    fills the composer and sends nothing, the quote never appears in an event, and a
+    contact-form selection produces no offer.
+
+24. **The starfield cull inflates, never shaves — and the width it assumes is the width that is
     drawn.** `[app]`
-    Recorded 2026-10-23. Two halves of one rule, and both have already been broken once.
+    Recorded 2026-10-23 (numbered #23 until 2026-10-24, when it was renumbered #24: the selection
+    rule below was also minted #23 the same day and ADR-0017 cites that one by number). Two halves of one rule, and both have already been broken once.
     *Shaving:* `starDrawBounds` (`js/starfield-geom.js`) must bound a star by at least what it
     puts on the canvas. A wrong `false` costs one `drawImage` the canvas then clips — free. A
     wrong `true` **deletes a visible star**, which no unit test shows and which reads as flicker
@@ -1233,22 +1256,51 @@ proves it comes FIRST.
     `js/starfield.js` (`streakThickness`, and the single `thickness` passed to both the cull and
     the `drawImage`).
 
+25. **The visitor can always cut the assistant off — by voice or by any explicit action — on every
+    path, cold or warm.** `[app]` `[qa]` Recorded 2026-10-24 by **ADR-0026 §2–§3**, born from the
+    greeting barge-in regression (`docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md`).
+    *Voice:* the microphone is attached right after the greeting is sent on **every** path,
+    including a first visit with permission `prompt`/`unknown` — never deferred behind the
+    greeting's `turnComplete` — so Gemini Live's activity detection can raise
+    `serverContent.interrupted`. The permission sheet over the greeting is the accepted cost.
+    *Explicit acts:* a project chip or any text turn put into the call (`sendUserText`), and a mic
+    tap on an open session whose mic is not live, stop playback **locally and at once**; a mic tap
+    on a live mic ends the call (#20's explicit act), which also silences it.
+    *One door:* every cut goes through `interruptAssistant(reason)` in `js/chat-live.js` — the only
+    caller of `player.interrupt()` and of the gate's `interrupted` / `localInterrupt` events. The
+    gate re-opens at the server's next `turnComplete`; a local act closes it **only while a server
+    turn is in flight**, so the reply to the chip that cut the greeting is never dropped. No chunk
+    may start playing after an interrupt (the player's enqueue epoch).
+    **WHY THIS IS AN INVARIANT:** it was fixed once (2026-10-13), then silently traded away by a UX
+    slice (2026-10-23) because nothing wrote it down — and the stage probe asserted the regression
+    as a pass. A path that cannot be interrupted reads to the owner as "the bot ignores me".
+    *Pin* `[app]`: the turn-gate table (`test/voice-turn-gate.test.mjs`); wiring — the cold path
+    calls `getUserMedia` before the greeting's `turnComplete`, `sendUserText` and the open-session
+    mic tap stop playback, a source assertion that no second door exists, and the enqueue race
+    (`test/voice-turn-gate-wiring.test.mjs` or `test/barge-in-wiring.test.mjs`).
+    *Pin* `[qa]`: `scripts/qa/voice-stage-probe.mjs` asserts `interrupted` arrives **before** the
+    greeting completes when the visitor speaks, and that a chip sent mid-greeting stops playback and
+    its reply is heard — on the cold path, not only the warm one.
 
-23. **Text a visitor selects reaches the model only through the composer, only when they send
-    it, and never reaches analytics.** `[app]` Recorded 2026-10-23 by **ADR-0017 §7** (M4
-    slice 16). Enforced at four seams:
-    1. `js/selection-offer.js` is a pure leaf with no network, analytics or DOM.
-    2. The only sink is `openPanelWithDraft`, which fills the composer and does not submit. No
-       module that imports the leaf may reference `openPanelWithMessage`; that is a source
-       assertion, because draft → message is a one-word edit a diff reads as a synonym.
-    3. `selection_assistant_offer` / `_chip` carry exactly `{ chars: <bucket>, section }`,
-       because a param would be persisted for 120 days on a public route.
-    4. An allowlist of content regions, because Firefox reports `<textarea>` selections and the
-       contact form's message is the visitor's own words.
-
-    **PROVEN** by `test/selection-offer.test.mjs`, including a behavioural run of the glue: a tap
-    fills the composer and sends nothing, the quote never appears in an event, and a
-    contact-form selection produces no offer.
+26. **A chat turn's first token has a budget, and every routing attempt is inside it.** `[chat]`
+    Recorded 2026-10-24 by **ADR-0026 §4**. **Amends #9 (day-long stickiness) and #13 (uncapped
+    final attempt).** Every attempt — **including the last** — is capped at
+    `first_chunk_cap = min(GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS|5s, 0.6 × GEMINI_TIMEOUT_SECONDS / 3)`,
+    so all attempts together stay within 60 % of the request deadline (#8) and the committed stream
+    keeps the rest. At most `MAX_MODEL_ATTEMPTS = 3`: a primary `503` is retried on the primary
+    **once** (after 0.3 s) before the other model; nothing else is retried on the same model. A
+    primary `429` or first-chunk stall prefers the fallback for
+    `GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES|10` minutes (monotonic; `0` disables) — never for the
+    rest of the day; a `503` never flips it (ADR-0023 §4.3). **#9's commit-on-first-chunk is
+    untouched**: every clause above acts strictly before the first chunk.
+    **WHY THIS IS AN INVARIANT:** routing tuned to *survive* failures made the common slow case
+    worse — a 12 s budget, an uncapped last attempt (19 s stalls) and a day-long fallback preference
+    turned one bad minute into 28 s waits for the rest of the day, while the per-turn telemetry
+    recorded it faithfully and nothing failed. A budget each knob can be checked against is what
+    telemetry alone did not give.
+    *Pin:* `docker/chat/tests/test_gemini_routing.py` — the 5 s default, the cap on the last
+    attempt, the cap-vs-deadline relation, the 503 retry-once in both orders (never twice, never
+    sticky), TTL expiry through the `now=` parameter, and commit-on-first-chunk still propagating.
 
 ## Out of scope / explicitly allowed
 

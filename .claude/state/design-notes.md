@@ -4,6 +4,162 @@
 > between cycles lives here. Copy/brand direction for the active milestone is below —
 > read it before building any copy or IA slice.
 
+## 2026-10-24 — barge-in + chat latency
+
+**Source:** `docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md` (RCA + retro). Scope is
+**decided** — RCA §4 "Chosen" column; do not relitigate inside a cycle. Backlog item:
+`backlog.md` → "2026-10-24 — barge-in + chat latency (TOP PRIORITY)". Architect owns the ADR
+(`docs/decisions/`) and the new invariant ("the visitor can always cut the assistant off — by
+voice or by any explicit action — on every path, cold or warm") in
+`docs/tdd/project-invariants.md`; these bullets are the acceptance bar that invariant is held to.
+
+**Layer labels:** `[app]` = js/ `node --test` · `[chat]` = docker/chat pytest · `[qa]` = stage
+probe / journey (`scripts/qa/`) · `[ops]` = deploy workflow (`.github/workflows/`).
+
+**Owner-visible regression this closes:** a first-time visitor cannot talk over the greeting (on
+prod since 2026-10-23, `6a1cb34` → `4118aa3`). **It supersedes** M4's bullet "the greeting is not
+cut off by the mic prompt" — that trade-off is reversed (navigator: see decision N1 below).
+
+### G1 — cold-path barge-in (voice interrupts the greeting for a first-time visitor)
+- [ ] `[app]` With mic permission `prompt` or unknown and the assistant speaking first, starting
+      voice requests the microphone **immediately** — the request is not deferred to, or gated
+      on, the greeting's `turnComplete` (nor on the 15 s fallback).
+- [ ] `[app]` On that cold path, once permission is granted, mic audio frames are sent upstream
+      **while the greeting is still playing** (before its `turnComplete`).
+- [ ] `[app]` When `interrupted` arrives during the greeting, local playback stops at once, and
+      every further audio frame and output-transcript fragment of **that** turn is dropped —
+      nothing of the cut-off greeting plays or is appended after the interruption.
+- [ ] `[app]` The visitor's next turn after the interruption plays normally (the gate re-opens
+      on the next turn; no stuck-muted assistant).
+- [ ] `[app]` **Granted path unchanged:** with permission already `granted`, the mic is attached
+      at session start exactly as before, and an `interrupted` during the greeting stops it
+      (existing tests stay green unmodified).
+- [ ] `[app]` **Denied path unchanged:** with permission `denied`, no mic is requested, the
+      greeting plays to completion, the existing denied affordance is shown, and text chat
+      works.
+- [ ] `[app]` A wiring test fails if any code path re-introduces a deferral of the mic attach
+      behind the greeting's `turnComplete` on the cold path (the regression is pinned, not
+      just the fix).
+
+### G2 — local interruption by explicit visitor action (no server round-trip)
+- [ ] `[app]` While the assistant is speaking (greeting **or** any later turn), tapping a project
+      chip that sends to the call stops playback locally **before** any server frame is
+      received; the remaining audio/transcript of that turn is dropped as in G1.
+- [ ] `[app]` While the assistant is speaking, sending text into the call stops playback locally
+      at once, the same way.
+- [ ] `[app]` While the assistant is speaking, tapping the mic control stops playback locally at
+      once — including on the cold path where the tap also raises the permission sheet (the
+      sheet no longer appears over still-playing audio).
+- [ ] `[app]` Each of the three actions above works on **both** cold and warm paths (test matrix:
+      3 actions × {cold, granted}).
+- [ ] `[app]` **Negative:** site navigation that does not address the assistant (scrolling,
+      opening a section or project dialog, closing a dialog) does **not** stop playback — M2's
+      "keeps talking while I navigate" is preserved.
+- [ ] `[app]` After a local stop, the assistant's answer to the visitor's action plays normally
+      (the local stop does not swallow the next turn's audio).
+
+### G3 — the stage voice probe holds barge-in (regression net, not slice confirmation)
+- [ ] `[qa]` The stage voice probe runs the **cold** path (permission prompt/unknown) and asserts
+      the mic is requested **before** the greeting's `turnComplete` — the old claim "mic is
+      requested only AFTER the greeting turn completes" is removed/inverted.
+- [ ] `[qa]` The probe starts the speech WAV **during** the greeting (after the first greeting
+      audio frame, before `turnComplete`) and asserts `interrupted` arrives, and that model
+      audio frames for that turn stop after it (a short stated grace, e.g. ≤ 500 ms, for frames
+      already in flight).
+- [ ] `[qa]` The old claim "the greeting is not interrupted before it completes" is gone; no
+      remaining probe claim asserts a non-interruptible greeting.
+- [ ] `[qa]` Control run: with a **silent** mic during the greeting, the greeting completes
+      (`turnComplete`, no `interrupted`) — the assistant does not barge in on itself through
+      its own audio.
+- [ ] `[qa]` Red-proof: the new barge-in claim **fails** when the probe is pointed at the
+      2026-10-23 build (or the current stage before the G1 fix) — recorded in the slice's
+      evidence.
+- [ ] `[qa]` `[human-staging GATED]` _(PO-added)_ The owner, as a first-time visitor on stage
+      (fresh profile, permission not yet granted), starts voice, accepts the prompt, speaks over
+      the greeting, and the greeting stops. **Gates G1 to prod.** No agent ticks this.
+
+### L1 — routing does not amplify stalls
+- [ ] `[chat]` With `GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS` unset, the per-attempt first-chunk budget
+      is **5 s** (env var still overrides; still capped under the total budget).
+- [ ] `[chat]` **Every** attempt is capped, including the last: a final attempt that yields no
+      first chunk within the budget ends the turn with the existing honest upstream-unavailable
+      error — no uncapped last attempt (today's 19 s stall).
+- [ ] `[chat]` A primary `503`/`UNAVAILABLE` on the first attempt is retried **once on the
+      primary**; if that retry also fails retryably, the turn falls back to the secondary. A
+      primary `429` is not retried on the primary (goes straight to fallback, as today).
+- [ ] `[chat]` A primary first-chunk timeout or `429` makes the container prefer the fallback
+      for a **bounded window of minutes** (default 5 min, configurable), not the rest of the UTC
+      day; the first turn after the window tries the primary first again. A `503` still sets no
+      preference.
+- [ ] `[chat]` Alert text names the model that **actually** failed and the model **actually**
+      tried next — including in fallback-first order (never "X stalled; switching to X").
+- [ ] `[chat]` Invariant #9 holds: once any chunk has been yielded, a later error propagates — no
+      retry, no second model call, no duplicated text; non-retryable errors (401/403/400/404/
+      unknown) are still never retried on either model.
+- [ ] `[chat]` **Worst-case bound, warm container:** the visitor gets either a first token or the
+      honest error within **≤ 15 s** (≤ 3 capped attempts × 5 s: primary, primary-retry on 503,
+      fallback) — down from ~28 s today. A test drives the all-stall case with a fake clock and
+      asserts the bound. (Cold adds init time — see L2/L3.)
+- [ ] `[chat]` Per-turn telemetry still records `firstTokenLatencyMs` and `fallbackUsed`, and
+      now distinguishes a primary retry from a fallback.
+
+### L2 — prewarm on chat intent
+- [ ] `[app]` Opening the chat (or the launcher intent the architect specifies) sends **one**
+      warm request; it carries a valid CloudFront payload digest (same digest rule as a chat
+      turn — the warm path is not a digest bypass).
+- [ ] `[app]` At most one warm per page load: re-opening the chat, or opening it again within
+      5 min of a warm, sends none. A warm that fails is silent to the visitor (no error UI, no
+      retry storm) and does not delay or block the visitor's first real message.
+- [ ] `[chat]` A warm request starts the stream Lambda and builds the model client **without
+      any Gemini call** (fake client asserts zero generate/stream calls) and returns 2xx
+      quickly (target < 1 s on a warm container).
+- [ ] `[chat]` A warm request writes **no transcript turn**, is not counted as a chat turn in the
+      admin Assistant tab or the daily report, and does not consume the chat-turn rate-limit
+      window.
+- [ ] `[chat]` A warm request with a missing/invalid digest is rejected exactly like a chat turn
+      with one.
+- [ ] `[qa]` On stage, after the stream Lambda has gone cold, opening the chat and then sending
+      the first message shows no cold-start init in that message's REPORT (the warm absorbed it).
+
+### L3 — warm after deploy, and a cacheable stream image
+- [ ] `[ops]` After each stage and each prod deploy, the workflow sends **one** warm request to
+      that environment; a non-2xx or timeout **fails the job** with a message naming the
+      environment.
+- [ ] `[ops]` The stream image (`docker/chat/Dockerfile.lambda-stream`) pins its base image by
+      `@sha256:` digest; a check fails the build if the `FROM` is a floating tag.
+- [ ] `[ops]` Two consecutive deploys with no dependency change push **no new base or pip
+      layers** — only the application layer changes (evidence: ECR layer digests or the push
+      log).
+- [ ] `[qa]` The first cold start after a routine stage deploy is back in the normal 2–3.5 s init
+      range (not 9–10 s), measured once and recorded in the slice evidence.
+
+### Out of scope — owner actions (not agent work; tracked in backlog)
+- **O1.** Verify, and if needed enable, billing on the prod Gemini key (RCA infers free tier).
+- **O2.** Choose a replacement fallback model **verified on the prod key** (gemma-4-26b-a4b-it
+  is effectively dead there: 24 rate-limited vs 1 ok in 10 days). Until then L1 bounds the
+  damage; it does not fix the fallback.
+
+### Decisions for the navigator (do NOT silently choose)
+- **N1. Reverse slice 14's trade-off.** G1 means the browser's permission prompt can appear
+  **while the greeting plays** for a first-time visitor (the thing slice 14 avoided). RCA chose
+  option A; PO recommends accepting it, and recording M4's "greeting not cut off by the mic
+  prompt" bullet as superseded. Confirm.
+- **N2. Fallback-preference window length** — PO default **5 min**. Confirm or set.
+- **N3. Latency budget wording.** The retro says "first token ≤ ~5 s worst case on a bad day";
+  with three capped attempts the honest warm bound is **≤ 15 s to first token *or* error**
+  (≤ 5 s only when the primary is healthy or fails fast). PO wrote 15 s. Confirm, or ask for
+  fewer attempts (e.g. drop the 503 primary retry) to tighten it to ≤ 10 s.
+- **N4. Mic tap while speaking** — G2 says it stops playback. Should it *also* mute/stop the
+  mic (a "stop everything" gesture), or only cut the assistant and keep listening? PO default:
+  only cut playback; mic state follows the existing toggle.
+- **N5. Warm abuse bound** — warms are not chat turns, so they bypass turn rate limits. PO wants
+  the architect to state the bound (e.g. counted in a separate global window) in the ADR.
+
+**Recommended slice order:** G1 + G3 together first (owner-visible regression on prod; the probe
+is the red), then L1, then L3 (cheap, removes the 9–10 s post-deploy cold start), then L2, then G2.
+
+---
+
 ## Feature in flight (outer loop — full-team)
 
 ### `starfield-perf` — trail residue + draw cost (PO ruling 2026-07-08: **CONCERNS**)

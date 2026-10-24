@@ -6,6 +6,45 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ---
 
+## 2026-10-24 — barge-in + chat latency (TOP PRIORITY)
+
+> Source: `docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md`. Scope decided (RCA §4
+> "Chosen"). **Full acceptance bullets live in `design-notes.md` → "2026-10-24 — barge-in + chat
+> latency"** — the bar is there; these items are the ordered roadmap. Labels: `[app]` node:test ·
+> `[chat]` pytest · `[qa]` stage probe/journey · `[ops]` deploy workflow. Navigator decisions
+> N1–N5 are listed in design-notes; N1 blocks G1.
+
+1. **G1 — a first-time visitor can talk over the greeting** — `[app]` — _owner-visible regression,
+   live on prod since 2026-10-23._ Cold path (permission prompt/unknown) requests the mic at once,
+   not after the greeting's `turnComplete`; `interrupted` during the greeting stops audio and drops
+   the rest of that turn. Granted and denied paths unchanged. Supersedes M4's "greeting is not cut
+   off by the mic prompt" (pending N1). **Ship together with G3.**
+2. **G3 — the stage voice probe holds barge-in on the cold path** — `[qa]` — _the old probe
+   asserted the regression as a pass._ WAV during the greeting → `interrupted` + audio stops; the
+   "mic only after greeting" and "greeting not interrupted" claims removed; silent-mic control run;
+   red-proven against the 2026-10-23 build. `[human-staging GATED]` owner first-visit check gates
+   G1 to prod.
+3. **L1 — routing stops amplifying Gemini stalls** — `[chat]` — _biggest latency cause._ 5 s
+   first-chunk default; every attempt capped incl. the last; primary 503 retried once on primary;
+   fallback preference expires in minutes, not the UTC day; alert names the right models;
+   invariant #9 holds; warm worst case ≤ 15 s to first token or error (was ~28 s).
+4. **L3 — warm after deploy + a cacheable stream image** — `[ops]` `[qa]` — _removes the 9–10 s
+   first cold start after every deploy._ Post-deploy warm per env, fails the job loudly; stream
+   image base pinned by digest; routine deploys push no new base/pip layers.
+5. **L2 — prewarm on chat intent** — `[app]` `[chat]` `[qa]` — _cold starts hit ~60% of real turns._
+   One digest-valid warm per page load on chat open/launcher intent; no Gemini call, no transcript
+   turn, not counted as a chat turn in admin/daily report.
+6. **G2 — explicit actions cut the assistant off locally** — `[app]` — chip-to-call, text send, and
+   mic tap stop playback at once without waiting for the server, greeting or any turn, cold and
+   warm; plain site navigation does not.
+
+**Owner actions (out of agent scope — not slices):**
+- [ ] **O1.** Verify, and enable if needed, billing on the prod Gemini key (RCA infers free tier).
+- [ ] **O2.** Choose a replacement fallback model verified on the prod key (gemma-4-26b-a4b-it is
+      effectively dead there). L1 bounds the damage until then.
+
+---
+
 ## MILESTONE — Work-showcase reframe + agent guide (PARTLY SHIPPED; IA merge REVERTED)
 
 > **Resolved 2026-10-14.** The IA half of this milestone — merging Portfolio+Labs into one
@@ -555,7 +594,9 @@ _**Depends on M2.** Five distinct symptoms with five distinct causes; the plan t
       knowledge-pack summary. A generic answer fails the bullet.
 - [ ] **Open and close projects on request, on both modalities.** "Open the Monday Rover project", a
       fuzzy or partial title, and "close that" all work from **text and voice** (prompt 1.7.0).
-- [ ] **The greeting is not cut off by the mic prompt.** On a cold session where the assistant speaks
+- [ ] **SUPERSEDED 2026-10-24 (RCA barge-in; item G1 above, pending navigator N1) — this trade-off
+      cancelled barge-in for every first-time visitor. Do not build or re-assert it.**
+      ~~**The greeting is not cut off by the mic prompt.**~~ On a cold session where the assistant speaks
       first, the mic permission prompt appears **after the first turn completes** (15 s fallback); a
       warm session prompts immediately.
 - [ ] **No dead top-bar input.** With a chat active, the launcher shows an "Assistant active" /
