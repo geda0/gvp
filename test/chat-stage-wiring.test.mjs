@@ -731,9 +731,10 @@ test('ADR-0027 §3.2: beside a project dialog the card is wide only if wide fits
   assert.deepEqual(wide.read(), ['docked', 'wide', '720px', false], '2560: (2560 - 739.59)/2 >= 740')
 
   const compact = await tapAt('beside-1920', 1920)
-  assert.deepEqual(compact.read(), ['docked', 'compact', '384px', true],
-    '1920: room for compact (590 >= 404) but not wide (590 < 740); the toggle hides - a wide ' +
-    'card there would overlap the dialog')
+  // ADR-0029 (deliberate test-writer change): beside a dialog the size is besideLayout's -
+  // the dialog moves left of the reserved column, so 1920 has room for WIDE (>= 1352).
+  assert.deepEqual(compact.read(), ['docked', 'wide', '720px', false],
+    '1920: a wide column is reserved beside the dialog (panel 739.6 in the 1160 left)')
   // The dialog closes: the temporary compact was never written to the preference.
   compact.h.siteState.setProject(null, { origin: 'visitor' })
   await settle()
@@ -889,8 +890,9 @@ test('critic: a chip pressed while the WIDE card is already docked re-sizes it t
   assert.deepEqual(
     [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize,
       h.dialog.style.getPropertyValue('--chat-dock-width'), h.dialog.dataset.chatBeside],
-    ['docked', 'compact', '384px', 'true'],
-    '1920 beside 739.59: compact fits, wide does not - and the card is lifted above the scrim'
+    // ADR-0029 (deliberate test-writer change): 1920 reserves a wide column.
+    ['docked', 'wide', '720px', 'true'],
+    '1920 beside: the wide column is reserved - and the card is lifted above the scrim'
   )
 })
 

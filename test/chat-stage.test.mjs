@@ -463,34 +463,36 @@ test('invariant #27: at every docked width, either size leaves 320px of the site
 test('dockedSizeChrome: the effective size is the preference only where wide can render', async () => {
   const { dockedSizeChrome } = await sizeApi()
   assert.equal(typeof dockedSizeChrome, 'function', 'dockedSizeChrome must be exported (ADR-0027 §3.3)')
-  const P = 739.59 // the browser-measured project panel (ADR-0017 §2.4)
-  const at = (viewportWidth, besideDialogWidth, preferred = 'wide', stage = 'docked') =>
-    dockedSizeChrome({ stage, viewportWidth, preferred, besideDialogWidth })
+  // ADR-0029 §2.1 (deliberate test-writer change, not a regression): `besideDialogWidth`
+  // (a measured centred panel) became `beside: boolean`. Beside a dialog, wide renders exactly
+  // where besideLayout reserves a WIDE column (>= 1352); the centred-panel crossover of 2220
+  // no longer describes any layout the site renders.
+  const at = (viewportWidth, beside, preferred = 'wide', stage = 'docked') =>
+    dockedSizeChrome({ stage, viewportWidth, preferred, beside })
 
-  // Not beside a dialog (null): wide where wide exists.
-  assert.deepEqual(at(1280, null),
+  // Not beside a dialog: wide where wide exists.
+  assert.deepEqual(at(1280, false),
     { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
-  assert.deepEqual(at(1280, null, 'compact'),
+  assert.deepEqual(at(1280, false, 'compact'),
     { size: 'compact', width: 384, toggleHidden: false, togglePressed: 'false' })
   // Below 840 wide cannot render: compact, and the toggle is HIDDEN, not disabled. The
   // preference is not overwritten - only the toggle writes it (that is the caller's half).
-  assert.deepEqual(at(800, null),
+  assert.deepEqual(at(800, false),
     { size: 'compact', width: 384, toggleHidden: true, togglePressed: 'false' })
 
-  // Beside a dialog: null and 0 are DIFFERENT. 0 is "beside a dialog nobody measured",
-  // which is no room - the same rule as hasRoomBesideDialog.
-  assert.equal(at(2560, 0).size, 'compact', 'an unmeasured dialog is not room for wide')
-  assert.equal(at(2560, 0).toggleHidden, true)
-  // (1920 - 739.59)/2 = 590.2 < 720 + 20 -> compact. Crossover 739.59 + 2*740 = 2219.59.
-  assert.equal(at(1280, P).size, 'compact')
-  assert.equal(at(1920, P).size, 'compact')
-  assert.equal(at(2219, P).size, 'compact')
-  assert.deepEqual(at(2220, P),
-    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
+  // Beside a dialog: the size is besideLayout's.
+  assert.deepEqual(at(1280, true),
+    { size: 'compact', width: 384, toggleHidden: true, togglePressed: 'false' },
+    '1280 beside: no wide column (1280 - 760 - 32 < 560) - compact, toggle hidden')
+  assert.equal(at(1351, true).size, 'compact')
+  assert.deepEqual(at(1440, true),
+    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' },
+    '1440 beside: the wide column fits (panel 648)')
+  assert.equal(at(1440, true, 'compact').size, 'compact', 'beside never promotes a compact preference')
 
   // The toggle exists only on the docked card.
   for (const stage of ['closed', 'modal', 'minimized']) {
-    assert.equal(at(1280, null, 'wide', stage).toggleHidden, true, `toggle hidden in ${stage}`)
+    assert.equal(at(1280, false, 'wide', stage).toggleHidden, true, `toggle hidden in ${stage}`)
   }
 })
 

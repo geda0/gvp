@@ -969,7 +969,7 @@ export function initChat() {
       stage: chatStage,
       viewportWidth: window.innerWidth,
       preferred: chatSize,
-      besideDialogWidth
+      beside: besideRoom
     })
     dialog.dataset.chatSize = chrome.size
     // Docked BESIDE a project dialog by request: css/chat.css lifts exactly this card above

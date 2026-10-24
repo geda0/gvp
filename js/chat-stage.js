@@ -270,26 +270,19 @@ export function isWideAvailable (viewportWidth) {
 /**
  * The size contract as data (ADR-0027 §3.3), applied by js/chat.js's applyChatSize alone.
  *
- * `besideDialogWidth`: null = not beside any dialog; a number (0 included) = beside one, at
- * that measured width - and 0 is NO room, the same "an unmeasured rect is not room" rule as
- * hasRoomBesideDialog. Collapsing the two would make every docked card look unmeasured.
+ * `beside`: a project dialog is showing (ADR-0029 §2.1). Beside one, wide renders only where
+ * besideLayout reserves a WIDE column, so the size returned here always equals besideLayout's.
  *
  * The effective size never overwrites `preferred`: a fallback renders compact while the
  * preference stays wide, so widening the window or closing the dialog brings wide back with
  * no visitor act. The toggle is HIDDEN, not disabled, when wide cannot render - a control
  * that does nothing is noise to a screen reader.
  *
- * @param {{stage: ChatStage, viewportWidth: number, preferred: string, besideDialogWidth: number|null}} m
+ * @param {{stage: ChatStage, viewportWidth: number, preferred: string, beside: boolean}} m
  */
-export function dockedSizeChrome ({ stage, viewportWidth, preferred, besideDialogWidth } = {}) {
+export function dockedSizeChrome ({ stage, viewportWidth, preferred, beside } = {}) {
   const canGoWide = isWideAvailable(viewportWidth) && (
-    besideDialogWidth == null ||
-    hasRoomBesideDialog({
-      viewportWidth,
-      dialogWidth: besideDialogWidth,
-      cardWidth: dockedCardWidth({ viewportWidth, size: 'wide' }),
-      gutter: DOCK_GUTTER
-    })
+    !beside || besideLayout({ viewportWidth, preferred: 'wide' }).size === 'wide'
   )
   const size = parseChatSize(preferred) === 'wide' && canGoWide ? 'wide' : 'compact'
   return {
