@@ -341,34 +341,67 @@ COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0@sha256:<digest> /lam
   `test_final_attempt_first_chunk_is_uncapped` describe the old uncapped last attempt (marked
   amended in the invariants file); ADR-0017 §5 stays as written (shipped ADRs are not edited).
 
-## Addendum (2026-10-24, orchestrator) — barge-in by voice over a fully-delivered tail
+## Addendum (2026-10-24, orchestrator; rev. 2) — barge-in by voice over a fully-delivered tail
 
 **Gap found by the tdd-critic.** Gemini Live sends audio faster than real time, so its
-`turnComplete` often lands while the player still has seconds queued. With no server turn in
-flight Live has nothing to interrupt, and speaking over that tail did not stop it, which breaks
-#25 by voice. A fourth `interruptAssistant` reason closes the gap:
-`'voice_local'`, raised from an input-transcript fragment.
+`turnComplete` often lands while the player still has seconds queued. At that point no server
+turn is in flight, so Live has nothing to interrupt, and speaking over that tail did not stop
+it. That breaks #25 by voice. A fourth `interruptAssistant` reason, `'voice_local'`, closes the
+gap. It is raised from an input-transcript fragment.
 
-**The rule.** Live's input transcription lags. The last fragment of the visitor's question can
-arrive after its answer's `turnComplete`, while that answer is still sounding; cutting on every
-fragment silenced the visitor's own answer (critic repro). So a fragment cuts only when **all**
-of the following hold:
+**Rule, rev. 2 (rev. 1 is superseded).** Rev. 1 dated speech by when its transcript fragments
+*arrived*: a new utterance began when a fragment came more than 1.5 s after the previous one.
+Arrival time measures transcription lag, not speech. A question fragment that landed 2.5 s late,
+after the answer's `turnComplete`, still cut the visitor's own answer (critic repro).
+`VOICE_UTTERANCE_GAP_MS` is therefore dropped. **When the visitor started speaking now comes
+from the local microphone**:
 
-- its **utterance started after the playing turn's first output** (`utteranceStartedAt >
-  playingTurnFirstOutputAt`). An utterance starts at the first fragment ever, or at a fragment
-  arriving more than `VOICE_UTTERANCE_GAP_MS = 1500` after the previous fragment.
-  `playingTurnFirstOutputAt` is set when a turn's first accepted model output arrives (audio,
-  text or transcript, in either wire shape). Output of a cancelled turn does not count;
-- the gate is idle (`isIdleGate`): a turn in flight is the server's to interrupt;
-- the player is still sounding (`isPlaying()`): with nothing queued, nothing is cut, and the
-  turn is not recorded as interrupted.
+- **Voice onset.** In `sendMicFrame` (`js/chat-live.js`), the path that encodes every mic frame,
+  each frame's RMS is computed. An onset is a frame with RMS ≥ `VOICE_ONSET_RMS` (0.02) after
+  at least `VOICE_ONSET_SILENCE_MS` (400 ms) of quieter frames. The time of the latest onset is
+  kept in `lastVoiceOnsetAt`.
+- **Cut** (`'voice_local'`) only when **all** of the following hold:
+  - an input-transcript fragment arrives. This is the confirmation, and it guards against
+    echo and noise: an onset alone never cuts;
+  - `lastVoiceOnsetAt > playingTurnFirstOutputAt`. `playingTurnFirstOutputAt` is set when a
+    turn's first model output arrives (audio, text or transcript, in either wire shape) and
+    is reset at `turnComplete`;
+  - `isIdleGate`: a turn in flight is the server's to interrupt;
+  - `player.isPlaying()`: with nothing queued, nothing is cut, and nothing is recorded as an
+    interruption.
+- The reason maps to `localInterrupt`, so an idle gate stays idle and the answer plays.
+- All `voice_local` state resets at hang-up (`stopVoiceInternal`). A call ended mid-answer
+  must not leave its half-finished turn standing in for the next call's first output.
 
-The reason maps to `localInterrupt`, so an idle gate stays idle and the answer plays. Pinned in
-`test/barge-in-wiring.test.mjs`: the repro (both wire shapes), the greeting-tail cut, a new
-utterance after a >1.5 s gap, the root-transcript first output, and the nothing-queued
-telemetry.
+**Why the threshold is 0.02.** It is about −34 dBFS, on float samples where full scale is 1.0.
+`getUserMedia` already runs with `echoCancellation: true` and `noiseSuppression: true`
+(`attachMicrophoneOnce`). After those, room noise and the assistant's own playback leaking
+back through the speakers sit well below 0.02, while ordinary speech at laptop or phone distance
+runs about 0.03–0.2. The threshold only decides *when* speech began. Whether to cut is still
+gated on Live's own transcription confirming that somebody spoke, so a noise spike over the
+threshold cuts nothing on its own. The 400 ms silence window is shorter than a natural pause
+between sentences and longer than the gaps between syllables. Continuous speech that began
+before the answer is therefore one onset, not a fresh barge-in. **Both numbers are untuned
+against real devices**: the stage probe records the onset and the cut on every run, and those
+measurements are what should move them.
 
-**Probe bound.** The time from the visitor's first voiced frame to playback silence has its own
-bound, `VOICE_CUT_BUDGET_MS = 1500` in `scripts/qa/voice-stage-probe.mjs`. It covers Live's
-speech detection or transcription latency. It is separate from `GRACE_MS`, which is counted from
-`interrupted`. The probe records the measured number on every run.
+**Pinned** in `test/barge-in-wiring.test.mjs`:
+- the greeting-tail cut (both wire shapes);
+- the critic's lags (0.5, 2.5 and 4 s late fragments of a question spoken before the answer:
+  no cut, both wire shapes);
+- an onset after the answer's first output plus a fragment cuts;
+- a fragment with no onset (echo) does not cut;
+- continuous speech across the answer's start is one onset;
+- the root-transcript first output counts;
+- speech over a still-streaming answer is the server's to interrupt;
+- nothing-queued speech records no interruption;
+- the cross-call reset.
+
+The `acceptsTurnOutput` guard on noting a turn's first output has no observable effect, so no
+test can pin it. Every cancel empties the player and the next `turnComplete` resets the flag.
+It is kept because it states the intent: only output that plays counts.
+
+**Probe bound.** The time from the first voiced frame to playback silence has its own bound,
+`VOICE_CUT_BUDGET_MS = 1500` in `scripts/qa/voice-stage-probe.mjs`. It is separate from
+`GRACE_MS`, which is counted from `interrupted`. The probe records the measured number on every
+run, and it detects voice onsets with the same RMS rule as the page.
