@@ -68,6 +68,18 @@ _LIVE_TOOLS = types.Tool(
             ),
         ),
         types.FunctionDeclaration(
+            name='start_tour',
+            description=(
+                'Start a guided tour of THIS site: the page moves through the work one stop at a '
+                'time and shows a short line for each stop; the visitor taps Next stop to go on. '
+                'Call this when they say "show me around", "give me a tour" or similar. The tool '
+                'result carries the first stop - say it in a sentence, then tell them to tap Next '
+                'stop when ready. Later stops are the visitor\'s taps; you hear each as a site '
+                'update. There is no tool to advance the tour by voice.'
+            ),
+            parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+        ),
+        types.FunctionDeclaration(
             name='navigate_to_section',
             description=(
                 "Navigate to a top-level section of the site. Call this for hands-free movement "

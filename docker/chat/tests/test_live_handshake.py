@@ -48,7 +48,7 @@ def test_handshake_has_full_setup_shape(_stub_api_key: None) -> None:
     # M4 slice 2 (ADR-0017 §3.1): the project tools ride the same handshake, and the project
     # enum survives serialisation - it is the only roster the voice model gets (§4.2).
     assert names == {
-        'open_resume', 'open_contact_form', 'navigate_to_section', 'open_project', 'close_project'
+        'open_resume', 'open_contact_form', 'navigate_to_section', 'open_project', 'close_project', 'start_tour'
     }, names
     from app.project_refs import PROJECT_IDS
     open_project = next(d for d in decls if d.get('name') == 'open_project')

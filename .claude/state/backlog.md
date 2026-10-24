@@ -148,6 +148,13 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      Experience → Contact. Escalation: is the tour auto-paced (timed scroll) or step-on-confirm
      ("ready for the next one?"). Default: step-on-confirm (less jarring, accessible)._
 
+   - _Accepted residual (2026-10-23, Track C build): the text path enforces this on the SERVER
+     (`docker/chat/app/main.py` `resume_was_requested` / `_guard_turn`: the PDF reaches the
+     visitor only when their own last message asked for it, in any of several languages, or is
+     a plain yes to a résumé offer). VOICE has no such guard: `open_resume` on voice only
+     reveals a button the visitor must tap, and is steered by the tool description and prompt
+     1.7.0. Gating it would mean reading the live input transcription client-side; revisit only
+     if voice traffic shows unprompted résumé buttons._
 7. **Agent leads with the work and never defaults to dumping the résumé PDF** — `[chat pytest]`
    `[frontend-manual]` — _owner #3: the agent is a guide who shows the work; the PDF is mentioned only
    when explicitly asked._
