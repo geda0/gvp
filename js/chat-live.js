@@ -691,6 +691,22 @@ export function bindChatLiveVoice(opts) {
   /** The cold path's wait on the bubble (ADR-0028 §3.2): its timeout, and how a stop ends it. */
   let permissionWaitTimer = null
   let permissionWaitAbort = null
+  /** The current start's mic question, settled ONCE into one `chat_voice_start` (ADR-0028
+   *  addendum §3): { permissionBefore, requestedAt } — requestedAt null when no bubble could
+   *  be shown (warm), so the wait reads 0. */
+  let voiceStartRecord = null
+  /** The permission state read at the current start (telemetry's `permissionBefore`). */
+  let startPermission = 'unknown'
+  const settleVoiceStart = (outcome) => {
+    const rec = voiceStartRecord
+    if (!rec) return
+    voiceStartRecord = null
+    trackEvent('chat_voice_start', {
+      permissionBefore: rec.permissionBefore,
+      outcome,
+      waitMs: rec.requestedAt == null ? 0 : Math.max(0, Date.now() - rec.requestedAt)
+    })
+  }
   const clearPermissionWait = () => {
     if (permissionWaitTimer) clearTimeout(permissionWaitTimer)
     permissionWaitTimer = null
@@ -857,6 +873,8 @@ export function bindChatLiveVoice(opts) {
   const stopVoiceInternal = ({ silent, retrying = false } = {}) => {
     if (!retrying) {
       startEpoch += 1
+      // Any stop with the mic question still open is the visitor (or the page) ending it.
+      settleVoiceStart('hangup')
       // Hung up while the bubble is open: the wait ends now, and its hint goes with it.
       const abortWait = permissionWaitAbort
       clearPermissionWait()
@@ -1514,6 +1532,8 @@ export function bindChatLiveVoice(opts) {
       resolvedIntent = perm === 'granted' ? 'warm' : 'cold'
     }
     sessionIntent = resolvedIntent
+    startPermission = perm
+    voiceStartRecord = { permissionBefore: perm, requestedAt: null }
 
     // Greet only the first time per conversation. Subsequent voice sessions in the same
     // conversation just listen — a repeat "Hi, I'm your AI Assistant" mid-thread is grating.
@@ -1550,11 +1570,14 @@ export function bindChatLiveVoice(opts) {
         // speakers via the zero-gain node, so there's no feedback loop.
         try {
           await attachMicrophoneInternal()
+          settleVoiceStart('granted')
           setStatus('Listening… speak about Marwan\'s work.')
         } catch (micErr) {
           // The visitor hung up while getUserMedia was pending: the call is over, so the late
           // answer must not re-open the UI, report an error, or arm the no-mic sweep.
           if (!voiceSessionOpen) return
+          const blocked = micErr?.name === 'NotAllowedError' || micErr?.name === 'SecurityError'
+          settleVoiceStart(blocked ? 'denied' : 'error')
           // Permission "granted" but stream acquisition failed (mic busy, denied, etc.).
           // Fall back to the cold path: session stays open for the greeting; visitor can
           // retry by tapping the big mic.
@@ -1572,9 +1595,17 @@ export function bindChatLiveVoice(opts) {
       // explain and no session is minted for an answer that is almost certainly "no".
       const epoch = startEpoch
       const micP = acquireMicStream()
+      voiceStartRecord.requestedAt = Date.now()
       const sessionP = perm === 'denied' ? null : openVoiceSessionInternal()
       sessionP?.catch(() => {}) // awaited below only after the grant; never unhandled meanwhile
       if (perm !== 'denied') setStatus(MIC_PERMISSION_HINT)
+      // A non-granted answer closes the call: no greeting is ever sent for it.
+      const closeWithoutGreeting = (outcome, copy) => {
+        settleVoiceStart(outcome)
+        trackEvent('chat_live_stop', { reason: 'mic_permission', permissionBefore: perm, outcome })
+        stopVoiceInternal({ silent: true })
+        setStatus(copy, 'error')
+      }
       // Whatever settles first: the visitor's answer, VOICE_PERMISSION_WAIT_MS, or a stop. The
       // bubble can outlive the call; a stream it yields after that is released, never wired.
       const answer = await new Promise((resolve) => {
@@ -1587,8 +1618,7 @@ export function bindChatLiveVoice(opts) {
         micP.then(releaseStream, () => {})
         if (micAcquireInFlight === micP) micAcquireInFlight = null // the next Start asks afresh
         if (answer.aborted || epoch !== startEpoch) return
-        stopVoiceInternal({ silent: true })
-        setStatus(MIC_DISMISSED_MSG, 'error')
+        closeWithoutGreeting('timeout', MIC_DISMISSED_MSG)
         return
       }
       const acquired = answer.stream
@@ -1601,18 +1631,18 @@ export function bindChatLiveVoice(opts) {
         const after = blocked ? await detectMicPermissionState() : ''
         if (epoch !== startEpoch) return
         if (after === 'prompt') {
-          stopVoiceInternal({ silent: true })
-          setStatus(MIC_DISMISSED_MSG, 'error')
+          closeWithoutGreeting('dismissed', MIC_DISMISSED_MSG)
           return
         }
         // Denied, or a device error (NotFound / NotReadable / …): close, today's copy. Only a
         // denial gets the text fallback (N-P1) — nobody is spoken to who cannot answer by voice.
-        stopVoiceInternal({ silent: true })
-        setStatus(micAccessUserMessage(micErr), 'error')
+        closeWithoutGreeting(blocked ? 'denied' : 'error', micAccessUserMessage(micErr))
         if (blocked) greetAsText()
         return
       }
       if (epoch !== startEpoch) { releaseStream(acquired); return }
+      settleVoiceStart('granted')
+      if (!setupDone) setStatus('Connecting voice…') // the hint goes with the bubble
       try {
         // A stale 'denied' that the browser granted after all: connect now.
         await (sessionP || openVoiceSessionInternal())
@@ -1626,8 +1656,9 @@ export function bindChatLiveVoice(opts) {
       greet()
       setStatus('Listening… speak about Marwan\'s work.')
     } catch (error) {
-      stopVoiceInternal({ silent: true })
       const ename = error instanceof Error ? error.name : ''
+      settleVoiceStart(ename === 'LiveSetupAbort' ? 'hangup' : 'error')
+      stopVoiceInternal({ silent: true })
       if (ename === 'LiveSetupAbort') {
         return
       }

@@ -465,4 +465,28 @@ test('hanging up (stopVoice) while the bubble is open: the hint goes, a later Al
     )
   } finally { v.live.dispose() }
 })
+const voiceStarts = (v) => v.events.filter((e) => e.name === 'chat_voice_start').map((e) => e.params)
+
+test('telemetry: a cold start records ONE chat_voice_start with the permission before, the outcome and the wait', async () => {
+  // Arrange
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — the visitor reads the bubble for 1.5 s, then allows.
+    v.advance(1500)
+    v.gum.allow()
+    await settle()
+
+    // Assert — exactly these keys: no audio, transcript, error text or device ids (P1).
+    assert.deepEqual(
+      voiceStarts(v),
+      [{ permissionBefore: 'prompt', outcome: 'granted', waitMs: 1500 }],
+      'design-notes P1: every voice start carries permissionBefore, outcome and the bubble wait — ' +
+      'the only way to see whether real visitors are re-prompted (N-P4)'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END
