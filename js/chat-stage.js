@@ -54,10 +54,12 @@ export function nextChatStage (stage, event, ctx) {
   const yielded = ctx && ctx.wide ? 'docked' : 'minimized'
 
   switch (event) {
-    // Opening is a VISITOR act and always focuses the panel, from any stage.
+    // Opening is a VISITOR act and always focuses the panel, from any stage. On a wide
+    // viewport the docked card IS the main chat (ADR-0027 §2.4): it opens there, floating
+    // beside the site. Narrow keeps the modal - a card on a phone leaves no usable page.
     case 'open-text':
     case 'open-voice':
-      return 'modal'
+      return ctx && ctx.wide ? 'docked' : 'modal'
 
     // `restore` means "bring back the panel you already have". It cannot resurrect a CLOSED
     // conversation — opening is `open-*`. Keeping them distinct is what lets M4's launcher

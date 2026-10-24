@@ -30,9 +30,18 @@ const W = (wide) => (wide ? 'docked' : 'minimized')
 
 // [event, from, expectedWide, expectedNarrow, note]
 const TABLE = [
-  ['open-text', 'closed', 'modal', 'modal'],
-  ['open-voice', 'closed', 'modal', 'modal'],
-  ['open-text', 'minimized', 'modal', 'modal'],
+  // ADR-0027 §2.4 SUPERSEDES the wide column of these rows (deliberate test-writer change,
+  // not a regression): on a wide viewport the docked card IS the main window, so every
+  // visitor open lands `docked`. The narrow column is unchanged — a phone still gets modal.
+  ['open-text', 'closed', 'docked', 'modal', 'ADR-0027'],
+  ['open-voice', 'closed', 'docked', 'modal', 'ADR-0027'],
+  ['open-text', 'minimized', 'docked', 'modal', 'ADR-0027'],
+  ['open-voice', 'minimized', 'docked', 'modal', 'ADR-0027'],
+  ['open-text', 'docked', 'docked', 'modal', 'ADR-0027'],
+  // From modal on a wide viewport (open-beside with no room, or a viewport that widened
+  // under a modal) a re-open docks: re-opening is a visitor act (ADR-0027 §2.4 note 1).
+  ['open-text', 'modal', 'docked', 'modal', 'ADR-0027'],
+  ['open-voice', 'modal', 'docked', 'modal', 'ADR-0027'],
 
   // restore cannot resurrect a closed conversation — opening is open-*. Keeping them
   // distinct is what lets M4's "Assistant active" chip restore without a cold open.
