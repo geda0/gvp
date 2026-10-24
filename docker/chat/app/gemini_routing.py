@@ -11,9 +11,13 @@ adapter over the google-genai async client that:
   * yields ``MsgChunk(text, tool_calls)`` / returns ``Msg(role="ai", ...)``.
 
 The commit-on-first-chunk fallback (project invariant #9) lives in ``astream``:
-fall back to the secondary model only if the FIRST chunk raises an upstream rate
-limit; once any chunk has yielded we are committed and mid-stream errors
-propagate.
+fall back to the other model only if the FIRST chunk fails retryably or stalls;
+once any chunk has yielded we are committed and mid-stream errors propagate.
+
+The latency budget (ADR-0026 §4, invariant #26): every attempt, the last
+included, is capped (``_first_chunk_timeout``); a primary 503 is retried on the
+primary once after ``PRIMARY_503_RETRY_DELAY_SECONDS``; at most
+``MAX_MODEL_ATTEMPTS`` attempts per turn.
 """
 
 from __future__ import annotations
@@ -433,10 +437,11 @@ class GeminiRoutingChain:
         inp: dict[str, Any],
         config: Any | None = None,
     ) -> AsyncIterator[Any]:
-        """Stream chunks from the primary model; fall back to the secondary if the
-        FIRST chunk rate-limits OR fails to arrive within the per-attempt budget (a
-        stalled/too-slow primary). Once any chunk is yielded we're committed to the
-        current model — mid-stream errors propagate."""
+        """Stream chunks from the first model in the order; move to the next if the
+        FIRST chunk fails retryably OR does not arrive within the per-attempt budget
+        (every attempt is capped, ADR-0026 §4.2). A primary 503 is retried on the
+        primary once (§4.3). Once any chunk is yielded we're committed to the
+        current model — mid-stream errors propagate (invariant #9)."""
         from app.alerts import fire_alert
         from app.gemini_limit_state import (
             note_primary_rate_limited,
