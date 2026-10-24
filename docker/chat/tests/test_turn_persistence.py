@@ -596,3 +596,99 @@ async def test_a_primary_retry_is_recorded_distinctly_from_a_fallback(
     assert turn["status"] == "ok"
     assert turn["fallbackUsed"] is False
     assert turn["primaryRetried"] is True
+
+
+def _routing_chain():
+    from app.gemini_routing import GeminiRoutingChain
+
+    return GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=28.0,
+    )
+
+
+async def _stream_turn(client, content: str) -> None:
+    resp = await client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": content}], "stream": True},
+    )
+    await resp.aread()
+
+
+@pytest.mark.asyncio
+async def test_a_clean_turn_after_a_retried_turn_records_no_primary_retry(
+    client, stub_store, monkeypatch
+) -> None:
+    """primaryRetried is PER TURN: the next clean turn on the same chain records
+    false, it does not inherit the previous turn's retry."""
+    from app.gemini_routing import GeminiRoutingChain
+
+    fakes = {"m-primary": _Primary503ThenOk()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+    monkeypatch.setattr(app.state, "chain", _routing_chain())
+    monkeypatch.setattr(app.state, "provider_error", None)
+
+    await _stream_turn(client, "first")
+    await _stream_turn(client, "second")
+
+    assert [c["turn"]["primaryRetried"] for c in stub_store.calls] == [True, False]
+
+
+class _InterleavingPrimary:
+    """One shared primary model serving two overlapping turns:
+    call 1 (turn A)          -> instant 503
+    call 2 (turn A's retry)  -> answers "retried" after 0.5 s
+    call 3 (turn B, clean)   -> answers "clean" at once
+    so turn B starts AND finishes while turn A is still inside its retry."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def astream(self, _payload, config=None):
+        self.calls += 1
+        n = self.calls
+
+        async def gen():
+            if n == 1:
+                raise _UpstreamStatusError(503)
+            if n == 2:
+                await asyncio.sleep(0.5)
+                yield MsgChunk(text="retried")
+                return
+            yield MsgChunk(text="clean")
+
+        return gen()
+
+
+@pytest.mark.asyncio
+async def test_overlapping_turns_on_one_chain_each_record_their_own_routing_outcome(
+    client, stub_store, monkeypatch
+) -> None:
+    """The routing chain is ONE object shared by every request on the container.
+    Two overlapping turns — A retried after a 503, B clean — must each persist
+    their own outcome; reading it back off the shared chain lets B's start
+    overwrite A's retry flag before A persists."""
+    from app.gemini_routing import GeminiRoutingChain
+
+    fakes = {"m-primary": _InterleavingPrimary()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+    monkeypatch.setattr(app.state, "chain", _routing_chain())
+    monkeypatch.setattr(app.state, "provider_error", None)
+
+    async def turn_b_after_a_has_retried() -> None:
+        await asyncio.sleep(0.4)
+        await _stream_turn(client, "B")
+
+    await asyncio.gather(_stream_turn(client, "A"), turn_b_after_a_has_retried())
+
+    by_reply = {c["turn"]["reply"]: c["turn"] for c in stub_store.calls}
+    assert by_reply["retried"]["primaryRetried"] is True
+    assert by_reply["clean"]["primaryRetried"] is False

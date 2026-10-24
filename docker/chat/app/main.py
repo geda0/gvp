@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.alerts import fire_alert, log_alert_gate_status
+from app.gemini_routing import RoutingOutcome, begin_turn_outcome
 from app.secret_resolver import resolve_gemini_key_into_env
 from app.project_refs import PROJECT_IDS, project_grounding_line
 from app.gemini_routing import GeminiRoutingChain
@@ -1021,18 +1022,13 @@ async def _persist_text_turn(
     )
 
 
-def _fallback_used(chain: Any) -> bool:
-    """True when the routing chain settled on the secondary Gemini model."""
+def _fallback_used(chain: Any, outcome: RoutingOutcome) -> bool:
+    """True when THIS turn's routing settled on the secondary Gemini model."""
     primary = getattr(chain, 'primary_id', None)
-    last = getattr(chain, 'last_model_id', None)
+    last = outcome.model_id
     if not primary or not last:
         return False
     return primary != last
-
-
-def _primary_retried(chain: Any) -> bool:
-    """True when the routing chain's last turn retried the primary after a 503."""
-    return bool(getattr(chain, 'last_primary_retried', False))
 
 
 def _sse_frame(event: str, data: Any) -> bytes:
@@ -1098,6 +1094,7 @@ async def chat(payload: ChatRequest) -> Any:
         )
 
     t0 = time.perf_counter()
+    outcome = begin_turn_outcome()
     try:
         result = await asyncio.wait_for(
             app.state.chain.ainvoke(_chain_input(payload, lc_messages)),
@@ -1109,11 +1106,11 @@ async def chat(payload: ChatRequest) -> Any:
         try:
             await _persist_text_turn(
                 payload, lc_messages, '', [], [],
-                getattr(app.state.chain, 'last_model_id', None) or app.state.model_id,
+                outcome.model_id or app.state.model_id,
                 elapsed_ms,
                 stream=False,
-                fallback_used=_fallback_used(app.state.chain),
-                primary_retried=_primary_retried(app.state.chain),
+                fallback_used=_fallback_used(app.state.chain, outcome),
+                primary_retried=outcome.primary_retried,
                 status='timeout',
                 error_code='upstream_timeout',
                 error_message=f'ainvoke exceeded {app.state.provider_timeout_seconds}s',
@@ -1134,11 +1131,11 @@ async def chat(payload: ChatRequest) -> Any:
         try:
             await _persist_text_turn(
                 payload, lc_messages, '', [], [],
-                getattr(app.state.chain, 'last_model_id', None) or app.state.model_id,
+                outcome.model_id or app.state.model_id,
                 elapsed_ms,
                 stream=False,
-                fallback_used=_fallback_used(app.state.chain),
-                primary_retried=_primary_retried(app.state.chain),
+                fallback_used=_fallback_used(app.state.chain, outcome),
+                primary_retried=outcome.primary_retried,
                 status='error',
                 error_code=str(content.get('code') or 'model_error'),
                 error_message=str(content.get('error') or type(exc).__name__),
@@ -1150,13 +1147,13 @@ async def chat(payload: ChatRequest) -> Any:
     reply_text = _reply_text_from_result(result)
     actions, reply_text = _guard_turn(result, payload.messages, reply_text)
     tool_calls = _tool_calls_from_result(result)
-    model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
+    model_used = outcome.model_id or app.state.model_id
 
     await _persist_text_turn(
         payload, lc_messages, reply_text, actions, tool_calls, model_used, elapsed_ms,
         stream=False,
-        fallback_used=_fallback_used(app.state.chain),
-        primary_retried=_primary_retried(app.state.chain),
+        fallback_used=_fallback_used(app.state.chain, outcome),
+        primary_retried=outcome.primary_retried,
         status='ok',
     )
 
@@ -1176,6 +1173,7 @@ async def _chat_stream(
       - error: {"error": "...", "code": "..."}  terminal, sent in place of done
     """
     t0 = time.perf_counter()
+    outcome = begin_turn_outcome()
     aggregated: Any = None
     acc = _Acc()
     saw_chunk = False
@@ -1247,7 +1245,7 @@ async def _chat_stream(
     if stream_status == 'ok' and aggregated is not None:
         actions, reply_text = _guard_turn(aggregated, payload.messages, reply_text)
     tool_calls = _tool_calls_from_result(aggregated) if aggregated is not None else []
-    model_used = getattr(chain, "last_model_id", None) or app.state.model_id
+    model_used = outcome.model_id or app.state.model_id
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     # Persist the turn whether it succeeded, errored, or timed out. The
@@ -1259,8 +1257,8 @@ async def _chat_stream(
             stream=True,
             first_token_ms=first_token_ms,
             chunk_count=chunk_count,
-            fallback_used=_fallback_used(chain),
-            primary_retried=_primary_retried(chain),
+            fallback_used=_fallback_used(chain, outcome),
+            primary_retried=outcome.primary_retried,
             status=stream_status,
             error_code=error_code,
             error_message=error_message,
@@ -1280,7 +1278,7 @@ async def _chat_stream(
     })
     logger.info(
         "chat stream ok model=%s latency_ms=%s first_token_ms=%s chunks=%s fallback=%s",
-        model_used, elapsed_ms, first_token_ms, chunk_count, _fallback_used(chain),
+        model_used, elapsed_ms, first_token_ms, chunk_count, _fallback_used(chain, outcome),
     )
 
 
