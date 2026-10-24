@@ -679,6 +679,26 @@ export function bindChatLiveVoice(opts) {
     }
   }
 
+  // ADR-0026 §3 / invariant #25 — the ONLY place playback is cut and the turn gate cancelled.
+  // reason: 'server' (Live's own `interrupted`) | 'user_text' (a chip or text turn into the
+  // call) | 'mic_tap' (mic tap on an open session whose mic is not live). A server interrupt
+  // is unconditional; a local one cancels the gate only while a server turn is in flight, so
+  // the reply to the act that cut the assistant off is never dropped. A second door (another
+  // player.interrupt() or 'interrupted' gate event in this file) fails a source test.
+  const interruptAssistant = (reason) => {
+    turnGate = nextTurnGate(turnGate, reason === 'server' ? 'interrupted' : 'localInterrupt')
+    player?.interrupt()
+    turnInterrupted = true
+  }
+
+  /** A canned text turn (a project chip's prompt) into the live call: stop the assistant
+   *  locally first, then send. False when no session is open (the caller falls back to text). */
+  const sendUserText = (text) => {
+    if (!voiceSessionOpen || !setupDone || !ws || ws.readyState !== WebSocket.OPEN) return false
+    interruptAssistant('user_text')
+    return sendClientContentText(String(text || ''))
+  }
+
   const sendGreetingClientContent = (verbatim) => sendClientContentText(greetingInstruction(verbatim))
 
   const sendWarmFollowup = () => {
@@ -960,11 +980,7 @@ export function bindChatLiveVoice(opts) {
 
     const sc = msg.serverContent || msg.server_content
     if (sc) {
-      if (sc.interrupted) {
-        turnInterrupted = true
-        turnGate = nextTurnGate(turnGate, 'interrupted')
-        player?.interrupt()
-      }
+      if (sc.interrupted) interruptAssistant('server')
 
       if (sc.inputTranscription?.text) {
         patchUserText(sc.inputTranscription.text)
@@ -1450,9 +1466,11 @@ export function bindChatLiveVoice(opts) {
       return
     }
 
-    // Cold session is already open (greeting playing / waiting for visitor).
-    // Tapping the mic now means "I'm ready, attach the mic."
+    // Session open but the mic is not live (attach refused / failed, greeting playing).
+    // Tapping the mic now means "stop, I'm ready": cut the assistant off locally BEFORE the
+    // permission sheet can appear over still-playing audio (ADR-0026 §3.1), then attach.
     if (voiceSessionOpen && setupDone) {
+      interruptAssistant('mic_tap')
       void attachMicrophone()
       return
     }
@@ -1509,7 +1527,7 @@ export function bindChatLiveVoice(opts) {
     isSessionOpen: () => voiceSessionOpen && setupDone,
     /** Put a canned text turn (a project chip's prompt) to the live model. False when no
      *  session is open, so the caller can fall back to the text chat. */
-    sendUserText: (text) => (voiceSessionOpen && setupDone ? sendClientContentText(String(text || '')) : false),
+    sendUserText,
     getSessionIntent: () => sessionIntent,
   }
 }

@@ -222,3 +222,47 @@ test('cold path: once the visitor allows the mic, its audio goes upstream while 
     )
   } finally { v.live.dispose() }
 })
+
+// G2: an explicit act stops playback LOCALLY — no server round-trip — on both paths.
+// Before ADR-0026 a chip or text turn into the call relied on the server to cut the audio,
+// and a mic tap on an open session only attached the mic: buffered greeting audio kept
+// playing over the visitor's own action. The matrix is 3 acts × {cold, granted}.
+//   chip / text: both reach the call through live.sendUserText (js/chat.js routes the chip
+//                there during a call); the mic is live.
+//   mic tap:     cold = the mic is NOT live (attach refused), so the tap stops playback and
+//                then raises the permission sheet again; granted = the mic IS live, so the tap
+//                ends the call (#20's explicit act), which silences it too.
+const PATHS = {
+  cold: { permission: 'prompt' },
+  granted: { permission: 'granted' }
+}
+const ACTS = {
+  chip: { mic: () => 'allow', act: (v) => v.live.sendUserText('Summarize Apptio (an IBM company) for me.') },
+  text: { mic: () => 'allow', act: (v) => v.live.sendUserText('What does he actually build?') },
+  'mic tap': { mic: (path) => (path === 'cold' ? 'deny' : 'allow'), act: (v) => v.tapMic() }
+}
+
+for (const [pathName, path] of Object.entries(PATHS)) {
+  for (const [actName, { mic, act }] of Object.entries(ACTS)) {
+    test(`${pathName} path: a ${actName} while the assistant is speaking stops playback locally, before any server frame`, async () => {
+      // Arrange — the greeting is speaking: two chunks queued and playing.
+      const v = await bootVoice({ ...path, mic: mic(pathName) })
+      try {
+        await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+        const playingBefore = v.audio.playing()
+
+        // Act — the visitor's explicit act; NO server frame follows.
+        await act(v)
+
+        // Assert
+        assert.deepEqual(
+          { playingBefore, playingAfter: v.audio.playing() },
+          { playingBefore: 2, playingAfter: 0 },
+          `a ${actName} must cut the assistant off at once (invariant #25) — the server's ` +
+          '`interrupted` may never come for a clientContent turn, and a visitor who acted ' +
+          'should not have to sit through the rest of the sentence'
+        )
+      } finally { v.live.dispose() }
+    })
+  }
+}
