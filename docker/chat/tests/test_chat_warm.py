@@ -65,3 +65,47 @@ async def test_warm_with_messages_is_rejected_and_neither_warms_nor_answers(
     assert chain.warm_calls == 0
     assert chain.model_calls == 0
     assert stub_store.calls == []
+
+
+@pytest.mark.asyncio
+async def test_warm_without_a_configured_chain_is_503_provider_unavailable(
+    client, monkeypatch
+) -> None:
+    """ADR-0026 §5.1: no chain -> the same 503 a real turn gets."""
+    monkeypatch.setattr(app.state, "chain", None)
+
+    resp = await client.post("/api/chat", json={"warm": True})
+
+    assert resp.status_code == 503
+    assert resp.json()["code"] == "provider_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_warm_is_not_a_turn_it_logs_one_chat_warm_line_and_touches_nothing(
+    client, stub_store, monkeypatch, caplog
+) -> None:
+    """ADR-0026 §5.1, "what it must not do": a warm writes no transcript (#7/#17
+    sinks), fires no alert, leaves the routing state alone — and leaves exactly
+    one `chat warm` log line carrying its elapsed ms (the post-deploy cold-start
+    measurement)."""
+    import logging
+
+    from app import alerts, gemini_limit_state
+
+    fired: list = []
+    monkeypatch.setattr(alerts, "fire_alert", lambda *a, **k: fired.append(a))
+    monkeypatch.setattr(app.state, "chain", _WarmableChain())
+    sent = {"warm": True, "stream": True, "sessionId": "warm-probe"}
+
+    with caplog.at_level(logging.INFO):
+        resp = await client.post("/api/chat", json=sent)
+
+    assert resp.status_code == 204
+    assert stub_store.calls == []
+    assert fired == []
+    assert gemini_limit_state.prefer_fallback_first() is False
+    assert gemini_limit_state.primary_rate_limit_hits_today() == 0
+    assert gemini_limit_state.primary_timeout_hits_today() == 0
+    warm_lines = [r.getMessage() for r in caplog.records if "chat warm" in r.getMessage()]
+    assert len(warm_lines) == 1
+    assert "elapsed_ms=" in warm_lines[0]

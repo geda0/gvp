@@ -1059,9 +1059,11 @@ async def chat(payload: ChatRequest) -> Any:
                     "code": "warm_with_messages",
                 },
             )
+        t0 = time.perf_counter()
         warm = getattr(app.state.chain, 'warm', None)
         if callable(warm):
             warm()
+        logger.info("chat warm elapsed_ms=%s", int((time.perf_counter() - t0) * 1000))
         return Response(status_code=204)
 
     if not payload.messages:
