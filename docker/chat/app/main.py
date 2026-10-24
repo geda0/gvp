@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.alerts import fire_alert, log_alert_gate_status
@@ -201,6 +201,9 @@ class ChatRequest(BaseModel):
     # LiveSessionRequest below, because two classes for one wire shape is how providers.py
     # and live_gemini.py came to declare two different section enums.
     siteState: SiteStateIn | None = None
+    # ADR-0026 §5.1: a warm request starts the function and builds the model client;
+    # it is not a turn. `stream`, `sessionId` and `siteState` are ignored on it.
+    warm: bool = False
 
 
 class LiveSessionRequest(BaseModel):
@@ -1046,6 +1049,12 @@ async def chat(payload: ChatRequest) -> Any:
             status_code=503,
             content={"error": msg, "code": "provider_unavailable"},
         )
+
+    if payload.warm:
+        warm = getattr(app.state.chain, 'warm', None)
+        if callable(warm):
+            warm()
+        return Response(status_code=204)
 
     if not payload.messages:
         return JSONResponse(
