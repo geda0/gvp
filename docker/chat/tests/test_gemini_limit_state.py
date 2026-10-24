@@ -60,3 +60,15 @@ def test_a_zero_ttl_disables_the_fallback_preference_but_still_counts(
 
     assert gls.prefer_fallback_first(now=1000.0) is False
     assert gls.primary_timeout_hits_today() == 1
+
+
+def test_an_invalid_ttl_falls_back_to_the_ten_minute_default(monkeypatch) -> None:
+    """ADR-0026 §4.1: an unparseable TTL is the default, never a crash in the
+    routing path of a live turn."""
+    monkeypatch.setenv('GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES', 'ten')
+    gls.reset_for_tests()
+
+    gls.note_primary_rate_limited(now=1000.0)
+
+    assert gls.prefer_fallback_first(now=1000.0 + 599.0) is True
+    assert gls.prefer_fallback_first(now=1000.0 + 600.0) is False

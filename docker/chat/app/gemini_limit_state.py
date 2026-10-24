@@ -36,7 +36,10 @@ def _sync_day_unlocked() -> None:
 
 def _ttl_seconds() -> float:
     raw = os.environ.get('GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES')
-    minutes = float(raw) if raw else _DEFAULT_TTL_MINUTES
+    try:
+        minutes = float(raw) if raw else _DEFAULT_TTL_MINUTES
+    except ValueError:
+        minutes = _DEFAULT_TTL_MINUTES
     return minutes * 60.0
 
 
