@@ -1560,6 +1560,9 @@ export function bindChatLiveVoice(opts) {
     resetGreet: () => { conversationGreeted = false },
     isActive: () => active,
     isSessionOpen: () => voiceSessionOpen && setupDone,
+    /** Put a canned text turn (a project chip's prompt) to the live model. False when no
+     *  session is open, so the caller can fall back to the text chat. */
+    sendUserText: (text) => (voiceSessionOpen && setupDone ? sendClientContentText(String(text || '')) : false),
     getSessionIntent: () => sessionIntent,
   }
 }

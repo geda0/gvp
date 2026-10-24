@@ -30,7 +30,7 @@ test('the chips are inside the project dialog panel', () => {
 
 test('js/chat.js wires the chips to open-beside with a MEASURED roomBeside, and sends the canned prompt', () => {
   const chat = read('js/chat.js')
-  const block = chat.slice(chat.indexOf('[data-project-chip]'), chat.indexOf('[data-project-chip]') + 1600)
+  const block = chat.slice(chat.indexOf('[data-project-chip]'), chat.indexOf('[data-project-chip]') + 2600)
   assert.match(block, /hasRoomBesideDialog\(/)
   assert.match(block, /getBoundingClientRect\(\)/)
   assert.match(block, /dispatchStage\('open-beside', 'visitor', \{ roomBeside/)

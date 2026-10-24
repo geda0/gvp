@@ -1572,6 +1572,16 @@ export function initChat() {
     // A REQUESTED dock moves focus to the composer (stageChrome(..., { requested: true })) -
     // once the reply settles, because the composer is disabled while it is pending and a
     // disabled input cannot take focus (measured: focus stayed on the project dialog's X).
+    // DURING A LIVE CALL the prompt goes to the call (staging voice pass, 2026-10-23: it went
+    // down the text path, so a visitor in voice got a text answer and the voice model never
+    // heard the question). The bubble is drawn here because a text turn produces no input
+    // transcription for chat-live to draw.
+    if (liveVoice && typeof liveVoice.sendUserText === 'function' && liveVoice.isSessionOpen?.()
+      && liveVoice.sendUserText(prompt)) {
+      appendMessage('user', prompt, { forceScroll: true })
+      state.history = state.history.concat({ role: 'user', content: prompt })
+      return
+    }
     void sendMessage(prompt, 'project_chip').finally(() => {
       if (chatStage === 'closed') return
       if (stageChrome(chatStage, { requested: true }).moveFocus !== 'composer') return

@@ -71,7 +71,7 @@ const INSTRUMENT = `(() => {
           }
         }
         if (m.toolResponse) log('toolResponse', JSON.stringify(m.toolResponse.functionResponses.map((r) => r.response && (r.response.result || r.response.error))))
-        else if (m.clientContent) log('clientContent')
+        else if (m.clientContent) log('clientContent', JSON.stringify(m.clientContent).slice(0, 200))
       } catch (_) {}
       return send(data)
     }
@@ -147,32 +147,47 @@ async function greetingAndNavigation (page) {
   return out
 }
 
+// "Voice chips", measured as what shipped: ADR-0017 §7.5 made the project chips canned TEXT
+// prompts (the plan's 🔊 voice-first variant was not adopted). The gate question is therefore
+// whether a chip tapped DURING a live voice call reaches the model and leaves the call alive.
 async function voiceChip (page) {
+  const out = []
   await goto(page, `${ORIGIN}/?voicechip=${Date.now()}`)
-  await sleep(2500)
+  await sleep(2000)
+  await evaluate(page, () => document.getElementById('heroVoiceMic').click())
+  await sleep(1200)
+  await evaluate(page, () => document.getElementById('chatVoiceStartBtn').click())
+  await sleep(14000)
   const opened = await evaluate(page, async () => {
-    const nav = await import('/js/navigation.js')
-    nav.requestNavigation('portfolio', { origin: 'visitor' })
-    await new Promise((r) => setTimeout(r, 1500))
     const projects = await import('/js/projects.js')
     const r = projects.requestProjectOpen('apptio', { origin: 'visitor' })
-    await new Promise((r) => setTimeout(r, 1200))
-    const chips = [...document.querySelectorAll('#projectDialog button, #projectDialog [role="button"]')]
-      .filter((b) => /🔊|summari|tell me more|just talk/i.test(b.textContent))
-    return { r, chips: chips.map((b) => b.textContent.trim()) }
+    await new Promise((res) => setTimeout(res, 1200))
+    const chips = [...document.querySelectorAll('#projectDialog [data-project-chip]')].map((b) => b.dataset.projectChip)
+    return { r, chips }
   })
-  const out = [{ claim: 'a project card shows voice chips', ok: opened.chips.length > 0, detail: JSON.stringify(opened) }]
+  out.push({ claim: 'a project card shows its chips during a live call', ok: opened.chips.length === 3, detail: JSON.stringify(opened) })
   if (!opened.chips.length) return out
-  await evaluate(page, () => {
-    const chip = [...document.querySelectorAll('#projectDialog button, #projectDialog [role="button"]')]
-      .find((b) => /summari/i.test(b.textContent)) || [...document.querySelectorAll('#projectDialog button')].find((b) => /🔊/.test(b.textContent))
-    chip.click()
+  const mark = (await timeline(page)).length
+  await evaluate(page, () => document.querySelector('#projectDialog [data-project-chip="summarize"]').click())
+  await sleep(18000)
+  const ev = (await timeline(page)).slice(mark)
+  const said = ev.filter((e) => e.kind === 'said').map((e) => e.detail).join('')
+  const transcript = await evaluate(page, () => [...document.querySelectorAll('#chatMessages .chat-msg--assistant')].map((m) => m.textContent).join(' ').slice(-400))
+  const closed = ev.find((e) => e.kind === 'ws-close')
+  const sentChip = ev.find((e) => e.kind === 'clientContent' && /summari[sz]e/i.test(e.detail || ''))
+  const viaText = (await evaluate(page, () => [...document.querySelectorAll('#chatMessages .chat-msg--user')].map((m) => m.textContent).join(' | ')))
+  out.push({
+    claim: "the chip's prompt is put to the model over the live call (not only a site note)",
+    ok: Boolean(sentChip),
+    detail: sentChip ? sentChip.detail : `no clientContent with the prompt; user messages: ${viaText.slice(-200)}`
   })
-  await sleep(25000)
-  const ev = await timeline(page)
-  const { first, said } = summarise(ev)
-  out.push({ claim: 'a voice chip starts a Live session', ok: Boolean(first('ws-open') && first('setupComplete')), detail: JSON.stringify(ev.slice(0, 5)) })
-  out.push({ claim: 'the model talks about that project', ok: /apptio|ibm|spark|pipeline/i.test(said), detail: `said: ${said.slice(0, 240)}` })
+  out.push({ claim: 'the call survives the chip tap (no socket close)', ok: !closed, detail: closed ? closed.detail : '' })
+  out.push({
+    claim: 'the chip reaches the model and it answers about that project',
+    ok: /apptio|ibm|spark|pipeline|financial/i.test(said + ' ' + transcript),
+    detail: `voice said: ${said.slice(0, 160)} | transcript: ${transcript.slice(-160)}`
+  })
+  out.push({ claim: 'the answer comes back by VOICE (the modality the visitor is in)', ok: /apptio|ibm|spark|pipeline|financial/i.test(said), detail: `voice said: ${said.slice(0, 160)}` })
   return out
 }
 
