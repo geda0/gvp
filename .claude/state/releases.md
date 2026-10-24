@@ -11,6 +11,20 @@ verified. Never release on a red bar or unaccepted work._
 | **PRODUCTION deploy** (contact refactor → prod) | `fda626f` (main) · deploy run `26938125929` | — | **prod** | **GREEN** (test ✅ + deploy ✅, 1m23s). New `deploy-prod.yml` (push→main, test-gated) ran `integrate-and-deploy.sh prod` via OIDC role `gvp-prod-ci-deploy` (main-only, page-scoped). QA-gated by a staging E2E contact submission (qa-verifier PASS). `page` UPDATE_COMPLETE; contact `lwi0vmdpb5…` OPTIONS 204 (matches FE prod meta); `www.marwanelgendy.link` 200; prod chat ECS `chat-api.marwanelgendy.link` 200 (untouched). Frontend unchanged (Amplify rebuild of `main`). | 2026-06-04 |
 
 
+
+## 2026-10-24 — PROMOTED TO PROD: barge-in restored + chat latency budget (ADR-0026) + Track C
+- `main` @ `fc73871` (merge of `agent` @ `c37db15`, prod hosts kept). Released on the navigator's
+  explicit override of `tics gate` (PO po-1024 and QA qa-1024 ruled concerns; follow-ups F1-F6).
+- `deploy-prod` run 40125024040 GREEN; post-deploy warm `POST dlkbine9cip5c… {"warm":true} -> 204 in 5678 ms`.
+- Verified live on www:
+  - frontend serves `js/chat-prewarm.js` (byte-identical), `js/mic-attach-plan.js` 404;
+  - text chat first token 1.0-1.8 s over 4 turns (this morning: 11 s cold, p90 9.2 s);
+  - voice probe (WebAudio-fed WAV, real Live API): 38/39 — voice cuts the greeting at the server
+    (`interrupted`@7111 before turnComplete@7273), silent control uninterrupted, chip/two-chip/voice-chip
+    journeys hold; the 1 FAIL is the known probe reply-window bug (F4), not the product.
+- Open: F1 owner first-visit + real-speaker/echo check; F2/F3 pip-layer reuse and 5.4 s post-deploy cold;
+  O1 prod Gemini key tier; O2 replacement fallback model.
+
 ## 2026-10-23 — PROMOTED TO PROD: star pacing (GREEN, verified live)
 - `main` `5aa075d`: merged agent into main (no fast-forward). Prod hosts kept; prod guard 3/3;
   suite 524/0; both CI runs on main GREEN.
