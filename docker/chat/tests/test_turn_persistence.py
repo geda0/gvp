@@ -534,3 +534,65 @@ async def test_non_stream_success_persists_one_ok_row(client, stub_store) -> Non
     turn = stub_store.calls[0]["turn"]
     assert turn["status"] == "ok"
     assert turn["stream"] is False
+
+
+class _UpstreamStatusError(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"status={status_code}")
+        self.status_code = status_code
+
+
+class _Primary503ThenOk:
+    """A model whose FIRST stream raises an upstream 503 before any chunk and
+    whose second stream answers — the ADR-0026 §4.3 primary-retry success."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def astream(self, _payload, config=None):
+        self.calls += 1
+        first = self.calls == 1
+
+        async def gen():
+            if first:
+                raise _UpstreamStatusError(503)
+            yield MsgChunk(text="from-primary-retry")
+
+        return gen()
+
+
+@pytest.mark.asyncio
+async def test_a_primary_retry_is_recorded_distinctly_from_a_fallback(
+    client, stub_store, monkeypatch
+) -> None:
+    """Design-notes L1 / ADR-0026 §4.3: per-turn telemetry distinguishes a turn
+    answered by the primary's 503 RETRY from one answered by the fallback —
+    `primaryRetried: true`, `fallbackUsed: false`."""
+    from app.gemini_routing import GeminiRoutingChain
+
+    chain = GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=28.0,
+    )
+    fakes = {"m-primary": _Primary503ThenOk()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+    monkeypatch.setattr(app.state, "chain", chain)
+    monkeypatch.setattr(app.state, "provider_error", None)
+
+    resp = await client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "stream": True},
+    )
+    await resp.aread()
+
+    assert len(stub_store.calls) == 1
+    turn = stub_store.calls[0]["turn"]
+    assert turn["status"] == "ok"
+    assert turn["fallbackUsed"] is False
+    assert turn["primaryRetried"] is True
