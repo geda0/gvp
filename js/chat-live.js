@@ -614,6 +614,8 @@ export function bindChatLiveVoice(opts) {
   let voiceMaxSessionTimer = null
   /** Resolves when Live setupComplete arrives; cleared after await or on stop. */
   let pendingSetupLatch = null
+  /** Rejects the in-flight "socket opened" wait (set only while the socket is CONNECTING). */
+  let pendingWsOpenFail = null
   let wsOpened = false
 
   const rejectPendingSetupLatch = (err) => {
@@ -869,17 +871,24 @@ export function bindChatLiveVoice(opts) {
 
   // `retrying` = the connect loop tearing down a failed attempt before its next round; the
   // start it belongs to is still current. Every other stop ends the start (bumps the epoch).
-  const stopVoiceInternal = ({ silent, retrying = false } = {}) => {
+  // `failure` = the SESSION failed (an Error): a wait on the bubble or the connect is handed
+  // that error to report, never read as the visitor hanging up.
+  const stopVoiceInternal = ({ silent, retrying = false, failure = null } = {}) => {
     if (!retrying) {
       startEpoch += 1
-      // Any stop with the mic question still open is the visitor (or the page) ending it.
-      settleVoiceStart('hangup')
-      // Hung up while the bubble is open: the wait ends now, and its hint goes with it.
       const abortWait = permissionWaitAbort
       clearPermissionWait()
-      if (abortWait) {
-        setStatus('')
-        abortWait()
+      if (failure) {
+        if (abortWait) abortWait({ failed: failure })
+        else settleVoiceStart('error')
+      } else {
+        // Any other stop with the mic question still open is the visitor (or the page) ending
+        // it: the wait ends now, and its hint goes with it.
+        settleVoiceStart('hangup')
+        if (abortWait) {
+          setStatus('')
+          abortWait({ aborted: true })
+        }
       }
     }
     if (userBubble || assistantBubble) finalizeTurn()
@@ -956,6 +965,13 @@ export function bindChatLiveVoice(opts) {
           rj(err)
         } catch (_) {}
       }
+    }
+    if (pendingWsOpenFail) {
+      const fail = pendingWsOpenFail
+      pendingWsOpenFail = null
+      const err = new Error('Voice stopped')
+      err.name = 'LiveSetupAbort'
+      fail(err)
     }
 
     // Clear ALL three voice flags in one patch so chat.js's syncVoiceStartCta
@@ -1309,6 +1325,9 @@ export function bindChatLiveVoice(opts) {
             }
             reject(err)
           }
+          // A stop while the socket is still CONNECTING ends this wait at once (LiveSetupAbort)
+          // instead of leaving it to LIVE_WS_OPEN_MS and a "did not connect" nobody asked for.
+          pendingWsOpenFail = settleOpenFail
           ws = new WebSocket(websocketUrl)
           ws.onopen = () => settleOpen()
           ws.onmessage = (ev) => {
@@ -1342,7 +1361,8 @@ export function bindChatLiveVoice(opts) {
               latchRejected = rejectPendingSetupLatch(err)
             }
             if (markHostBlocked) voiceUnavailableOnHost = true
-            stopVoiceInternal({ silent: true, retrying: !ready })
+            // Before ready: the connect loop decides (retry or fail). After: the session died.
+            stopVoiceInternal({ silent: true, retrying: !ready, failure: ready ? liveSetupErr(closeMsg) : null })
             if (!ready && !latchRejected) {
               setStatus(closeMsg, 'error')
               trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
@@ -1351,14 +1371,20 @@ export function bindChatLiveVoice(opts) {
           }
         })
 
-        await wsOpenPromise
+        try {
+          await wsOpenPromise
+        } finally {
+          pendingWsOpenFail = null
+        }
         await setupReadyPromise
         return
       } catch (connectErr) {
-        const retry = epoch === startEpoch
-          && isVoiceRetryableSetupFailure(connectErr, isRelayWsPath)
+        // A start that already ended (the visitor hung up while this socket was connecting)
+        // must not stop anything: by now `ws` may be the NEXT call's socket.
+        abortIfStale()
+        const retry = isVoiceRetryableSetupFailure(connectErr, isRelayWsPath)
           && connectRound < VOICE_CONNECT_MAX_ROUNDS
-        stopVoiceInternal({ silent: true, retrying: retry })
+        stopVoiceInternal({ silent: true, retrying: retry, failure: retry || connectErr?.name === 'LiveSetupAbort' ? null : connectErr })
         if (retry) continue
         throw connectErr
       }
@@ -1610,12 +1636,14 @@ export function bindChatLiveVoice(opts) {
       const answer = await new Promise((resolve) => {
         micP.then((stream) => resolve({ stream }), (error) => resolve({ error }))
         permissionWaitTimer = setTimeout(() => resolve({ timeout: true }), VOICE_PERMISSION_WAIT_MS)
-        permissionWaitAbort = () => resolve({ aborted: true })
+        permissionWaitAbort = (ended) => resolve(ended)
       })
       clearPermissionWait()
       if (!answer.stream && !answer.error) {
         micP.then(releaseStream, () => {})
         if (micAcquireInFlight === micP) micAcquireInFlight = null // the next Start asks afresh
+        // The session died under the bubble: a connect error, reported as one (outer catch).
+        if (answer.failed) throw answer.failed
         if (answer.aborted || epoch !== startEpoch) return
         closeWithoutGreeting('timeout', MIC_DISMISSED_MSG)
         return
@@ -1642,14 +1670,21 @@ export function bindChatLiveVoice(opts) {
       if (epoch !== startEpoch) { releaseStream(acquired); return }
       settleVoiceStart('granted')
       if (!setupDone) setStatus('Connecting voice…') // the hint goes with the bubble
-      try {
-        // A stale 'denied' that the browser granted after all: connect now.
-        await (sessionP || openVoiceSessionInternal())
-      } catch (sessionErr) {
+      // The granted mic waits on the session — or on a stop, which releases it at once rather
+      // than when a CONNECTING socket finally gives up. (A stale 'denied' that the browser
+      // granted after all connects now.)
+      const connecting = sessionP || openVoiceSessionInternal()
+      const session = await new Promise((resolve) => {
+        connecting.then(() => resolve({ ok: true }), (error) => resolve({ error }))
+        permissionWaitAbort = (ended) => resolve(ended)
+      })
+      clearPermissionWait()
+      // Anything but a session that came up for THIS start releases the granted mic.
+      if (!session.ok || epoch !== startEpoch) {
         releaseStream(acquired)
-        throw sessionErr
+        if (session.error || session.failed) throw session.error || session.failed
+        return
       }
-      if (epoch !== startEpoch) { releaseStream(acquired); return }
       await wireMicrophone(acquired)
       // The mic is live: the greeting's first frame is heard, so it can be talked over (#25).
       greet()
