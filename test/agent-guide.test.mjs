@@ -202,6 +202,28 @@ test('End tour stops the tour where it is, and a stale Next stop cannot restart 
   assert.equal(messageCount(getEl), before + 1)
 })
 
+test('the tour card steps aside while the contact form is open, and comes back after', async (t) => {
+  // Critic round 3, measured at 390px: the card sat over the form's Send button, and Next stop
+  // stayed live behind the modal, moving the page under it.
+  const { api, siteState, getEl } = await bootText('guide-contact', {
+    reply: 'Starting the tour.',
+    actions: [{ id: 'start-tour', label: 'Start the tour' }]
+  })
+  t.after(() => api.disposeChatLiveVoice())
+  await send(api, 'show me around')
+  assert.equal(getEl('tourCard').hidden, false)
+  siteState.setContactOpen(true, { origin: 'visitor' })
+  await settle()
+  assert.equal(getEl('tourCard').hidden, true, 'the card is out of the way of the form')
+  const where = siteState.getSiteState().section
+  tap(getEl, 'tour-next')
+  await settle()
+  assert.equal(siteState.getSiteState().section, where, 'and cannot move the page behind it')
+  siteState.setContactOpen(false, { origin: 'visitor' })
+  await settle()
+  assert.equal(getEl('tourCard').hidden, false, 'the tour is still there when the form closes')
+})
+
 test('moves are labelled by who caused them: the agent first, then the visitor taps', async (t) => {
   const { api, siteState, getEl } = await bootText('guide-origin', {
     reply: 'Starting the tour.',

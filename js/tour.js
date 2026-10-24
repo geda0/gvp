@@ -7,9 +7,9 @@
  * scroll, and nobody gets moved while reading. The order leads with the work and ends back at
  * it with a way to get in touch, never at a dead end.
  *
- * The Next stop / End tour controls are NOT per-message buttons: they live in one tour bar in
- * the chat header (js/chat.js), which stays visible when the chat yields to the page as a
- * pill on narrow screens and cannot be re-tapped from a stale message. A step says which stop
+ * The Next stop / End tour controls are NOT per-message buttons: they live on one tour card
+ * (#tourCard, js/chat.js) fixed outside the chat, so they stay visible whatever the chat's
+ * stage is and cannot be re-tapped from a stale message. A step says which stop
  * comes next; only the last stop carries buttons of its own, the way out.
  *
  * The narration is the agent's voice and is the owner's to bless; every claim in it is taken

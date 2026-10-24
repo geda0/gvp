@@ -1197,19 +1197,28 @@ export function initChat() {
   const tourCardEnd = document.getElementById('tourCardEnd')
   const tourCardContact = document.getElementById('tourCardContact')
   let tourNext = null
+  let tourStepShown = null
+  // While the contact form is open the card steps aside: it would sit over the form's Send
+  // button on a phone, and a Next stop behind a modal would move the page under it.
+  const tourCardBlocked = () => Boolean(getSiteState().contactOpen)
+  const renderTourCard = () => {
+    if (!tourCard) return
+    tourCard.hidden = !tourStepShown || tourCardBlocked()
+  }
   const showTourCard = (step) => {
     tourNext = step && Number.isInteger(step.next) ? step.next : null
-    if (!tourCard) return
-    if (!step) {
-      tourCard.hidden = true
-      return
+    tourStepShown = step || null
+    if (step) {
+      if (tourCardText) tourCardText.textContent = step.say
+      if (tourCardNext) tourCardNext.hidden = tourNext === null
+      if (tourCardContact) tourCardContact.hidden = tourNext !== null
+      if (tourCardEnd) tourCardEnd.textContent = tourNext === null ? 'Done' : 'End tour'
     }
-    if (tourCardText) tourCardText.textContent = step.say
-    if (tourCardNext) tourCardNext.hidden = tourNext === null
-    if (tourCardContact) tourCardContact.hidden = tourNext !== null
-    if (tourCardEnd) tourCardEnd.textContent = tourNext === null ? 'Done' : 'End tour'
-    tourCard.hidden = false
+    renderTourCard()
   }
+  subscribeSiteState((_snapshot, change) => {
+    if (change && change.field === 'contactOpen') renderTourCard()
+  })
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
     messagesEl.textContent = ''
@@ -1886,7 +1895,7 @@ export function initChat() {
   }
 
   tourCardNext?.addEventListener('click', () => {
-    if (tourNext !== null) runTourStep(tourNext, 'visitor')
+    if (tourNext !== null && !tourCardBlocked()) runTourStep(tourNext, 'visitor')
   })
   tourCardEnd?.addEventListener('click', () => {
     const finished = tourNext === null
