@@ -1568,18 +1568,11 @@ export function bindChatLiveVoice(opts) {
           setStatus(MIC_DISMISSED_MSG, 'error')
           return
         }
-        if (blocked) {
-          // Denied (N-P1): nobody is spoken to who cannot answer by voice. Text fallback.
-          stopVoiceInternal({ silent: true })
-          setStatus(micAccessUserMessage(micErr), 'error')
-          greetAsText()
-          return
-        }
-        await sessionP
-        if (epoch !== startEpoch) return
-        patchLiveUi({ active: false, connecting: false, sessionOpen: true })
+        // Denied, or a device error (NotFound / NotReadable / …): close, today's copy. Only a
+        // denial gets the text fallback (N-P1) — nobody is spoken to who cannot answer by voice.
+        stopVoiceInternal({ silent: true })
         setStatus(micAccessUserMessage(micErr), 'error')
-        scheduleNoMicIdleClose()
+        if (blocked) greetAsText()
         return
       }
       if (epoch !== startEpoch) { releaseStream(acquired); return }

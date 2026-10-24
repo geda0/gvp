@@ -373,4 +373,29 @@ test('already denied: no Live session is minted, no hint, and the visitor gets t
     )
   } finally { v.live.dispose() }
 })
+test('cold path, no usable microphone (NotFoundError): the call closes, no greeting, today\'s device copy', async () => {
+  // Arrange — the session is ready and waiting on the bubble.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — the browser has no input device to give.
+    v.gum.reject('NotFoundError')
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { socketOpen: v.socket().readyState === 1, sessionOpen: v.live.isSessionOpen(), greetingsSent: v.greetingsSent(), status: v.status() },
+      {
+        socketOpen: false,
+        sessionOpen: false,
+        greetingsSent: 0,
+        status: { text: 'No microphone was found. Connect a mic or pick an input device, then try again.', kind: 'error' }
+      },
+      'ADR-0028 §3.2: every non-granted outcome closes the session and sends no greeting'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END
