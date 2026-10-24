@@ -136,3 +136,17 @@ test('the yielded panel takes its own pointer events back', () => {
     'so the site stays usable, and nothing else turns them back on for the card itself'
   )
 })
+
+test('ADR-0027 §4: the docked width has ONE source of truth, --chat-dock-width from dockedCardWidth', () => {
+  // CSS must not restate 720 / 320: hasRoomBesideDialog needs the same number in JS, and two
+  // copies of one formula is the drift ADR-0017 §2.4 warned about. The var() fallback is the
+  // shipped compact rule, so JS failing to run degrades to today's card.
+  const css = read('css', 'chat.css')
+  const block = /#chatDialog\[data-chat-stage='docked'\] \.chat-dialog__panel \{([^}]*)\}/.exec(css)
+  assert.ok(block, 'the docked panel rule is gone or was renamed')
+  assert.match(block[1], /(^|\s)width:\s*var\(--chat-dock-width,\s*min\(24rem, calc\(100vw - 2rem\)\)\)/)
+  assert.match(block[1], /max-width:\s*var\(--chat-dock-width,\s*min\(24rem, calc\(100vw - 2rem\)\)\)/)
+  const stageBlock = css.slice(css.indexOf('the stage (ADR-0015 §4)'))
+  assert.doesNotMatch(stageBlock, /(?<![\d.])(720px|45rem|320px)/,
+    'the wide cap and the uncovered floor live in js/chat-stage.js only')
+})

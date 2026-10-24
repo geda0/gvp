@@ -2385,16 +2385,26 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     border-style: solid;
 }
 
-/* ---- docked: a real, usable card beside the content ---- */
+/* ---- docked: a real, usable card beside the content ----
+ * ADR-0027: the MAIN window, at two sizes. The width has ONE source of truth -
+ * dockedCardWidth in js/chat-stage.js, written as --chat-dock-width by js/chat.js - and is
+ * never restated here; the var() fallback is the shipped compact rule, so a page whose JS
+ * did not run still gets today's card. Both sizes share the bottom-right anchor (the shell's
+ * flex-end), so wide grows leftward and upward from the same corner. */
 #chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
-    width: min(24rem, calc(100vw - 2rem));
-    max-width: min(24rem, calc(100vw - 2rem));
+    width: var(--chat-dock-width, min(24rem, calc(100vw - 2rem)));
+    max-width: var(--chat-dock-width, min(24rem, calc(100vw - 2rem)));
     height: min(60vh, 34rem);
     max-height: min(60vh, 34rem);
     border-radius: 18px;
     box-shadow:
         0 10px 32px rgba(0, 0, 0, 0.42),
         0 0 0 1px color-mix(in srgb, var(--chat-launcher-glow-chrome) 12%, transparent);
+}
+
+#chatDialog[data-chat-stage='docked'][data-chat-size='wide'] .chat-dialog__panel {
+    height: min(72vh, 44rem);
+    max-height: min(72vh, 44rem);
 }
 
 /* ---- minimized: the header alone, as a pill ---- */
