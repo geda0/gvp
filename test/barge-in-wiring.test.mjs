@@ -383,6 +383,116 @@ test('a chip sent mid-greeting drops the rest of the greeting, audio and transcr
   )
 })
 
+// The two turnStarted triggers (ADR-0026 §3.2), each pinned by a path where it is the ONLY way
+// the gate learns a turn is in flight. Without the trigger the gate is idle at the chip, a
+// local cut leaves it open, and the cut-off turn's later frames play over the chip's reply.
+
+test('a chip that cuts a reply to the visitor\'s VOICE drops the rest of that reply (turn seen only via model output)', async () => {
+  // Arrange — greeting done; the visitor spoke; the model's reply to it is streaming. No
+  // clientContent started this turn: only its model output says it is in flight.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { inputTranscription: { text: 'What does he build?' } } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'He builds' } } })
+
+    // Act — the chip; Live flushes more of the reply it abandoned, ends it, answers the chip.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    const startedAtChip = v.audio.started()
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: ' AI agents.' } } })
+    const abandonedTailStarted = v.audio.started() - startedAtChip
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is cost software.' } } })
+
+    observed = { abandonedTailStarted, chipReplyPlaying: v.audio.playing() }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { abandonedTailStarted: 0, chipReplyPlaying: 1 },
+    'model output must mark the turn in flight (turnStarted), or a chip cannot cut a reply to the visitor\'s voice'
+  )
+})
+
+test('the root-level transcript shape marks a turn in flight too: a chip stops its later fragments appending', async () => {
+  // Arrange — greeting done; the reply to the visitor's voice is arriving ONLY as root-level
+  // outputTranscription (one of the wire shapes the handler accepts).
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ outputTranscription: { text: 'He builds' } })
+
+    // Act
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    await v.send({ outputTranscription: { text: ' AI agents.' } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ outputTranscription: { text: 'Apptio is cost software.' } })
+    await v.send({ serverContent: { turnComplete: true } })
+
+    observed = v.bubbleTexts('assistant')
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(observed, ['He builds', 'Apptio is cost software.'])
+})
+
+test('a chip sent after the greeting request but before any greeting output drops the greeting (turn seen only via the send)', async () => {
+  // Arrange — the greeting clientContent is out; nothing of it has arrived yet.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    // Act — the chip, then the greeting Live already started, its end, the chip's reply.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Hi! I am the greeting.' } } })
+    const greetingStarted = v.audio.started()
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is cost software.' } } })
+    await v.send({ serverContent: { turnComplete: true } })
+
+    observed = { greetingStarted, chipReplyStarted: v.audio.started() - greetingStarted, assistantBubbles: v.bubbleTexts('assistant') }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { greetingStarted: 0, chipReplyStarted: 1, assistantBubbles: ['Apptio is cost software.'] },
+    'sending a clientContent turn must mark it in flight (turnStarted) — a turn requested but not ' +
+    'yet answered is still one a chip has to cut'
+  )
+})
+
+test('a server `interrupted` with no turn in flight still cancels: the server reason is not a local one', async () => {
+  // Arrange — the greeting has completed (gate idle, nothing in flight).
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    const startedBefore = v.audio.started()
+
+    // Act — Live cuts a turn the client has not seen any output of yet; a stale frame follows.
+    await v.send({ serverContent: { interrupted: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+    observed = v.audio.started() - startedBefore
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.equal(
+    observed, 0,
+    'ADR-0026 §3.1: the server\'s `interrupted` is unconditional (idle -> cancelled); only the ' +
+    'LOCAL reasons spare an idle gate'
+  )
+})
+
 test('a chunk accepted just before an interrupt never starts playing after it (enqueue epoch)', async () => {
   // Arrange — the player's AudioContext starts suspended (autoplay policy), so enqueue is
   // parked on `await resume()` with a chunk the gate already accepted.
