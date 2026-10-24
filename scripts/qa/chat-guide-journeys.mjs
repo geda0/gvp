@@ -80,7 +80,7 @@ async function journeyTour (page) {
   let where = await section(page)
   out.push({ claim: '"show me around" starts the tour on the page', ok: card.shown && where === 'portfolio', detail: `section=${where} card=${JSON.stringify(card)}` })
   const visited = [where]
-  for (let hop = 0; hop < 6 && card.hasNext; hop++) {
+  for (let hop = 0; hop < 6 && card.shown && card.hasNext; hop++) {
     out.push({ claim: `stop ${hop}: Next stop is on top and tappable`, ok: card.nextOnTop, detail: JSON.stringify(card) })
     const before = card.text
     // A REAL click at the button's centre, so a layer above it would swallow it.

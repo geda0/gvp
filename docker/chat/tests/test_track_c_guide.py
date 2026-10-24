@@ -220,3 +220,51 @@ async def test_dropping_the_only_action_never_leaves_an_empty_reply(client: Asyn
     assert body['actions'] == []
     assert body['reply'].strip(), 'an empty reply renders as "try again" on the page'
     assert 'work' in body['reply'].lower(), 'and it leads with the work'
+
+
+# MEASURED on stage 2026-10-23: "Give me a tour of the site" got the reply "I'll start a guided
+# tour of the site now" and NO start_tour call - a promise with nothing behind it. The visitor's
+# words decide, as with the résumé: a plain tour ask gets the tour.
+from app.main import tour_was_requested  # noqa: E402
+
+
+@pytest.mark.parametrize('text', [
+    'Show me around', 'Give me a tour of the site', 'can you walk me through the site?',
+    'Take me on a tour', 'Hazme un recorrido por el sitio', 'Fais-moi visiter le site',
+])
+def test_tour_asks_are_recognised(text):
+    assert tour_was_requested([{'role': 'user', 'content': text}]), text
+
+
+@pytest.mark.parametrize('text', [
+    'Show me your work', 'What did he do on the Monday Rover?', 'Tell me about his experience',
+])
+def test_other_asks_are_not_tours(text):
+    assert not tour_was_requested([{'role': 'user', 'content': text}]), text
+
+
+class _PromiseOnlyChain:
+    async def ainvoke(self, _payload, config=None):
+        return Msg(role='ai', content="I'll start a guided tour of the site now.", tool_calls=[])
+
+    async def astream(self, _payload, config=None):
+        yield await self.ainvoke(_payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('stream', [False, True])
+async def test_a_tour_ask_gets_the_tour_even_when_the_model_only_promises_it(client: AsyncClient, stream):
+    import json
+
+    before = (app.state.chain, app.state.model_id, app.state.provider_error)
+    app.state.chain, app.state.model_id, app.state.provider_error = _PromiseOnlyChain(), 'mock', None
+    try:
+        r = await client.post('/api/chat', json={
+            'messages': [{'role': 'user', 'content': 'Give me a tour of the site'}], 'stream': stream})
+    finally:
+        app.state.chain, app.state.model_id, app.state.provider_error = before
+    if stream:
+        body = next(json.loads(f.split('data: ', 1)[1]) for f in r.text.split('\n\n') if f.startswith('event: done'))
+    else:
+        body = r.json()
+    assert [a['id'] for a in body['actions']] == ['start-tour']

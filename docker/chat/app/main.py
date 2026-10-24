@@ -350,6 +350,26 @@ _NO_RESUME_REPLY = (
 )
 
 
+# Track C item 6: a plain tour ask gets the tour. MEASURED on stage: the model sometimes
+# answers "I'll start a guided tour" and calls nothing. Like the résumé gate, this reads the
+# VISITOR's words (ADR-0015 §5.2 rejects acting on the model's prose), never the reply.
+_TOUR_ASK = re.compile(
+    r'(\bshow me around\b|\bgive me a tour\b|\btake me on a tour\b|\bguided tour\b|\btour of the site\b'
+    r'|\bwalk me through the (?:site|website|page)\b|\bshow me the site\b'
+    r'|\brecorrido\b|\bvisita guiada\b|\bfais-moi visiter\b|\bvisite guid[ée]e\b|\brundgang\b|جولة)',
+    re.IGNORECASE,
+)
+
+
+def tour_was_requested(messages: list[Any]) -> bool:
+    """True when the LAST user message asks for a tour of the site."""
+    for row in reversed(messages or []):
+        role, content = _row(row)
+        if role == 'user':
+            return bool(_TOUR_ASK.search(content))
+    return False
+
+
 def _row(row: Any) -> tuple[Any, str]:
     if isinstance(row, dict):
         return row.get('role'), str(row.get('content') or '')
@@ -379,6 +399,10 @@ def _guard_turn(result: Any, messages: list[Any], reply_text: str) -> tuple[list
     """The turn's actions with an unrequested résumé removed, and a reply that is never empty
     because of that removal (an empty reply renders as "try again" on the page)."""
     actions = _actions_from_result(result)
+    # A tour ask the model answered without starting the tour (or moving the page at all)
+    # gets the tour; a model that chose to navigate instead is left alone.
+    if tour_was_requested(messages) and not any(a.get('id') in ('start-tour', 'navigate') for a in actions):
+        actions = [*actions, {'id': 'start-tour', 'label': 'Start the tour'}]
     if resume_was_requested(messages):
         return actions, reply_text
     kept = [a for a in actions if a.get('id') != 'open-resume']
