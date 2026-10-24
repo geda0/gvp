@@ -673,6 +673,8 @@ export function bindChatLiveVoice(opts) {
           turnComplete: true,
         }
       }))
+      // A turn requested but not yet answered counts as in flight (ADR-0026 §3.2).
+      turnGate = nextTurnGate(turnGate, 'turnStarted')
       return true
     } catch (_) {
       return false
@@ -976,11 +978,18 @@ export function bindChatLiveVoice(opts) {
       userSpokeAfterGreeting = true
       clearWarmFollowupTimer()
     }
+    // Model output means a server turn is in flight (ADR-0026 §3.2), so a local act now cancels
+    // it. turnStarted never re-opens a cancelled gate; only turnComplete does.
+    if (rootOut) turnGate = nextTurnGate(turnGate, 'turnStarted')
     if (rootOut && acceptsTurnOutput(turnGate)) patchAssistantText(rootOut)
 
     const sc = msg.serverContent || msg.server_content
     if (sc) {
       if (sc.interrupted) interruptAssistant('server')
+      const modelParts = sc.modelTurn?.parts
+      if (sc.outputTranscription?.text || (Array.isArray(modelParts) && modelParts.length)) {
+        turnGate = nextTurnGate(turnGate, 'turnStarted')
+      }
 
       if (sc.inputTranscription?.text) {
         patchUserText(sc.inputTranscription.text)

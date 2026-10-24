@@ -266,3 +266,41 @@ for (const [pathName, path] of Object.entries(PATHS)) {
     })
   }
 }
+
+test('a chip sent mid-greeting drops the rest of the greeting, audio and transcript, then its own reply plays', async () => {
+  // Arrange — the greeting is mid-flight: audio playing, its transcript started.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Hi! I am' } } })
+
+    // Act — the chip goes into the call; Live keeps flushing the abandoned greeting before
+    // that turn's turnComplete, then answers the chip.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    const startedAtChip = v.audio.started()
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: " Marwan's assistant." } } })
+    const greetingTailStarted = v.audio.started() - startedAtChip
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is cost software.' } } })
+    await v.send({ serverContent: { turnComplete: true } })
+
+    observed = {
+      greetingTailStarted,
+      replyStarted: v.audio.started() - startedAtChip - greetingTailStarted,
+      assistantBubbles: v.bubbleTexts('assistant')
+    }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    {
+      greetingTailStarted: 0,
+      replyStarted: 1,
+      assistantBubbles: ['Hi! I am', 'Apptio is cost software.']
+    },
+    'a local act on a turn IN FLIGHT cancels that turn until its turnComplete (nothing more of ' +
+    'the cut-off greeting plays or is appended), and the gate re-opens for the chip\'s own reply'
+  )
+})
