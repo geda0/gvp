@@ -109,3 +109,46 @@ async def test_warm_is_not_a_turn_it_logs_one_chat_warm_line_and_touches_nothing
     warm_lines = [r.getMessage() for r in caplog.records if "chat warm" in r.getMessage()]
     assert len(warm_lines) == 1
     assert "elapsed_ms=" in warm_lines[0]
+
+
+def test_routing_chain_warm_builds_the_genai_client_and_calls_no_model(
+    monkeypatch,
+) -> None:
+    """ADR-0026 §5.1: `GeminiRoutingChain.warm()` is synchronous and builds the
+    google-genai client for the chain's key — the cold-start cost a warm exists to
+    absorb — and the first real turn then reuses that client. Any touch of the
+    client's model surface fails the test."""
+    from google import genai
+
+    from app import gemini_routing
+    from app.gemini_routing import GeminiRoutingChain
+
+    built: list[str] = []
+
+    class _FakeClient:
+        def __init__(self, api_key: str) -> None:
+            built.append(api_key)
+
+        @property
+        def aio(self):
+            raise AssertionError("a warm must never reach the model surface")
+
+        @property
+        def models(self):
+            raise AssertionError("a warm must never reach the model surface")
+
+    monkeypatch.setattr(genai, "Client", _FakeClient)
+    monkeypatch.setattr(gemini_routing, "_text_clients", {})
+    chain = GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k-warm",
+        timeout=28.0,
+    )
+
+    chain.warm()
+    chain._build_chain("m-primary")
+
+    assert built == ["k-warm"]

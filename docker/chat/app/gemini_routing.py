@@ -334,6 +334,11 @@ class GeminiRoutingChain:
             return [self.fallback_id, self.primary_id]
         return [self.primary_id, self.fallback_id]
 
+    def warm(self) -> None:
+        """ADR-0026 §5.1: build (and cache) the google-genai client for this key so
+        the first real turn does not pay for it. No model call, no routing state."""
+        _text_client_singleton(self.key)
+
     def _build_chain(self, model_id: str) -> Any:
         client = _text_client_singleton(self.key)
         return _GeminiAdapter(
