@@ -398,4 +398,31 @@ test('cold path, no usable microphone (NotFoundError): the call closes, no greet
     )
   } finally { v.live.dispose() }
 })
+test('cold path, bubble ignored for 20 s: the call closes with the "not yet" copy, and a grant after that is released', async () => {
+  // Arrange — the session is ready and the bubble has been sitting there.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — PERMISSION_WAIT_MS (20 000) elapses; then the visitor finally clicks Allow.
+    await v.fireWaitTimeout()
+    const atTimeout = { socketOpen: v.socket().readyState === 1, sessionOpen: v.live.isSessionOpen(), status: v.status() }
+    v.gum.allow()
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { atTimeout, greetingsSent: v.greetingsSent(), lateMicReleased: v.gum.allTracksStopped() },
+      {
+        atTimeout: { socketOpen: false, sessionOpen: false, status: { text: MIC_DISMISSED_MSG, kind: 'error' } },
+        greetingsSent: 0,
+        lateMicReleased: true
+      },
+      'ADR-0028 addendum (N-P2): a billed Live session may not sit silent behind an unanswered ' +
+      'bubble for more than 20 s, and a mic allowed after the call ended must not stay on'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END

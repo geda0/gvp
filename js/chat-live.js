@@ -297,6 +297,10 @@ function voiceCaptureGateMessage() {
 const MIC_PERMISSION_HINT =
   'Your browser is asking for the microphone — choose “Allow while visiting the site” so we don\'t ask again.'
 
+/** How long the cold path waits on the permission bubble before closing the Live session
+ *  (ADR-0028 addendum, N-P2). Its own number: the no-mic sweep is a different window. */
+const VOICE_PERMISSION_WAIT_MS = 20 * 1000
+
 /** A dismissed bubble — and, by the same "no answer yet", the permission-wait timeout. */
 const MIC_DISMISSED_MSG =
   'No microphone access yet — tap Start voice chat to be asked again.'
@@ -684,6 +688,14 @@ export function bindChatLiveVoice(opts) {
   /** Bumped by every stop that ends a start (ADR-0028 §3.2 stale-start guard): an await in
    *  startVoice that comes back to a different epoch belongs to a call the visitor ended. */
   let startEpoch = 0
+  /** The cold path's wait on the bubble (ADR-0028 §3.2): its timeout, and how a stop ends it. */
+  let permissionWaitTimer = null
+  let permissionWaitAbort = null
+  const clearPermissionWait = () => {
+    if (permissionWaitTimer) clearTimeout(permissionWaitTimer)
+    permissionWaitTimer = null
+    permissionWaitAbort = null
+  }
   /** Fires the "tell them what they can ask" follow-up on warm sessions. */
   let warmFollowupTimer = null
 
@@ -843,7 +855,16 @@ export function bindChatLiveVoice(opts) {
   // `retrying` = the connect loop tearing down a failed attempt before its next round; the
   // start it belongs to is still current. Every other stop ends the start (bumps the epoch).
   const stopVoiceInternal = ({ silent, retrying = false } = {}) => {
-    if (!retrying) startEpoch += 1
+    if (!retrying) {
+      startEpoch += 1
+      // Hung up while the bubble is open: the wait ends now, and its hint goes with it.
+      const abortWait = permissionWaitAbort
+      clearPermissionWait()
+      if (abortWait) {
+        setStatus('')
+        abortWait()
+      }
+    }
     if (userBubble || assistantBubble) finalizeTurn()
 
     clearVoiceTimers()
@@ -1352,9 +1373,10 @@ export function bindChatLiveVoice(opts) {
   const acquireMicStream = () => {
     if (micAcquireInFlight) return micAcquireInFlight
     // Called synchronously (the executor runs now), so the tap's user activation still holds.
-    micAcquireInFlight = new Promise((resolve) => resolve(navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS)))
-      .finally(() => { micAcquireInFlight = null })
-    return micAcquireInFlight
+    const acquiring = new Promise((resolve) => resolve(navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS)))
+      .finally(() => { if (micAcquireInFlight === acquiring) micAcquireInFlight = null })
+    micAcquireInFlight = acquiring
+    return acquiring
   }
 
   // The pipeline: needs an open, set-up session. A stream that arrives after the call ended is
@@ -1553,10 +1575,25 @@ export function bindChatLiveVoice(opts) {
       const sessionP = perm === 'denied' ? null : openVoiceSessionInternal()
       sessionP?.catch(() => {}) // awaited below only after the grant; never unhandled meanwhile
       if (perm !== 'denied') setStatus(MIC_PERMISSION_HINT)
-      let acquired
-      try {
-        acquired = await micP
-      } catch (micErr) {
+      // Whatever settles first: the visitor's answer, VOICE_PERMISSION_WAIT_MS, or a stop. The
+      // bubble can outlive the call; a stream it yields after that is released, never wired.
+      const answer = await new Promise((resolve) => {
+        micP.then((stream) => resolve({ stream }), (error) => resolve({ error }))
+        permissionWaitTimer = setTimeout(() => resolve({ timeout: true }), VOICE_PERMISSION_WAIT_MS)
+        permissionWaitAbort = () => resolve({ aborted: true })
+      })
+      clearPermissionWait()
+      if (!answer.stream && !answer.error) {
+        micP.then(releaseStream, () => {})
+        if (micAcquireInFlight === micP) micAcquireInFlight = null // the next Start asks afresh
+        if (answer.aborted || epoch !== startEpoch) return
+        stopVoiceInternal({ silent: true })
+        setStatus(MIC_DISMISSED_MSG, 'error')
+        return
+      }
+      const acquired = answer.stream
+      if (answer.error) {
+        const micErr = answer.error
         if (epoch !== startEpoch) return
         const blocked = micErr?.name === 'NotAllowedError' || micErr?.name === 'SecurityError'
         // A dismissed bubble rejects exactly like a block; only the browser's own state tells
