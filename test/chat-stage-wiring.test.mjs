@@ -1104,3 +1104,79 @@ test('ADR-0029 addendum: narrowing below 1016 with a dialog open tucks the docke
   assert.deepEqual(h.stops, [], 'invariant #20: no resize ends the call')
   assert.equal(h.api.liveVoice.isSessionOpen(), true)
 })
+
+test('critic: while reserved, elements designed to sit above dialogs (the tour card, the selection offer) are NOT made inert', async (t) => {
+  // tdd-critic, measured: #tourCard is a direct body child, so the inert sweep caught it and
+  // a real click on Next stop fell through to the scrim and CLOSED the project dialog.
+  const { makeEl } = await import('./fixtures/chat-harness.mjs')
+  const h = await bootDocked(t, 'reserve-keep-above', 1440)
+  const main = makeEl('main'); main.id = 'main'
+  const tour = makeEl('div'); tour.id = 'tourCard'
+  const offer = makeEl('button'); offer.classList.add('selection-offer')
+  document.body.children.push(main, tour, offer)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: reserved')
+  assert.deepEqual(
+    [Boolean(main.inert), Boolean(tour.inert), Boolean(offer.inert)],
+    [true, false, false],
+    'the page goes inert; the tour card and the selection offer stay operable above the scrim')
+})
+
+test('critic: the agent opening the contact form while reserved closes the project dialog first, clearing the reserve', async (t) => {
+  // tdd-critic, measured: open_contact_form while reserved minimised the chat but kept the
+  // reserve, so #contactDialog (z 1090) opened INERT and under the project scrim (1100) - a form
+  // nobody could reach. projects.js already closes its dialog before opening contact; so must the chat.
+  const h = await bootDocked(t, 'reserve-contact', 1440)
+  const { readFileSync } = await import('node:fs')
+  const PROJECTS = JSON.parse(readFileSync(new URL('../data/projects.json', import.meta.url), 'utf8'))
+  const projects = await import('../js/projects.js')
+  projects.initProjectDetailDialog()
+  projects.renderProjects('portfolioProjects', PROJECTS.portfolio, 'portfolio')
+  await settle()
+  projects.requestProjectOpen('apptio', { origin: 'visitor' })
+  await settle()
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: reserved beside a real project dialog')
+
+  h.socket.onmessage({
+    data: JSON.stringify({ toolCall: { functionCalls: [{ id: 'c1', name: 'open_contact_form', args: { subject: 'Hiring' } }] } })
+  })
+  await settle()
+  const s = h.siteState.getSiteState()
+  assert.deepEqual(
+    [s.project, s.contactOpen, reserveOf(), h.dialog.dataset.chatBeside],
+    [null, true, '', 'false'],
+    'the project dialog closed, the contact form is open, nothing is reserved or lifted')
+  assert.deepEqual(h.stops, [], 'invariant #20: the agent\'s own tool never ends the call')
+})
+
+test('critic: Escape with focus on the page (or another dialog) never minimises a docked card, even with no dialog reserving', async (t) => {
+  // The §6.2 row only proved the focus check WHILE reserved, where the no-op rule already
+  // returns - so dropping the focus check entirely survived. This is the unreserved half.
+  const h = await bootDocked(t, 'escape-page-focus', 1440)
+  let prevented = false
+  const esc = () => h.docEvents.fire('keydown', { key: 'Escape', preventDefault () { prevented = true } })
+  for (const active of [{ id: 'homeNav', closest: () => null }, h.getEl('privacyDialog').querySelector('.contact-dialog__close')]) {
+    document.activeElement = active
+    esc()
+    await settle()
+    assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'focus outside the chat: Escape is not the chat\'s key')
+  }
+  assert.equal(prevented, false, 'and the chat never swallows it')
+})
+
+test('critic: a chip modal at 1000 stays modal through a resize - only a docked card is re-decided', async (t) => {
+  const h = await boot('chip-modal-resize', 1000, { startClosed: true, voice: false })
+  t.after(() => h.api.disposeChatLiveVoice())
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  h.docEvents.fire('click', {
+    target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
+  })
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'modal', 'harness: N-P3 chip modal')
+  window.innerWidth = 990
+  h.winEvents.fire('resize', {})
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'modal', 'a resize is not a reason to take the modal the visitor asked for')
+})
