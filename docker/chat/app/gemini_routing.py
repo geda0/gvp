@@ -26,11 +26,49 @@ import asyncio
 import logging
 import os
 import threading
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 from app.messages import Msg, MsgChunk
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class RoutingOutcome:
+    """What the routing chain did for ONE turn: the model that answered and
+    whether the primary was retried after a 503 (ADR-0026 §4.3)."""
+
+    model_id: str | None = None
+    primary_retried: bool = False
+
+
+# The chain is one object shared by every request on the container, so a turn's
+# outcome cannot live on it (overlapping turns would overwrite each other). The
+# handler opens a RoutingOutcome per turn; the chain mutates that object. A
+# context copied into a child task still points at the same object, so the record
+# survives whatever task the attempt runs in.
+_turn_outcome: ContextVar[RoutingOutcome | None] = ContextVar(
+    'gemini_turn_outcome', default=None
+)
+
+
+def begin_turn_outcome() -> RoutingOutcome:
+    """Open the per-turn routing record for the current context and return it."""
+    outcome = RoutingOutcome()
+    _turn_outcome.set(outcome)
+    return outcome
+
+
+def _record(model_id: str | None = None, primary_retried: bool = False) -> None:
+    outcome = _turn_outcome.get()
+    if outcome is None:
+        return
+    if model_id is not None:
+        outcome.model_id = model_id
+    if primary_retried:
+        outcome.primary_retried = True
+
 
 _clients_lock = threading.Lock()
 _text_clients: dict[str, Any] = {}
@@ -303,7 +341,6 @@ class GeminiRoutingChain:
         'key',
         'timeout',
         'last_model_id',
-        'last_primary_retried',
         'tools',
     )
 
@@ -324,7 +361,6 @@ class GeminiRoutingChain:
         self.key = key
         self.timeout = timeout
         self.last_model_id = primary_id
-        self.last_primary_retried = False
         self.tools = list(tools or [])
 
     def _model_order(self) -> list[str]:
@@ -363,7 +399,6 @@ class GeminiRoutingChain:
 
         pending = self._model_order()
         primary_retried = False
-        self.last_primary_retried = False
         last_exc: BaseException | None = None
         while pending:
             model_id = pending.pop(0)
@@ -376,6 +411,7 @@ class GeminiRoutingChain:
                     timeout=self.timeout / MAX_MODEL_ATTEMPTS,
                 )
                 self.last_model_id = model_id
+                _record(model_id=model_id)
                 return out
             except asyncio.TimeoutError as e:
                 last_exc = e
@@ -416,7 +452,7 @@ class GeminiRoutingChain:
                 ):
                     # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
                     primary_retried = True
-                    self.last_primary_retried = True
+                    _record(primary_retried=True)
                     fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
                     pending.insert(0, model_id)
                     await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
@@ -460,7 +496,6 @@ class GeminiRoutingChain:
 
         pending = self._model_order()
         primary_retried = False
-        self.last_primary_retried = False
         last_exc: BaseException | None = None
         while pending:
             model_id = pending.pop(0)
@@ -477,6 +512,7 @@ class GeminiRoutingChain:
                 )
             except StopAsyncIteration:
                 self.last_model_id = model_id
+                _record(model_id=model_id)
                 return
             except asyncio.TimeoutError as e:
                 last_exc = e
@@ -519,7 +555,7 @@ class GeminiRoutingChain:
                 ):
                     # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
                     primary_retried = True
-                    self.last_primary_retried = True
+                    _record(primary_retried=True)
                     fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
                     pending.insert(0, model_id)
                     await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
@@ -540,6 +576,7 @@ class GeminiRoutingChain:
                 continue
 
             self.last_model_id = model_id
+            _record(model_id=model_id)
             yield first_chunk
             async for chunk in iterator:
                 yield chunk

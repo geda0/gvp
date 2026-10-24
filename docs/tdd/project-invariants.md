@@ -441,36 +441,34 @@ proves it comes FIRST.
       defensive: nullish / out-of-range hours never throw"*. Run: `node --test`.
 
 13. **On a primary first-chunk TIMEOUT (a stall) the chat chain falls back too — not only
-    on a rate limit; and the FINAL attempt is uncapped.** `[chat]`
-    **AMENDED 2026-10-24 by ADR-0026 / #26:** the final attempt is now capped like every other
-    (default 5 s, not 12), and the fallback preference expires after a TTL in minutes, not at UTC
-    midnight. The text below describes the pre-amendment behaviour until the loop rewrites it. The stall sibling of #9:
-    if the primary produces no first chunk within the per-attempt first-chunk budget
-    (`min(GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS|12s, 60% of the request deadline)`),
-    `GeminiRoutingChain` abandons it and tries the fallback on **both** `astream` and
-    `ainvoke`. The timeout is recorded (`note_primary_timed_out`) so subsequent turns
-    `prefer_fallback_first` — mirroring the 429 cooldown — and visitors stop eating the
-    stall on every turn. The **last** model in the order runs WITHOUT the per-attempt cap
-    (only the overall request deadline #8 governs it), so a slow-but-valid fallback still
-    answers. Commit-on-first-chunk (#9) is unchanged: once a chunk yields, mid-stream
-    errors propagate.
-    - Implemented by: `docker/chat/app/gemini_routing.py:35-46` (`_first_chunk_timeout` —
-      12s default, capped at 60% of the total budget); `:355-385` (`astream`: `is_last` →
-      bare `__anext__`, else `wait_for(_first_chunk_timeout)`; on `TimeoutError`
-      `_aclose_quietly` the stalled iterator, `note_primary_timed_out()`, `continue` to the
-      fallback; re-raise when `is_last`); `:273-300` (`ainvoke` analogue); the daily
-      prefer-fallback flip in `docker/chat/app/gemini_limit_state.py:55-63`
-      (`note_primary_timed_out` sets `_prefer_fallback = True`).
+    on a rate limit; every attempt, the last included, is capped.** `[chat]`
+    **AMENDED 2026-10-24 by ADR-0026 / #26** (was: "the FINAL attempt is uncapped", 12 s
+    default, preference until UTC midnight). The stall sibling of #9: if a model produces no
+    first chunk within the per-attempt budget
+    (`min(GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS|5s, 0.6 × request deadline / MAX_MODEL_ATTEMPTS)`),
+    `GeminiRoutingChain` abandons it and tries the next model on **both** `astream` and
+    `ainvoke`. A primary stall is recorded (`note_primary_timed_out`) so subsequent turns
+    `prefer_fallback_first` for `GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES|10` minutes — mirroring
+    the 429 cooldown. The **last** attempt is capped like every other: a last-attempt stall
+    raises `asyncio.TimeoutError`, which `_chat_stream` persists as `status: 'timeout'` /
+    `upstream_timeout` (#7). Commit-on-first-chunk (#9) is unchanged: once a chunk yields,
+    mid-stream errors propagate.
+    - Implemented by: `docker/chat/app/gemini_routing.py` — `_first_chunk_timeout` (5 s
+      default, `0.6 × total / MAX_MODEL_ATTEMPTS` cap); `astream` (every attempt
+      `wait_for(iterator.__anext__(), _first_chunk_timeout)`; on `TimeoutError`
+      `_aclose_quietly` the stalled iterator, `note_primary_timed_out()` if it was the primary,
+      move to the next model in `pending`, re-raise when none is left); `ainvoke` (every attempt
+      `wait_for(…, total / MAX_MODEL_ATTEMPTS)`, same bookkeeping). The TTL preference lives in
+      `docker/chat/app/gemini_limit_state.py` (`note_primary_timed_out(now=None)` sets a
+      monotonic expiry `now + TTL`; `prefer_fallback_first(now=None)` reads it).
     - Proven by: `docker/chat/tests/test_gemini_routing.py` —
-      *test_astream_first_chunk_timeout_falls_back* (primary hangs → joined content `==
-      "from-fallback"`), *test_ainvoke_timeout_falls_back* (non-stream analogue),
-      *test_primary_stream_timeout_flips_prefer_fallback* (`prefer_fallback_first()` flips
-      `False`→`True`, `primary_timeout_hits_today() == 1`),
-      *test_final_attempt_first_chunk_is_uncapped* (fallback's first chunk arrives AFTER the
-      per-attempt budget but is still awaited — the last attempt is not time-boxed), and
-      *test_primary_timeout_then_fallback_failure_exhausts* (primary stalls → fallback
-      fails → error propagates, and only the PRIMARY's timeout is recorded). Run: `cd
-      docker/chat && PYTHONPATH=. python3 -m pytest tests -q`.
+      *test_astream_first_chunk_timeout_falls_back*, *test_ainvoke_timeout_falls_back*,
+      *test_primary_stream_timeout_flips_prefer_fallback*,
+      *test_final_attempt_first_chunk_is_capped* (inverted from the former
+      *test_final_attempt_first_chunk_is_uncapped*: a fallback slower than its budget ends the
+      turn with `TimeoutError`), *test_every_ainvoke_attempt_is_capped_at_a_third_of_the_deadline*,
+      and *test_primary_timeout_then_fallback_failure_exhausts*. Run: `cd docker/chat &&
+      PYTHONPATH=. .venv/bin/python -m pytest tests -q`.
 
 14. **Operational alerting is best-effort: an instant alert can never raise into — or
     delay — a chat turn.** `[chat]`
@@ -1284,23 +1282,36 @@ proves it comes FIRST.
 
 26. **A chat turn's first token has a budget, and every routing attempt is inside it.** `[chat]`
     Recorded 2026-10-24 by **ADR-0026 §4**. **Amends #9 (day-long stickiness) and #13 (uncapped
-    final attempt).** Every attempt — **including the last** — is capped at
-    `first_chunk_cap = min(GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS|5s, 0.6 × GEMINI_TIMEOUT_SECONDS / 3)`,
-    so all attempts together stay within 60 % of the request deadline (#8) and the committed stream
-    keeps the rest. At most `MAX_MODEL_ATTEMPTS = 3`: a primary `503` is retried on the primary
-    **once** (after 0.3 s) before the other model; nothing else is retried on the same model. A
-    primary `429` or first-chunk stall prefers the fallback for
-    `GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES|10` minutes (monotonic; `0` disables) — never for the
-    rest of the day; a `503` never flips it (ADR-0023 §4.3). **#9's commit-on-first-chunk is
+    final attempt).** Every streaming attempt — **including the last** — is capped at
+    `first_chunk_cap = max(0.1, min(GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS|5s, 0.6 × GEMINI_TIMEOUT_SECONDS / 3))`,
+    so the first-token phase costs at most **3 × cap plus the 0.3 s retry delay** — ≤ 60 % of the
+    request deadline (#8) plus 0.3 s — and the committed stream keeps the rest. (With defaults:
+    cap 5 s; the longest reachable chain — primary `503`, retry stalls, fallback stalls — ends at
+    10.3 s; 3 × 5 s + 0.3 s = 15.3 s is the arithmetic ceiling.) Non-streaming (`ainvoke`)
+    attempts are each capped at `GEMINI_TIMEOUT_SECONDS / 3`. At most `MAX_MODEL_ATTEMPTS = 3`: a
+    primary `503`/`UNAVAILABLE` is retried on the primary **once** (after
+    `PRIMARY_503_RETRY_DELAY_SECONDS = 0.3`) before the other model, wherever the primary sits in
+    the order; nothing else (`429`, `500`, `502`, `504`) is retried on the same model. A primary
+    `429` or first-chunk stall prefers the fallback for
+    `GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES|10` minutes (monotonic; `0` disables; invalid →
+    default; clamped to `[0, 1440]`; a later note extends, never shortens) — never for the rest of
+    the day; a `503` never flips it (ADR-0023 §4.3). Switch alerts name the model that failed and
+    the model actually tried next; a primary `503` fires `chat_primary_unavailable` (P2). Each
+    persisted turn records `primaryRetried` distinctly from `fallbackUsed`, from a per-turn
+    `RoutingOutcome` (never read back off the shared chain). **#9's commit-on-first-chunk is
     untouched**: every clause above acts strictly before the first chunk.
     **WHY THIS IS AN INVARIANT:** routing tuned to *survive* failures made the common slow case
     worse — a 12 s budget, an uncapped last attempt (19 s stalls) and a day-long fallback preference
     turned one bad minute into 28 s waits for the rest of the day, while the per-turn telemetry
     recorded it faithfully and nothing failed. A budget each knob can be checked against is what
     telemetry alone did not give.
-    *Pin:* `docker/chat/tests/test_gemini_routing.py` — the 5 s default, the cap on the last
-    attempt, the cap-vs-deadline relation, the 503 retry-once in both orders (never twice, never
-    sticky), TTL expiry through the `now=` parameter, and commit-on-first-chunk still propagating.
+    *Pin:* `docker/chat/tests/test_gemini_routing.py` (on a virtual clock) — the 5 s default, the
+    `0.6 × total / 3` cap relation (2 s under a 10 s deadline), the cap on the last attempt, the
+    `ainvoke` total/3 cap, the 503 retry-once in both orders (never twice, never for 500/504/429),
+    the alert texts, commit-on-first-chunk against a mid-stream 503, and the ≤ 15 s all-stall
+    bound; `test_gemini_limit_state.py` — TTL expiry through `now=`, `0` disables, invalid,
+    clamp, extend; `test_turn_persistence.py` — `primaryRetried` per turn, including two
+    overlapping turns on one chain.
 
 ## Out of scope / explicitly allowed
 
