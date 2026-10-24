@@ -692,3 +692,144 @@ async def test_overlapping_turns_on_one_chain_each_record_their_own_routing_outc
     by_reply = {c["turn"]["reply"]: c["turn"] for c in stub_store.calls}
     assert by_reply["retried"]["primaryRetried"] is True
     assert by_reply["clean"]["primaryRetried"] is False
+
+
+class _RateLimitedStream:
+    def astream(self, _payload, config=None):
+        async def gen():
+            raise _UpstreamStatusError(429)
+            yield  # unreachable; makes gen an async generator
+
+        return gen()
+
+
+class _AnsweringStream:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def astream(self, _payload, config=None):
+        text = self._text
+
+        async def gen():
+            yield MsgChunk(text=text)
+
+        return gen()
+
+
+class _RateLimitedInvoke:
+    async def ainvoke(self, _payload, config=None):
+        raise _UpstreamStatusError(429)
+
+
+class _AnsweringInvoke:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    async def ainvoke(self, _payload, config=None):
+        from app.messages import Msg
+
+        return Msg(role="ai", content=self._text)
+
+
+class _NonRetryableStream:
+    def astream(self, _payload, config=None):
+        async def gen():
+            raise RuntimeError("not retryable")
+            yield  # unreachable; makes gen an async generator
+
+        return gen()
+
+
+def _use_routing_chain(monkeypatch, fakes: dict) -> None:
+    from app.gemini_routing import GeminiRoutingChain
+
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+    monkeypatch.setattr(app.state, "chain", _routing_chain())
+    monkeypatch.setattr(app.state, "provider_error", None)
+
+
+@pytest.mark.asyncio
+async def test_a_streamed_turn_answered_by_the_fallback_records_fallback_used(
+    client, stub_store, monkeypatch
+) -> None:
+    """Primary 429 -> the fallback answers: the row says so — fallbackUsed true,
+    no primary retry (a 429 is not retried on the primary), model m-fallback."""
+    _use_routing_chain(
+        monkeypatch,
+        {"m-primary": _RateLimitedStream(), "m-fallback": _AnsweringStream("fb")},
+    )
+
+    await _stream_turn(client, "hi")
+
+    call, = stub_store.calls
+    assert call["model"] == "m-fallback"
+    assert call["turn"]["fallbackUsed"] is True
+    assert call["turn"]["primaryRetried"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_non_streamed_turn_answered_by_the_fallback_records_fallback_used(
+    client, stub_store, monkeypatch
+) -> None:
+    """The stream:false half of the fallback telemetry."""
+    _use_routing_chain(
+        monkeypatch,
+        {"m-primary": _RateLimitedInvoke(), "m-fallback": _AnsweringInvoke("fb")},
+    )
+
+    resp = await client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "hi"}], "stream": False},
+    )
+
+    assert resp.status_code == 200
+    call, = stub_store.calls
+    assert call["model"] == "m-fallback"
+    assert call["turn"]["fallbackUsed"] is True
+    assert call["turn"]["primaryRetried"] is False
+
+
+@pytest.mark.asyncio
+async def test_fallback_first_order_answered_by_the_primary_is_not_a_fallback(
+    client, stub_store, monkeypatch
+) -> None:
+    """While the fallback is preferred, a turn the PRIMARY answers (the fallback
+    429'd first) is not a fallback turn: fallbackUsed false, model m-primary."""
+    from app import gemini_limit_state
+
+    gemini_limit_state.note_primary_rate_limited()
+    _use_routing_chain(
+        monkeypatch,
+        {"m-primary": _AnsweringStream("pr"), "m-fallback": _RateLimitedStream()},
+    )
+
+    await _stream_turn(client, "hi")
+
+    call, = stub_store.calls
+    assert call["model"] == "m-primary"
+    assert call["turn"]["fallbackUsed"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_failed_turn_after_a_fallback_turn_does_not_inherit_its_fallback(
+    client, stub_store, monkeypatch
+) -> None:
+    """The shared chain still remembers the LAST model that answered (for the
+    host-status card). A turn that then fails outright must not read that back:
+    its row says fallbackUsed false, not the previous turn's true."""
+    fakes = {"m-primary": _RateLimitedStream(), "m-fallback": _AnsweringStream("fb")}
+    _use_routing_chain(monkeypatch, fakes)
+    await _stream_turn(client, "first")
+    # The first turn's 429 made the fallback preferred, so the fallback is tried
+    # first now: both models fail non-retryably and the turn errors outright.
+    fakes["m-primary"] = _NonRetryableStream()
+    fakes["m-fallback"] = _NonRetryableStream()
+
+    await _stream_turn(client, "second")
+
+    first, second = stub_store.calls
+    assert first["turn"]["fallbackUsed"] is True
+    assert second["turn"]["status"] == "error"
+    assert second["turn"]["fallbackUsed"] is False
