@@ -600,6 +600,22 @@ test('telemetry: chat_voice_start is emitted by startVoice only — the Start ta
     'carries no permissionBefore / outcome'
   )
 })
+test('telemetry: the Start button\'s click tracking (data-track) does not reuse the name chat_voice_start', async () => {
+  // Arrange — MEASURED by scripts/qa/voice-stage-probe.mjs on stage: bindOutboundTracking sent a
+  // second chat_voice_start {event_category: 'Outbound'} for every tap, next to startVoice's.
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../js/chat.js', import.meta.url), 'utf8')
+
+  // Act
+  const reused = [...src.matchAll(/['"]data-track['"]\s*,\s*['"]chat_voice_start['"]/g)].length
+
+  // Assert
+  assert.equal(
+    reused, 0,
+    'one start, one chat_voice_start: the funnel counts it as engagement, so a duplicate inflates it'
+  )
+})
+
 test('getUserMedia asks with the same constraints on the first start, after a dismissal, and after a hang-up', async () => {
   // Arrange
   const v = await bootChat({ permission: 'prompt' })

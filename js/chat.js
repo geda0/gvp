@@ -443,7 +443,8 @@ export function initChat() {
     } else {
       if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'hero_agent_node_mic')
     }
-    if (voiceStartBtn) voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
+    // The tap's own click name; chat_voice_start is startVoice's settled event (ADR-0028).
+    if (voiceStartBtn) voiceStartBtn.setAttribute('data-track', 'chat_voice_start_tap')
   }
 
   const clearPanelAnimation = () => {
@@ -651,7 +652,7 @@ export function initChat() {
       'aria-label',
       showConnecting ? 'Connecting voice…' : 'Start voice chat',
     )
-    voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
+    voiceStartBtn.setAttribute('data-track', 'chat_voice_start_tap')
   }
 
   const syncEmptyState = () => {
