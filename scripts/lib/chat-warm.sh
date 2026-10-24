@@ -29,6 +29,28 @@ chat_front_door_url() {
   sed -n 's/.*<meta name="gvp:chat-api-url" content="\([^"]*\)".*/\1/p' "${html}" | head -n 1
 }
 
+# chat_warm_target_check <deploy_env> <chat_url> <cdn_domain>
+#
+# Returns 0 only when <chat_url>'s host IS <cdn_domain> (this run's stream DistributionDomainName).
+# The meta comes from the CHECKED-OUT index.html, so a manual or local `integrate-and-deploy.sh prod`
+# from `agent` would otherwise warm the STAGE host and print "chat warm (prod) … 204" — a false
+# proof (tdd-critic). Strict equality is safe: on 2026-10-24 both environments' DistributionDomainName
+# equalled their committed meta host exactly (no alias). Either value empty also fails: there is
+# then nothing to prove the target against.
+chat_warm_target_check() {
+  local deploy_env="$1" url="$2" cdn="$3"
+  local u="${url#*://}"
+  local host="${u%%/*}"
+  if [[ -z "${url}" || -z "${cdn}" ]]; then
+    echo "error: chat warm (${deploy_env}): cannot prove the warm target — gvp:chat-api-url host '${host}', this run's stream CDN domain '${cdn}'. Refusing to report a ${deploy_env} warm." >&2
+    return 1
+  fi
+  if [[ "${host}" != "${cdn}" ]]; then
+    echo "error: chat warm (${deploy_env}): the checked-out gvp:chat-api-url host ${host} is NOT this run's ${deploy_env} stream CDN domain ${cdn}. Warming it would report a ${deploy_env} warm against the wrong environment — deploy ${deploy_env} from its own branch (main = prod, agent = stage)." >&2
+    return 1
+  fi
+}
+
 # chat_post_deploy_warm <deploy_env> <chat_url>
 #
 # Sends the warm to <chat_url> (…/api/chat). Returns 0 on 204; otherwise prints an error naming

@@ -911,10 +911,9 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
   # the post-deploy cold-start measurement. A non-204 or timeout FAILS the deploy (PO acceptance,
   # stricter than the ADR's "warning only").
   CHAT_WARM_URL="$(chat_front_door_url "${ROOT}/index.html")"
-  CHAT_WARM_HOST="$(url_host "${CHAT_WARM_URL:-}")"
-  if [[ -n "${CHAT_WARM_HOST}" && -n "${CHAT_STREAM_CDN_DOMAIN}" && "${CHAT_WARM_HOST}" != "${CHAT_STREAM_CDN_DOMAIN}" ]]; then
-    echo "note: gvp:chat-api-url host ${CHAT_WARM_HOST} is not this run's DistributionDomainName ${CHAT_STREAM_CDN_DOMAIN} (an alias, or the meta points elsewhere) — warming the meta host, which is what visitors hit." >&2
-  fi
+  # The meta is read from the CHECKED-OUT html, so it must be proven to be THIS run's distribution
+  # first — otherwise `prod` run from `agent` warms stage and reports a prod warm (fatal, not a note).
+  chat_warm_target_check "${DEPLOY_ENV}" "${CHAT_WARM_URL}" "${CHAT_STREAM_CDN_DOMAIN}" || exit 1
   chat_post_deploy_warm "${DEPLOY_ENV}" "${CHAT_WARM_URL}" || exit 1
   echo "note: gvp:chat-api-url in index.html / admin/index.html is NOT repointed by this target. Invariant 11 pins those hosts and test/frontend-api-url-env-guard.test.mjs enforces them — repointing is a separate, deliberate commit."
   # Liveness of the alert gate is NOT provable from here (presence of the keys is pinned by
