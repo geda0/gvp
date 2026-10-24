@@ -1052,6 +1052,10 @@ export function initChat() {
     dispatchStage('minimize', 'visitor')
   })
 
+  // A resize re-resolves the EFFECTIVE size (wide <-> compact across 840px); the preference
+  // is untouched, so widening again brings wide back on its own.
+  window.addEventListener('resize', () => { applyChatSize() }, { passive: true })
+
   // ADR-0027 §4.1: the size toggle. Flips the PREFERENCE, persists it, re-applies the size -
   // and nothing else: no dispatchStage (size is not a stage), no focus() (the button is not
   // re-rendered, so focus stays on it), nothing voice (invariant #20). stopPropagation, like

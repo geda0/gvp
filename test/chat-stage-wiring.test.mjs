@@ -679,3 +679,25 @@ test('ADR-0027 §4.1: the size toggle flips and persists the size, with no stage
   assert.deepEqual(toggles.map((c) => c[2].to), ['compact', 'wide'],
     'analytics: chat_size_toggle with a closed-enum `to`')
 })
+
+test('ADR-0027 §7: a resize across 840px flips the effective size, never the preference', async (t) => {
+  const { api, getEl, siteState, winEvents } = await boot('size-resize', WIDE, { voice: false })
+  t.after(() => api.disposeChatLiveVoice())
+  api.openPanel()
+  await settle()
+  const dialog = getEl('chatDialog')
+  const size = () => [dialog.dataset.chatSize, dialog.style.getPropertyValue('--chat-dock-width')]
+  assert.deepEqual(size(), ['wide', '720px'], 'harness: starts wide')
+
+  window.innerWidth = 800 // still >= 768, so still docked - but no room for wide
+  winEvents.fire('resize', {})
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'docked')
+  assert.deepEqual(size(), ['compact', '384px'], 'below 840 the card falls back to compact')
+
+  window.innerWidth = 1024
+  winEvents.fire('resize', {})
+  await settle()
+  assert.deepEqual(size(), ['wide', '664px'],
+    'widening brings wide back with no visitor act: the fallback never overwrote the preference')
+})
