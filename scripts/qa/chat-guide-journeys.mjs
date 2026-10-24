@@ -3,6 +3,7 @@
  * Track C journeys against a REAL chat backend and the real model (backlog items 5-7).
  *
  *     node scripts/qa/chat-guide-journeys.mjs https://chat.marwanelgendy.link
+ *     GUIDE_WIDTH=390 GUIDE_HEIGHT=844 node scripts/qa/chat-guide-journeys.mjs <origin>   # phone
  *
  * Exit 0 when every claim holds, 1 otherwise. NOT part of `node --test`: it launches Chrome
  * and calls a live model, so it is run by hand against stage or prod.
@@ -15,7 +16,7 @@
  * is re-run once before it is believed, and a pass is recorded with the host it ran on.
  */
 
-import { launch, goto, evaluate, sleep, findChrome } from './cdp.mjs'
+import { launch, goto, evaluate, clickAt, sleep, findChrome } from './cdp.mjs'
 
 const ORIGIN = process.argv[2]
 if (!ORIGIN) {
@@ -57,29 +58,41 @@ async function journeyShowMeTheWork (page) {
   return [{ claim: '"show me your work" moves the page to the portfolio', ok: where === 'portfolio', detail: `section=${where}` }]
 }
 
+const tourCard = (page) => evaluate(page, () => {
+  const card = document.getElementById('tourCard')
+  const next = document.getElementById('tourCardNext')
+  const r = next.getBoundingClientRect()
+  const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+  return {
+    shown: !card.hidden,
+    text: document.getElementById('tourCardText').textContent,
+    hasNext: !next.hidden,
+    contact: !document.getElementById('tourCardContact').hidden,
+    // The hit-test a stub cannot make: is Next stop really on top (not under a project card)?
+    nextOnTop: !next.hidden && Boolean(hit && hit.closest('#tourCardNext'))
+  }
+})
+
 async function journeyTour (page) {
   const out = []
   await ask(page, 'Show me around')
+  let card = await tourCard(page)
   let where = await section(page)
-  let btns = await buttons(page)
-  out.push({ claim: '"show me around" starts the tour on the page', ok: btns.some((b) => b.action === 'tour-next') && where === 'portfolio', detail: `section=${where} buttons=${JSON.stringify(btns)}` })
+  out.push({ claim: '"show me around" starts the tour on the page', ok: card.shown && where === 'portfolio', detail: `section=${where} card=${JSON.stringify(card)}` })
   const visited = [where]
-  for (let hop = 0; hop < 6; hop++) {
-    btns = await buttons(page)
-    const next = [...btns].reverse().find((b) => b.action === 'tour-next')
-    if (!next) break
-    const before = await assistantCount(page)
-    await evaluate(page, (step) => {
-      const all = [...document.querySelectorAll('#chatMessages .chat-msg__action[data-action="tour-next"]')]
-      all.filter((b) => b.dataset.step === step).pop().click()
-    }, next.step)
+  for (let hop = 0; hop < 6 && card.hasNext; hop++) {
+    out.push({ claim: `stop ${hop}: Next stop is on top and tappable`, ok: card.nextOnTop, detail: JSON.stringify(card) })
+    const before = card.text
+    // A REAL click at the button's centre, so a layer above it would swallow it.
+    const r = await evaluate(page, () => { const b = document.getElementById('tourCardNext').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 } })
+    await clickAt(page, r.x, r.y)
     await sleep(900)
-    out.push({ claim: `Next stop ${next.step} narrates`, ok: (await assistantCount(page)) === before + 1 })
+    card = await tourCard(page)
+    out.push({ claim: `Next stop ${hop + 1} narrates a new stop`, ok: card.text !== before, detail: card.text.slice(0, 80) })
     visited.push(await section(page))
   }
-  btns = await buttons(page)
   out.push({ claim: 'the tour visits labs on the way', ok: visited.includes('labs'), detail: visited.join(' > ') })
-  out.push({ claim: 'the tour ends with a way to get in touch', ok: btns.some((b) => b.action === 'open-contact'), detail: JSON.stringify(btns.slice(-2)) })
+  out.push({ claim: 'the tour ends with a way to get in touch', ok: card.contact, detail: JSON.stringify(card) })
   return out
 }
 
@@ -102,12 +115,15 @@ const JOURNEYS = [
   ['the résumé is there when asked for', journeyResumeWhenAsked]
 ]
 
+const WIDTH = Number(process.env.GUIDE_WIDTH || 1280)
+const HEIGHT = Number(process.env.GUIDE_HEIGHT || 900)
+
 async function main () {
   if (!findChrome()) {
     console.error('No Chrome or Chromium found - this harness needs one. Skipping is not a pass.')
     process.exit(2)
   }
-  const page = await launch({ width: 1280, height: 900 })
+  const page = await launch({ width: WIDTH, height: HEIGHT })
   const results = []
   try {
     for (const [name, journey] of JOURNEYS) {

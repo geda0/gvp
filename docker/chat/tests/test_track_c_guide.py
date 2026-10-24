@@ -175,6 +175,15 @@ def test_a_yes_to_a_resume_offer_counts(yes):
     assert resume_was_requested(history), yes
 
 
+@pytest.mark.parametrize('not_yes', ['ok no', 'yes but what about his skills?', 'sure, what else did he build?'])
+def test_a_qualified_yes_is_not_a_resume_ask(not_yes):
+    history = [
+        {'role': 'assistant', 'content': 'Want his resume as well?'},
+        {'role': 'user', 'content': not_yes},
+    ]
+    assert not resume_was_requested(history), not_yes
+
+
 def test_a_yes_to_something_else_does_not():
     history = [
         {'role': 'assistant', 'content': 'Want me to show you the Labs?'},

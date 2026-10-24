@@ -303,6 +303,18 @@
             </div>
         </div>
     </div>
+    <!-- Track C guided tour: a card of its own, OUTSIDE the chat - it must stay visible and
+         tappable whatever the chat's stage is (a narrow pill hides the transcript) and above
+         the project card a stop opens. -->
+    <div id="tourCard" class="tour-card" role="region" aria-label="Guided tour" hidden>
+        <p id="tourCardText" class="tour-card__text" aria-live="polite"></p>
+        <div class="tour-card__actions">
+            <button type="button" id="tourCardContact" class="tour-card__btn" hidden>Get in touch</button>
+            <button type="button" id="tourCardNext" class="tour-card__btn tour-card__btn--primary">Next stop</button>
+            <button type="button" id="tourCardEnd" class="tour-card__btn">End tour</button>
+        </div>
+    </div>
+
     <div id="chatDialog" class="contact-dialog chat-dialog" hidden aria-hidden="true">
         <div class="contact-dialog__backdrop chat-dialog__backdrop" aria-hidden="true"></div>
         <div class="contact-dialog__panel chat-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="chatDialogTitle">
@@ -312,10 +324,6 @@
                     <p class="chat-dialog__subtitle">Grounded in my actual projects and services.</p>
                 </div>
                 <div class="chat-dialog__header-actions">
-                    <div id="chatTourBar" class="chat-tour-bar" role="group" aria-label="Guided tour" hidden>
-                        <button type="button" class="chat-msg__action chat-tour-bar__next" data-action="tour-next">Next stop</button>
-                        <button type="button" class="chat-msg__action chat-tour-bar__end" data-action="tour-end">End tour</button>
-                    </div>
                     <div id="chatVoiceStartHeaderSlot" class="chat-voice-cta-slot chat-voice-cta-slot--header" hidden aria-hidden="true"></div>
                     <button type="button" class="chat-dialog__minimize" aria-label="Minimise chat">&minus;</button>
                     <button type="button" class="contact-dialog__close chat-dialog__close" aria-label="Close chat">&times;</button>

@@ -974,19 +974,6 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     gap: 0.45rem;
 }
 
-/* Track C guided tour: Next stop / End tour live in the header, so they stay reachable when the
-   chat yields to the page as a pill (minimized shows the header alone). */
-.chat-tour-bar {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 0.35rem;
-}
-
-.chat-tour-bar[hidden] {
-    display: none;
-}
-
 /* Empty transcript: Start live chat CTA above hint copy */
 .chat-empty-entry {
     display: flex;
@@ -2514,4 +2501,73 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 
 .selection-offer[hidden] {
     display: none;
+}
+
+/* Track C guided tour card. Fixed, outside the chat dialog, above the project dialog (1100)
+   that a stop may open, so it is visible and tappable at every width and every chat stage. */
+.tour-card {
+    position: fixed;
+    left: 50%;
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 1150;
+    width: min(26rem, calc(100vw - 2rem));
+    box-sizing: border-box;
+    padding: 0.85rem 1rem;
+    border-radius: 14px;
+    background: var(--chat-panel-bg, #181e32);
+    border: 1px solid color-mix(in srgb, var(--chat-launcher-glow-chrome, #6f8fd8) 32%, rgba(255, 255, 255, 0.1));
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+}
+
+.tour-card[hidden] {
+    display: none;
+}
+
+[data-theme='garden'] .tour-card {
+    background: rgb(252, 253, 250);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-md);
+}
+
+.tour-card__text {
+    margin: 0 0 0.7rem;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.tour-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.45rem;
+}
+
+.tour-card__btn {
+    border: 1px solid color-mix(in srgb, var(--chat-launcher-ring, #6f8fd8) 45%, var(--border-subtle, transparent));
+    background: transparent;
+    color: inherit;
+    border-radius: 999px;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0.4rem 0.85rem;
+    min-height: 2.25rem;
+    cursor: pointer;
+}
+
+.tour-card__btn--primary {
+    background: color-mix(in srgb, var(--chat-launcher-ring, #6f8fd8) 26%, transparent);
+}
+
+.tour-card__btn[hidden] {
+    display: none;
+}
+
+.tour-card__btn:focus-visible {
+    outline: 2px solid var(--chat-launcher-ring, #6f8fd8);
+    outline-offset: 2px;
 }

@@ -87,10 +87,8 @@ const transcriptText = (getEl) => walk(getEl('chatMessages'))
 const transcriptButtons = (getEl) => walk(getEl('chatMessages')).filter((n) => n.dataset && n.dataset.action)
 const messageCount = (getEl) => (getEl('chatMessages').children || []).length
 
-/** A tap on a control, through the dialog's real delegated click handler. */
-const tap = (getEl, action) => getEl('chatDialog').events.fire('click', {
-  target: { closest: (sel) => (sel === '[data-action]' ? { dataset: { action } } : null) }
-})
+/** A tap on one of the tour card's own buttons (it lives outside the chat dialog). */
+const tap = (getEl, action) => getEl(action === 'tour-next' ? 'tourCardNext' : 'tourCardEnd').events.fire('click', {})
 
 async function send(api, text) {
   api.openPanelWithMessage(text, 'composer')
@@ -151,11 +149,11 @@ test('the tour runs on the page: every stop moves it, the bar drives it, End tou
     actions: [{ id: 'start-tour', label: 'Start the tour' }]
   }, { withProjects: true })
   t.after(() => api.disposeChatLiveVoice())
-  const bar = getEl('chatTourBar')
-  assert.equal(bar.hidden, true, 'harness: no tour, no bar')
+  const card = getEl('tourCard')
+  assert.equal(card.hidden, true, 'harness: no tour, no card')
 
   await send(api, 'show me around')
-  assert.equal(bar.hidden, false, 'the tour bar appears with the first stop')
+  assert.equal(card.hidden, false, 'the tour card appears with the first stop')
   for (let i = 0; i < TOUR_LENGTH; i++) {
     const step = tourStep(i)
     const want = step.moves.find((m) => m.kind === 'navigate').section
@@ -163,19 +161,26 @@ test('the tour runs on the page: every stop moves it, the bar drives it, End tou
     assert.equal(siteState.getSiteState().section, want, `stop ${i} moved the page`)
     assert.equal(siteState.getSiteState().project?.id ?? null, card ? card.project : null,
       `stop ${i}: ${card ? 'its card is open' : 'no card left open from the stop before'}`)
-    assert.ok(transcriptText(getEl).includes(step.say), `stop ${i} is narrated`)
+    assert.ok(transcriptText(getEl).includes(step.say), `stop ${i} is narrated in the transcript`)
+    assert.equal(getEl('tourCardText').textContent, step.say, `stop ${i} is narrated on the card, which a narrow pill does not hide`)
     if (i < TOUR_LENGTH - 1) {
       tap(getEl, 'tour-next')
       for (let k = 0; k < 3; k++) await settle()
     }
   }
-  assert.equal(bar.hidden, true, 'the last stop retires the bar')
-  assert.ok(transcriptButtons(getEl).some((b) => b.dataset.action === 'open-contact'), 'and ends with a way to get in touch')
+  assert.equal(getEl('tourCardNext').hidden, true, 'the last stop has no Next stop')
+  assert.equal(getEl('tourCardContact').hidden, false, 'it ends with a way to get in touch, on the card')
+  assert.ok(transcriptButtons(getEl).some((b) => b.dataset.action === 'open-contact'), 'and in the transcript')
 
   const before = messageCount(getEl)
   tap(getEl, 'tour-next')
   await settle()
   assert.equal(messageCount(getEl), before, 'a tap after the tour has ended does nothing')
+
+  getEl('tourCardContact').events.fire('click', {})
+  await settle()
+  assert.equal(siteState.getSiteState().contactOpen, true, 'Get in touch opens the contact form')
+  assert.equal(getEl('tourCard').hidden, true, 'and puts the tour card away')
 })
 
 test('End tour stops the tour where it is, and a stale Next stop cannot restart it', async (t) => {
@@ -189,7 +194,7 @@ test('End tour stops the tour where it is, and a stale Next stop cannot restart 
   const before = messageCount(getEl)
   tap(getEl, 'tour-end')
   await settle()
-  assert.equal(getEl('chatTourBar').hidden, true)
+  assert.equal(getEl('tourCard').hidden, true)
   assert.equal(messageCount(getEl), before + 1, 'End tour answers with one line')
   tap(getEl, 'tour-next')
   await settle()

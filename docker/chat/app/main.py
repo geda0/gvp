@@ -340,11 +340,10 @@ _RESUME_ASK = re.compile(
     r'|\bpdf\b|السيرة الذاتية|简历|履歴書)',
     re.IGNORECASE,
 )
-# A short yes, accepted only when the turn before it offered the résumé.
-_AFFIRMATIVE = re.compile(
-    r'^\W*(yes|yeah|yep|sure|ok|okay|please|go ahead|send it|s[ií]|oui|ja|da|نعم|好的?|はい)\b',
-    re.IGNORECASE,
-)
+# A WHOLE-MESSAGE yes ("yes please", "sure, send it"), accepted only when the turn before it
+# mentioned the résumé. "ok no" or "yes but what about his skills?" are not a yes to the file.
+_YES = r'(?:yes|yeah|yep|sure|ok|okay|please|go ahead|send it|s[ií]|oui|ja|da|نعم|好的?|はい|thanks|thank you)'
+_AFFIRMATIVE = re.compile(rf'^\W*{_YES}(?:[\s,.!]+{_YES})*\W*$', re.IGNORECASE)
 _NO_RESUME_REPLY = (
     "His work is laid out right here on the site - I can walk you through the portfolio "
     "or open any project. If you'd like the resume file itself, just ask."
@@ -369,7 +368,7 @@ def resume_was_requested(messages: list[Any]) -> bool:
             continue
         if _RESUME_ASK.search(content):
             return True
-        if len(content.split()) <= 6 and _AFFIRMATIVE.search(content):
+        if _AFFIRMATIVE.search(content.strip()):
             prev = next((c for r, c in reversed(rows[:i]) if r == 'assistant'), '')
             return bool(_RESUME_ASK.search(prev))
         return False

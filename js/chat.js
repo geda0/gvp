@@ -1187,17 +1187,33 @@ export function initChat() {
     })
   }
 
-  // Guided-tour state (see runTourStep). Declared here because a fresh conversation ends any tour.
-  const tourBar = document.getElementById('chatTourBar')
+  // Guided-tour state (see runTourStep). The controls are a card OUTSIDE the chat (#tourCard):
+  // a header bar inside the chat broke the docked card's layout and overflowed the narrow
+  // pill, sat under the project card a stop opens, and left the narration in a transcript the
+  // pill hides. Declared here because a fresh conversation ends any tour.
+  const tourCard = document.getElementById('tourCard')
+  const tourCardText = document.getElementById('tourCardText')
+  const tourCardNext = document.getElementById('tourCardNext')
+  const tourCardEnd = document.getElementById('tourCardEnd')
+  const tourCardContact = document.getElementById('tourCardContact')
   let tourNext = null
-  const setTourNext = (next) => {
-    tourNext = Number.isInteger(next) ? next : null
-    if (tourBar) tourBar.hidden = tourNext === null
+  const showTourCard = (step) => {
+    tourNext = step && Number.isInteger(step.next) ? step.next : null
+    if (!tourCard) return
+    if (!step) {
+      tourCard.hidden = true
+      return
+    }
+    if (tourCardText) tourCardText.textContent = step.say
+    if (tourCardNext) tourCardNext.hidden = tourNext === null
+    if (tourCardContact) tourCardContact.hidden = tourNext !== null
+    if (tourCardEnd) tourCardEnd.textContent = tourNext === null ? 'Done' : 'End tour'
+    tourCard.hidden = false
   }
 
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
     messagesEl.textContent = ''
-    setTourNext(null)
+    showTourCard(null)
     clearVoiceAwaitingStart()
     if (liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
       liveVoice.stopVoice({ silent: true })
@@ -1720,7 +1736,7 @@ export function initChat() {
       // (ADR-0015 §9.2 — the text path failed worse than the voice path, which at least
       // round-tripped the error). It stays non-interrupting: a visitor who tapped a button
       // does not need an error bubble, but the failure has to be countable.
-      const outcome = navigateToSection(actionEl.dataset.section || '')
+      const outcome = navigateToSection(actionEl.dataset.section || '', 'visitor')
       if (outcome.error) {
         trackEvent('chat_nav_unresolved', { section: String(actionEl.dataset.section || '') })
       }
@@ -1730,21 +1746,6 @@ export function initChat() {
       openContactFromChat(parsePrefill(actionEl.dataset.prefill))
       return
     }
-    if (action === 'tour-next') {
-      if (tourNext !== null) runTourStep(tourNext, 'visitor')
-      return
-    }
-    if (action === 'tour-end') {
-      if (tourNext === null) return
-      setTourNext(null)
-      const line = 'No problem. Ask me anything, or open any card to dig in.'
-      appendMessage('assistant', line, { forceScroll: true })
-      state.history = state.history.concat({ role: 'assistant', content: line })
-      trackEvent('chat_tour_end', {})
-      return
-    }
-    // The text path's project tools (stage-found defect): the button is the affordance and the
-    // tap is the VISITOR's, so the store write is labelled visitor, not agent.
     if (action === 'open-project') {
       const match = requestProjectOpen(actionEl.dataset.project || '', { origin: 'visitor' })
       if (match && match.error) trackEvent('chat_project_unresolved', { reason: 'unknown_project' })
@@ -1852,10 +1853,9 @@ export function initChat() {
     return { remaining, executed, startTour }
   }
 
-  // One stop of the guided tour (js/tour.js): move the page, then say the line. The line goes
-  // into the history so the model knows where the tour has taken the visitor. Next stop / End
-  // tour sit in the header's tour bar, which reads `tourNext` - so a stale message can never
-  // re-run a stop, and the controls survive the chat yielding to the page as a pill.
+  // One stop of the guided tour (js/tour.js): move the page, then say the line - on the tour
+  // card, and in the transcript and history so the model knows where the tour has taken the
+  // visitor. Next stop reads `tourNext`, so nothing stale can re-run a stop.
   // `origin`: the FIRST stop is the agent's (it answered a tool call, and the tool result tells
   // the model); every later stop is the VISITOR's tap on Next stop - labelled so, which is also
   // what lets a live voice session hear where the tour went (js/site-state-notes.js skips
@@ -1870,10 +1870,27 @@ export function initChat() {
     }
     appendMessage('assistant', step.say, { actions: step.actions, forceScroll: true })
     state.history = state.history.concat({ role: 'assistant', content: step.say })
-    setTourNext(step.next)
+    showTourCard(step)
     trackEvent('chat_tour_step', { step: index })
     return step
   }
+
+  tourCardNext?.addEventListener('click', () => {
+    if (tourNext !== null) runTourStep(tourNext, 'visitor')
+  })
+  tourCardEnd?.addEventListener('click', () => {
+    const finished = tourNext === null
+    showTourCard(null)
+    if (finished) return
+    const line = 'No problem. Ask me anything, or open any card to dig in.'
+    appendMessage('assistant', line, { forceScroll: true })
+    state.history = state.history.concat({ role: 'assistant', content: line })
+    trackEvent('chat_tour_end', {})
+  })
+  tourCardContact?.addEventListener('click', () => {
+    showTourCard(null)
+    openContactFromChat(null)
+  })
 
   const applyVoiceToolCall = (name, args) => {
     if (name === 'open_resume') {
