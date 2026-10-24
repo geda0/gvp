@@ -914,3 +914,79 @@ async def test_a_primary_503_alerts_as_unavailable_naming_the_retry_then_the_swi
     assert fired[0][1].endswith("retrying m-primary")
     assert fired[1][1].startswith("m-primary ")
     assert fired[1][1].endswith("switching to m-fallback")
+
+
+class _CommitThen503:
+    """Primary: yields one chunk (commits) THEN raises an upstream 503 — the
+    status that is retried BEFORE a first chunk and must not be after one."""
+
+    def astream(self, _payload, config=None):
+        async def gen():
+            yield MsgChunk(text="from-primary")
+            raise UpstreamError(503)
+
+        return gen()
+
+
+@pytest.mark.asyncio
+async def test_a_503_after_the_first_chunk_is_never_retried_invariant_9(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Invariant #9 under ADR-0026 §4.5: the 503 retry, the caps and the TTL act
+    strictly BEFORE the first chunk. Once a chunk has been yielded a mid-stream
+    503 propagates — no primary retry, no fallback, no duplicated text."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _CommitThen503(), "m-fallback": _OkStream()},
+        log,
+    )
+
+    seen: list[str] = []
+    with pytest.raises(UpstreamError):
+        async for chunk in _chain().astream({"messages": []}):
+            seen.append(chunk.text)
+
+    assert seen == ["from-primary"]
+    assert [mid for mid, _t in log] == ["m-primary"]
+
+
+class _Primary503ThenHang:
+    """Primary: the first attempt is an instant 503, the retry stalls forever."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def astream(self, payload, config=None):
+        self.calls += 1
+        if self.calls == 1:
+            return _UnavailableFirstChunk().astream(payload, config=config)
+        return _HangFirstChunk().astream(payload, config=config)
+
+
+@pytest.mark.asyncio
+async def test_worst_case_all_stall_turn_ends_within_fifteen_seconds(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Design-notes L1 worst-case bound / invariant #26, on a fake clock with the
+    DEFAULT knobs (28 s deadline, 5 s cap): the longest attempt chain the router
+    allows — primary 503, primary retry stalls, fallback stalls — gives the
+    visitor the honest timeout within 15 s (it was ~28 s). Three attempts, never
+    a fourth."""
+    monkeypatch.delenv("GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS", raising=False)
+    clock = virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _Primary503ThenHang(), "m-fallback": _HangFirstChunk()},
+        log,
+    )
+
+    with pytest.raises(asyncio.TimeoutError):
+        async for _ in _chain(28.0).astream({"messages": []}):
+            pass
+
+    assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
+    assert clock.now <= 15.0
+    assert clock.now == pytest.approx(10.3, abs=0.01)
