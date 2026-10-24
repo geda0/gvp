@@ -215,6 +215,13 @@ export function dockedCardWidth ({ viewportWidth, size } = {}) {
   return wide < DOCK_WIDE_MIN_WIDTH ? compact : wide
 }
 
+/** Can a wide card render at all at this viewport width? (>= 840px with today's numbers.) */
+export function isWideAvailable (viewportWidth) {
+  if (typeof viewportWidth !== 'number' || !Number.isFinite(viewportWidth)) return false
+  return Math.min(DOCK_WIDE_MAX_WIDTH, viewportWidth - 2 * DOCK_GUTTER - DOCK_MIN_UNCOVERED) >=
+    DOCK_WIDE_MIN_WIDTH
+}
+
 /**
  * The normative accessibility contract per stage (§4.4), as data.
  *

@@ -427,3 +427,12 @@ test('the wide card leaves 320px of page and falls back to compact rather than a
     assert.equal(dockedCardWidth({ viewportWidth: -5, size }), 0, `negative, ${size}`)
   }
 })
+
+test('isWideAvailable flips exactly at 840px', async () => {
+  const { isWideAvailable } = await sizeApi()
+  assert.equal(typeof isWideAvailable, 'function', 'isWideAvailable must be exported (ADR-0027 §3)')
+  assert.equal(isWideAvailable(839), false)
+  assert.equal(isWideAvailable(840), true)
+  assert.equal(isWideAvailable(1920), true)
+  assert.equal(isWideAvailable(NaN), false, 'an unmeasured viewport offers no wide card')
+})
