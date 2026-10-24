@@ -28,9 +28,11 @@
  * SOUNDS clean through real speakers. Those stay a human check (G3, human-staging gated).
  *
  * Journeys:
- *   - barge-in: the visitor speaks over the greeting; PLAYBACK must reach zero within
- *     GRACE_MS of the first voiced frame, `interrupted` must arrive before the greeting's
- *     turnComplete, and model audio for that turn must stop within GRACE_MS of it.
+ *   - barge-in: the visitor speaks over the greeting; PLAYBACK must reach zero within VOICE_CUT_BUDGET_MS
+ *     of the first voiced frame, `interrupted` must arrive before the greeting's
+ *     turnComplete, and model audio for that turn must stop within GRACE_MS of it. The
+ *     answer to the spoken question must then play to its end (no self-cut by a late
+ *     transcript fragment, ADR-0026 addendum).
  *   - silent-mic control: the same start with the mic sending silence; the greeting must
  *     complete with no `interrupted` (the assistant does not barge in on itself).
  *   - chip mid-greeting (one chip, then two quick chips): a project chip tapped on the
@@ -50,6 +52,10 @@ if (!ORIGIN || !WAV) {
 // Model audio already in flight when `interrupted` is raised may still land; anything for the
 // cut-off turn later than this after it means the server did not stop the turn.
 const GRACE_MS = 500
+// Voice onset -> playback silence (ADR-0026 addendum): covers Live's speech detection (server
+// `interrupted`) or its input transcription (the client's 'voice_local' cut). Its own bound,
+// NOT GRACE_MS, which counts from `interrupted`. The measured number is printed every run.
+const VOICE_CUT_BUDGET_MS = 1500
 
 // Installed before any page script: a timeline of what the voice path actually did.
 const INSTRUMENT = `(() => {
@@ -112,6 +118,13 @@ const INSTRUMENT = `(() => {
               window.__vpVoiced = true
               // Detail = how much assistant audio was queued/sounding when the voice went out.
               log('first-voiced-frame', String(window.__vpPlaying || 0))
+            }
+            // Every voice ONSET (a voiced frame after >= 1.5 s without one) - the start of an
+            // utterance, as the page's own rule counts it (ADR-0026 addendum).
+            if (peak > 1000) {
+              const nowT = performance.now()
+              if (window.__vpLastVoicedAt === undefined || nowT - window.__vpLastVoicedAt >= 1500) log('voice-onset')
+              window.__vpLastVoicedAt = nowT
             }
           }
         }
@@ -213,8 +226,8 @@ function bargeInClaims (ev) {
       detail: `model-audio@${greetingAudio && greetingAudio.t} first-voiced-frame@${voiced && voiced.t} (sources playing: ${playingAtVoice}) server turnComplete@${firstTurn && firstTurn.t}`
     },
     {
-      claim: `the visitor's voice silences the greeting: playback reaches zero within ${GRACE_MS} ms of the first voiced frame`,
-      ok: Boolean(voiced && playingAtVoice > 0 && quietAfterVoice && quietAfterVoice.t - voiced.t <= GRACE_MS),
+      claim: `the visitor's voice silences the greeting: playback reaches zero within ${VOICE_CUT_BUDGET_MS} ms of the first voiced frame`,
+      ok: Boolean(voiced && playingAtVoice > 0 && quietAfterVoice && quietAfterVoice.t - voiced.t <= VOICE_CUT_BUDGET_MS),
       detail: `first-voiced-frame@${voiced && voiced.t} play-idle@${quietAfterVoice && quietAfterVoice.t}` +
         ` (${quietAfterVoice && voiced ? quietAfterVoice.t - voiced.t : '?'} ms); playback ran ` +
         `${firstTurn && quietAfterVoice ? quietAfterVoice.t - firstTurn.t : '?'} ms past the server turnComplete` +
@@ -231,6 +244,29 @@ function bargeInClaims (ev) {
       detail: !serverHalfTestable ? inconclusive : (cut ? (lateAudio.length ? `model-audio at ${lateAudio.map((e) => e.t).join(', ')} (interrupted@${cut.t})` : '') : 'no interrupted to measure from')
     }
   ]
+}
+
+// No SELF-cut (the critic's false positive, ADR-0026 addendum): the answer to the spoken
+// question plays to its natural end. From the answer's first play-start until the visitor's
+// next voice onset (or the end of the run) no source may be stop()ped - every stop is an
+// interrupt - and playback must go idle on its own.
+function answerPlaysToItsEnd (ev) {
+  const { firstTurn } = summarise(ev)
+  const voiced = ev.find((e) => e.kind === 'first-voiced-frame')
+  const from = Math.max(firstTurn ? firstTurn.t : Infinity, voiced ? voiced.t : Infinity)
+  const answerStart = ev.find((e) => e.kind === 'play-start' && e.t > from)
+  const nextOnset = answerStart && ev.find((e) => e.kind === 'voice-onset' && e.t > answerStart.t)
+  const until = nextOnset ? nextOnset.t : Infinity
+  const inWindow = answerStart ? ev.filter((e) => e.t >= answerStart.t && e.t < until) : []
+  const stops = inWindow.filter((e) => e.kind === 'play-stop')
+  const ended = inWindow.find((e) => e.kind === 'play-idle')
+  return {
+    claim: 'the answer to the spoken question plays to its end (no self-cut by a late transcript)',
+    ok: Boolean(answerStart && ended && stops.length === 0),
+    detail: answerStart
+      ? `answer play-start@${answerStart.t}, play-stop in window: ${stops.map((e) => e.t).join(', ') || 'none'}, play-idle@${ended && ended.t}, next voice-onset@${nextOnset && nextOnset.t}`
+      : 'no answer audio after the greeting and the voice'
+  }
 }
 
 // The hero mic opens the panel AWAITING a voice start (js/chat.js openPanelAwaitingVoiceStart);
@@ -376,6 +412,7 @@ async function greetingAndNavigation (page) {
   out.push({ claim: 'the hero mic starts a Live session (socket opens, setup completes)', ok: Boolean(first('ws-open') && first('setupComplete')), detail: JSON.stringify(ev.slice(0, 6)) })
   out.push({ claim: 'the model greets (audio arrives, first turn completes)', ok: Boolean(first('model-audio') && firstTurn), detail: `said: ${said.slice(0, 160)}` })
   out.push(...bargeInClaims(ev))
+  out.push(answerPlaysToItsEnd(ev))
   const audio = await evaluate(page, () => ({ frames: window.__vpAudioFrames || 0, peak: window.__vpPeak || 0 }))
   out.push({ claim: 'mic audio is streamed to the model, and it is not silence', ok: audio.frames > 10 && audio.peak > 1000, detail: JSON.stringify(audio) })
   out.push({ claim: 'the model hears the spoken request through the mic', ok: /work/i.test(heard), detail: `heard: ${heard.slice(0, 160)}` })
