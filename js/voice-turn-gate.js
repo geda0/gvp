@@ -36,3 +36,8 @@ export function nextTurnGate(state, event) {
 export function acceptsTurnOutput(state) {
   return state !== CANCELLED
 }
+
+/** Open with no server turn in flight - the only state a 'voice_local' cut may act in. */
+export function isIdleGate(state) {
+  return state === IDLE
+}

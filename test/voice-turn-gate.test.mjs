@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from '../js/voice-turn-gate.js'
+import * as gate from '../js/voice-turn-gate.js'
+const { freshTurnGate, nextTurnGate, acceptsTurnOutput } = gate
 
 // When the visitor interrupts the voice greeting, does the interrupted turn actually DIE?
 //
@@ -111,4 +112,20 @@ test('the turn gate follows the ADR-0026 table: a local interrupt cancels only a
     'own reply); streaming + localInterrupt must cancel until turnComplete (or the cut-off turn\'s ' +
     'tail keeps playing); the server\'s interrupted is unconditional'
   )
+})
+
+test('isIdleGate is true only when the gate is open with no server turn in flight', () => {
+  // Arrange — critic item 6: the 'voice_local' cut needs to ask "is a server turn in flight?"
+  // without reading the raw state, and without a second gate transition in chat-live.js.
+  const idle = freshTurnGate()
+  const streaming = nextTurnGate(idle, 'turnStarted')
+  const cancelled = nextTurnGate(streaming, 'interrupted')
+
+  // Act
+  const answers = typeof gate.isIdleGate === 'function'
+    ? { idle: gate.isIdleGate(idle), streaming: gate.isIdleGate(streaming), cancelled: gate.isIdleGate(cancelled) }
+    : 'isIdleGate is not exported'
+
+  // Assert — agrees with the table's classification (observe above).
+  assert.deepEqual(answers, { idle: true, streaming: false, cancelled: false })
 })

@@ -555,6 +555,64 @@ for (const [pathName, permission] of [['cold', 'prompt'], ['warm', 'granted']]) 
   })
 }
 
+// #25 BY VOICE over an already-delivered tail: Live sends audio faster than real time, so its
+// turnComplete often lands while the player still has seconds queued. The server then has no
+// turn to interrupt, and speaking over the tail used to change nothing. The visitor's
+// transcribed speech while the player is still sounding and no server turn is in flight cuts
+// playback locally ('voice_local'); the gate stays idle so the answer plays.
+const SPEECH_SHAPES = {
+  'serverContent.inputTranscription': { serverContent: { inputTranscription: { text: 'Wait, show me Apptio.' } } },
+  'root inputTranscription': { inputTranscription: { text: 'Wait, show me Apptio.' } }
+}
+for (const [shape, speech] of Object.entries(SPEECH_SHAPES)) {
+  test(`speaking over a fully-delivered greeting tail stops it locally, and the answer plays (${shape})`, async () => {
+    // Arrange — the greeting is fully delivered (turnComplete) but two chunks still sound.
+    const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+    let observed = null
+    try {
+      await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+      await v.send({ serverContent: { turnComplete: true } })
+      const playingBefore = v.audio.playing()
+
+      // Act — the visitor speaks; Live transcribes it, then answers (no `interrupted`: there
+      // was no server turn to interrupt).
+      await v.send(speech)
+      const playingAfterSpeech = v.audio.playing()
+      await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+      observed = { playingBefore, playingAfterSpeech, answerPlaying: v.audio.playing() }
+    } finally { v.live.dispose() }
+
+    // Assert
+    assert.deepEqual(
+      observed,
+      { playingBefore: 2, playingAfterSpeech: 0, answerPlaying: 1 },
+      'the visitor\'s voice must cut the sounding tail even after the server\'s turnComplete ' +
+      '(invariant #25 by voice), without shutting the gate on the answer'
+    )
+  })
+}
+
+test('a late transcript of the visitor\'s question arriving while the answer streams does not cut the answer', async () => {
+  // Arrange — Live's inputTranscription lags: the answer is already streaming (a server turn
+  // in flight) when the last fragment of the question that prompted it lands.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+
+    // Act
+    await v.send({ serverContent: { inputTranscription: { text: ' about his work?' } } })
+
+    observed = v.audio.playing()
+  } finally { v.live.dispose() }
+
+  // Assert — only an idle gate is the client's to cut; a turn in flight is the server's.
+  assert.equal(observed, 3, 'the voice_local cut must not fire while a server turn is in flight')
+})
+
 test('a chunk accepted just before an interrupt never starts playing after it (enqueue epoch)', async () => {
   // Arrange — the player's AudioContext starts suspended (autoplay policy), so enqueue is
   // parked on `await resume()` with a chunk the gate already accepted.

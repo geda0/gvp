@@ -7,7 +7,7 @@ import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { shouldRevealResumeButton } from './voice-resume-button.js'
 import { hasNavPromiseGap } from './nav-promise-gap.js'
-import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
+import { freshTurnGate, nextTurnGate, acceptsTurnOutput, isIdleGate } from './voice-turn-gate.js'
 import { subscribe as subscribeSiteState, getSiteStateForWire, siteStateWireIfNotable } from './site-state.js'
 import { createSiteStateNotifier } from './site-state-notes.js'
 
@@ -471,6 +471,11 @@ class PcmJitterPlayer {
     this.scheduledEnd = startAt + buffer.duration
   }
 
+  /** True while any chunk is queued or sounding. */
+  isPlaying() {
+    return this.sources.length > 0
+  }
+
   close() {
     this.interrupt()
     if (this.ctx) this.ctx.close().catch(() => {})
@@ -689,7 +694,8 @@ export function bindChatLiveVoice(opts) {
 
   // ADR-0026 §3 / invariant #25 — the ONLY place playback is cut and the turn gate cancelled.
   // reason: 'server' (Live's own `interrupted`) | 'user_text' (a chip or text turn into the
-  // call) | 'mic_tap' (mic tap on an open session whose mic is not live). A server interrupt
+  // call) | 'mic_tap' (mic tap on an open session whose mic is not live) | 'voice_local' (the
+  // visitor speaks over a tail the server already finished sending). A server interrupt
   // is unconditional; a local one cancels the gate only while a server turn is in flight, so
   // the reply to the act that cut the assistant off is never dropped. A second door (another
   // player.interrupt() or 'interrupted' gate event in this file) fails a source test.
@@ -697,6 +703,15 @@ export function bindChatLiveVoice(opts) {
     turnGate = nextTurnGate(turnGate, reason === 'server' ? 'interrupted' : 'localInterrupt')
     player?.interrupt()
     turnInterrupted = true
+  }
+
+  // #25 by voice over a fully-delivered tail: Live sends audio faster than real time, so its
+  // turnComplete often lands while the player still has seconds queued, and with no server
+  // turn in flight there is nothing for Live to interrupt. The visitor's transcribed speech
+  // then cuts playback locally. Only while NO turn is in flight (an idle gate); a turn in
+  // flight is the server's to interrupt, and its own `interrupted` follows.
+  const cutSoundingTailOnSpeech = () => {
+    if (isIdleGate(turnGate) && player?.isPlaying()) interruptAssistant('voice_local')
   }
 
   /** A canned text turn (a project chip's prompt) into the live call: stop the assistant
@@ -980,6 +995,7 @@ export function bindChatLiveVoice(opts) {
     const rootIn = msg.inputTranscription?.text
     const rootOut = msg.outputTranscription?.text
     if (rootIn) {
+      cutSoundingTailOnSpeech()
       patchUserText(rootIn)
       userSpokeAfterGreeting = true
       clearWarmFollowupTimer()
@@ -998,6 +1014,7 @@ export function bindChatLiveVoice(opts) {
       }
 
       if (sc.inputTranscription?.text) {
+        cutSoundingTailOnSpeech()
         patchUserText(sc.inputTranscription.text)
         userSpokeAfterGreeting = true
         clearWarmFollowupTimer()
