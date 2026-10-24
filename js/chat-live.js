@@ -293,6 +293,21 @@ function voiceCaptureGateMessage() {
   return ''
 }
 
+/** The one getUserMedia request, identical on every call (a changing constraint must never be
+ *  why a browser asks again — design-notes P1). Frozen so nothing can drift it at runtime. */
+const MIC_CONSTRAINTS = Object.freeze({
+  audio: Object.freeze({
+    echoCancellation: true,
+    noiseSuppression: true,
+    channelCount: 1
+  }),
+  video: false
+})
+
+function releaseStream(acquired) {
+  try { acquired?.getTracks().forEach((t) => t.stop()) } catch (_) {}
+}
+
 function micAccessUserMessage(error) {
   const name = error && typeof error === 'object' ? error.name : ''
   if (name === 'NotAllowedError' || name === 'SecurityError') {
@@ -656,6 +671,9 @@ export function bindChatLiveVoice(opts) {
   let conversationGreeted = false
   /** Closes a session that opened but never had its mic attached. */
   let noMicIdleTimer = null
+  /** Bumped by every stop that ends a start (ADR-0028 §3.2 stale-start guard): an await in
+   *  startVoice that comes back to a different epoch belongs to a call the visitor ended. */
+  let startEpoch = 0
   /** Fires the "tell them what they can ask" follow-up on warm sessions. */
   let warmFollowupTimer = null
 
@@ -812,7 +830,10 @@ export function bindChatLiveVoice(opts) {
     }
   }
 
-  const stopVoiceInternal = ({ silent } = {}) => {
+  // `retrying` = the connect loop tearing down a failed attempt before its next round; the
+  // start it belongs to is still current. Every other stop ends the start (bumps the epoch).
+  const stopVoiceInternal = ({ silent, retrying = false } = {}) => {
+    if (!retrying) startEpoch += 1
     if (userBubble || assistantBubble) finalizeTurn()
 
     clearVoiceTimers()
@@ -1138,13 +1159,23 @@ export function bindChatLiveVoice(opts) {
   const openVoiceSessionInternal = async () => {
     const root = resolveChatApiBase().replace(/\/+$/, '')
     const postUrl = `${root}/api/live/session`
+    // The visitor can end the start while the mint is in flight; nothing after it may open a
+    // socket for a call that is already over.
+    const epoch = startEpoch
+    const abortIfStale = () => {
+      if (epoch === startEpoch) return
+      const err = new Error('Voice stopped')
+      err.name = 'LiveSetupAbort'
+      throw err
+    }
 
     for (let connectRound = 0; connectRound <= VOICE_CONNECT_MAX_ROUNDS; connectRound++) {
       if (connectRound > 0) {
-        stopVoiceInternal({ silent: true })
+        stopVoiceInternal({ silent: true, retrying: true })
         setStatus(`Reconnecting voice… (attempt ${connectRound + 1}/${VOICE_CONNECT_MAX_ROUNDS + 1})`)
         trackEvent('chat_live_connect_retry', { round: connectRound })
         await sleep(VOICE_CONNECT_ROUND_BACKOFF_MS[connectRound - 1] || 1600)
+        abortIfStale()
       }
 
       let body
@@ -1161,6 +1192,7 @@ export function bindChatLiveVoice(opts) {
         }
         throw sessionErr
       }
+      abortIfStale()
 
       const { websocketUrl, handshake } = body
       const wsUrlStr = String(websocketUrl)
@@ -1259,7 +1291,7 @@ export function bindChatLiveVoice(opts) {
               latchRejected = rejectPendingSetupLatch(err)
             }
             if (markHostBlocked) voiceUnavailableOnHost = true
-            stopVoiceInternal({ silent: true })
+            stopVoiceInternal({ silent: true, retrying: !ready })
             if (!ready && !latchRejected) {
               setStatus(closeMsg, 'error')
               trackEvent('chat_live_error', { phase: 'ws_closed_before_ready', code })
@@ -1272,11 +1304,11 @@ export function bindChatLiveVoice(opts) {
         await setupReadyPromise
         return
       } catch (connectErr) {
-        stopVoiceInternal({ silent: true })
-        if (isVoiceRetryableSetupFailure(connectErr, isRelayWsPath)
-          && connectRound < VOICE_CONNECT_MAX_ROUNDS) {
-          continue
-        }
+        const retry = epoch === startEpoch
+          && isVoiceRetryableSetupFailure(connectErr, isRelayWsPath)
+          && connectRound < VOICE_CONNECT_MAX_ROUNDS
+        stopVoiceInternal({ silent: true, retrying: retry })
+        if (retry) continue
         throw connectErr
       }
     }
@@ -1298,19 +1330,26 @@ export function bindChatLiveVoice(opts) {
   const attachMicrophoneOnce = async () => {
     if (active) return
     if (!voiceSessionOpen || !setupDone) throw new Error('voice session not ready')
+    return wireMicrophone(await acquireMicStream())
+  }
 
-    const acquired = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        channelCount: 1
-      },
-      video: false
-    })
-    // The permission prompt can outlive the call: the visitor hangs up, THEN clicks Allow.
-    // Release that stream at once rather than building a pipeline nothing will ever stop.
-    if (!voiceSessionOpen) {
-      try { acquired.getTracks().forEach((t) => t.stop()) } catch (_) {}
+  // ADR-0028 §2: getUserMedia only — no session precondition, so the cold path can raise the
+  // bubble at the tap, in parallel with the connect. ONE in flight: every caller shares it.
+  let micAcquireInFlight = null
+  const acquireMicStream = () => {
+    if (micAcquireInFlight) return micAcquireInFlight
+    // Called synchronously (the executor runs now), so the tap's user activation still holds.
+    micAcquireInFlight = new Promise((resolve) => resolve(navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS)))
+      .finally(() => { micAcquireInFlight = null })
+    return micAcquireInFlight
+  }
+
+  // The pipeline: needs an open, set-up session. A stream that arrives after the call ended is
+  // released at once rather than wired into a pipeline nothing will ever stop.
+  const wireMicrophone = async (acquired) => {
+    if (!voiceSessionOpen || !setupDone || active) {
+      releaseStream(acquired)
+      if (active) return
       throw new Error('voice session ended before the microphone was allowed')
     }
     stream = acquired
@@ -1397,11 +1436,12 @@ export function bindChatLiveVoice(opts) {
     mediaSource.connect(processor)
   }
 
-  /** Public: open session and greet. The mic is requested right after the greeting
-   *  is sent on every path (ADR-0026 §2), so the visitor can talk over it. `intent`
-   *  picks the greeting text and the follow-up nudge: warm = permission already
-   *  granted, cold = not yet granted or unknown. 'auto' detects via the
-   *  Permissions API. */
+  /** Public: open session and greet. `intent` picks the greeting text and the follow-up nudge:
+   *  warm = permission already granted, cold = not yet granted or unknown. 'auto' detects via
+   *  the Permissions API.
+   *  Warm (`granted`): open → greet → attach at once (ADR-0026 §2), as before.
+   *  Otherwise (ADR-0028): mic FIRST — the bubble opens at the tap, the session connects in
+   *  parallel, and the greeting is sent only after the grant, with the mic already wired. */
   const startVoice = async ({ intent = 'auto' } = {}) => {
     if (isTextPending()) {
       setStatus('Wait for the text reply to finish, then try voice.', 'error')
@@ -1440,34 +1480,28 @@ export function bindChatLiveVoice(opts) {
     }
     sessionIntent = resolvedIntent
 
-    try {
-      await openVoiceSessionInternal()
-
-      // Greet only the first time per conversation. Subsequent voice sessions
-      // in the same conversation just listen — the visitor already knows what
-      // we are and a repeat "Hi, I'm your AI Assistant" mid-thread is grating.
+    // Greet only the first time per conversation. Subsequent voice sessions in the same
+    // conversation just listen — a repeat "Hi, I'm your AI Assistant" mid-thread is grating.
+    const greetText = resolvedIntent === 'warm' ? GREETING_TEXT_WARM : GREETING_TEXT_COLD
+    const greet = () => {
       const shouldGreet = !conversationGreeted
-      const greetText = resolvedIntent === 'warm' ? GREETING_TEXT_WARM : GREETING_TEXT_COLD
       greetingTurnComplete = !shouldGreet  // skip the warm follow-up if we didn't greet
       userSpokeAfterGreeting = false
-      if (shouldGreet) {
-        const greetSent = sendGreetingClientContent(greetText)
-        if (!greetSent) {
-          throw new Error('Could not send greeting to voice service.')
-        }
-        conversationGreeted = true
-        chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
+      if (!shouldGreet) return
+      if (!sendGreetingClientContent(greetText)) {
+        throw new Error('Could not send greeting to voice service.')
       }
+      conversationGreeted = true
+      chatBus.emit('streaming', { source: 'chat-live', model: 'live' })
+    }
 
-      // ADR-0026 §2 / invariant #25: the mic is requested right after the greeting is sent on
-      // EVERY path. Never defer it behind the greeting's turnComplete - with no upstream audio
-      // Gemini Live cannot raise `interrupted`, and the greeting becomes un-interruptible. The
-      // permission sheet appearing over the greeting on a first visit is the accepted cost.
-      if (resolvedIntent === 'warm') {
-        // Permission previously granted: attach mic right after greeting starts.
-        // The greeting audio plays while we acquire the stream; both end up
-        // mixed into the same Web Audio context (mic input is muted to local
-        // speakers via the zero-gain node, so there's no feedback loop).
+    try {
+      if (perm === 'granted') {
+        await openVoiceSessionInternal()
+        greet()
+        // ADR-0026 §2 / invariant #25: the mic is requested right after the greeting is sent.
+        // The greeting audio plays while we acquire the stream; mic input is muted to local
+        // speakers via the zero-gain node, so there's no feedback loop.
         try {
           await attachMicrophoneInternal()
           setStatus('Listening… speak about Marwan\'s work.')
@@ -1475,27 +1509,47 @@ export function bindChatLiveVoice(opts) {
           // The visitor hung up while getUserMedia was pending: the call is over, so the late
           // answer must not re-open the UI, report an error, or arm the no-mic sweep.
           if (!voiceSessionOpen) return
-          // Permission "granted" but stream acquisition failed (mic busy, denied,
-          // etc.). Fall back to the cold path: session stays open for the
-          // greeting; visitor can retry by tapping the big mic.
+          // Permission "granted" but stream acquisition failed (mic busy, denied, etc.).
+          // Fall back to the cold path: session stays open for the greeting; visitor can
+          // retry by tapping the big mic.
           sessionIntent = 'cold'
           patchLiveUi({ active: false, connecting: false, sessionOpen: true })
           setStatus(micAccessUserMessage(micErr), 'error')
           scheduleNoMicIdleClose()
         }
-      } else {
-        // Cold path: visitor already tapped Start voice chat — attach mic now.
-        try {
-          await attachMicrophoneInternal()
-          setStatus('Listening… speak about Marwan\'s work.')
-        } catch (micErr) {
-          // Hung up while the permission sheet was open (see the warm branch).
-          if (!voiceSessionOpen) return
-          patchLiveUi({ active: false, connecting: false, sessionOpen: true })
-          setStatus(micAccessUserMessage(micErr), 'error')
-          scheduleNoMicIdleClose()
-        }
+        return
       }
+
+      // ADR-0028 §3.2 — mic first. Both requests go out in this task: the bubble opens at the
+      // tap, and the mint + WebSocket + setup run while the visitor reads it.
+      const epoch = startEpoch
+      const micP = acquireMicStream()
+      const sessionP = openVoiceSessionInternal()
+      sessionP.catch(() => {}) // awaited below only after the grant; never unhandled meanwhile
+      let acquired
+      try {
+        acquired = await micP
+      } catch (micErr) {
+        if (epoch !== startEpoch) return
+        await sessionP
+        if (epoch !== startEpoch) return
+        patchLiveUi({ active: false, connecting: false, sessionOpen: true })
+        setStatus(micAccessUserMessage(micErr), 'error')
+        scheduleNoMicIdleClose()
+        return
+      }
+      if (epoch !== startEpoch) { releaseStream(acquired); return }
+      try {
+        await sessionP
+      } catch (sessionErr) {
+        releaseStream(acquired)
+        throw sessionErr
+      }
+      if (epoch !== startEpoch) { releaseStream(acquired); return }
+      await wireMicrophone(acquired)
+      // The mic is live: the greeting's first frame is heard, so it can be talked over (#25).
+      greet()
+      setStatus('Listening… speak about Marwan\'s work.')
     } catch (error) {
       stopVoiceInternal({ silent: true })
       const ename = error instanceof Error ? error.name : ''
@@ -1550,7 +1604,8 @@ export function bindChatLiveVoice(opts) {
     // "End". startVoice is still awaiting that attach, so without this the tap could only cut
     // playback. stopVoiceInternal ends the call; attachMicrophoneOnce releases a mic the
     // visitor allows afterwards.
-    if (attachInFlight) {
+    // ADR-0028: the cold path's mic-first wait is the same sheet (an acquire with no attach).
+    if (attachInFlight || micAcquireInFlight) {
       trackEvent('chat_live_stop', { reason: 'abort_mic_prompt' })
       stopVoiceInternal({ silent: false })
       setStatus('')
