@@ -1235,6 +1235,9 @@ export function bindChatLiveVoice(opts) {
 
     for (let connectRound = 0; connectRound <= VOICE_CONNECT_MAX_ROUNDS; connectRound++) {
       if (connectRound > 0) {
+        // Every retry teardown first checks the start is still current: an ended start's loop
+        // must not stop `ws` — by now it may be the next call's.
+        abortIfStale()
         stopVoiceInternal({ silent: true, retrying: true })
         setStatus(`Reconnecting voice… (attempt ${connectRound + 1}/${VOICE_CONNECT_MAX_ROUNDS + 1})`)
         trackEvent('chat_live_connect_retry', { round: connectRound })
@@ -1246,11 +1249,13 @@ export function bindChatLiveVoice(opts) {
       try {
         body = await postLiveVoiceSession(postUrl, getSessionId(), {
           onRetry: (attempt, maxAttempts) => {
+            if (epoch !== startEpoch) return // an ended start reports nothing
             setStatus(`Connecting voice… (retry ${attempt}/${maxAttempts})`)
             trackEvent('chat_live_session_retry', { attempt, maxAttempts })
           }
         })
       } catch (sessionErr) {
+        abortIfStale()
         if (isVoiceRetryableError(sessionErr) && connectRound < VOICE_CONNECT_MAX_ROUNDS) {
           continue
         }
