@@ -436,3 +436,26 @@ test('isWideAvailable flips exactly at 840px', async () => {
   assert.equal(isWideAvailable(1920), true)
   assert.equal(isWideAvailable(NaN), false, 'an unmeasured viewport offers no wide card')
 })
+
+test('invariant #27: at every docked width, either size leaves 320px of the site uncovered', async () => {
+  const { dockedCardWidth, DOCK_GUTTER, DOCK_EDGE_INSET, DOCK_MIN_UNCOVERED } = await sizeApi()
+  // The breakpoint the reducer docks at (768, js/chat.js isWideViewport) is CONSISTENT with
+  // the floor, not a second number: 768 - 384 - 2*16 = 352 >= 320. Changing either so that
+  // this breaks has to go red here rather than quietly shipping a card that eats the page.
+  assert.ok(
+    768 - dockedCardWidth({ viewportWidth: 768, size: 'compact' }) - 2 * DOCK_EDGE_INSET >= DOCK_MIN_UNCOVERED,
+    'the 768px docking breakpoint no longer clears the 320px usability floor'
+  )
+  const covered = []
+  for (let vw = 768; vw <= 2560; vw++) {
+    for (const size of ['wide', 'compact']) {
+      const left = vw - dockedCardWidth({ viewportWidth: vw, size }) - 2 * DOCK_GUTTER
+      if (left < DOCK_MIN_UNCOVERED) covered.push(`${size}@${vw}: ${left}px left`)
+    }
+  }
+  assert.deepEqual(
+    covered.slice(0, 5), [],
+    'the docked card covers too much of the site - "the site stays usable" is the owner\'s ' +
+    'constraint on the new default window (#27)'
+  )
+})
