@@ -493,3 +493,20 @@ test('dockedSizeChrome: the effective size is the preference only where wide can
     assert.equal(at(1280, null, 'wide', stage).toggleHidden, true, `toggle hidden in ${stage}`)
   }
 })
+
+test('minimising a focused card hands focus to the resume chip, and only then', () => {
+  // ADR-0027 §5.2. Now that docked is the MAIN window, Escape / the minimise button hide the
+  // composer that holds focus, which drops focus to <body>. A visitor request that leaves a
+  // focused card goes to the "Assistant active" chip - whose click is `restore`.
+  assert.equal(
+    stageChrome('minimized', { requested: true, focusInside: true }).moveFocus, 'resume-chip'
+  )
+  // Every other combination keeps today's 'none': a SYSTEM minimise (contact-open) never
+  // moves focus - the contact dialog is taking it - and focus elsewhere is not ours to move.
+  assert.equal(stageChrome('minimized', { requested: false, focusInside: true }).moveFocus, 'none')
+  assert.equal(stageChrome('minimized', { requested: true, focusInside: false }).moveFocus, 'none')
+  assert.equal(stageChrome('minimized', { focusInside: true }).moveFocus, 'none')
+  // And focusInside means nothing to the other stages.
+  assert.equal(stageChrome('docked', { requested: true, focusInside: true }).moveFocus, 'composer')
+  assert.equal(stageChrome('docked', { focusInside: true }).moveFocus, 'none')
+})

@@ -256,6 +256,20 @@ export function dockedSizeChrome ({ stage, viewportWidth, preferred, besideDialo
 }
 
 /**
+ * Where focus goes on entering a yielded stage.
+ *  - `docked` by REQUEST focuses the composer; `docked` by yield does not.
+ *  - `minimized` by request FROM A FOCUSED CARD (ADR-0027 §5.2) hands focus to the resume
+ *    chip: the pill has no composer, and now that docked is the main window, Escape or the
+ *    minimise button would otherwise drop focus to <body>. A system minimise (contact-open)
+ *    never moves it - the contact dialog is taking focus.
+ */
+function yieldedFocus (stage, opts) {
+  const requested = Boolean(opts && opts.requested)
+  if (stage === 'docked') return requested ? 'composer' : 'none'
+  return requested && opts.focusInside ? 'resume-chip' : 'none'
+}
+
+/**
  * The normative accessibility contract per stage (§4.4), as data.
  *
  * `opts.requested` says the visitor ASKED for this stage rather than being yielded into it,
@@ -271,7 +285,8 @@ export function dockedSizeChrome ({ stage, viewportWidth, preferred, besideDialo
  * is the cell most likely to be wrong.
  *
  * @param {ChatStage} stage
- * @param {{requested?: boolean}} [opts]
+ * @param {{requested?: boolean, focusInside?: boolean}} [opts] `focusInside`: was
+ *   document.activeElement inside the panel BEFORE this stage applied (the glue measures it).
  */
 export function stageChrome (stage, opts) {
   switch (stage) {
@@ -308,9 +323,7 @@ export function stageChrome (stage, opts) {
         backdropHidden: true,
         scrollLock: false,
         ariaModal: 'false',
-        // `docked` by REQUEST focuses the composer; `docked` by yield does not, and a
-        // minimized pill has no composer to focus either way.
-        moveFocus: stage === 'docked' && opts && opts.requested ? 'composer' : 'none',
+        moveFocus: yieldedFocus(stage, opts),
         pointerEventsOnShell: 'none'
       }
     default:
