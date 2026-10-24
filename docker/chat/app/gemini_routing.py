@@ -338,12 +338,15 @@ class GeminiRoutingChain:
         from app.upstream_errors import (
             is_upstream_rate_limit,
             is_upstream_retryable,
+            is_upstream_unavailable,
         )
 
-        order = self._model_order()
+        pending = self._model_order()
+        primary_retried = False
         last_exc: BaseException | None = None
-        for idx, model_id in enumerate(order):
-            is_last = idx == len(order) - 1
+        while pending:
+            model_id = pending.pop(0)
+            is_last = not pending
             chain = self._build_chain(model_id)
             try:
                 # ADR-0026 §4.2: a whole response per attempt, every attempt capped.
@@ -360,7 +363,7 @@ class GeminiRoutingChain:
                 logger.warning(
                     'gemini timeout model=%s remaining_attempts=%s',
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(
@@ -383,10 +386,19 @@ class GeminiRoutingChain:
                     raise
                 if model_id == self.primary_id and is_upstream_rate_limit(e):
                     note_primary_rate_limited()
+                if (
+                    model_id == self.primary_id
+                    and not primary_retried
+                    and is_upstream_unavailable(e)
+                ):
+                    primary_retried = True
+                    pending.insert(0, model_id)
+                    await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
+                    continue
                 logger.warning(
                     'gemini rate_limited model=%s remaining_attempts=%s',
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(

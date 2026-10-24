@@ -775,3 +775,51 @@ async def test_astream_primary_503_is_retried_once_on_the_primary_then_falls_bac
     assert "".join(c.text for c in chunks) == "from-fallback"
     assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
     assert log[1][1] == pytest.approx(0.3, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_astream_fallback_first_order_still_retries_a_primary_503_once(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3, the fallback-preferred order: fallback -> primary ->
+    [primary, only after a 503]. The retry follows the primary wherever it sits,
+    is taken at most once, and a retried 503 sets no fallback preference beyond
+    the one already in force (ADR-0023 §4.3)."""
+    from app import gemini_limit_state
+
+    virtual_clock()
+    gemini_limit_state.note_primary_rate_limited()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableFirstChunk(), "m-fallback": _RateLimitFirstChunk()},
+        log,
+    )
+
+    with pytest.raises(UpstreamError):
+        async for _ in _chain().astream({"messages": []}):
+            pass
+
+    assert [mid for mid, _t in log] == ["m-fallback", "m-primary", "m-primary"]
+    assert gemini_limit_state.primary_rate_limit_hits_today() == 1
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_primary_503_is_retried_once_on_the_primary_then_falls_back(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3 on the non-streaming path (the two paths stay symmetric,
+    ADR-0023 §3): primary 503 -> primary again after 0.3 s -> fallback."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableInvoke(), "m-fallback": _OkInvoke()},
+        log,
+    )
+
+    result = await _chain().ainvoke({"messages": []})
+
+    assert result.content == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
+    assert log[1][1] == pytest.approx(0.3, abs=0.01)
