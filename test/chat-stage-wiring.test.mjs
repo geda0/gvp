@@ -1075,3 +1075,32 @@ test('ADR-0029 §6.2: Escape minimises a docked card only when focus is inside t
 function makeElLike () {
   return { closest: () => null, focus () {}, blur () {} }
 }
+
+test('ADR-0029 addendum: narrowing below 1016 with a dialog open tucks the docked card; widening does not promote it; closing returns it docked', async (t) => {
+  // A resize used to clear the reserve and leave a docked card blurred under the scrim - the
+  // very bug this ADR fixes, reached by dragging the window edge.
+  const h = await bootDocked(t, 'resize-tuck', 1440)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'harness: reserved at 1440')
+
+  window.innerWidth = 1000
+  h.winEvents.fire('resize', {})
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, reserveOf(), h.dialog.dataset.chatBeside],
+    ['minimized', '', 'false'], '1000 with the dialog open: tucked into the pill, nothing reserved')
+
+  window.innerWidth = 1440
+  h.winEvents.fire('resize', {})
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'minimized', 'widening is not consent: the pill stays a pill')
+
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(
+    [h.siteState.getSiteState().chatStage, h.dialog.dataset.chatSize],
+    ['docked', 'wide'], 'closing the dialog returns the card docked at the stored size')
+  assert.deepEqual(h.stops, [], 'invariant #20: no resize ends the call')
+  assert.equal(h.api.liveVoice.isSessionOpen(), true)
+})

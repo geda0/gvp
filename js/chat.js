@@ -1114,7 +1114,15 @@ export function initChat() {
 
   // A resize re-resolves the EFFECTIVE size (wide <-> compact across 840px); the preference
   // is untouched, so widening again brings wide back on its own.
-  window.addEventListener('resize', () => { applyChatSize() }, { passive: true })
+  //
+  // ADR-0029 addendum: a docked card whose dialog no longer leaves its column (a narrowing
+  // past 1016) re-runs the project-open rule and tucks into the pill - never left docked under
+  // the scrim. Docked only: a chip's modal is not re-decided by a resize, and widening never
+  // promotes the pill (the visitor's restore, or the dialog closing, brings it back).
+  window.addEventListener('resize', () => {
+    if (chatStage === 'docked' && stageCtx().projectShowing) dispatchStage('project-open', 'system')
+    applyChatSize()
+  }, { passive: true })
 
   // ADR-0027 §4.1: the size toggle. Flips the PREFERENCE, persists it, re-applies the size -
   // and nothing else: no dispatchStage (size is not a stage), no focus() (the button is not
