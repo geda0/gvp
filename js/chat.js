@@ -958,6 +958,10 @@ export function initChat() {
       besideDialogWidth
     })
     dialog.dataset.chatSize = chrome.size
+    // Docked BESIDE a project dialog by request: css/chat.css lifts exactly this card above
+    // the dialog's inset:0 scrim (z 1100), which otherwise covered it (measured, ADR-0027 §9).
+    // It only docks beside when it fits without overlapping the panel, so it covers scrim.
+    dialog.dataset.chatBeside = chatStage === 'docked' && besideDialogWidth !== null ? 'true' : 'false'
     // 0 = unmeasurable: drop the property so the CSS fallback (the shipped compact rule) holds.
     if (chrome.width > 0) dialog.style.setProperty('--chat-dock-width', `${chrome.width}px`)
     else dialog.style.removeProperty('--chat-dock-width')

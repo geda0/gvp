@@ -763,3 +763,38 @@ test('ADR-0027 W7: the open animation hands the panel back to CSS, so a size tog
     'stylesheet\'s size transition for the life of the panel')
   assert.equal(panel.style.transform || 'none', 'none')
 })
+
+test('ADR-0027 §9 drift: a card docked BESIDE a project dialog is marked, so it can sit above the scrim', async (t) => {
+  // MEASURED in the browser journey (W6 beside a project dialog): at 1920x1080 the beside
+  // card is docked at z 1085, and .project-dialog is inset:0 at z 1100 with a 72% scrim +
+  // blur, so elementFromPoint over the card returned the PROJECT DIALOG - a blurred card the
+  // visitor asked for and cannot type into. The card only docks beside when it fits WITHOUT
+  // overlapping the panel, so lifting exactly that case covers scrim, never the dialog.
+  // A YIELD to a project dialog (project-open while docked) is not marked: that card stays
+  // below the dialog the visitor turned to (test/chat-stage-layering.test.mjs).
+  const h = await boot('beside-marked', 1920, { startClosed: true, voice: false })
+  t.after(() => h.api.disposeChatLiveVoice())
+  const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: 739.59, height: 500 }
+  document.querySelector = (sel) => (
+    sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => panelRect } : null
+  )
+  const dialog = h.getEl('chatDialog')
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  h.docEvents.fire('click', {
+    target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
+  })
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'harness: docked beside')
+  assert.equal(dialog.dataset.chatBeside, 'true', 'the beside card must be marked')
+
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.equal(dialog.dataset.chatBeside, 'false', 'and unmarked once the dialog is gone')
+
+  // A plain yield: docked first, THEN a project dialog opens. Not beside by request.
+  h.siteState.setProject({ id: 'gvp', title: 'This site' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked')
+  assert.equal(dialog.dataset.chatBeside, 'false', 'a yielded card stays below the dialog')
+})
