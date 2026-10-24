@@ -4,6 +4,150 @@
 > between cycles lives here. Copy/brand direction for the active milestone is below —
 > read it before building any copy or IA slice.
 
+## 2026-10-24 — mic permission + project dialog beside the chat
+
+**Source:** owner report 2026-10-24 (Chrome desktop, live site), verbatim: *"1. permissions are asked
+every time 2. permissions interfere with the greeting. 3. when we open any details of any project, it
+covers the chat even when the screen has space, it covers everything with the gray overlay."*
+Backlog item: `backlog.md` → "2026-10-24 — mic permission + project dialog beside the chat". Scope is
+**decided** (orchestrator RCA, summarised below) — do not relitigate inside a cycle. Architect owns two
+ADRs in `docs/decisions/` (**mic-first-then-greet**; **a dialog reserves the chat's column**) and any
+invariant edits; where an ADR fixes an exact number, the ADR wins and these bullets follow it.
+Invariant #20 (voice survives) binds every bullet below.
+
+**RCA in one line each.** (#1) Our code asks for the mic only on *Start voice chat*, with stable
+constraints; repeat prompts come from Chrome's one-time "Allow this time" grant (or different
+origins/profiles) — we cannot force persistence, so we **guide** and **measure**. (#2) Measured: the
+mic goes live mid-greeting at the grant and the greeting's own audio leaking into the mic triggers the
+server's barge-in, cutting the greeting (then the model answers its own echo) — fix: **mic first,
+greet after the grant**. (#3) Opening a project from the page never lifts the docked chat (only the
+chip path did), and a centred 740 px dialog leaves no room at 1280–1547 px — fix: **while the chat is
+docked, a project dialog centres in the space left of the chat's column and the chat stays usable
+above the grey overlay**.
+
+**What this supersedes.** G1's cold path ("mic requested immediately; frames sent while the greeting
+plays") keeps *mic immediately* and *barge-in works*, but the greeting now **starts after the grant**,
+not before it. W6's `open-beside` ladder (wide → temporary compact → `modal` by `(vw − dialogWidth)/2`
+side room) is replaced by the reserved-column rule in P3 for **every** dialog-open path, not only the
+chip. Tests that assert the old behaviour are deliberately updated by this feature, not regressions.
+
+**Layer labels:** `[app]` = js/ `node --test` (reducers, geometry, copy, telemetry payload, wiring) ·
+`[qa]` = real-browser journey (`scripts/qa/chat-stage-journeys.mjs` / CDP harness) and the stage voice
+probe · `[human]` = owner on his own Chrome.
+
+### P1 — the mic prompt is explained, and a dismissed prompt is not called "denied" (#1)
+- [ ] `[app]` While the microphone request is pending **and** the permission state before the request
+      was `prompt` or unknown, the voice panel shows exactly: *"Your browser is asking for the
+      microphone — choose “Allow while visiting the site” so we don't ask again."* It is not shown
+      when the state was already `granted` (no bubble) or `denied` (no request). It disappears as soon
+      as the request settles (granted, denied, dismissed, timed out or hung up).
+- [ ] `[app]` When the request is rejected and the permission state **afterwards is still `prompt`**
+      (bubble dismissed / closed with ✕), the panel shows exactly: *"No microphone access yet — tap
+      Start voice chat to be asked again."* — **not** the "denied" copy, and *Start voice chat*
+      remains enabled. When the state afterwards is `denied`, the existing denied copy is shown
+      (unchanged). Both asserted as data on the outcome → copy mapping.
+- [ ] `[app]` Every voice start records one telemetry event carrying `permissionBefore` ∈ {`granted`,
+      `prompt`, `denied`, `unknown`}, `outcome` ∈ {`granted`, `denied`, `dismissed`, `timeout`,
+      `hangup`, `error`}, and the wait in ms from request to settle (0 when no request was made). No
+      audio, transcript text or device ids in the payload. Asserted on the payload for each outcome.
+- [ ] `[app]` The `getUserMedia` constraints are identical on every call (same object shape and
+      values across first start, retry after dismiss, and restart after hang-up) — pinned so a
+      changing constraint can never be a cause of re-prompting.
+- [ ] `[qa]` Stage, Chrome with a fake device and permission state reset to `prompt`: start voice →
+      the hint is visible in the panel within 300 ms of the click; grant → the hint is gone within
+      300 ms of the grant; the telemetry event reaches the stage collector with
+      `permissionBefore: "prompt"`, `outcome: "granted"`.
+- [ ] `[qa]` Same setup, permission pre-granted: start voice → the hint never appears (sampled every
+      100 ms until the greeting starts), event has `permissionBefore: "granted"`, wait `0`.
+
+### P2 — mic first, then the greeting; barge-in still works (#2)
+- [ ] `[app]` Cold path (state `prompt`/unknown): starting voice requests the microphone **and**
+      connects the session **in parallel** (the connect is not deferred behind the grant), but **no
+      greeting audio is requested from or played by the model before the grant resolves**. A wiring
+      test fails if the greeting trigger can fire before the grant on this path.
+- [ ] `[app]` On grant, the mic stream is attached and sending upstream **before** the greeting is
+      triggered — the first greeting audio frame is never played while the mic is not live. An
+      `interrupted` during the greeting still stops playback at once and drops the rest of that turn
+      (G1's barge-in bullets stay green).
+- [ ] `[app]` Granted path (state already `granted`): unchanged — mic attached at session start, the
+      greeting plays, barge-in works (existing tests green unmodified).
+- [ ] `[app]` Denied (bubble denied, or state already `denied`): no voice greeting plays; the panel
+      falls back to text (composer focused, greeting delivered as text in the transcript), the denied
+      affordance is shown, and the voice session is closed (no open upstream socket). See N-P1.
+- [ ] `[app]` Ignored bubble: if the request has not settled after the mic-wait timeout (N-P2;
+      recommend **20 s**), the voice session closes cleanly — socket closed, no greeting played, no
+      orphan audio context running, panel back to a state where *Start voice chat* is enabled and the
+      P1 "no access yet" copy is shown; telemetry `outcome: "timeout"`.
+- [ ] `[app]` Hang-up while the bubble is up: the session closes at once, no greeting plays later, and
+      if a grant arrives after the hang-up its tracks are stopped immediately (no live mic indicator
+      left on); telemetry `outcome: "hangup"`.
+- [ ] `[qa]` Stage voice probe, cold path with an auto-grant delay of 2 s: the first greeting audio
+      frame arrives **≥ the grant time** and **≤ 1.5 s after the grant** (measured ≈ 0.8 s); the
+      greeting plays to its `turnComplete` with **no** `interrupted` when the probe's mic carries
+      only the greeting's own loopback at speaker level (echo control run); with a WAV of speech
+      injected 1 s into the greeting, `interrupted` arrives and playback stops (barge-in held).
+- [ ] `[qa]` Probe variants: deny → no greeting audio, text fallback visible within 1 s; never answer
+      the bubble → session closed by the timeout, no greeting audio ever received; hang up 1 s into
+      the wait → no greeting audio after the hang-up, mic indicator off.
+- [ ] `[human]` Owner, real Chrome, **first visit** (fresh profile or site permissions reset), laptop
+      speakers, no headphones: clicking *Start voice chat* shows **one** browser bubble, the hint is
+      visible in the panel while it is up; after **Allow while visiting the site** the greeting starts
+      within about a second and plays **uncut** to the end; speaking over it then cuts it off. A
+      reload and a second *Start voice chat* does **not** prompt again.
+
+### P3 — a project dialog reserves the chat's column (#3)
+Geometry (architect fixes exact numbers in the ADR): gutter = 20 px; the chat column = the docked
+card at its current size (wide 720 / compact 384) plus its gutters; the **dialog area** = the viewport
+left of that column, `vw − cardWidth − 2×gutter` wide. Wide fits beside a dialog from **≥ 1352 px**
+(1352 − 720 − 40 = 592), compact from **≥ 1016 px** (1016 − 384 − 40 = 592).
+- [ ] `[app]` A pure layout function, given `vw`, the visitor's stored size and the chat stage, returns
+      for a docked chat with a dialog open: `wide` at vw ≥ 1352; `compact` at 1016 ≤ vw < 1352 (even
+      if the stored size is wide); `tucked` (chat → minimized pill) at vw < 1016. Boundary cases
+      asserted as data: 1351/1352, 1015/1016, plus 1280, 1440, 1547, 1920. The stored size preference
+      is never written by this function (W3 preference unchanged after any dialog).
+- [ ] `[app]` The same function returns the dialog's box: horizontally centred (±1 px) in
+      the dialog area `[0, vw − cardWidth − 2×gutter]`, width = min(its normal width, area width −
+      2×gutter) (≥ 552 px at both boundaries), so its right edge is ≥ 20 px left of the card's left
+      edge. At vw 1440 / wide: card left edge 700, area [0, 680], dialog 640 px at x 20–660.
+- [ ] `[app]` Reducer: opening a project dialog from **the page**, from **a chip**, and **opening or
+      restoring the chat while a project dialog is showing** all go through the same rule (no path
+      leaves a docked chat under the overlay). Closing the dialog returns the chat to `docked` at the
+      stored size (and from `tucked`, back to `docked`), never to `closed`.
+- [ ] `[qa]` 1440×900, chat docked wide, open a project from the page's Work section: the chat is
+      still docked wide, **fully visible** (hit-test at its header, transcript, composer and size
+      toggle returns chat elements, not the overlay), the dialog sits entirely left of it with ≥ 20 px
+      gap, no horizontal scroll. Typing and sending a message works; the size toggle works.
+- [ ] `[qa]` Same at 1280×800 (chat shown **compact**, then back to **wide** after the dialog closes
+      when the stored size is wide) and 1547×900 (wide). At 1024×768 compact beside; at 1000×768 the
+      chat is the minimized pill while the dialog is open and returns docked after it closes.
+- [ ] `[qa]` Clicking the grey area **left of** the dialog closes the dialog (chat untouched). Clicking
+      inside the chat never closes the dialog.
+- [ ] `[qa]` While the dialog is open the rest of the page is non-interactive: page links/buttons are
+      not hit-testable, not reachable by Tab, and hidden from the accessibility tree (`inert` or
+      equivalent); Tab moves only between the dialog and the chat; screen-reader tree exposes only
+      those two.
+- [ ] `[qa]` Escape typed in the chat composer does **not** close the project dialog; Escape with
+      focus in the dialog closes the dialog and does **not** minimize the chat.
+- [ ] `[qa]` Voice-survives sweep (#20): with a live call, open a project from the page, from a chip,
+      toggle size, close by grey area, close by Escape, cross the 1016 tuck — the call stays live
+      through each.
+- [ ] `[human]` Owner at **1440** wide on his laptop: a project's details and the chat side by side,
+      grey only over the page left of the dialog, chat readable and usable while reading the project.
+
+### Navigator decisions (flagged; PO recommendation in bold, build may start on it)
+- **N-P1 — already-denied visitors and the greeting.** **Recommend: text fallback with the greeting
+  as text** (same as a bubble deny). Alternative: keep G1's "denied path unchanged" (voice greeting
+  plays, mic off) — but then a denied visitor hears a greeting they cannot answer by voice.
+- **N-P2 — mic-wait timeout for an ignored bubble.** **Recommend 20 s.** Shorter risks closing on a
+  visitor still reading the bubble; longer holds a billed Live session idle.
+- **N-P3 — project chip at < 1016 px.** Scope says the chat tucks into the pill. The chip is an
+  explicit "talk about this" request, so tucking hides what was just asked for. **Recommend: the chip
+  at < 1016 keeps today's modal (chat over the dialog); page-opened dialogs tuck.** Alternative:
+  tuck on every path (scope as written).
+- **N-P4 — persistent permission.** We cannot force "Allow while visiting the site"; if telemetry
+  shows real visitors re-prompting after a `granted` session, the owner may want a pre-prompt
+  explainer before the browser bubble. Not in this slice.
+
 ## 2026-10-24 — wide docked assistant window
 
 **Source:** owner request 2026-10-24, verbatim: *"I like the style of the window that gives space in

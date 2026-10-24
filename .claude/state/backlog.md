@@ -6,6 +6,28 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ---
 
+## 2026-10-24 — mic permission + project dialog beside the chat
+
+> Source: owner report 2026-10-24 (Chrome desktop, live site; verbatim in design-notes). Scope decided
+> by RCA. **Full acceptance bullets live in `design-notes.md` → "2026-10-24 — mic permission +
+> project dialog beside the chat" (P1–P3)**. Architect owns two ADRs (mic-first-then-greet; a dialog
+> reserves the chat's column). Supersedes G1's "greeting plays while the mic is requested" ordering and
+> W6's `open-beside` ladder. Navigator decisions N-P1…N-P4 in design-notes; none blocks the build.
+
+1. **P2 — mic first, then greet** — `[app]` `[qa]` `[human]` — _owner-visible: greeting cut off by its
+   own echo at the grant._ Mic + session connect in parallel; greeting only after the grant
+   (≤ 1.5 s after Allow, measured ≈ 0.8 s) with the mic live so barge-in holds; deny → text fallback;
+   ignored bubble → clean close at the timeout (rec. 20 s); hang-up during the wait.
+2. **P3 — a project dialog reserves the chat's column** — `[app]` `[qa]` `[human]` — every open path
+   (page, chip, chat opened/restored over a project); wide ≥ 1352, compact ≥ 1016 (stored size
+   unchanged), tuck to pill < 1016; grey-left-of-dialog closes; rest of page inert; Escape scoped;
+   voice survives (#20).
+3. **P1 — permission hint, "dismissed" copy, permission telemetry** — `[app]` `[qa]` — hint while the
+   bubble is up; dismissed ≠ denied; `permissionBefore` + `outcome` + wait ms per voice start.
+4. **Owner check (gates prod)** — `[human]` — real Chrome first visit: one bubble, hint visible,
+   greeting after Allow plays uncut on laptop speakers, no re-prompt after reload; 1440 project +
+   chat side by side.
+
 ## 2026-10-24 — wide docked assistant window
 
 > Source: owner request 2026-10-24 (verbatim in design-notes). Owner decisions taken: first open =
