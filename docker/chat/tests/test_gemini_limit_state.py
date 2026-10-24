@@ -62,6 +62,35 @@ def test_a_zero_ttl_disables_the_fallback_preference_but_still_counts(
     assert gls.primary_timeout_hits_today() == 1
 
 
+def test_a_later_note_extends_the_preference_and_never_shortens_it(
+    monkeypatch,
+) -> None:
+    """ADR-0026 §4.4: each note sets expiry = now + TTL; a later note extends it
+    and never shortens it (even if the TTL was lowered in between)."""
+    monkeypatch.delenv('GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES', raising=False)
+    gls.reset_for_tests()
+    gls.note_primary_rate_limited(now=0.0)
+    gls.note_primary_timed_out(now=300.0)
+    monkeypatch.setenv('GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES', '1')
+
+    gls.note_primary_rate_limited(now=400.0)
+
+    assert gls.prefer_fallback_first(now=899.0) is True
+    assert gls.prefer_fallback_first(now=900.0) is False
+
+
+def test_the_ttl_is_clamped_to_one_day(monkeypatch) -> None:
+    """ADR-0026 §4.1: the TTL is clamped to [0, 1440] minutes — a fat-fingered
+    value can at worst restore the old day-long stickiness, never exceed it."""
+    monkeypatch.setenv('GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES', '100000')
+    gls.reset_for_tests()
+
+    gls.note_primary_rate_limited(now=0.0)
+
+    assert gls.prefer_fallback_first(now=1440 * 60.0 - 1.0) is True
+    assert gls.prefer_fallback_first(now=1440 * 60.0) is False
+
+
 def test_an_invalid_ttl_falls_back_to_the_ten_minute_default(monkeypatch) -> None:
     """ADR-0026 §4.1: an unparseable TTL is the default, never a crash in the
     routing path of a live turn."""

@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timezone
 
 _DEFAULT_TTL_MINUTES = 10.0
+_MAX_TTL_MINUTES = 1440.0
 
 _lock = threading.Lock()
 _utc_day: str | None = None
@@ -40,7 +41,7 @@ def _ttl_seconds() -> float:
         minutes = float(raw) if raw else _DEFAULT_TTL_MINUTES
     except ValueError:
         minutes = _DEFAULT_TTL_MINUTES
-    return minutes * 60.0
+    return max(0.0, min(minutes, _MAX_TTL_MINUTES)) * 60.0
 
 
 def _now(now: float | None) -> float:
