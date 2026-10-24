@@ -21,111 +21,117 @@ prod since 2026-10-23, `6a1cb34` → `4118aa3`). **It supersedes** M4's bullet "
 cut off by the mic prompt" — that trade-off is reversed (navigator: see decision N1 below).
 
 ### G1 — cold-path barge-in (voice interrupts the greeting for a first-time visitor)
-- [ ] `[app]` With mic permission `prompt` or unknown and the assistant speaking first, starting
+- [x] `[app]` With mic permission `prompt` or unknown and the assistant speaking first, starting
       voice requests the microphone **immediately** — the request is not deferred to, or gated
       on, the greeting's `turnComplete` (nor on the 15 s fallback).
-- [ ] `[app]` On that cold path, once permission is granted, mic audio frames are sent upstream
+- [x] `[app]` On that cold path, once permission is granted, mic audio frames are sent upstream
       **while the greeting is still playing** (before its `turnComplete`).
-- [ ] `[app]` When `interrupted` arrives during the greeting, local playback stops at once, and
+- [x] `[app]` When `interrupted` arrives during the greeting, local playback stops at once, and
       every further audio frame and output-transcript fragment of **that** turn is dropped —
       nothing of the cut-off greeting plays or is appended after the interruption.
-- [ ] `[app]` The visitor's next turn after the interruption plays normally (the gate re-opens
+- [x] `[app]` The visitor's next turn after the interruption plays normally (the gate re-opens
       on the next turn; no stuck-muted assistant).
-- [ ] `[app]` **Granted path unchanged:** with permission already `granted`, the mic is attached
+- [x] `[app]` **Granted path unchanged:** with permission already `granted`, the mic is attached
       at session start exactly as before, and an `interrupted` during the greeting stops it
       (existing tests stay green unmodified).
-- [ ] `[app]` **Denied path unchanged:** with permission `denied`, no mic is requested, the
+- [x] `[app]` **Denied path unchanged:** with permission `denied`, no mic is requested, the
       greeting plays to completion, the existing denied affordance is shown, and text chat
       works.
-- [ ] `[app]` A wiring test fails if any code path re-introduces a deferral of the mic attach
+- [x] `[app]` A wiring test fails if any code path re-introduces a deferral of the mic attach
       behind the greeting's `turnComplete` on the cold path (the regression is pinned, not
       just the fix).
 
 ### G2 — local interruption by explicit visitor action (no server round-trip)
-- [ ] `[app]` While the assistant is speaking (greeting **or** any later turn), tapping a project
+- [x] `[app]` While the assistant is speaking (greeting **or** any later turn), tapping a project
       chip that sends to the call stops playback locally **before** any server frame is
       received; the remaining audio/transcript of that turn is dropped as in G1.
-- [ ] `[app]` While the assistant is speaking, sending text into the call stops playback locally
+- [x] `[app]` While the assistant is speaking, sending text into the call stops playback locally
       at once, the same way.
-- [ ] `[app]` While the assistant is speaking, tapping the mic control stops playback locally at
+- [x] `[app]` While the assistant is speaking, tapping the mic control stops playback locally at
       once — including on the cold path where the tap also raises the permission sheet (the
       sheet no longer appears over still-playing audio).
-- [ ] `[app]` Each of the three actions above works on **both** cold and warm paths (test matrix:
+- [x] `[app]` Each of the three actions above works on **both** cold and warm paths (test matrix:
       3 actions × {cold, granted}).
-- [ ] `[app]` **Negative:** site navigation that does not address the assistant (scrolling,
+- [x] `[app]` **Negative:** site navigation that does not address the assistant (scrolling,
       opening a section or project dialog, closing a dialog) does **not** stop playback — M2's
       "keeps talking while I navigate" is preserved.
-- [ ] `[app]` After a local stop, the assistant's answer to the visitor's action plays normally
+- [x] `[app]` After a local stop, the assistant's answer to the visitor's action plays normally
       (the local stop does not swallow the next turn's audio).
 
 ### G3 — the stage voice probe holds barge-in (regression net, not slice confirmation)
-- [ ] `[qa]` The stage voice probe runs the **cold** path (permission prompt/unknown) and asserts
+- [x] `[qa]` The stage voice probe runs the **cold** path (permission prompt/unknown) and asserts
       the mic is requested **before** the greeting's `turnComplete` — the old claim "mic is
       requested only AFTER the greeting turn completes" is removed/inverted.
-- [ ] `[qa]` The probe starts the speech WAV **during** the greeting (after the first greeting
+- [x] `[qa]` The probe starts the speech WAV **during** the greeting (after the first greeting
       audio frame, before `turnComplete`) and asserts `interrupted` arrives, and that model
       audio frames for that turn stop after it (a short stated grace, e.g. ≤ 500 ms, for frames
       already in flight).
-- [ ] `[qa]` The old claim "the greeting is not interrupted before it completes" is gone; no
+- [x] `[qa]` The old claim "the greeting is not interrupted before it completes" is gone; no
       remaining probe claim asserts a non-interruptible greeting.
-- [ ] `[qa]` Control run: with a **silent** mic during the greeting, the greeting completes
+- [x] `[qa]` Control run: with a **silent** mic during the greeting, the greeting completes
       (`turnComplete`, no `interrupted`) — the assistant does not barge in on itself through
       its own audio.
-- [ ] `[qa]` Red-proof: the new barge-in claim **fails** when the probe is pointed at the
+- [x] `[qa]` Red-proof: the new barge-in claim **fails** when the probe is pointed at the
       2026-10-23 build (or the current stage before the G1 fix) — recorded in the slice's
       evidence.
 - [ ] `[qa]` `[human-staging GATED]` _(PO-added)_ The owner, as a first-time visitor on stage
       (fresh profile, permission not yet granted), starts voice, accepts the prompt, speaks over
       the greeting, and the greeting stops. **Gates G1 to prod.** No agent ticks this.
+      _PO 2026-10-24 (po-1024): **still OPEN, not ticked.** The navigator's explicit instruction
+      ("validate stage, then deploy prod") overrides this gate for this release; the check moves to
+      the post-release follow-ups in backlog.md together with the echo/real-speaker checks._
 
 ### L1 — routing does not amplify stalls
-- [ ] `[chat]` With `GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS` unset, the per-attempt first-chunk budget
+- [x] `[chat]` With `GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS` unset, the per-attempt first-chunk budget
       is **5 s** (env var still overrides; still capped under the total budget).
-- [ ] `[chat]` **Every** attempt is capped, including the last: a final attempt that yields no
+- [x] `[chat]` **Every** attempt is capped, including the last: a final attempt that yields no
       first chunk within the budget ends the turn with the existing honest upstream-unavailable
       error — no uncapped last attempt (today's 19 s stall).
-- [ ] `[chat]` A primary `503`/`UNAVAILABLE` on the first attempt is retried **once on the
+- [x] `[chat]` A primary `503`/`UNAVAILABLE` on the first attempt is retried **once on the
       primary**; if that retry also fails retryably, the turn falls back to the secondary. A
       primary `429` is not retried on the primary (goes straight to fallback, as today).
-- [ ] `[chat]` A primary first-chunk timeout or `429` makes the container prefer the fallback
+- [x] `[chat]` A primary first-chunk timeout or `429` makes the container prefer the fallback
       for a **bounded window of minutes** (default 5 min, configurable), not the rest of the UTC
       day; the first turn after the window tries the primary first again. A `503` still sets no
       preference.
-- [ ] `[chat]` Alert text names the model that **actually** failed and the model **actually**
+      _PO: accepted on behaviour (minutes-bounded, not UTC day). Shipped default is **10 min**
+      (ADR-0026 §4), not the 5 min written here — N2 is still unconfirmed by the navigator; it is
+      env-configurable (`GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES`), so no code change either way._
+- [x] `[chat]` Alert text names the model that **actually** failed and the model **actually**
       tried next — including in fallback-first order (never "X stalled; switching to X").
-- [ ] `[chat]` Invariant #9 holds: once any chunk has been yielded, a later error propagates — no
+- [x] `[chat]` Invariant #9 holds: once any chunk has been yielded, a later error propagates — no
       retry, no second model call, no duplicated text; non-retryable errors (401/403/400/404/
       unknown) are still never retried on either model.
-- [ ] `[chat]` **Worst-case bound, warm container:** the visitor gets either a first token or the
+- [x] `[chat]` **Worst-case bound, warm container:** the visitor gets either a first token or the
       honest error within **≤ 15 s** (≤ 3 capped attempts × 5 s: primary, primary-retry on 503,
       fallback) — down from ~28 s today. A test drives the all-stall case with a fake clock and
       asserts the bound. (Cold adds init time — see L2/L3.)
-- [ ] `[chat]` Per-turn telemetry still records `firstTokenLatencyMs` and `fallbackUsed`, and
+- [x] `[chat]` Per-turn telemetry still records `firstTokenLatencyMs` and `fallbackUsed`, and
       now distinguishes a primary retry from a fallback.
 
 ### L2 — prewarm on chat intent
-- [ ] `[app]` Opening the chat (or the launcher intent the architect specifies) sends **one**
+- [x] `[app]` Opening the chat (or the launcher intent the architect specifies) sends **one**
       warm request; it carries a valid CloudFront payload digest (same digest rule as a chat
       turn — the warm path is not a digest bypass).
-- [ ] `[app]` At most one warm per page load: re-opening the chat, or opening it again within
+- [x] `[app]` At most one warm per page load: re-opening the chat, or opening it again within
       5 min of a warm, sends none. A warm that fails is silent to the visitor (no error UI, no
       retry storm) and does not delay or block the visitor's first real message.
-- [ ] `[chat]` A warm request starts the stream Lambda and builds the model client **without
+- [x] `[chat]` A warm request starts the stream Lambda and builds the model client **without
       any Gemini call** (fake client asserts zero generate/stream calls) and returns 2xx
       quickly (target < 1 s on a warm container).
-- [ ] `[chat]` A warm request writes **no transcript turn**, is not counted as a chat turn in the
+- [x] `[chat]` A warm request writes **no transcript turn**, is not counted as a chat turn in the
       admin Assistant tab or the daily report, and does not consume the chat-turn rate-limit
       window.
-- [ ] `[chat]` A warm request with a missing/invalid digest is rejected exactly like a chat turn
+- [x] `[chat]` A warm request with a missing/invalid digest is rejected exactly like a chat turn
       with one.
-- [ ] `[qa]` On stage, after the stream Lambda has gone cold, opening the chat and then sending
+- [x] `[qa]` On stage, after the stream Lambda has gone cold, opening the chat and then sending
       the first message shows no cold-start init in that message's REPORT (the warm absorbed it).
 
 ### L3 — warm after deploy, and a cacheable stream image
-- [ ] `[ops]` After each stage and each prod deploy, the workflow sends **one** warm request to
+- [x] `[ops]` After each stage and each prod deploy, the workflow sends **one** warm request to
       that environment; a non-2xx or timeout **fails the job** with a message naming the
       environment.
-- [ ] `[ops]` The stream image (`docker/chat/Dockerfile.lambda-stream`) pins its base image by
+- [x] `[ops]` The stream image (`docker/chat/Dockerfile.lambda-stream`) pins its base image by
       `@sha256:` digest; a check fails the build if the `FROM` is a floating tag.
 - [ ] `[ops]` Two consecutive deploys with no dependency change push **no new base or pip
       layers** — only the application layer changes (evidence: ECR layer digests or the push
