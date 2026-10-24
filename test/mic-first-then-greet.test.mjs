@@ -583,4 +583,21 @@ test('telemetry: a warm start (already granted) waits 0 ms, and chat_live_start 
     )
   } finally { v.live.dispose() }
 })
+test('telemetry: chat_voice_start is emitted by startVoice only — the Start tap in chat.js no longer sends its own', async () => {
+  // Arrange — js/chat.js with comments stripped.
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../js/chat.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+
+  // Act
+  const tapEmits = [...src.matchAll(/trackEvent\(\s*['"]chat_voice_start['"]/g)].length
+
+  // Assert
+  assert.equal(
+    tapEmits, 0,
+    'ADR-0028 §5 + addendum: two emitters would double-count every start, and the tap\'s copy ' +
+    'carries no permissionBefore / outcome'
+  )
+})
 //@@END

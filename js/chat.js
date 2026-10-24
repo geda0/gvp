@@ -2174,7 +2174,7 @@ export function initChat() {
       ) {
         return
       }
-      trackEvent('chat_voice_start', {})
+      // chat_voice_start is emitted by startVoice once the mic question settles (ADR-0028).
       voiceStartRequested = true
       voiceAwaitingStart = false
       voiceStartBtn.disabled = true
