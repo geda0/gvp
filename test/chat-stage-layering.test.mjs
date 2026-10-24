@@ -150,3 +150,21 @@ test('ADR-0027 §4: the docked width has ONE source of truth, --chat-dock-width 
   assert.doesNotMatch(stageBlock, /(?<![\d.])(720px|45rem|320px)/,
     'the wide cap and the uncovered floor live in js/chat-stage.js only')
 })
+
+test('a card docked BESIDE a project dialog sits above its scrim, below the modal chat and the tour', () => {
+  // MEASURED (scripts/qa/chat-stage-journeys.mjs, "W6 beside a project dialog"): at
+  // 1920x1080 elementFromPoint over the beside card returned the PROJECT DIALOG, because the
+  // card was at the yielded 1085 under .project-dialog's inset:0 1100 scrim. ADR-0027 §9 filed
+  // it; this is the fix. ONLY the beside case moves (js/chat.js marks it data-chat-beside
+  // only when the card was measured to fit without overlapping the panel); the yielded rule
+  // above is untouched, so a card the visitor stepped away from still sits under the dialog.
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const beside = zIndexOf(chatCss, "#chatDialog[data-chat-stage='docked'][data-chat-beside='true']")
+  const project = zIndexOf(siteCss, '.project-dialog')
+  const modal = zIndexOf(chatCss, '.chat-dialog')
+  const tour = zIndexOf(chatCss, '.tour-card')
+  assert.ok(beside > project, `beside card (${beside}) must sit above the project dialog scrim (${project})`)
+  assert.ok(beside < modal, `and below a modal chat (${modal})`)
+  assert.ok(beside < tour, `and below the tour card (${tour}), which must stay on top at every stage`)
+})
