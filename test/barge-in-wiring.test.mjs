@@ -305,6 +305,31 @@ test('a chip sent mid-greeting drops the rest of the greeting, audio and transcr
   )
 })
 
+test('interruptAssistant is the single door: nothing else in chat-live.js cuts playback or cancels the gate', async () => {
+  // Arrange — the source, comments stripped, with the door's own body cut out.
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../js/chat-live.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const doorAt = src.indexOf('const interruptAssistant')
+  const doorEnd = src.indexOf('\n  }\n', doorAt)
+  const outsideDoor = src.slice(0, doorAt) + src.slice(doorEnd)
+  const bindAt = outsideDoor.indexOf('export function bindChatLiveVoice')
+
+  // Act — every remaining call that would cut the assistant off.
+  const secondDoors = [
+    ...outsideDoor.slice(bindAt).matchAll(/player\??\.interrupt\(\)|nextTurnGate\([^)]*'(?:interrupted|localInterrupt)'[^)]*\)/g)
+  ].map((m) => m[0])
+
+  // Assert
+  assert.ok(bindAt >= 0 && doorAt > bindAt, 'harness: interruptAssistant must exist inside bindChatLiveVoice')
+  assert.deepEqual(
+    secondDoors, [],
+    'invariant #25 / ADR-0026 §3.1: every cut goes through interruptAssistant(reason) — a second ' +
+    'door is how a new trigger forgets the gate (the tail keeps playing) or the player (it keeps talking)'
+  )
+})
+
 test('a chip that cuts off a greeting already fully delivered still gets its reply played', async () => {
   // Arrange — Live delivers audio faster than real time: the greeting's turnComplete has
   // arrived while its audio is still queued and playing. No server turn is in flight.
