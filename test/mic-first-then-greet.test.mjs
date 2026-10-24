@@ -641,4 +641,24 @@ test('the hint leaves with the bubble: a grant while the session is still connec
     )
   } finally { v.live.dispose() }
 })
-//@@END
+test('cold path: a session that fails after the grant releases the granted mic and shows the connect error', async () => {
+  // Arrange — the visitor allows while the socket is still opening.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    v.gum.allow()
+    await settle()
+
+    // Act — the socket dies before it is ready.
+    v.socket().onclose({ code: 1006, reason: '' })
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { micReleased: v.gum.allTracksStopped(), greetingsSent: v.greetingsSent(), statusKind: v.status().kind },
+      { micReleased: true, greetingsSent: 0, statusKind: 'error' },
+      'ADR-0028 §3.2: no mic may stay on for a call that never came up (the grant is not wasted: ' +
+      'the next tap is warm)'
+    )
+  } finally { v.live.dispose() }
+})

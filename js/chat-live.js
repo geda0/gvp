@@ -518,8 +518,8 @@ class PcmJitterPlayer {
 }
 
 /** Best-effort mic permission state — 'granted' | 'denied' | 'prompt' | 'unknown'.
- *  'granted' picks the warm path; everything else is cold. Both request the mic at
- *  session open (ADR-0026 §2) - on cold, the browser's permission sheet is the consent. */
+ *  'granted' picks the warm path (open → greet → mic, ADR-0026 §2); everything else asks
+ *  for the mic first and greets only after the grant (ADR-0028). */
 async function detectMicPermissionState() {
   try {
     if (typeof navigator === 'undefined' || !navigator.permissions || typeof navigator.permissions.query !== 'function') {
@@ -670,10 +670,9 @@ export function bindChatLiveVoice(opts) {
     if (!turnStartedAt) turnStartedAt = Date.now()
   }
 
-  /** Voice intent for the current session. 'warm' = mic auto-attached after the
-   *  greeting (permission was already granted); 'cold' = greeting plays, mic
-   *  waits for an explicit user tap. Decides whether a follow-up prompt fires
-   *  after the greeting completes and the visitor stays silent. */
+  /** Voice intent for the current session: the permission state at start ('warm' = already
+   *  granted; 'cold' = not, and it stays 'cold' after a cold grant — ADR-0028 §3.4). Picks
+   *  the greeting text and whether the warm follow-up nudge fires after a silent greeting. */
   let sessionIntent = 'cold'
   let greetingTurnComplete = false
   let userSpokeAfterGreeting = false
@@ -1366,8 +1365,8 @@ export function bindChatLiveVoice(opts) {
     }
   }
 
-  /** Get mic permission, build the AudioWorklet (or ScriptProcessor fallback),
-   *  and start streaming PCM frames. Assumes the session is already open. */
+  /** Attach the mic to an open session: acquireMicStream() then wireMicrophone() (ADR-0028 §2).
+   *  The warm path and a mic tap on an open, mic-less session come through here. */
   // ONE attach in flight at a time (M4 critic): a manual mic tap during the greeting and the
   // start-of-session attach can both reach getUserMedia - `active` is still false
   // while the browser's permission prompt is open - and the first stream was overwritten and
