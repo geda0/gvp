@@ -707,3 +707,24 @@ async def test_first_chunk_budget_defaults_to_five_seconds(
     assert "".join(c.text for c in chunks) == "from-fallback"
     assert fallback.started_at == pytest.approx(5.0, abs=0.01)
     assert clock.now == pytest.approx(5.0, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_every_ainvoke_attempt_is_capped_at_a_third_of_the_deadline(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.2: a first-chunk cap means nothing for a whole response, so on
+    the non-streaming path EVERY attempt — the last included — is capped at
+    total_timeout / MAX_MODEL_ATTEMPTS. Both models hanging under a 30 s deadline
+    end the turn with asyncio.TimeoutError at exactly 2 x 10 s."""
+    clock = virtual_clock()
+    chain = _chain(30.0)
+    fakes = {"m-primary": _HangInvoke(), "m-fallback": _HangInvoke()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    with pytest.raises(asyncio.TimeoutError):
+        await chain.ainvoke({"messages": []})
+
+    assert clock.now == pytest.approx(20.0, abs=0.01)

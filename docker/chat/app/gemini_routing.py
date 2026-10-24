@@ -345,13 +345,11 @@ class GeminiRoutingChain:
             is_last = idx == len(order) - 1
             chain = self._build_chain(model_id)
             try:
-                if is_last:
-                    out = await chain.ainvoke(inp, config=config)
-                else:
-                    out = await asyncio.wait_for(
-                        chain.ainvoke(inp, config=config),
-                        timeout=_first_chunk_timeout(self.timeout),
-                    )
+                # ADR-0026 §4.2: a whole response per attempt, every attempt capped.
+                out = await asyncio.wait_for(
+                    chain.ainvoke(inp, config=config),
+                    timeout=self.timeout / MAX_MODEL_ATTEMPTS,
+                )
                 self.last_model_id = model_id
                 return out
             except asyncio.TimeoutError as e:
