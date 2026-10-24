@@ -1546,11 +1546,13 @@ export function bindChatLiveVoice(opts) {
 
       // ADR-0028 §3.2 — mic first. Both requests go out in this task: the bubble opens at the
       // tap, and the mint + WebSocket + setup run while the visitor reads it.
+      // Already 'denied' (N-P1): the browser answers without a bubble, so there is nothing to
+      // explain and no session is minted for an answer that is almost certainly "no".
       const epoch = startEpoch
       const micP = acquireMicStream()
-      const sessionP = openVoiceSessionInternal()
-      sessionP.catch(() => {}) // awaited below only after the grant; never unhandled meanwhile
-      setStatus(MIC_PERMISSION_HINT)
+      const sessionP = perm === 'denied' ? null : openVoiceSessionInternal()
+      sessionP?.catch(() => {}) // awaited below only after the grant; never unhandled meanwhile
+      if (perm !== 'denied') setStatus(MIC_PERMISSION_HINT)
       let acquired
       try {
         acquired = await micP
@@ -1582,7 +1584,8 @@ export function bindChatLiveVoice(opts) {
       }
       if (epoch !== startEpoch) { releaseStream(acquired); return }
       try {
-        await sessionP
+        // A stale 'denied' that the browser granted after all: connect now.
+        await (sessionP || openVoiceSessionInternal())
       } catch (sessionErr) {
         releaseStream(acquired)
         throw sessionErr

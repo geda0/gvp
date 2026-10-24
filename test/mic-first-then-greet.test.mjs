@@ -343,4 +343,34 @@ test('cold path, bubble denied: the call closes with no voice greeting and falls
     )
   } finally { v.live.dispose() }
 })
+test('already denied: no Live session is minted, no hint, and the visitor gets the text fallback at once (N-P1)', async () => {
+  // Arrange — the site's mic permission was blocked on an earlier visit.
+  const v = await bootChat({ permission: 'denied' })
+  try {
+    // Act — tap Start; the browser rejects without a bubble.
+    await v.start()
+    v.gum.reject('NotAllowedError')
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      {
+        sockets: v.sockets.length,
+        hintShown: v.statuses.some((s) => s.text === MIC_PERMISSION_HINT),
+        transcript: v.assistantBubbles(),
+        composerFocused: v.composerFocus.count > 0,
+        status: v.status()
+      },
+      {
+        sockets: 0,
+        hintShown: false,
+        transcript: ['Hi! I\'m Marwan\'s AI assistant. What would you like to know about his work?'],
+        composerFocused: true,
+        status: { text: DENIED_COPY, kind: 'error' }
+      },
+      'ADR-0028 addendum (N-P1): a known block is answered like a bubble Block — and there is no ' +
+      'bubble to explain and nobody to speak to, so no billed session is opened for it'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END
