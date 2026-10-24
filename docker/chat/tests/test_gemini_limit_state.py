@@ -45,3 +45,18 @@ def test_fallback_preference_expires_after_the_default_ten_minute_ttl(
 
     assert gls.prefer_fallback_first(now=1000.0 + 599.0) is True
     assert gls.prefer_fallback_first(now=1000.0 + 600.0) is False
+
+
+def test_a_zero_ttl_disables_the_fallback_preference_but_still_counts(
+    monkeypatch,
+) -> None:
+    """ADR-0026 §4.1: GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES=0 disables the
+    preference — the primary is always tried first — while the daily counters
+    (telemetry, not routing) still record the hit."""
+    monkeypatch.setenv('GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES', '0')
+    gls.reset_for_tests()
+
+    gls.note_primary_timed_out(now=1000.0)
+
+    assert gls.prefer_fallback_first(now=1000.0) is False
+    assert gls.primary_timeout_hits_today() == 1

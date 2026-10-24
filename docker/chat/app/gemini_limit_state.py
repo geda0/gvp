@@ -7,6 +7,7 @@ Telemetry: the ``primary_*_today`` counters stay UTC-daily (admin host-status ca
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -34,7 +35,9 @@ def _sync_day_unlocked() -> None:
 
 
 def _ttl_seconds() -> float:
-    return _DEFAULT_TTL_MINUTES * 60.0
+    raw = os.environ.get('GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES')
+    minutes = float(raw) if raw else _DEFAULT_TTL_MINUTES
+    return minutes * 60.0
 
 
 def _now(now: float | None) -> float:
@@ -44,7 +47,10 @@ def _now(now: float | None) -> float:
 def _prefer_fallback_unlocked(now: float) -> None:
     """Set/extend the preference to ``now + TTL``; a later note never shortens it."""
     global _fallback_until
-    expiry = now + _ttl_seconds()
+    ttl = _ttl_seconds()
+    if ttl <= 0:
+        return
+    expiry = now + ttl
     if _fallback_until is None or expiry > _fallback_until:
         _fallback_until = expiry
 
