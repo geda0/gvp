@@ -67,3 +67,48 @@ test('an interrupted turn drops its whole tail, and the gate re-opens for the ne
     "(or the visitor's question is never answered)",
   )
 })
+
+// ADR-0026 §3.2 (invariant #25): a LOCAL interrupt — a chip, a text turn, a mic tap — may
+// close the gate only while a server turn is in flight. Gemini Live delivers audio faster than
+// real time, so the server's turnComplete often lands while the player still has seconds
+// queued; cancelling the gate then would drop every chunk of the chip's OWN reply, because
+// nothing re-opens it until the next turnComplete. So the gate learns one distinction (is a
+// turn in flight?) and two events (turnStarted, localInterrupt).
+//
+// The state stays opaque. Each cell is read back through the public predicate only:
+// `cancelled` refuses output; `streaming` accepts output but a localInterrupt would cancel
+// it; `idle` accepts output and survives a localInterrupt.
+const observe = (state) => {
+  if (!acceptsTurnOutput(state)) return 'cancelled'
+  return acceptsTurnOutput(nextTurnGate(state, 'localInterrupt')) ? 'idle' : 'streaming'
+}
+
+test('the turn gate follows the ADR-0026 table: a local interrupt cancels only a turn in flight', () => {
+  // Arrange — one state of each kind, reached only through the public events.
+  const idle = freshTurnGate()
+  const streaming = nextTurnGate(idle, 'turnStarted')
+  const cancelled = nextTurnGate(streaming, 'interrupted')
+  const events = ['turnStarted', 'localInterrupt', 'interrupted', 'turnComplete']
+
+  // Act
+  const table = {}
+  for (const [name, state] of Object.entries({ idle, streaming, cancelled })) {
+    table[name] = Object.fromEntries(events.map((e) => [e, observe(nextTurnGate(state, e))]))
+  }
+
+  // Assert — §3.2, every cell.
+  assert.deepEqual(
+    { start: observe(idle), table },
+    {
+      start: 'idle',
+      table: {
+        idle: { turnStarted: 'streaming', localInterrupt: 'idle', interrupted: 'cancelled', turnComplete: 'idle' },
+        streaming: { turnStarted: 'streaming', localInterrupt: 'cancelled', interrupted: 'cancelled', turnComplete: 'idle' },
+        cancelled: { turnStarted: 'cancelled', localInterrupt: 'cancelled', interrupted: 'cancelled', turnComplete: 'idle' }
+      }
+    },
+    'idle + localInterrupt must stay accepting (or the chip that cut a drained greeting loses its ' +
+    'own reply); streaming + localInterrupt must cancel until turnComplete (or the cut-off turn\'s ' +
+    'tail keeps playing); the server\'s interrupted is unconditional'
+  )
+})
