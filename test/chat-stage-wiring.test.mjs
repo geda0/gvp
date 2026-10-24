@@ -119,6 +119,10 @@ test('the DOM agrees with the stage from boot, before anything is opened', async
     'is written against, and an unset one silently falls back to the modal styling'
   )
   assert.deepEqual(readChrome(getEl), expectedChrome('closed'))
+  // ADR-0027 §4: data-chat-size is ALWAYS set, so CSS never sees it missing, and the size
+  // toggle starts hidden (it exists only on the docked card).
+  assert.equal(getEl('chatDialog').dataset.chatSize, 'wide', 'data-chat-size must be set from init')
+  assert.equal(getEl('chatDialog').querySelector('[data-chat-size-toggle]').hidden, true)
 })
 
 test('a navigation while the panel is modal yields the stage instead of closing it', async (t) => {

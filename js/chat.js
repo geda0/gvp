@@ -1043,6 +1043,7 @@ export function initChat() {
   // exist, and every stage rule in css/chat.css had no hook to match. No store write here:
   // 'closed' is already the initial value, so a write would be a same-value no-op anyway.
   applyStageChrome('closed')
+  applyChatSize()
 
   // M4 slice 15 (ADR-0017 §6): the launcher chip. Reads chatStage and voiceActive ONLY - a
   // label that changed as the visitor browsed would be the opposite of "your conversation is
