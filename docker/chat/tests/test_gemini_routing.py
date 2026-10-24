@@ -843,3 +843,41 @@ async def test_astream_primary_429_is_not_retried_on_the_primary(
 
     assert "".join(c.text for c in chunks) == "from-fallback"
     assert [mid for mid, _t in log] == ["m-primary", "m-fallback"]
+
+
+class _OkPrimaryStream:
+    def astream(self, _payload, config=None):
+        async def gen():
+            yield MsgChunk(text="from-primary")
+
+        return gen()
+
+
+@pytest.mark.asyncio
+async def test_switch_alert_names_the_model_that_failed_and_the_one_tried_next(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Design-notes L1: in the fallback-first order a stalled FALLBACK hands the
+    turn to the PRIMARY, and the alert must say exactly that — never
+    "m-fallback stalled; switching to m-fallback"."""
+    from app import alerts, gemini_limit_state
+
+    virtual_clock()
+    gemini_limit_state.note_primary_rate_limited()
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        alerts, "fire_alert", lambda kind, summary, detail="": fired.append((kind, summary))
+    )
+    _install(
+        monkeypatch,
+        {"m-primary": _OkPrimaryStream(), "m-fallback": _HangFirstChunk()},
+        [],
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-primary"
+    assert len(fired) == 1
+    summary = fired[0][1]
+    assert summary.startswith("m-fallback ")
+    assert summary.endswith("switching to m-primary")

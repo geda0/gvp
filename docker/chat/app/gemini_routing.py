@@ -373,7 +373,7 @@ class GeminiRoutingChain:
                     raise
                 fire_alert(
                     'chat_primary_timeout',
-                    f'{model_id} timed out; switching to {self.fallback_id}',
+                    f'{model_id} timed out; switching to {pending[0]}',
                 )
             except Exception as e:
                 last_exc = e
@@ -408,7 +408,7 @@ class GeminiRoutingChain:
                     raise
                 fire_alert(
                     'chat_primary_rate_limit',
-                    f'{model_id} rate-limited; switching to {self.fallback_id}',
+                    f'{model_id} rate-limited; switching to {pending[0]}',
                 )
         assert last_exc is not None
         raise last_exc
@@ -470,7 +470,7 @@ class GeminiRoutingChain:
                     raise
                 fire_alert(
                     'chat_primary_timeout',
-                    f'{model_id} stalled past first-chunk budget; switching to {self.fallback_id}',
+                    f'{model_id} stalled past first-chunk budget; switching to {pending[0]}',
                 )
                 continue
             except Exception as e:
@@ -507,7 +507,7 @@ class GeminiRoutingChain:
                     raise
                 fire_alert(
                     'chat_primary_rate_limit',
-                    f'{model_id} rate-limited; switching to {self.fallback_id}',
+                    f'{model_id} rate-limited; switching to {pending[0]}',
                 )
                 continue
 
