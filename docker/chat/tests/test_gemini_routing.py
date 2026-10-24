@@ -823,3 +823,23 @@ async def test_ainvoke_primary_503_is_retried_once_on_the_primary_then_falls_bac
     assert result.content == "from-fallback"
     assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
     assert log[1][1] == pytest.approx(0.3, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_astream_primary_429_is_not_retried_on_the_primary(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3: the same-model retry is for 503 ONLY. A primary 429 goes
+    straight to the fallback, as before."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _RateLimitFirstChunk(), "m-fallback": _OkStream()},
+        log,
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-fallback"]
