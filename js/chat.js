@@ -441,7 +441,8 @@ export function initChat() {
     } else {
       if (agentNodeMic) agentNodeMic.setAttribute('data-track', 'hero_agent_node_mic')
     }
-    if (voiceStartBtn) voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
+    // The tap's own click name; chat_voice_start is startVoice's settled event (ADR-0028).
+    if (voiceStartBtn) voiceStartBtn.setAttribute('data-track', 'chat_voice_start_tap')
   }
 
   const clearPanelAnimation = () => {
@@ -649,7 +650,7 @@ export function initChat() {
       'aria-label',
       showConnecting ? 'Connecting voice…' : 'Start voice chat',
     )
-    voiceStartBtn.setAttribute('data-track', 'chat_voice_start')
+    voiceStartBtn.setAttribute('data-track', 'chat_voice_start_tap')
   }
 
   const syncEmptyState = () => {
@@ -2169,6 +2170,8 @@ export function initChat() {
     patchLiveUi,
     onToolCall: applyVoiceToolCall,
     onAudioLevels: handleAudioLevels,
+    // ADR-0028 addendum (N-P1): a denied mic falls back to text with the composer ready.
+    focusComposer: () => focusDockTarget('text'),
     onVoiceLauncherRequest: () => {
       if (liveUi.active || liveUi.connecting) return false
       if (liveVoice?.isSessionOpen?.()) return false
@@ -2199,7 +2202,7 @@ export function initChat() {
       ) {
         return
       }
-      trackEvent('chat_voice_start', {})
+      // chat_voice_start is emitted by startVoice once the mic question settles (ADR-0028).
       voiceStartRequested = true
       voiceAwaitingStart = false
       voiceStartBtn.disabled = true

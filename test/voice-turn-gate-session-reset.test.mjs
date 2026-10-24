@@ -158,6 +158,9 @@ async function bootVoiceBinding() {
     addEventListener() {}
   })
   defineGlobal('navigator', {
+    // ADR-0028: a refused cold mic closes the call; 'granted' + a failing getUserMedia is the
+    // remaining way to an open session with no live mic.
+    permissions: { query: async () => ({ state: 'granted' }) },
     mediaDevices: {
       getUserMedia: async () => {
         const err = new Error('mic not granted in harness')

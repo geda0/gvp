@@ -212,3 +212,39 @@ and #25's "interrupted before greeting completes" assertion still holds.
 - `test/mic-attach-wiring.test.mjs`'s cold rows ("requested at once, before the greeting's
   turnComplete") stay true and gain the stronger "greeting not before grant" rows above.
 - Drift noted, not fixed: none.
+
+---
+
+## Addendum (2026-10-24, orchestrator) — navigator overrides N-P1, N-P2 and the P1 telemetry names
+
+These override the sections named; everything else above stands.
+
+1. **N-P2 — `VOICE_PERMISSION_WAIT_MS = 20000`, its own constant** (overrides §3.1 and §6 row 10).
+   An ignored bubble closes the session after 20 s, not 60 s. Shorter risks closing on a visitor
+   still reading the bubble; longer holds a billed Live session idle. The no-mic sweep
+   (`VOICE_SESSION_IDLE_NO_MIC_MS`, 60 s) is a different window and keeps its value. §6 row 10's
+   source assertion (`=== VOICE_SESSION_IDLE_NO_MIC_MS`) is **dropped**; the timeout row (§6.6)
+   pins 20 000 ms itself.
+2. **N-P1 — an already-`denied` permission gets no voice greeting** (overrides §3.4's `denied`
+   bullet). `perm === 'denied'` takes the mic-first branch: `getUserMedia` is asked at once (it
+   rejects without a bubble), **no Live session is minted for it**, and the outcome is the same as
+   denying the bubble: no greeting `clientContent`, the greeting delivered **as text** in the
+   transcript (an assistant bubble), the composer focused (`focusComposer`, a new optional
+   `bindChatLiveVoice` callback from `js/chat.js`), the existing denied copy in the status, the
+   voice session closed. A bubble **deny** (§3.2, outcome `denied`) does the same text fallback.
+   Dismissed / timeout / error do **not** add the text greeting (they mean "ask again").
+   `MIC_PERMISSION_HINT` is not shown for `denied` (there is no bubble).
+3. **P1 telemetry names** (overrides §5's param names). The PO's names win:
+   - `chat_voice_start` moves from `js/chat.js` (the tap) into `startVoice` and is emitted **once
+     per start that reaches the permission read, when the mic question settles**, with exactly
+     `{ permissionBefore, outcome, waitMs }`. `permissionBefore` ∈ `granted | prompt | denied |
+     unknown`; `outcome` ∈ `granted | denied | dismissed | timeout | hangup | error`; `waitMs` = ms
+     from the `getUserMedia` request to its settle, `0` when no bubble could be shown
+     (`permissionBefore === 'granted'`). A session that fails before any mic request is `error`.
+   - `chat_live_start` carries `{ permissionBefore, outcome: 'granted' }`.
+   - The non-granted mic-first exits emit `chat_live_stop { reason: 'mic_permission',
+     permissionBefore, outcome }` (`denied | dismissed | timeout | error`). Hang-up during the wait
+     keeps `chat_live_stop { reason: 'abort_mic_prompt' }` (c841477) when it is a mic tap; the
+     settle event carries `outcome: 'hangup'` for every hang-up path (mic tap, panel close,
+     `stopVoice`).
+   - No audio, transcript text, error messages or device ids in any of these params.

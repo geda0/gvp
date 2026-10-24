@@ -340,6 +340,10 @@ const ACTS = {
       micRequests: v.gum.calls,
       micTracksStopped: v.gum.tracks.every((t) => t.stopped)
     }),
+    // ADR-0028 (test-writer decision): a cold call whose mic is refused now CLOSES, so the
+    // "session open, mic not live" state this row needs only exists when the permission read
+    // 'granted' and getUserMedia still failed (mic busy). The row keeps its name and its claim.
+    permission: (path) => (path === 'cold' ? 'granted' : undefined),
     // cold: mic not live -> the tap cuts playback, keeps the call and raises the sheet again.
     // granted: mic live -> the tap ends the call and releases the mic.
     expect: (path) => (path === 'cold'
@@ -349,10 +353,10 @@ const ACTS = {
 }
 
 for (const [pathName, path] of Object.entries(PATHS)) {
-  for (const [actName, { mic, act, call, expect }] of Object.entries(ACTS)) {
+  for (const [actName, { mic, act, call, expect, permission }] of Object.entries(ACTS)) {
     test(`${pathName} path: a ${actName} while the assistant is speaking stops playback locally, before any server frame`, async () => {
       // Arrange — the greeting is speaking: two chunks queued and playing.
-      const v = await bootVoice({ ...path, mic: mic(pathName) })
+      const v = await bootVoice({ ...path, ...(permission?.(pathName) ? { permission: permission(pathName) } : {}), mic: mic(pathName) })
       try {
         await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
         const playingBefore = v.audio.playing()
@@ -879,8 +883,9 @@ test('two chips tapped in quick succession mid-greeting: the second chip\'s repl
 
 test('a chunk accepted just before an interrupt never starts playing after it (enqueue epoch)', async () => {
   // Arrange — the player's AudioContext starts suspended (autoplay policy), so enqueue is
-  // parked on `await resume()` with a chunk the gate already accepted.
-  const v = await bootVoice({ permission: 'prompt', mic: 'deny' })
+  // parked on `await resume()` with a chunk the gate already accepted. (Granted + a failing
+  // mic: since ADR-0028 a cold call with a refused mic closes, and this row needs it open.)
+  const v = await bootVoice({ permission: 'granted', mic: 'deny' })
   let startedAfterResume = null
   try {
     v.audio.suspendNext = true

@@ -169,6 +169,9 @@ async function bootVoiceSession() {
     addEventListener() {}
   })
   defineGlobal('navigator', {
+    // ADR-0028: a refused cold mic closes the call; 'granted' + a failing getUserMedia is the
+    // remaining way to an open session with no live mic.
+    permissions: { query: async () => ({ state: 'granted' }) },
     mediaDevices: {
       // Cold session: the mic is not granted, so the session stays open playing the
       // greeting with no mic attached — the exact state the prod report came from.
