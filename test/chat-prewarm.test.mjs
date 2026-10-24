@@ -48,3 +48,45 @@ test('trigger sends one warm POST whose digest covers its exact body', async () 
     '(ADR-0026 §5.1) — the warm path is not a digest bypass'
   )
 })
+
+test('at most one warm per page load, and a failing warm is silent: no throw, no retry, no unhandled rejection', async () => {
+  // Arrange — the front door is down: every request rejects.
+  const unhandled = []
+  const onUnhandled = (reason) => { unhandled.push(reason) }
+  process.on('unhandledRejection', onUnhandled)
+  let calls = 0
+  const prewarm = createChatPrewarm({
+    chatApiUrl: '/api/chat',
+    fetchImpl: async () => { calls += 1; throw new TypeError('Failed to fetch') },
+    buildRequest: buildChatRequest
+  })
+
+  // Act — hover, focus, open, and a re-open later in the same page load.
+  const thrown = []
+  for (let i = 0; i < 4; i++) {
+    try { prewarm.trigger() } catch (err) { thrown.push(err) }
+    await settle()
+  }
+  process.off('unhandledRejection', onUnhandled)
+
+  // Assert
+  assert.deepEqual(
+    { calls, thrown: thrown.length, unhandled: unhandled.length },
+    { calls: 1, thrown: 0, unhandled: 0 },
+    'the warm is fire-and-forget: one per page load (the WAF counts every request, ADR-0022 ' +
+    '§15.3), a failure never reaches the visitor and never turns into a retry storm'
+  )
+})
+
+test('no chat URL configured: trigger does nothing', async () => {
+  // Arrange
+  let calls = 0
+  const prewarm = createChatPrewarm({ chatApiUrl: '', fetchImpl: async () => { calls += 1 }, buildRequest: buildChatRequest })
+
+  // Act
+  prewarm.trigger()
+  await settle()
+
+  // Assert
+  assert.equal(calls, 0, 'no endpoint, no warm (ADR-0026 §5.3)')
+})
