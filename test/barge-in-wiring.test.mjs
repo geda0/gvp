@@ -613,6 +613,36 @@ test('a late transcript of the visitor\'s question arriving while the answer str
   assert.equal(observed, 3, 'the voice_local cut must not fire while a server turn is in flight')
 })
 
+test('two chips tapped in quick succession mid-greeting: the second chip\'s reply is not swallowed', async () => {
+  // Arrange — the greeting is streaming.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+    // Act — chip 1, chip 2 at once. Live ends the greeting (interrupted + turnComplete), starts
+    // on chip 1, cuts that for chip 2 (interrupted + turnComplete), then answers chip 2.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    v.live.sendUserText('What was hard about Apptio (an IBM company)?')
+    await settle()
+    await v.send({ serverContent: { interrupted: true } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is' } } })
+    await v.send({ serverContent: { interrupted: true } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'The hard part was scale.' } } })
+
+    observed = { chip2ReplyPlaying: v.audio.playing(), lastBubble: v.bubbleTexts('assistant').at(-1) }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { chip2ReplyPlaying: 1, lastBubble: 'The hard part was scale.' },
+    'every abandoned turn ends at its own turnComplete; the gate must be open again for the last chip\'s reply'
+  )
+})
+
 test('a chunk accepted just before an interrupt never starts playing after it (enqueue epoch)', async () => {
   // Arrange — the player's AudioContext starts suspended (autoplay policy), so enqueue is
   // parked on `await resume()` with a chunk the gate already accepted.
