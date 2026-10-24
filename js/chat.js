@@ -20,6 +20,8 @@ import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
 import { hasNavPromiseGap } from './nav-promise-gap.js'
 import { buildChatRequest } from './chat-payload-hash.js'
+import { createChatPrewarm } from './chat-prewarm.js'
+import { tourStep } from './tour.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
 const RESUME_URL = 'resume/Marwan_Elgendy_Resume_public.pdf'
@@ -344,6 +346,14 @@ export function initChat() {
   }
 
   const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
+  // L2 (ADR-0026 §5.3): one throwaway warm POST on the first chat-open intent (launcher hover
+  // or focus, or the panel opening), so the stream Lambda's cold start is paid before the
+  // visitor's first message. Same endpoint and same digest seam as a real turn; once per page.
+  const chatPrewarm = createChatPrewarm({
+    chatApiUrl: endpoint,
+    fetchImpl: (url, opts) => fetch(url, opts),
+    buildRequest: buildChatRequest
+  })
   const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
 
   // Language selector — value sent with every /api/chat request so the
@@ -1070,6 +1080,7 @@ export function initChat() {
   }
 
   const openPanel = ({ mode = 'text' } = {}) => {
+    chatPrewarm.trigger()
     const wantVoice = mode === 'voice'
     if (isOpen()) {
       // A yielded panel is still "open" — stageChrome keeps the dialog in the DOM for
@@ -1186,8 +1197,42 @@ export function initChat() {
     })
   }
 
+  // Guided-tour state (see runTourStep). The controls are a card OUTSIDE the chat (#tourCard):
+  // a header bar inside the chat broke the docked card's layout and overflowed the narrow
+  // pill, sat under the project card a stop opens, and left the narration in a transcript the
+  // pill hides. Declared here because a fresh conversation ends any tour.
+  const tourCard = document.getElementById('tourCard')
+  const tourCardText = document.getElementById('tourCardText')
+  const tourCardNext = document.getElementById('tourCardNext')
+  const tourCardEnd = document.getElementById('tourCardEnd')
+  const tourCardContact = document.getElementById('tourCardContact')
+  let tourNext = null
+  let tourStepShown = null
+  // While the contact form is open the card steps aside: it would sit over the form's Send
+  // button on a phone, and a Next stop behind a modal would move the page under it.
+  const tourCardBlocked = () => Boolean(getSiteState().contactOpen)
+  const renderTourCard = () => {
+    if (!tourCard) return
+    tourCard.hidden = !tourStepShown || tourCardBlocked()
+  }
+  const showTourCard = (step) => {
+    tourNext = step && Number.isInteger(step.next) ? step.next : null
+    tourStepShown = step || null
+    if (step) {
+      if (tourCardText) tourCardText.textContent = step.say
+      if (tourCardNext) tourCardNext.hidden = tourNext === null
+      if (tourCardContact) tourCardContact.hidden = tourNext !== null
+      if (tourCardEnd) tourCardEnd.textContent = tourNext === null ? 'Done' : 'End tour'
+    }
+    renderTourCard()
+  }
+  subscribeSiteState((_snapshot, change) => {
+    if (change && change.field === 'contactOpen') renderTourCard()
+  })
+
   const resetConversation = ({ focusTarget = 'composer' } = {}) => {
     messagesEl.textContent = ''
+    showTourCard(null)
     clearVoiceAwaitingStart()
     if (liveVoice && typeof liveVoice.stopVoice === 'function' && liveVoice.isSessionOpen?.()) {
       liveVoice.stopVoice({ silent: true })
@@ -1446,19 +1491,25 @@ export function initChat() {
         chatBus.emit('tool_call', { source, actions })
       }
       if (!firstDeltaSeen) chatBus.emit('streaming', { source, model })
+      // Track C item 5: the agent's navigation RUNS, as it does on voice. The visitor asked
+      // to be shown; a button they still had to tap was the pre-Track-C text path. Only an
+      // action that did not apply stays behind as a button.
+      const { remaining, executed, startTour } = runAgentActions(actions)
       // The model sometimes fires a tool (open résumé / navigate / contact) with no
-      // prose — derive a useful line tied to the action instead of the bare fallback.
-      const safeReply = deriveReplyText(reply, actions)
-      // RECORDED, NEVER ACTED ON (ADR-0015 §5.2). On the text path a navigate ACTION is the
-      // promise kept — the button is the affordance, and the assistant cannot move the page
-      // without a tap — so an action translates to the tool name the predicate knows.
-      if (hasNavPromiseGap(safeReply, actions.map((a) => ({
-        name: a && a.id === 'navigate' ? 'navigate_to_section' : (a && a.id)
+      // prose — derive a useful line tied to what RAN or what is left to tap, never a line
+      // that points at a button the page already pressed.
+      const safeReply = deriveReplyText(reply, remaining, executed)
+      // RECORDED, NEVER ACTED ON (ADR-0015 §5.2). A promise is kept only by a move that
+      // actually ran - an executed navigate or tour - so only those translate to the tool
+      // name the predicate knows.
+      if (hasNavPromiseGap(safeReply, executed.map((a) => ({
+        name: a && (a.id === 'navigate' || a.id === 'start-tour') ? 'navigate_to_section' : (a && a.id)
       })))) {
         trackEvent('chat_nav_promise_gap', { modality: 'text' })
       }
       state.history = state.history.concat({ role: 'assistant', content: safeReply })
-      finalizeAssistantMessage(pendingAssistant, safeReply, actions)
+      finalizeAssistantMessage(pendingAssistant, safeReply, remaining)
+      if (startTour) runTourStep(0)
       setStatus('')
       scheduleIdleLifecycle(SUCCESS_IDLE_DELAY_MS, { source, model })
     } catch (error) {
@@ -1494,7 +1545,10 @@ export function initChat() {
     })
   }
 
+  agentNode?.addEventListener('pointerenter', () => chatPrewarm.trigger())
+  agentNodeMic?.addEventListener('focus', () => chatPrewarm.trigger())
   agentInput.addEventListener('focus', () => {
+    chatPrewarm.trigger()
     const source = resolveLauncherSource()
     if (source === 'header') {
       trackEvent('header_chat_focus', { surface: 'header' })
@@ -1540,6 +1594,16 @@ export function initChat() {
     // A REQUESTED dock moves focus to the composer (stageChrome(..., { requested: true })) -
     // once the reply settles, because the composer is disabled while it is pending and a
     // disabled input cannot take focus (measured: focus stayed on the project dialog's X).
+    // DURING A LIVE CALL the prompt goes to the call (staging voice pass, 2026-10-23: it went
+    // down the text path, so a visitor in voice got a text answer and the voice model never
+    // heard the question). The bubble is drawn here because a text turn produces no input
+    // transcription for chat-live to draw.
+    if (liveVoice && typeof liveVoice.sendUserText === 'function' && liveVoice.isSessionOpen?.()
+      && liveVoice.sendUserText(prompt)) {
+      appendMessage('user', prompt, { forceScroll: true })
+      state.history = state.history.concat({ role: 'user', content: prompt })
+      return
+    }
     void sendMessage(prompt, 'project_chip').finally(() => {
       if (chatStage === 'closed') return
       if (stageChrome(chatStage, { requested: true }).moveFocus !== 'composer') return
@@ -1704,7 +1768,7 @@ export function initChat() {
       // (ADR-0015 §9.2 — the text path failed worse than the voice path, which at least
       // round-tripped the error). It stays non-interrupting: a visitor who tapped a button
       // does not need an error bubble, but the failure has to be countable.
-      const outcome = navigateToSection(actionEl.dataset.section || '')
+      const outcome = navigateToSection(actionEl.dataset.section || '', 'visitor')
       if (outcome.error) {
         trackEvent('chat_nav_unresolved', { section: String(actionEl.dataset.section || '') })
       }
@@ -1714,8 +1778,6 @@ export function initChat() {
       openContactFromChat(parsePrefill(actionEl.dataset.prefill))
       return
     }
-    // The text path's project tools (stage-found defect): the button is the affordance and the
-    // tap is the VISITOR's, so the store write is labelled visitor, not agent.
     if (action === 'open-project') {
       const match = requestProjectOpen(actionEl.dataset.project || '', { origin: 'visitor' })
       if (match && match.error) trackEvent('chat_project_unresolved', { reason: 'unknown_project' })
@@ -1765,8 +1827,8 @@ export function initChat() {
   // `navigated` (ss9.4). js/navigation.js's requestNavigation resolves through the shared
   // registry, moves the page, and labels the store write `agent` - which only the caller
   // knows, since a hashchange cannot say who caused it.
-  const navigateToSection = (raw) => {
-    const target = requestNavigation(raw, { origin: 'agent' })
+  const navigateToSection = (raw, origin = 'agent') => {
+    const target = requestNavigation(raw, { origin })
     if (target.error) {
       return { error: `unknown_section: ${raw}`, received: raw, siteState: getSiteStateForWire() }
     }
@@ -1785,6 +1847,82 @@ export function initChat() {
     }
     return { result: 'navigated', section: settled.section, siteState: getSiteStateForWire() }
   }
+
+  // Execute the text path's page-moving actions (Track C item 5). Navigation and project
+  // cards are the agent's moves, labelled `agent` like voice's; the résumé and the contact
+  // form stay buttons - a new tab and a form are the visitor's to open.
+  const runAgentActions = (actions) => {
+    const remaining = []
+    const executed = []
+    let startTour = false
+    for (const a of Array.isArray(actions) ? actions : []) {
+      if (a && a.id === 'start-tour') {
+        startTour = true
+        executed.push(a)
+        continue
+      }
+      if (a && a.id === 'navigate') {
+        const outcome = navigateToSection(a.section || '')
+        if (!outcome.error) {
+          executed.push(a)
+          continue
+        }
+        trackEvent('chat_nav_unresolved', { section: String(a.section || '') })
+      }
+      if (a && a.id === 'open-project') {
+        // READ BACK, as the voice path does: openDialog returns early until loadProjects has
+        // filled the registry, so a resolved id is not proof the card is on screen.
+        const match = requestProjectOpen(a.project || '', { origin: 'agent' })
+        const settled = getSiteState().project
+        if (match && !match.error && settled && settled.id === match.id) {
+          executed.push(a)
+          continue
+        }
+        trackEvent('chat_project_unresolved', { reason: match && match.error ? 'unknown_project' : 'did_not_open' })
+      }
+      remaining.push(a)
+    }
+    return { remaining, executed, startTour }
+  }
+
+  // One stop of the guided tour (js/tour.js): move the page, then say the line - on the tour
+  // card, and in the transcript and history so the model knows where the tour has taken the
+  // visitor. Next stop reads `tourNext`, so nothing stale can re-run a stop.
+  // `origin`: the FIRST stop is the agent's (it answered a tool call, and the tool result tells
+  // the model); every later stop is the VISITOR's tap on Next stop - labelled so, which is also
+  // what lets a live voice session hear where the tour went (js/site-state-notes.js skips
+  // agent-origin changes as already known).
+  const runTourStep = (index, origin = 'agent') => {
+    const step = tourStep(index)
+    if (!step) return null
+    for (const move of step.moves) {
+      if (move.kind === 'close-project') requestProjectClose({ origin })
+      else if (move.kind === 'navigate') navigateToSection(move.section, origin)
+      else if (move.kind === 'open-project') requestProjectOpen(move.project, { origin })
+    }
+    appendMessage('assistant', step.say, { actions: step.actions, forceScroll: true })
+    state.history = state.history.concat({ role: 'assistant', content: step.say })
+    showTourCard(step)
+    trackEvent('chat_tour_step', { step: index })
+    return step
+  }
+
+  tourCardNext?.addEventListener('click', () => {
+    if (tourNext !== null && !tourCardBlocked()) runTourStep(tourNext, 'visitor')
+  })
+  tourCardEnd?.addEventListener('click', () => {
+    const finished = tourNext === null
+    showTourCard(null)
+    if (finished) return
+    const line = 'No problem. Ask me anything, or open any card to dig in.'
+    appendMessage('assistant', line, { forceScroll: true })
+    state.history = state.history.concat({ role: 'assistant', content: line })
+    trackEvent('chat_tour_end', {})
+  })
+  tourCardContact?.addEventListener('click', () => {
+    showTourCard(null)
+    openContactFromChat(null)
+  })
 
   const applyVoiceToolCall = (name, args) => {
     if (name === 'open_resume') {
@@ -1855,6 +1993,11 @@ export function initChat() {
     if (name === 'navigate_to_section') {
       const section = args && typeof args.section === 'string' ? args.section : ''
       return navigateToSection(section)
+    }
+    if (name === 'start_tour') {
+      const step = runTourStep(0)
+      if (!step) return { error: 'tour_unavailable', siteState: getSiteStateForWire() }
+      return { result: 'tour_started', stop: step.say, siteState: getSiteStateForWire() }
     }
     return { error: `unknown_tool: ${name}` }
   }

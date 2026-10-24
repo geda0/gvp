@@ -172,6 +172,8 @@ def test_emits_tier1_warning_line_even_when_gate_is_disabled(
         # chat_upstream_unavailable fires -> P1. A non-retryable error is raised -> P1.
         ('chat_primary_timeout', 'P2'),
         ('chat_primary_rate_limit', 'P2'),
+        # ADR-0023 §5 / ADR-0026 §4.3: a primary 503, retried or switched -> P2.
+        ('chat_primary_unavailable', 'P2'),
         ('chat_upstream_unavailable', 'P1'),
         ('chat_model_error', 'P1'),
         # Unclassified ⇒ P1, fail loud (ADR-0020, "priority is a static property OF the

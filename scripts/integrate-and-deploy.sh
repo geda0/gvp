@@ -35,6 +35,10 @@ AWS_DIR="${ROOT}/aws"
 # inlined so a test can drive resolve_gemini_key without executing a deploy.
 # shellcheck source=scripts/lib/gemini-key.sh
 . "${ROOT}/scripts/lib/gemini-key.sh"
+# Post-deploy chat warm through the browser's front door (ADR-0026 §5.4); fails the deploy on a
+# non-204 or a timeout. Sourced so test/chat-post-deploy-warm.test.mjs can drive it.
+# shellcheck source=scripts/lib/chat-warm.sh
+. "${ROOT}/scripts/lib/chat-warm.sh"
 CHAT_DIR="${ROOT}/docker/chat"
 SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
 
@@ -901,6 +905,16 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
       echo "warning: chat stream /health returned ${CHAT_STREAM_HEALTH} (000 = no response at all). A fresh CloudFront distribution needs several minutes to propagate; re-check before sending traffic." >&2
     fi
   fi
+  # Post-deploy warm (ADR-0026 §5.4): ONE POST /api/chat {"warm":true} through the front door the
+  # BROWSER uses — the committed gvp:chat-api-url, which this target never repoints and which the
+  # workflow guards pin to this environment (agent → stage, main → prod). The echoed elapsed ms is
+  # the post-deploy cold-start measurement. A non-204 or timeout FAILS the deploy (PO acceptance,
+  # stricter than the ADR's "warning only").
+  CHAT_WARM_URL="$(chat_front_door_url "${ROOT}/index.html")"
+  # The meta is read from the CHECKED-OUT html, so it must be proven to be THIS run's distribution
+  # first — otherwise `prod` run from `agent` warms stage and reports a prod warm (fatal, not a note).
+  chat_warm_target_check "${DEPLOY_ENV}" "${CHAT_WARM_URL}" "${CHAT_STREAM_CDN_DOMAIN}" || exit 1
+  chat_post_deploy_warm "${DEPLOY_ENV}" "${CHAT_WARM_URL}" || exit 1
   echo "note: gvp:chat-api-url in index.html / admin/index.html is NOT repointed by this target. Invariant 11 pins those hosts and test/frontend-api-url-env-guard.test.mjs enforces them — repointing is a separate, deliberate commit."
   # Liveness of the alert gate is NOT provable from here (presence of the keys is pinned by
   # test/chat-alert-gate-env.test.mjs; the VALUES are deploy-time). Verify on the deployed

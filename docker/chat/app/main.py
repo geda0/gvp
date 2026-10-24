@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timezone
@@ -17,10 +18,11 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.alerts import fire_alert, log_alert_gate_status
+from app.gemini_routing import RoutingOutcome, begin_turn_outcome
 from app.secret_resolver import resolve_gemini_key_into_env
 from app.project_refs import PROJECT_IDS, project_grounding_line
 from app.gemini_routing import GeminiRoutingChain
@@ -200,6 +202,9 @@ class ChatRequest(BaseModel):
     # LiveSessionRequest below, because two classes for one wire shape is how providers.py
     # and live_gemini.py came to declare two different section enums.
     siteState: SiteStateIn | None = None
+    # ADR-0026 §5.1: a warm request starts the function and builds the model client;
+    # it is not a turn. `stream`, `sessionId` and `siteState` are ignored on it.
+    warm: bool = False
 
 
 class LiveSessionRequest(BaseModel):
@@ -331,6 +336,85 @@ def _normalize_tool_args(args: Any) -> dict[str, Any]:
     return {}
 
 
+# Track C item 7: the visitor's own words are the gate for the PDF, not the model's tool choice.
+# Multilingual, because the prompt answers in the visitor's language. A false positive only
+# ALLOWS a résumé the model already chose to offer; it never forces one.
+_RESUME_ASK = re.compile(
+    r'(\br[eé]sum[eé]s?\b|\bcv\b|\bc\.v\.|\bcurr[ií]cul(?:um|o)\b|\bcurriculum vitae\b|\blebenslauf\b'
+    r'|\bpdf\b|السيرة الذاتية|简历|履歴書)',
+    re.IGNORECASE,
+)
+# A WHOLE-MESSAGE yes ("yes please", "sure, send it"), accepted only when the turn before it
+# mentioned the résumé. "ok no" or "yes but what about his skills?" are not a yes to the file.
+_YES = r'(?:yes|yeah|yep|sure|ok|okay|please|go ahead|send it|s[ií]|oui|ja|da|نعم|好的?|はい|thanks|thank you)'
+_AFFIRMATIVE = re.compile(rf'^\W*{_YES}(?:[\s,.!]+{_YES})*\W*$', re.IGNORECASE)
+_NO_RESUME_REPLY = (
+    "His work is laid out right here on the site - I can walk you through the portfolio "
+    "or open any project. If you'd like the resume file itself, just ask."
+)
+
+
+# Track C item 6: a plain tour ask gets the tour. MEASURED on stage: the model sometimes
+# answers "I'll start a guided tour" and calls nothing. Like the résumé gate, this reads the
+# VISITOR's words (ADR-0015 §5.2 rejects acting on the model's prose), never the reply.
+_TOUR_ASK = re.compile(
+    r'(\bshow me around\b|\bgive me a tour\b|\btake me on a tour\b|\bguided tour\b|\btour of the site\b'
+    r'|\bwalk me through the (?:site|website|page)\b|\bshow me the site\b'
+    r'|\brecorrido\b|\bvisita guiada\b|\bfais-moi visiter\b|\bvisite guid[ée]e\b|\brundgang\b|جولة)',
+    re.IGNORECASE,
+)
+
+
+def tour_was_requested(messages: list[Any]) -> bool:
+    """True when the LAST user message asks for a tour of the site."""
+    for row in reversed(messages or []):
+        role, content = _row(row)
+        if role == 'user':
+            return bool(_TOUR_ASK.search(content))
+    return False
+
+
+def _row(row: Any) -> tuple[Any, str]:
+    if isinstance(row, dict):
+        return row.get('role'), str(row.get('content') or '')
+    return getattr(row, 'role', None), str(getattr(row, 'content', '') or '')
+
+
+def resume_was_requested(messages: list[Any]) -> bool:
+    """True when the LAST user message asks for the résumé/CV file itself, or is a short yes to
+    a résumé offer in the turn just before it. Reads the visitor (ADR-0015 §5.2 rejects acting
+    on the model's prose; the offer only qualifies the visitor's yes), and only the latest ask:
+    an old request does not license a PDF on a later, different question."""
+    rows = [_row(r) for r in (messages or [])]
+    for i in range(len(rows) - 1, -1, -1):
+        role, content = rows[i]
+        if role != 'user':
+            continue
+        if _RESUME_ASK.search(content):
+            return True
+        if _AFFIRMATIVE.search(content.strip()):
+            prev = next((c for r, c in reversed(rows[:i]) if r == 'assistant'), '')
+            return bool(_RESUME_ASK.search(prev))
+        return False
+    return False
+
+
+def _guard_turn(result: Any, messages: list[Any], reply_text: str) -> tuple[list[dict[str, Any]], str]:
+    """The turn's actions with an unrequested résumé removed, and a reply that is never empty
+    because of that removal (an empty reply renders as "try again" on the page)."""
+    actions = _actions_from_result(result)
+    # A tour ask the model answered without starting the tour (or moving the page at all)
+    # gets the tour; a model that chose to navigate instead is left alone.
+    if tour_was_requested(messages) and not any(a.get('id') in ('start-tour', 'navigate') for a in actions):
+        actions = [*actions, {'id': 'start-tour', 'label': 'Start the tour'}]
+    if resume_was_requested(messages):
+        return actions, reply_text
+    kept = [a for a in actions if a.get('id') != 'open-resume']
+    if len(kept) < len(actions) and not (reply_text or '').strip() and not kept:
+        reply_text = _NO_RESUME_REPLY
+    return kept, reply_text
+
+
 def _actions_from_result(result: Any) -> list[dict[str, Any]]:
     if not isinstance(result, Msg):
         return []
@@ -358,6 +442,9 @@ def _actions_from_result(result: Any) -> list[dict[str, Any]]:
             continue
         if name == 'close_project':
             actions.append({'id': 'close-project', 'label': 'Close the project'})
+            continue
+        if name == 'start_tour':
+            actions.append({'id': 'start-tour', 'label': 'Start the tour'})
             continue
         if name == 'open_contact_form':
             action: dict[str, Any] = {'id': 'open-contact', 'label': 'Open contact form'}
@@ -866,6 +953,7 @@ async def _persist_text_turn(
     first_token_ms: int | None = None,
     chunk_count: int | None = None,
     fallback_used: bool = False,
+    primary_retried: bool = False,
     status: str = 'ok',
     error_code: str | None = None,
     error_message: str | None = None,
@@ -877,6 +965,8 @@ async def _persist_text_turn(
       first_token_ms    - wall-clock until first non-empty delta (None if none)
       chunk_count       - number of chunks observed (None for non-stream)
       fallback_used     - True when GeminiRoutingChain swapped to the secondary
+      primary_retried   - True when the primary was retried once after a 503
+                          (ADR-0026 §4.3) — distinct from a fallback
       status            - 'ok' | 'error' | 'timeout'
       error_code/_msg   - populated on non-'ok' paths so failed attempts show up
                           in the admin panel instead of vanishing.
@@ -904,6 +994,7 @@ async def _persist_text_turn(
         'status': status,
         'outputCharCount': len(reply_text or ''),
         'fallbackUsed': bool(fallback_used),
+        'primaryRetried': bool(primary_retried),
     }
     # ss6.4: the MODEL's dump, never `payload` raw - the precedent is `requestMessages`
     # above. Useful (the admin panel can see what the visitor was looking at when a turn
@@ -931,10 +1022,10 @@ async def _persist_text_turn(
     )
 
 
-def _fallback_used(chain: Any) -> bool:
-    """True when the routing chain settled on the secondary Gemini model."""
+def _fallback_used(chain: Any, outcome: RoutingOutcome) -> bool:
+    """True when THIS turn's routing settled on the secondary Gemini model."""
     primary = getattr(chain, 'primary_id', None)
-    last = getattr(chain, 'last_model_id', None)
+    last = outcome.model_id
     if not primary or not last:
         return False
     return primary != last
@@ -954,6 +1045,22 @@ async def chat(payload: ChatRequest) -> Any:
             status_code=503,
             content={"error": msg, "code": "provider_unavailable"},
         )
+
+    if payload.warm:
+        if payload.messages:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "A warm request carries no `messages`",
+                    "code": "warm_with_messages",
+                },
+            )
+        t0 = time.perf_counter()
+        warm = getattr(app.state.chain, 'warm', None)
+        if callable(warm):
+            warm()
+        logger.info("chat warm elapsed_ms=%s", int((time.perf_counter() - t0) * 1000))
+        return Response(status_code=204)
 
     if not payload.messages:
         return JSONResponse(
@@ -987,6 +1094,7 @@ async def chat(payload: ChatRequest) -> Any:
         )
 
     t0 = time.perf_counter()
+    outcome = begin_turn_outcome()
     try:
         result = await asyncio.wait_for(
             app.state.chain.ainvoke(_chain_input(payload, lc_messages)),
@@ -998,10 +1106,11 @@ async def chat(payload: ChatRequest) -> Any:
         try:
             await _persist_text_turn(
                 payload, lc_messages, '', [], [],
-                getattr(app.state.chain, 'last_model_id', None) or app.state.model_id,
+                outcome.model_id or app.state.model_id,
                 elapsed_ms,
                 stream=False,
-                fallback_used=_fallback_used(app.state.chain),
+                fallback_used=_fallback_used(app.state.chain, outcome),
+                primary_retried=outcome.primary_retried,
                 status='timeout',
                 error_code='upstream_timeout',
                 error_message=f'ainvoke exceeded {app.state.provider_timeout_seconds}s',
@@ -1022,10 +1131,11 @@ async def chat(payload: ChatRequest) -> Any:
         try:
             await _persist_text_turn(
                 payload, lc_messages, '', [], [],
-                getattr(app.state.chain, 'last_model_id', None) or app.state.model_id,
+                outcome.model_id or app.state.model_id,
                 elapsed_ms,
                 stream=False,
-                fallback_used=_fallback_used(app.state.chain),
+                fallback_used=_fallback_used(app.state.chain, outcome),
+                primary_retried=outcome.primary_retried,
                 status='error',
                 error_code=str(content.get('code') or 'model_error'),
                 error_message=str(content.get('error') or type(exc).__name__),
@@ -1035,14 +1145,15 @@ async def chat(payload: ChatRequest) -> Any:
         return JSONResponse(status_code=status, content=content)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = _reply_text_from_result(result)
-    actions = _actions_from_result(result)
+    actions, reply_text = _guard_turn(result, payload.messages, reply_text)
     tool_calls = _tool_calls_from_result(result)
-    model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
+    model_used = outcome.model_id or app.state.model_id
 
     await _persist_text_turn(
         payload, lc_messages, reply_text, actions, tool_calls, model_used, elapsed_ms,
         stream=False,
-        fallback_used=_fallback_used(app.state.chain),
+        fallback_used=_fallback_used(app.state.chain, outcome),
+        primary_retried=outcome.primary_retried,
         status='ok',
     )
 
@@ -1062,6 +1173,7 @@ async def _chat_stream(
       - error: {"error": "...", "code": "..."}  terminal, sent in place of done
     """
     t0 = time.perf_counter()
+    outcome = begin_turn_outcome()
     aggregated: Any = None
     acc = _Acc()
     saw_chunk = False
@@ -1129,9 +1241,11 @@ async def _chat_stream(
         aggregated = acc.finalize()
 
     reply_text = _reply_text_from_result(aggregated) if aggregated is not None else ''
-    actions = _actions_from_result(aggregated) if stream_status == 'ok' and aggregated is not None else []
+    actions: list[dict[str, Any]] = []
+    if stream_status == 'ok' and aggregated is not None:
+        actions, reply_text = _guard_turn(aggregated, payload.messages, reply_text)
     tool_calls = _tool_calls_from_result(aggregated) if aggregated is not None else []
-    model_used = getattr(chain, "last_model_id", None) or app.state.model_id
+    model_used = outcome.model_id or app.state.model_id
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     # Persist the turn whether it succeeded, errored, or timed out. The
@@ -1143,7 +1257,8 @@ async def _chat_stream(
             stream=True,
             first_token_ms=first_token_ms,
             chunk_count=chunk_count,
-            fallback_used=_fallback_used(chain),
+            fallback_used=_fallback_used(chain, outcome),
+            primary_retried=outcome.primary_retried,
             status=stream_status,
             error_code=error_code,
             error_message=error_message,
@@ -1163,7 +1278,7 @@ async def _chat_stream(
     })
     logger.info(
         "chat stream ok model=%s latency_ms=%s first_token_ms=%s chunks=%s fallback=%s",
-        model_used, elapsed_ms, first_token_ms, chunk_count, _fallback_used(chain),
+        model_used, elapsed_ms, first_token_ms, chunk_count, _fallback_used(chain, outcome),
     )
 
 

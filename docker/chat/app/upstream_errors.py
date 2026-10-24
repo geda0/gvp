@@ -125,6 +125,23 @@ def is_upstream_retryable(exc: BaseException) -> bool:
     return _extract_status_code_from_chain(exc) in _RETRYABLE_UPSTREAM_CODES
 
 
+def is_upstream_unavailable(exc: BaseException) -> bool:
+    """A 503 / UNAVAILABLE from upstream — the one status the primary gets a
+    second chance on (ADR-0026 §4.3). 500/502/504 are NOT included."""
+    try:
+        from google.genai import errors as genai_errors
+
+        if isinstance(exc, genai_errors.APIError):
+            if getattr(exc, "code", None) == 503:
+                return True
+            if getattr(exc, "status", None) == "UNAVAILABLE":
+                return True
+    except ImportError:
+        pass
+
+    return _extract_status_code_from_chain(exc) == 503
+
+
 def _extract_status_code_from_chain(exc: BaseException) -> int | None:
     seen: set[int] = set()
     cur: BaseException | None = exc

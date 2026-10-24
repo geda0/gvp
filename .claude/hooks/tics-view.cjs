@@ -9,14 +9,131 @@ function storePaths(targetDir, ignoreEnv) {
   // TICS_DIR / TICS_FILE let parallel worktree sections share ONE spool bus (see docs/tdd/sectioning.md).
   return { jsonl: (!ignoreEnv && process.env.TICS_FILE) || path.join(dir, "tics.jsonl"), spool: (!ignoreEnv && process.env.TICS_DIR) || path.join(dir, "tics.d") };
 }
+const SKIPPED_SET = new Set();   // keys of skipped lines (a file read via several worktree views counts once)
 function loadTics(targetDir, ignoreEnv) {
   const { jsonl, spool } = storePaths(targetDir, ignoreEnv);
-  const parse = (s) => { try { return JSON.parse(s); } catch (e) { return null; } };
   const out = [];
-  try { for (const l of fs.readFileSync(jsonl, "utf8").split("\n")) if (l.trim()) { const o = parse(l); if (o) out.push(o); } } catch (e) {}
-  try { for (const f of fs.readdirSync(spool)) if (f.endsWith(".json")) { const o = parse(fs.readFileSync(path.join(spool, f), "utf8").trim()); if (o) out.push(o); } } catch (e) {}
-  out.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")) || ((a.seq || 0) - (b.seq || 0)));
-  return out;
+  const lines = (name, text, base) => {
+    text.split("\n").forEach((l, i) => {
+      if (!l.trim()) return;
+      let o = null;
+      try { o = JSON.parse(l); } catch (e) {}
+      if (o && typeof o === "object" && !Array.isArray(o)) out.push({ o, f: name, i }); else SKIPPED_SET.add(path.resolve(base || "", name) + ":" + i);
+    });
+  };
+  try { lines(jsonl, fs.readFileSync(jsonl, "utf8")); } catch (e) {}
+  try { for (const f of fs.readdirSync(spool)) if (f.endsWith(".json")) { let c; try { c = fs.readFileSync(path.join(spool, f), "utf8"); } catch (e) { continue; } lines(f, c, spool); } } catch (e) {}
+  const gs = gitStore(targetDir, ignoreEnv);
+  if (gs) for (const [f, s] of gitBusTics(gs)) lines(f, s, gs.dir);
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  out.sort((a, b) => String(a.o.ts || "").localeCompare(String(b.o.ts || "")) || ((a.o.seq || 0) - (b.o.seq || 0)) || cmp(a.f, b.f) || (a.i - b.i));
+  return out.map((e) => e.o);
+}
+// TIC_STORE=git read side (ADR 0026 §1): union of the bus checkout's working-tree tics.d (local, unpushed
+// included) and the remote-tracking tree origin/<TICS_BRANCH>, deduped by filename. A read never mutates the
+// checkout: the only writes are a TTL-throttled fetch into the remote-tracking ref (+ a stamp file in .git) and, third, the
+// idempotent adoption of a record-less legacy checkout's origin into .git/tics-remote.
+let FORCE_FETCH = false;
+function setFetch(on) { FORCE_FETCH = !!on; }
+function cfgVal(targetDir, key, def, ignoreEnv) { return (!ignoreEnv && process.env[key]) || cfgStr(targetDir, key, def); }
+function gitStore(targetDir, ignoreEnv) {
+  if (cfgVal(targetDir, "TIC_STORE", "jsonl", ignoreEnv) !== "git") return null;
+  const dir = path.resolve(targetDir, cfgVal(targetDir, "TICS_GIT_DIR", path.join(".claude", "state", "tics.git"), ignoreEnv));
+  if (!fs.existsSync(path.join(dir, ".git"))) return null;   // no bus checkout yet -> today's behavior
+  const ttl = parseInt(cfgVal(targetDir, "TICS_FETCH_TTL", "60", ignoreEnv), 10);
+  const net = parseInt(cfgVal(targetDir, "TICS_NET_TIMEOUT", "5", ignoreEnv), 10);
+  const remote = cfgVal(targetDir, "TICS_REMOTE", "", ignoreEnv);
+  const recFile = path.join(dir, ".git", "tics-remote");
+  let rec = null;
+  try { rec = fs.readFileSync(recFile, "utf8").trim(); } catch (e) {
+    const genv = Object.assign({}, process.env);
+    for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) delete genv[k];
+    const og = cp.spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: genv });
+    if (og.status === 0) { rec = og.stdout.trim(); try { fs.writeFileSync(recFile, rec + "\n"); } catch (e2) {} }   // legacy checkout: adopt origin
+  }
+  const trim = (u) => u.replace(/\/$/, "");
+  const mismatch = rec !== null && trim(rec) !== trim(remote) ? { origin: rec, remote } : null;
+  return { mismatch, dir, root: targetDir, net: isNaN(net) ? 5 : net, branch: cfgVal(targetDir, "TICS_BRANCH", "tics-bus", ignoreEnv), ttl: isNaN(ttl) ? 60 : ttl, stamp: path.join(dir, ".git", "tics-fetch-stamp"), attempt: path.join(dir, ".git", "tics-fetch-attempt") };
+}
+function busGit(gs, args, opts) {
+  const env = Object.assign({}, process.env, { GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_HTTP_LOW_SPEED_LIMIT: "1000", GIT_HTTP_LOW_SPEED_TIME: "5" });
+  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) delete env[k];
+  return cp.spawnSync("git", ["-C", gs.dir, "-c", "gc.auto=0", "-c", "maintenance.auto=false"].concat(args), Object.assign({ env, stdio: ["pipe", "pipe", "ignore"], timeout: 5000 }, opts || {}));
+}
+// The fetch is the one network call: it runs under the writer's watchdog (tics-lib.sh tics_fetch -> _tic_net), which
+// kills git's whole process group, transport helpers included. Only the exit code matters, so no pipes; spawnSync's
+// own timeout is just a backstop past the watchdog.
+function busFetch(gs) {
+  const env = Object.assign({}, process.env, { ROOT: gs.root, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_HTTP_LOW_SPEED_LIMIT: "1000", GIT_HTTP_LOW_SPEED_TIME: "5" });
+  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) delete env[k];
+  return cp.spawnSync("bash", ["-c", '. "$1"; tics_fetch "$2" "$3"', "tics-fetch", path.join(__dirname, "tics-lib.sh"), gs.dir, gs.branch], { env, stdio: "ignore", timeout: (gs.net + 2) * 1000 });
+}
+const FETCHED = new Set();   // absolute bus dirs already fetched by THIS process (at most once per bus)
+function maybeFetch(gs) {
+  if (gs.mismatch) return;   // never fetch from the wrong remote
+  if (!FORCE_FETCH && FETCHED.has(gs.dir)) return;
+  let last = 0;   // the ATTEMPT stamp drives the TTL, so a dead remote is retried once per TTL, not every read
+  try { last = fs.statSync(gs.attempt).mtimeMs; } catch (e) {}
+  if (!FORCE_FETCH && last && (Date.now() - last) < gs.ttl * 1000) return;
+  FORCE_FETCH = false;
+  FETCHED.add(gs.dir);
+  try { fs.writeFileSync(gs.attempt, new Date().toISOString() + "\n"); } catch (e) {}
+  try {
+    const r = busFetch(gs);
+    // the success stamp records the last SUCCESSFUL fetch only (a failure, or a remote with no branch yet, never sets it)
+    if (r.status === 0) fs.writeFileSync(gs.stamp, new Date().toISOString() + "\n");
+  } catch (e) {}
+}
+function gitBusTics(gs) {
+  const files = new Map();   // filename -> raw json
+  try { maybeFetch(gs); } catch (e) {}
+  const local = path.join(gs.dir, "tics.d");
+  try { for (const f of fs.readdirSync(local)) if (f.endsWith(".json")) files.set(f, fs.readFileSync(path.join(local, f), "utf8")); } catch (e) {}
+  try {
+    const ref = "refs/remotes/origin/" + gs.branch;
+    const ls = busGit(gs, ["ls-tree", "--name-only", ref, "tics.d/"], { encoding: "utf8" });
+    if (ls.status !== 0) return files;
+    const want = ls.stdout.split("\n").map((l) => l.trim()).filter((l) => l.endsWith(".json") && !files.has(path.basename(l)));
+    if (!want.length) return files;
+    const r = busGit(gs, ["cat-file", "--batch"], { input: want.map((p) => ref + ":" + p).join("\n") + "\n", maxBuffer: 256 * 1024 * 1024 });
+    const buf = r.stdout || Buffer.alloc(0);
+    let pos = 0, i = 0;
+    while (pos < buf.length && i < want.length) {
+      const nl = buf.indexOf(10, pos); if (nl < 0) break;
+      const hdr = buf.slice(pos, nl).toString("utf8").split(" "); pos = nl + 1;
+      const name = path.basename(want[i++]);
+      if (hdr[1] !== "blob") continue;   // "<obj> missing"
+      const size = parseInt(hdr[2], 10);
+      files.set(name, buf.slice(pos, pos + size).toString("utf8")); pos += size + 1;
+    }
+  } catch (e) {}
+  return files;
+}
+// `tics sync` (ADR 0026 P3): publish unpushed local tics. The push logic lives once, in tics-lib.sh (next to
+// this reader in both the kit and an install); ROOT points it at the target's config and bus. Always exits 0.
+function ticsSync(targetDir) {
+  const lib = path.join(__dirname, "tics-lib.sh");
+  const env = Object.assign({}, process.env, { ROOT: targetDir });
+  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) delete env[k];
+  const r = cp.spawnSync("bash", ["-c", '. "$1"; tics_sync', "tics-sync", lib], { cwd: targetDir, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (r.stdout) process.stdout.write(r.stdout);
+  return 0;
+}
+function ticsRebind(targetDir) {
+  const lib = path.join(__dirname, "tics-lib.sh");
+  const env = Object.assign({}, process.env, { ROOT: targetDir });
+  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"]) delete env[k];
+  const r = cp.spawnSync("bash", ["-c", '. "$1"; tics_rebind', "tics-rebind", lib], { cwd: targetDir, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (r.stdout) process.stdout.write(r.stdout);
+  return 0;
+}
+function busFreshness(targetDir) {
+  const gs = gitStore(targetDir);
+  if (!gs) return null;
+  if (gs.mismatch) return "bus remote mismatch: checkout=" + gs.mismatch.origin + " config=" + gs.mismatch.remote + " — run tics rebind";
+  let s = "";
+  try { s = fs.readFileSync(gs.stamp, "utf8").trim(); } catch (e) {}
+  return s ? "bus as of " + s : "bus as of: never fetched";
 }
 function worktreeDirs(targetDir) {
   try {
@@ -70,7 +187,11 @@ function applyWindow(t, full) {
   return { rows: truncated ? t.slice(-READER_WINDOW) : t, total, truncated };
 }
 function ticsLog(targetDir, scopeFilter, all, showWitness, full) {
+  SKIPPED_SET.clear();
   let t = loadFor(targetDir, all);
+  const fresh = busFreshness(targetDir);
+  if (fresh) console.log(fresh);
+  if (SKIPPED_SET.size > 0) console.log(SKIPPED_SET.size + " unparsable tic line(s) skipped");
   if (scopeFilter) t = t.filter((x) => scopeMatch(x.scope, scopeFilter));
   if (!showWitness) t = t.filter((x) => !(x.kind === "note" && x.from === "witness"));
   if (!t.length) { console.log("No tics yet — the agent thread is empty (.claude/state/tics.jsonl)."); return 0; }
@@ -247,6 +368,16 @@ function livenessTier(lastTs, nowMs, idleSec, staleSec) {
 // Active claims for a target dir (claim minus release, minus release-on-section-done).
 // The single entry every claim consumer uses.
 function claimsFor(targetDir, tics) { return activeClaims(tics); }
+// Who a tic counts toward on the board (ADR 0027): its session, else its role shown as "<from> (no session)",
+// so a lead that never sets TICS_SESSION is still visible. The referee is not a member: the hook identities
+// tic.sh reserves (agents cannot self-assert them) create none. Excluded by identity only, never by kind:
+// tic.sh lets agents emit any kind, so a signal-only role (dev-ops) is still a member (ADR 0027 §2, V4).
+const HOOK_IDENTITIES = new Set(["subagent", "run-suite", "guard", "witness"]);
+function memberId(x) {
+  if (x.session && x.session !== "*") return x.session;
+  if (!x.from || HOOK_IDENTITIES.has(x.from)) return "";
+  return x.from + " (no session)";
+}
 // Fleet model: fold the bus into members grouped by held scope, with liveness tiers.
 // opts.nowMs injectable for tests; idleSec/staleSec come from tdd.config with defaults.
 function fleetModel(targetDir, tics, opts) {
@@ -259,15 +390,16 @@ function fleetModel(targetDir, tics, opts) {
   const sessLatest = new Map();
   const scopeSessions = new Map(); // scope -> Set of distinct sessions (for collision detection)
   for (const x of tics) {
-    const id = x.session || "";
+    const id = memberId(x);
     if (id) { const ts = x.ts || ""; if (ts > (sessLatest.get(id) || "")) sessLatest.set(id, ts); }
-    const sc = x.scope || "";
-    if (sc && sc !== "*" && id && id !== "*") { let s = scopeSessions.get(sc); if (!s) { s = new Set(); scopeSessions.set(sc, s); } s.add(id); }
+    const sc = x.scope || "", ss = x.session || "";   // collisions stay session-only (ADR 0027 §3)
+    if (sc && sc !== "*" && ss && ss !== "*") { let s = scopeSessions.get(sc); if (!s) { s = new Set(); scopeSessions.set(sc, s); } s.add(ss); }
   }
   const activeCls = claimsFor(targetDir, tics);
   const sessScope = new Map();
   for (const x of activeCls.values()) {
-    if (x.session && x.scope && x.scope !== "*") sessScope.set(x.session, x.scope);
+    const id = memberId(x);   // a no-session role's claim holds a scope too (ADR 0027 V3)
+    if (id && x.scope && x.scope !== "*") sessScope.set(id, x.scope);
   }
   const members = [];
   for (const [id, lastTs] of sessLatest.entries()) {
@@ -332,6 +464,8 @@ function ticsReview(targetDir, scopeFilter, all) {
 function ticsBoard(targetDir, all) {
   const tics = loadFor(targetDir, all);
   const model = fleetModel(targetDir, tics);
+  const fresh = busFreshness(targetDir);
+  if (fresh) console.log(fresh);
   if (!model.members.length) { console.log("No fleet activity yet — the agent bus is empty."); return 0; }
   console.log("Fleet board:");
   const scopes = Object.keys(model.byScope).sort((a, b) => {
@@ -339,12 +473,13 @@ function ticsBoard(targetDir, all) {
     if (b === "unscoped") return -1;
     return a.localeCompare(b);
   });
+  const w = Math.max(16, ...model.members.map((m) => m.session.length + 2));   // long ids never run into the tier
   for (const sc of scopes) {
     console.log("  [" + sc + "]");
     for (const m of model.byScope[sc]) {
       const when = (m.lastTs || "").slice(11, 19);
       const stuckMark = m.stuck ? "  STUCK" : "";
-      console.log("    " + m.session.padEnd(16) + m.liveness.padEnd(8) + when + stuckMark);
+      console.log("    " + m.session.padEnd(w) + m.liveness.padEnd(8) + when + stuckMark);
     }
   }
   if (model.collisions.length) {
@@ -528,7 +663,7 @@ function fanOut(targetDir, specPath) {
 }
 function main(argv, defaultRoot) {
   let scope = null, all = true, fromRole = null, showWitness = false, full = false; const rest = [];   // whole-picture by default (merge every worktree's bus); --here restricts to the local bus
-  for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else if (a === "--all") all = true; else if (a === "--here") all = false; else if (a === "--from") fromRole = argv[++i] || null; else if (a === "--witness") showWitness = true; else if (a === "--full") full = true; else rest.push(a); }
+  for (let i = 0; i < argv.length; i++) { const a = argv[i]; if (a === "--scope") scope = argv[++i] || ""; else if (a === "--all") all = true; else if (a === "--here") all = false; else if (a === "--from") fromRole = argv[++i] || null; else if (a === "--witness") showWitness = true; else if (a === "--full") full = true; else if (a === "--fetch") setFetch(true); else rest.push(a); }
   const cmd = rest.shift();
   const role = cmd === "inbox" ? rest.shift() : null;
   const cfFile = cmd === "claim-check" ? rest.shift() : null;
@@ -563,7 +698,9 @@ function main(argv, defaultRoot) {
     case "roster": return ticsRoster(target);
     case "review": return ticsReview(target, scope, all);
     case "answer": return ticsAnswer(target, ansHandle, ansText, fromRole, all);
-    default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims | sections | board | roster | review | answer <handle> \"<text>\" | claim-check <file> <scope> | claim-owner <file> | section-status <name> | fan-out <spec>] [--all]>"); return 2;
+    case "sync": return ticsSync(target);
+    case "rebind": return ticsRebind(target);
+    default: console.error("usage: tics <log [--scope S] | inbox <role> [--scope S] | conductor | claims | sections | board | roster | review | answer <handle> \"<text>\" | sync | rebind (move a moved bus; old checkout kept as tics.git.old-*) | claim-check <file> <scope> | claim-owner <file> | section-status <name> | fan-out <spec>] [--all]>"); return 2;
   }
 }
 if (require.main === module) {
@@ -734,4 +871,4 @@ function ticsLandmarks(targetDir, all) {
   }
   return 0;
 }
-module.exports = { loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, livenessTier, fleetModel, ticsBoard, ticsRoster, ticsReview, ticsAnswer, fanOut, greenAttestation, attestationTally, isHookSignedRed, cfgStr, evidenceFor, openNeeds, main, toolTally, ticsLandmarks, landmarkMap, ticsWhere, ticsHow };
+module.exports = { HOOK_IDENTITIES, setFetch, ticsSync, ticsRebind, loadTics, loadSignalEvents, ticsLog, ticsInbox, ticsConductor, ticsClaims, ticsSections, ticsCycle, ticsGate, claimCheck, claimCheckCli, claimOwner, claimOwnerCli, claimSession, claimSessionCli, sectionStatus, sectionStatusCli, livenessTier, fleetModel, ticsBoard, ticsRoster, ticsReview, ticsAnswer, fanOut, greenAttestation, attestationTally, isHookSignedRed, cfgStr, evidenceFor, openNeeds, main, toolTally, ticsLandmarks, landmarkMap, ticsWhere, ticsHow };

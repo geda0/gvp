@@ -96,8 +96,8 @@ class _HangFirstChunk:
 
 class _SlowOkStream:
     """Fallback whose first chunk arrives only AFTER a delay longer than the
-    per-attempt first-chunk budget — valid output the UNCAPPED final attempt must
-    still wait for (proves the last model is not time-boxed)."""
+    per-attempt first-chunk budget — output the final attempt must NOT wait for
+    (ADR-0026 §4.2: the last model is time-boxed like every other)."""
 
     def __init__(self, delay: float) -> None:
         self._delay = delay
@@ -530,12 +530,14 @@ async def test_primary_stream_timeout_flips_prefer_fallback(
 
 
 @pytest.mark.asyncio
-async def test_final_attempt_first_chunk_is_uncapped(
+async def test_final_attempt_first_chunk_is_capped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The LAST model must run without the per-attempt first-chunk cap, so a
-    slow-but-valid fallback still answers (the overall request deadline governs).
-    Guards against a regression that time-boxes the final attempt too."""
+    """INVERTED by ADR-0026 §4.2 (was test_final_attempt_first_chunk_is_uncapped,
+    invariant #13 as amended by #26): the LAST model is capped like every other.
+    A fallback whose first chunk would arrive after the per-attempt budget ends
+    the turn with asyncio.TimeoutError — which _chat_stream maps to the honest
+    `upstream_timeout` — instead of an uncapped 19 s wait."""
     from app import gemini_limit_state
 
     gemini_limit_state.reset_for_tests()
@@ -545,18 +547,21 @@ async def test_final_attempt_first_chunk_is_uncapped(
         primary_id="m-primary",
         fallback_id="m-fallback",
         key="k",
-        timeout=0.3,  # first-chunk budget = min(12, 0.18) = 0.18s
+        timeout=1.5,  # first-chunk budget = max(0.1, min(5, 0.6*1.5/3 = 0.3)) = 0.3s
     )
-    # Primary stalls -> fall back; fallback's first chunk is later than 0.18s but
-    # must NOT be capped (the final attempt is uncapped).
-    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": _SlowOkStream(0.4)}
+    # Primary stalls -> fall back; the fallback's first chunk would land at 2 s,
+    # well past its own 0.3 s budget, so the final attempt times out too.
+    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": _SlowOkStream(2.0)}
     monkeypatch.setattr(
         GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
     )
 
-    chunks = [c async for c in chain.astream({"messages": []})]
+    seen: list[str] = []
+    with pytest.raises(asyncio.TimeoutError):
+        async for chunk in chain.astream({"messages": []}):
+            seen.append(chunk.text)
 
-    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert seen == []
 
 
 @pytest.mark.asyncio
@@ -614,3 +619,524 @@ async def test_ainvoke_timeout_falls_back(
     result = await chain.ainvoke({"messages": []})
 
     assert result.content == "from-fallback"
+
+
+# ---------------------------------------------------------------------------
+# ADR-0026 §4 / invariant #26 — the routing latency budget.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def virtual_clock(monkeypatch: pytest.MonkeyPatch):
+    """Run the test's event loop on VIRTUAL time: `loop.time()` reads a counter,
+    and whenever the loop would block in select() waiting for its next timer it
+    advances the counter by that timeout instead of sleeping. A 5 s stall then
+    costs no wall time and is measured exactly — the budget is asserted in the
+    loop's own seconds, not inferred from a flaky wall clock. Call the returned
+    installer from INSIDE the async test (it needs the running loop)."""
+
+    class _Clock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+    clock = _Clock()
+
+    def install() -> _Clock:
+        loop = asyncio.get_running_loop()
+        selector = loop._selector  # type: ignore[attr-defined]
+        real_select = selector.select
+
+        def select(timeout=None):
+            if timeout is not None and timeout > 0:
+                clock.now += timeout
+                return real_select(0)
+            return real_select(timeout)
+
+        monkeypatch.setattr(loop, "time", lambda: clock.now)
+        monkeypatch.setattr(selector, "select", select)
+        return clock
+
+    return install
+
+
+class _StampedOkStream:
+    """A healthy model that records the loop time at which it was STARTED, so a
+    test can read exactly when the chain abandoned the previous attempt."""
+
+    def __init__(self) -> None:
+        self.started_at: float | None = None
+
+    def astream(self, _payload, config=None):
+        self.started_at = asyncio.get_running_loop().time()
+
+        async def gen():
+            yield MsgChunk(text="from-fallback")
+
+        return gen()
+
+
+def _chain(timeout: float = 28.0) -> GeminiRoutingChain:
+    return GeminiRoutingChain(
+        inject=None,
+        system_prompt="",
+        primary_id="m-primary",
+        fallback_id="m-fallback",
+        key="k",
+        timeout=timeout,
+    )
+
+
+@pytest.mark.asyncio
+async def test_first_chunk_budget_defaults_to_five_seconds(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.1: with GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS unset the per-attempt
+    first-chunk budget is 5 s (was 12) under the default 28 s request deadline —
+    a stalled primary is abandoned for the fallback at t = 5 s."""
+    monkeypatch.delenv("GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS", raising=False)
+    clock = virtual_clock()
+    chain = _chain(28.0)
+    fallback = _StampedOkStream()
+    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": fallback}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    chunks = [c async for c in chain.astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert fallback.started_at == pytest.approx(5.0, abs=0.01)
+    assert clock.now == pytest.approx(5.0, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_every_ainvoke_attempt_is_capped_at_a_third_of_the_deadline(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.2: a first-chunk cap means nothing for a whole response, so on
+    the non-streaming path EVERY attempt — the last included — is capped at
+    total_timeout / MAX_MODEL_ATTEMPTS. Both models hanging under a 30 s deadline
+    end the turn with asyncio.TimeoutError at exactly 2 x 10 s."""
+    clock = virtual_clock()
+    chain = _chain(30.0)
+    fakes = {"m-primary": _HangInvoke(), "m-fallback": _HangInvoke()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    with pytest.raises(asyncio.TimeoutError):
+        await chain.ainvoke({"messages": []})
+
+    assert clock.now == pytest.approx(20.0, abs=0.01)
+
+
+class _Recorded:
+    """Wraps a fake model and appends `(model_id, loop time)` to a shared log
+    every time the chain STARTS an attempt on it — the observable attempt order."""
+
+    def __init__(self, model_id: str, inner, log: list) -> None:
+        self._id = model_id
+        self._inner = inner
+        self._log = log
+
+    def astream(self, payload, config=None):
+        self._log.append((self._id, asyncio.get_running_loop().time()))
+        return self._inner.astream(payload, config=config)
+
+    async def ainvoke(self, payload, config=None):
+        self._log.append((self._id, asyncio.get_running_loop().time()))
+        return await self._inner.ainvoke(payload, config=config)
+
+
+def _install(monkeypatch: pytest.MonkeyPatch, fakes: dict, log: list) -> None:
+    recorded = {mid: _Recorded(mid, fake, log) for mid, fake in fakes.items()}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: recorded[model_id]
+    )
+
+
+@pytest.mark.asyncio
+async def test_astream_primary_503_is_retried_once_on_the_primary_then_falls_back(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3: a primary 503 UNAVAILABLE is retried on the SAME primary
+    once, after PRIMARY_503_RETRY_DELAY_SECONDS (0.3 s); a second 503 goes to the
+    fallback — never a third primary attempt."""
+    clock = virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableFirstChunk(), "m-fallback": _OkStream()},
+        log,
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
+    assert log[1][1] == pytest.approx(0.3, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_astream_fallback_first_order_still_retries_a_primary_503_once(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3, the fallback-preferred order: fallback -> primary ->
+    [primary, only after a 503]. The retry follows the primary wherever it sits,
+    is taken at most once, and a retried 503 sets no fallback preference beyond
+    the one already in force (ADR-0023 §4.3)."""
+    from app import gemini_limit_state
+
+    virtual_clock()
+    gemini_limit_state.note_primary_rate_limited()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableFirstChunk(), "m-fallback": _RateLimitFirstChunk()},
+        log,
+    )
+
+    with pytest.raises(UpstreamError):
+        async for _ in _chain().astream({"messages": []}):
+            pass
+
+    assert [mid for mid, _t in log] == ["m-fallback", "m-primary", "m-primary"]
+    assert gemini_limit_state.primary_rate_limit_hits_today() == 1
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_primary_503_is_retried_once_on_the_primary_then_falls_back(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3 on the non-streaming path (the two paths stay symmetric,
+    ADR-0023 §3): primary 503 -> primary again after 0.3 s -> fallback."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableInvoke(), "m-fallback": _OkInvoke()},
+        log,
+    )
+
+    result = await _chain().ainvoke({"messages": []})
+
+    assert result.content == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
+    assert log[1][1] == pytest.approx(0.3, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_astream_primary_429_is_not_retried_on_the_primary(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0026 §4.3: the same-model retry is for 503 ONLY. A primary 429 goes
+    straight to the fallback, as before."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _RateLimitFirstChunk(), "m-fallback": _OkStream()},
+        log,
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-fallback"]
+
+
+class _OkPrimaryStream:
+    def astream(self, _payload, config=None):
+        async def gen():
+            yield MsgChunk(text="from-primary")
+
+        return gen()
+
+
+@pytest.mark.asyncio
+async def test_switch_alert_names_the_model_that_failed_and_the_one_tried_next(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Design-notes L1: in the fallback-first order a stalled FALLBACK hands the
+    turn to the PRIMARY, and the alert must say exactly that — never
+    "m-fallback stalled; switching to m-fallback"."""
+    from app import alerts, gemini_limit_state
+
+    virtual_clock()
+    gemini_limit_state.note_primary_rate_limited()
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        alerts, "fire_alert", lambda kind, summary, detail="": fired.append((kind, summary))
+    )
+    _install(
+        monkeypatch,
+        {"m-primary": _OkPrimaryStream(), "m-fallback": _HangFirstChunk()},
+        [],
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-primary"
+    assert len(fired) == 1
+    summary = fired[0][1]
+    assert summary.startswith("m-fallback ")
+    assert summary.endswith("switching to m-primary")
+
+
+@pytest.mark.asyncio
+async def test_a_primary_503_alerts_as_unavailable_naming_the_retry_then_the_switch(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """ADR-0023 §5 / ADR-0026 §4.3: a primary 503 fires `chat_primary_unavailable`
+    (P2) — not the mislabelled `chat_primary_rate_limit` — and each alert names
+    what happens next: the same-model retry, then the switch to the fallback."""
+    from app import alerts
+
+    virtual_clock()
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        alerts, "fire_alert", lambda kind, summary, detail="": fired.append((kind, summary))
+    )
+    _install(
+        monkeypatch,
+        {"m-primary": _UnavailableFirstChunk(), "m-fallback": _OkStream()},
+        [],
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert [kind for kind, _s in fired] == [
+        "chat_primary_unavailable",
+        "chat_primary_unavailable",
+    ]
+    assert fired[0][1].startswith("m-primary ")
+    assert fired[0][1].endswith("retrying m-primary")
+    assert fired[1][1].startswith("m-primary ")
+    assert fired[1][1].endswith("switching to m-fallback")
+
+
+class _CommitThen503:
+    """Primary: yields one chunk (commits) THEN raises an upstream 503 — the
+    status that is retried BEFORE a first chunk and must not be after one."""
+
+    def astream(self, _payload, config=None):
+        async def gen():
+            yield MsgChunk(text="from-primary")
+            raise UpstreamError(503)
+
+        return gen()
+
+
+@pytest.mark.asyncio
+async def test_a_503_after_the_first_chunk_is_never_retried_invariant_9(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Invariant #9 under ADR-0026 §4.5: the 503 retry, the caps and the TTL act
+    strictly BEFORE the first chunk. Once a chunk has been yielded a mid-stream
+    503 propagates — no primary retry, no fallback, no duplicated text."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _CommitThen503(), "m-fallback": _OkStream()},
+        log,
+    )
+
+    seen: list[str] = []
+    with pytest.raises(UpstreamError):
+        async for chunk in _chain().astream({"messages": []}):
+            seen.append(chunk.text)
+
+    assert seen == ["from-primary"]
+    assert [mid for mid, _t in log] == ["m-primary"]
+
+
+class _Primary503ThenHang:
+    """Primary: the first attempt is an instant 503, the retry stalls forever."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def astream(self, payload, config=None):
+        self.calls += 1
+        if self.calls == 1:
+            return _UnavailableFirstChunk().astream(payload, config=config)
+        return _HangFirstChunk().astream(payload, config=config)
+
+
+@pytest.mark.asyncio
+async def test_worst_case_all_stall_turn_ends_within_fifteen_seconds(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Design-notes L1 worst-case bound / invariant #26, on a fake clock with the
+    DEFAULT knobs (28 s deadline, 5 s cap): the longest attempt chain the router
+    allows — primary 503, primary retry stalls, fallback stalls — gives the
+    visitor the honest timeout within 15 s (it was ~28 s). Three attempts, never
+    a fourth."""
+    monkeypatch.delenv("GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS", raising=False)
+    clock = virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _Primary503ThenHang(), "m-fallback": _HangFirstChunk()},
+        log,
+    )
+
+    with pytest.raises(asyncio.TimeoutError):
+        async for _ in _chain(28.0).astream({"messages": []}):
+            pass
+
+    assert [mid for mid, _t in log] == ["m-primary", "m-primary", "m-fallback"]
+    assert clock.now <= 15.0
+    assert clock.now == pytest.approx(10.3, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_first_chunk_cap_shrinks_with_the_deadline_to_sixty_percent_over_three(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Invariant #26 cap relation: cap = min(env|5, 0.6 x total / 3). Under a 10 s
+    deadline the 5 s default is NOT what binds — 0.6 x 10 / 3 = 2 s is — so a
+    stalled primary hands to the fallback at exactly t = 2.0. (A cap of
+    min(5, 0.6 x total) would wait 5 s and spend half the deadline on one attempt.)"""
+    monkeypatch.delenv("GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS", raising=False)
+    virtual_clock()
+    fallback = _StampedOkStream()
+    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": fallback}
+    monkeypatch.setattr(
+        GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
+    )
+
+    chunks = [c async for c in _chain(10.0).astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert fallback.started_at == pytest.approx(2.0, abs=0.01)
+
+
+class _StatusFirstChunk:
+    """A model whose stream raises the given upstream status before any chunk."""
+
+    def __init__(self, status: int) -> None:
+        self._status = status
+
+    def astream(self, _payload, config=None):
+        status = self._status
+
+        async def gen():
+            raise UpstreamError(status)
+            yield  # unreachable; makes gen an async generator
+
+        return gen()
+
+
+class _StatusInvoke:
+    """Non-streaming sibling of _StatusFirstChunk."""
+
+    def __init__(self, status: int) -> None:
+        self._status = status
+
+    async def ainvoke(self, _payload, config=None):
+        raise UpstreamError(self._status)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [500, 504])
+async def test_astream_only_a_503_earns_the_same_model_retry(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock, status: int
+) -> None:
+    """ADR-0026 §4.3: the same-model retry is for 503 / UNAVAILABLE ONLY. A
+    primary 500 or 504 is retryable on the OTHER model (ADR-0023 §4.1) and goes
+    straight there — no second primary attempt."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _StatusFirstChunk(status), "m-fallback": _OkStream()},
+        log,
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-fallback"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [500, 504])
+async def test_ainvoke_only_a_503_earns_the_same_model_retry(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock, status: int
+) -> None:
+    """Non-streaming half of the 503-only retry rule (ADR-0023 §3 symmetry)."""
+    virtual_clock()
+    log: list = []
+    _install(
+        monkeypatch,
+        {"m-primary": _StatusInvoke(status), "m-fallback": _OkInvoke()},
+        log,
+    )
+
+    result = await _chain().ainvoke({"messages": []})
+
+    assert result.content == "from-fallback"
+    assert [mid for mid, _t in log] == ["m-primary", "m-fallback"]
+
+
+class _OkPrimaryInvoke:
+    async def ainvoke(self, _payload, config=None):
+        return Msg(role="ai", content="from-primary")
+
+
+@pytest.mark.asyncio
+async def test_astream_fallback_first_429_alert_switches_to_the_primary(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Fallback-first order, retryable-error branch: a fallback 429 hands the turn
+    to the PRIMARY, and the alert says so (never "switching to m-fallback")."""
+    from app import alerts, gemini_limit_state
+
+    virtual_clock()
+    gemini_limit_state.note_primary_rate_limited()
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        alerts, "fire_alert", lambda kind, summary, detail="": fired.append((kind, summary))
+    )
+    _install(
+        monkeypatch,
+        {"m-primary": _OkPrimaryStream(), "m-fallback": _RateLimitFirstChunk()},
+        [],
+    )
+
+    chunks = [c async for c in _chain().astream({"messages": []})]
+
+    assert "".join(c.text for c in chunks) == "from-primary"
+    assert [summary for _k, summary in fired] == [
+        "m-fallback rate-limited; switching to m-primary"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_fallback_first_429_alert_switches_to_the_primary(
+    monkeypatch: pytest.MonkeyPatch, virtual_clock
+) -> None:
+    """Non-streaming half of the fallback-first alert text."""
+    from app import alerts, gemini_limit_state
+
+    virtual_clock()
+    gemini_limit_state.note_primary_rate_limited()
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        alerts, "fire_alert", lambda kind, summary, detail="": fired.append((kind, summary))
+    )
+    _install(
+        monkeypatch,
+        {"m-primary": _OkPrimaryInvoke(), "m-fallback": _RateLimitInvoke()},
+        [],
+    )
+
+    result = await _chain().ainvoke({"messages": []})
+
+    assert result.content == "from-primary"
+    assert [summary for _k, summary in fired] == [
+        "m-fallback rate-limited; switching to m-primary"
+    ]

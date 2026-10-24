@@ -4,6 +4,26 @@
 
 ## Current status
 
+- **2026-10-23 (night) — Track C and the staging voice pass, ON STAGE.**
+  - Track C (backlog items 5-7) is built and verified on stage (`agent` @ a3125e8):
+    - text navigate/open-project RUN (labelled agent, read back);
+    - "show me around" runs a 4-stop tour from a fixed #tourCard outside the chat (step-on-confirm; it steps aside for the contact form);
+    - start_tour is declared on text and voice;
+    - the server drops open_resume unless the visitor's own last message asked for it (multilingual, or a plain yes to an offer);
+    - a plain tour ask gets the tour even when the model only promises it (MEASURED on stage);
+    - prompt 1.7.0.
+  - Guide journeys on stage: 12/12 at desktop and at phone width. Critic: two FAIL rounds, then PASS.
+  - **Staging voice pass** (`scripts/qa/voice-stage-probe.mjs`, real Live API, a WAV as the mic): 16/16.
+    - Greeting uninterrupted, and the mic is deferred to the greeting's turnComplete on the cold path.
+    - Spoken "show me your work" leads to navigate_to_section, the page moves, the call survives and the model keeps talking.
+    - Project chips during a call.
+  - **Defect found and fixed:** a chip tapped mid-call went down the TEXT path (fix 2084bc6, chat-live sendUserText).
+  - **NOT verified, human only:** how the real permission prompt looks, and the audio through real speakers.
+  - **Probe caveat:** Chrome's fake mic needs `--no-sandbox` and a plain-header WAV, or it captures silence.
+  - **The peer's "empty log" lead:** the hero mic opens the panel awaiting "Start voice chat" by design.
+  - **PROD: not promoted.** The merge to `main` was refused by the session's permission classifier.
+  - **Plan for the promotion:** Track C goes to prod. 2084bc6 stays on stage per "leave the voice pass on stage", held with a revert on main and a revert-of-revert when main syncs back to agent.
+
 - **2026-10-23 — Starfield restored to the original (c7a09b6) look and animation.** Owner:
   "original was better ... way before we tried to use the tactics". The star section of
   `js/starfield.js` is now verbatim c7a09b6 (radial glows, 1.5px/0.38 streaks under 150px,

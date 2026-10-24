@@ -85,7 +85,7 @@ import assert from 'node:assert/strict'
 // The stub-DOM boot lives in test/fixtures/chat-harness.mjs — it was built here first and
 // moved out once the later M2 slices needed the same boot. The notes on why it is a stub
 // rather than jsdom, and on every-lookup-answers-with-a-node, travelled with it.
-import { makeEl, settle, bootChatWithLiveVoice } from './fixtures/chat-harness.mjs'
+import { makeEl, settle, bootChatWithLiveVoice, defineGlobal } from './fixtures/chat-harness.mjs'
 
 // RE-POINTED at the replacement writers, exactly as the note above says this file must be
 // when ADR-0015 §3.6 removes the event. The invariant outlives the seam: what used to be
@@ -206,5 +206,49 @@ test('no navigation or site dialog can end a live voice session', async (t) => {
     + 'without going through stopVoice. If instead a PRECONDITION is wrong, fix the harness '
     + 'before reading anything else: zero stopVoice calls from a dead probe proves nothing, '
     + 'which is the exact mistake behind the starfield depth-fade regression.'
+  )
+})
+
+// ADR-0026 G2 negative: invariant #25 adds LOCAL interrupts for acts that address the
+// assistant (a chip, a text turn, a mic tap). Navigating the site does not address it, so the
+// session surviving is not enough — the assistant must keep TALKING while the visitor browses
+// (M2's "keeps talking while I navigate"). A wider door that cut playback on any site event
+// would leave every row of the test above green.
+test('navigating the site or opening and closing a dialog does not stop the assistant talking', async (t) => {
+  // Arrange — a live call with the assistant's audio playing; every source is recorded.
+  const siteState = await import('../js/site-state.js')
+  siteState.__resetSiteStateForTests()
+  const { api, socket } = await bootChatWithLiveVoice({ tag: 'sitevoice-playback' })
+  t.after(() => api.disposeChatLiveVoice())
+  const sources = []
+  defineGlobal('AudioContext', class RecordingAudioContext {
+    constructor () { this.sampleRate = 24000; this.state = 'running'; this.currentTime = 0; this.destination = {} }
+    async resume () {}
+    async close () {}
+    createBuffer (channels, length, rate) { return { duration: length / rate, copyToChannel () {} } }
+    createBufferSource () {
+      const src = { started: false, stopped: false, connect () {}, start () { src.started = true }, stop () { src.stopped = true } }
+      sources.push(src)
+      return src
+    }
+  })
+  const playing = () => sources.filter((s) => s.started && !s.stopped).length
+  socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: btoa('\u0000\u0001\u0000\u0002') } }] } } }) })
+  await settle()
+  const playingBefore = playing()
+
+  // Act — scrolling to a section, opening a project dialog, closing it again.
+  siteState.setSection('portfolio', { origin: 'visitor' })
+  await settle()
+  siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+
+  // Assert
+  assert.deepEqual(
+    { playingBefore, playingAfter: playing() },
+    { playingBefore: 1, playingAfter: 1 },
+    'a site event is not an act addressed to the assistant: it must not reach interruptAssistant'
   )
 })

@@ -1,10 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-// M4 slice 14 (ADR-0017 §5.3): the WIRING of micAttachPlan, driven through the real
-// bindChatLiveVoice closure over a fake WebSocket (helpers copied from
-// voice-turn-gate-wiring.test.mjs). A pure-function test cannot say whether anything CALLS
-// the plan - this file asks the browser-visible question: when does getUserMedia run?
+// WHEN does getUserMedia run? Driven through the real bindChatLiveVoice closure over a fake
+// WebSocket (helpers copied from voice-turn-gate-wiring.test.mjs). Born as M4 slice 14's
+// wiring of micAttachPlan (ADR-0017 §5.3); ADR-0026 §2 deleted that plan and its deferral, so
+// every path now attaches right after the greeting is sent (invariant #25).
 
 const classesOf = (el) => String(el.className || '').split(/\s+/).filter(Boolean)
 const hasClass = (el, cls) => classesOf(el).includes(cls)
@@ -148,43 +148,25 @@ async function bootVoice({ permission }) {
   return { live, mic, send: async (p) => { socket.onmessage({ data: JSON.stringify(p) }); await settle() } }
 }
 
-test('permission prompt possible + greeting: no mic until the greeting finishes, then exactly one attach', async () => {
-  const v = await bootVoice({ permission: 'prompt' })
-  try {
-    assert.equal(v.mic.calls, 0, 'a permission sheet must not open over the speaking greeting')
-    await v.send({ serverContent: { turnComplete: true } })
-    assert.equal(v.mic.calls, 1, 'the greeting\'s first turnComplete attaches the mic')
-    await v.send({ serverContent: { turnComplete: true } })
-    assert.equal(v.mic.calls, 1, 'a later turnComplete does not attach again')
-  } finally { v.live.stopVoice?.() }
-})
-
-test('hanging up during the greeting cancels the deferred attach, including its 15 s fallback', async () => {
-  // Capture the plan's fallback timer so the test can fire it after hang-up without waiting.
-  const realSetTimeout = globalThis.setTimeout
-  const realClearTimeout = globalThis.clearTimeout
-  const fallbacks = new Map()
-  let nextId = 1
-  globalThis.setTimeout = (fn, ms, ...rest) => {
-    if (ms === 15000) { const id = `fallback-${nextId++}`; fallbacks.set(id, fn); return id }
-    return realSetTimeout(fn, ms, ...rest)
-  }
-  globalThis.clearTimeout = (id) => { if (fallbacks.has(id)) fallbacks.delete(id); else realClearTimeout(id) }
-  try {
-    const v = await bootVoice({ permission: 'prompt' })
-    assert.equal(fallbacks.size, 1, 'the deferred attach armed exactly one fallback')
-    const [armed] = fallbacks.values()
-    v.live.stopVoice()
-    await settle()
-    assert.equal(fallbacks.size, 0, 'hanging up must clear the fallback timer')
-    await armed() // even if a cleared timer still fired, it must not attach
-    await settle()
-    assert.equal(v.mic.calls, 0, 'no permission prompt for a session that no longer exists')
-  } finally {
-    globalThis.setTimeout = realSetTimeout
-    globalThis.clearTimeout = realClearTimeout
-  }
-})
+// ADR-0026 §2 (invariant #25) SUPERSEDES slice 14's deferral: on the cold path the greeting
+// cannot be talked over unless the mic is already streaming, because Gemini Live's activity
+// detection never fires `interrupted` with no upstream audio. The old rows "no mic until the
+// greeting finishes" and "hanging up cancels the 15 s fallback" pinned the regression and are
+// gone with the machinery they described (test-writer decision, ADR-0026 §2/§7).
+// Prompt AND unknown (no Permissions API, e.g. Safari/Firefox): both are the first-visit path.
+for (const permission of ['prompt', undefined]) {
+  test(`cold path (${permission || 'unknown'}) + greeting: the mic is requested at once, before the greeting's turnComplete`, async () => {
+    // Arrange + Act — start voice; the greeting is sent and is still speaking (no turnComplete).
+    const v = await bootVoice({ permission })
+    try {
+      // Assert — no deferral to the greeting's end, nor to any fallback timer.
+      assert.equal(
+        v.mic.calls, 1,
+        'the permission sheet over the speaking greeting is the accepted cost of barge-in (ADR-0026 §2)'
+      )
+    } finally { v.live.stopVoice?.() }
+  })
+}
 
 test('granted: the mic attaches at once, as before', async () => {
   const v = await bootVoice({ permission: 'granted' })
@@ -198,13 +180,6 @@ test('denied: the mic attaches at once so the error surfaces now, not after the 
   try {
     assert.equal(v.mic.calls, 1)
   } finally { v.live.stopVoice?.() }
-})
-
-test('stopVoiceInternal clears the deferred-attach timer (source pin for the 15 s fallback path)', async () => {
-  const { readFileSync } = await import('node:fs')
-  const src = readFileSync(new URL('../js/chat-live.js', import.meta.url), 'utf8')
-  const stop = src.slice(src.indexOf('const stopVoiceInternal'), src.indexOf('const stopVoiceInternal') + 2500)
-  assert.match(stop, /clearDeferredMicAttach\(\)/)
 })
 
 // Critic (M4 review): two races the single-trigger tests above could not see.
@@ -235,14 +210,16 @@ async function bootControllable () {
   return { live, gum, fakeStream, send: async (p) => { socket.onmessage({ data: JSON.stringify(p) }); await settle() } }
 }
 
-test('a manual mic tap during the greeting and the greeting\'s end share ONE getUserMedia', async () => {
+test('a mic tap while the at-once attach\'s permission prompt is open joins it: ONE getUserMedia', async () => {
+  // Arrange — cold start: the attach went out at once and the browser's prompt is still open.
   const v = await bootControllable()
   try {
+    // Act — the visitor taps the mic, then the greeting ends.
     void v.live.attachMicrophone()
     await settle()
-    assert.equal(v.gum.calls, 1, 'the tap opens the permission prompt')
     await v.send({ serverContent: { turnComplete: true } })
-    assert.equal(v.gum.calls, 1, 'the deferred attach must not open a second stream while the first is pending')
+    // Assert — a second stream would be overwritten and never stopped (mic light on after hang-up).
+    assert.equal(v.gum.calls, 1, 'every trigger shares the one in-flight attach')
   } finally { v.live.stopVoice?.() }
 })
 
@@ -256,15 +233,4 @@ test('hanging up while the permission prompt is open stops the stream the visito
   v.gum.pending[0](stream) // the visitor clicks Allow after the call ended
   await settle()
   assert.ok(stream.tracks.every((t) => t.stopped), 'a mic allowed after hang-up must be released at once')
-})
-
-test('re-review: the deferred attach first, then a manual tap, still share ONE getUserMedia', async () => {
-  const v = await bootControllable()
-  try {
-    await v.send({ serverContent: { turnComplete: true } }) // deferred attach starts, prompt open
-    assert.equal(v.gum.calls, 1)
-    void v.live.attachMicrophone() // the visitor taps the mic while the prompt is still open
-    await settle()
-    assert.equal(v.gum.calls, 1, 'a tap during an in-flight attach joins it rather than opening a second stream')
-  } finally { v.live.stopVoice?.() }
 })

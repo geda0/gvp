@@ -11,9 +11,13 @@ adapter over the google-genai async client that:
   * yields ``MsgChunk(text, tool_calls)`` / returns ``Msg(role="ai", ...)``.
 
 The commit-on-first-chunk fallback (project invariant #9) lives in ``astream``:
-fall back to the secondary model only if the FIRST chunk raises an upstream rate
-limit; once any chunk has yielded we are committed and mid-stream errors
-propagate.
+fall back to the other model only if the FIRST chunk fails retryably or stalls;
+once any chunk has yielded we are committed and mid-stream errors propagate.
+
+The latency budget (ADR-0026 §4, invariant #26): every attempt, the last
+included, is capped (``_first_chunk_timeout``); a primary 503 is retried on the
+primary once after ``PRIMARY_503_RETRY_DELAY_SECONDS``; at most
+``MAX_MODEL_ATTEMPTS`` attempts per turn.
 """
 
 from __future__ import annotations
@@ -22,28 +26,81 @@ import asyncio
 import logging
 import os
 import threading
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 from app.messages import Msg, MsgChunk
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class RoutingOutcome:
+    """What the routing chain did for ONE turn: the model that answered and
+    whether the primary was retried after a 503 (ADR-0026 §4.3)."""
+
+    model_id: str | None = None
+    primary_retried: bool = False
+
+
+# The chain is one object shared by every request on the container, so a turn's
+# outcome cannot live on it (overlapping turns would overwrite each other). The
+# handler opens a RoutingOutcome per turn; the chain mutates that object. A
+# context copied into a child task still points at the same object, so the record
+# survives whatever task the attempt runs in.
+_turn_outcome: ContextVar[RoutingOutcome | None] = ContextVar(
+    'gemini_turn_outcome', default=None
+)
+
+
+def begin_turn_outcome() -> RoutingOutcome:
+    """Open the per-turn routing record for the current context and return it."""
+    outcome = RoutingOutcome()
+    _turn_outcome.set(outcome)
+    return outcome
+
+
+def _record(model_id: str | None = None, primary_retried: bool = False) -> None:
+    outcome = _turn_outcome.get()
+    if outcome is None:
+        return
+    if model_id is not None:
+        outcome.model_id = model_id
+    if primary_retried:
+        outcome.primary_retried = True
+
+
 _clients_lock = threading.Lock()
 _text_clients: dict[str, Any] = {}
 
 
+# ADR-0026 §4.1 / invariant #26: at most three model attempts per turn (primary,
+# one primary retry after a 503, fallback).
+MAX_MODEL_ATTEMPTS = 3
+PRIMARY_503_RETRY_DELAY_SECONDS = 0.3
+_DEFAULT_FIRST_CHUNK_TIMEOUT_SECONDS = 5.0
+
+
 def _first_chunk_timeout(total_timeout: float) -> float:
-    """Per-attempt budget for a NON-final model's first chunk. A primary that
-    produces no first token within this window is abandoned in favour of the
-    fallback — well inside the overall request deadline so the fallback still has
-    room to answer. Configurable via GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS; capped at
-    60% of the total budget so it never starves the fallback."""
+    """Per-attempt first-chunk budget (ADR-0026 §4.2). Configurable via
+    GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS (default 5 s) and capped so that every
+    attempt together stays within 60 % of the request deadline:
+    ``min(env, 0.6 * total / MAX_MODEL_ATTEMPTS)``."""
     raw = os.environ.get('GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS')
     try:
-        val = float(raw) if raw else 12.0
+        val = float(raw) if raw else _DEFAULT_FIRST_CHUNK_TIMEOUT_SECONDS
     except ValueError:
-        val = 12.0
-    return max(0.1, min(val, total_timeout * 0.6))
+        val = _DEFAULT_FIRST_CHUNK_TIMEOUT_SECONDS
+    return max(0.1, min(val, 0.6 * total_timeout / MAX_MODEL_ATTEMPTS))
+
+
+def _retryable_alert(rate_limited: bool) -> tuple[str, str]:
+    """(alert type, words) for a retryable first-attempt failure. A 429 is a quota
+    event; every other retryable status (503 above all) is capacity, and must not
+    be labelled a rate limit (ADR-0023 §5)."""
+    if rate_limited:
+        return 'chat_primary_rate_limit', 'rate-limited'
+    return 'chat_primary_unavailable', 'unavailable'
 
 
 async def _aclose_quietly(iterator: Any) -> None:
@@ -313,6 +370,11 @@ class GeminiRoutingChain:
             return [self.fallback_id, self.primary_id]
         return [self.primary_id, self.fallback_id]
 
+    def warm(self) -> None:
+        """ADR-0026 §5.1: build (and cache) the google-genai client for this key so
+        the first real turn does not pay for it. No model call, no routing state."""
+        _text_client_singleton(self.key)
+
     def _build_chain(self, model_id: str) -> Any:
         client = _text_client_singleton(self.key)
         return _GeminiAdapter(
@@ -332,22 +394,24 @@ class GeminiRoutingChain:
         from app.upstream_errors import (
             is_upstream_rate_limit,
             is_upstream_retryable,
+            is_upstream_unavailable,
         )
 
-        order = self._model_order()
+        pending = self._model_order()
+        primary_retried = False
         last_exc: BaseException | None = None
-        for idx, model_id in enumerate(order):
-            is_last = idx == len(order) - 1
+        while pending:
+            model_id = pending.pop(0)
+            is_last = not pending
             chain = self._build_chain(model_id)
             try:
-                if is_last:
-                    out = await chain.ainvoke(inp, config=config)
-                else:
-                    out = await asyncio.wait_for(
-                        chain.ainvoke(inp, config=config),
-                        timeout=_first_chunk_timeout(self.timeout),
-                    )
+                # ADR-0026 §4.2: a whole response per attempt, every attempt capped.
+                out = await asyncio.wait_for(
+                    chain.ainvoke(inp, config=config),
+                    timeout=self.timeout / MAX_MODEL_ATTEMPTS,
+                )
                 self.last_model_id = model_id
+                _record(model_id=model_id)
                 return out
             except asyncio.TimeoutError as e:
                 last_exc = e
@@ -356,7 +420,7 @@ class GeminiRoutingChain:
                 logger.warning(
                     'gemini timeout model=%s remaining_attempts=%s',
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(
@@ -366,7 +430,7 @@ class GeminiRoutingChain:
                     raise
                 fire_alert(
                     'chat_primary_timeout',
-                    f'{model_id} timed out; switching to {self.fallback_id}',
+                    f'{model_id} timed out; switching to {pending[0]}',
                 )
             except Exception as e:
                 last_exc = e
@@ -377,23 +441,35 @@ class GeminiRoutingChain:
                         detail=str(e)[:300],
                     )
                     raise
-                if model_id == self.primary_id and is_upstream_rate_limit(e):
+                rate_limited = is_upstream_rate_limit(e)
+                if model_id == self.primary_id and rate_limited:
                     note_primary_rate_limited()
+                kind, what = _retryable_alert(rate_limited)
+                if (
+                    model_id == self.primary_id
+                    and not primary_retried
+                    and is_upstream_unavailable(e)
+                ):
+                    # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
+                    primary_retried = True
+                    _record(primary_retried=True)
+                    fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
+                    pending.insert(0, model_id)
+                    await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
+                    continue
                 logger.warning(
-                    'gemini rate_limited model=%s remaining_attempts=%s',
+                    'gemini %s model=%s remaining_attempts=%s',
+                    what,
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(
                         'chat_upstream_unavailable',
-                        f'all chat models failed (last={model_id}: rate-limited)',
+                        f'all chat models failed (last={model_id}: {what})',
                     )
                     raise
-                fire_alert(
-                    'chat_primary_rate_limit',
-                    f'{model_id} rate-limited; switching to {self.fallback_id}',
-                )
+                fire_alert(kind, f'{model_id} {what}; switching to {pending[0]}')
         assert last_exc is not None
         raise last_exc
 
@@ -402,10 +478,11 @@ class GeminiRoutingChain:
         inp: dict[str, Any],
         config: Any | None = None,
     ) -> AsyncIterator[Any]:
-        """Stream chunks from the primary model; fall back to the secondary if the
-        FIRST chunk rate-limits OR fails to arrive within the per-attempt budget (a
-        stalled/too-slow primary). Once any chunk is yielded we're committed to the
-        current model — mid-stream errors propagate."""
+        """Stream chunks from the first model in the order; move to the next if the
+        FIRST chunk fails retryably OR does not arrive within the per-attempt budget
+        (every attempt is capped, ADR-0026 §4.2). A primary 503 is retried on the
+        primary once (§4.3). Once any chunk is yielded we're committed to the
+        current model — mid-stream errors propagate (invariant #9)."""
         from app.alerts import fire_alert
         from app.gemini_limit_state import (
             note_primary_rate_limited,
@@ -414,26 +491,28 @@ class GeminiRoutingChain:
         from app.upstream_errors import (
             is_upstream_rate_limit,
             is_upstream_retryable,
+            is_upstream_unavailable,
         )
 
-        order = self._model_order()
+        pending = self._model_order()
+        primary_retried = False
         last_exc: BaseException | None = None
-        for idx, model_id in enumerate(order):
-            is_last = idx == len(order) - 1
+        while pending:
+            model_id = pending.pop(0)
+            is_last = not pending
             chain = self._build_chain(model_id)
             stream = chain.astream(inp, config=config)
             iterator = stream.__aiter__()
             first_chunk: Any = None
             try:
-                if is_last:
-                    first_chunk = await iterator.__anext__()
-                else:
-                    first_chunk = await asyncio.wait_for(
-                        iterator.__anext__(),
-                        timeout=_first_chunk_timeout(self.timeout),
-                    )
+                # ADR-0026 §4.2: EVERY attempt is capped, the last one included.
+                first_chunk = await asyncio.wait_for(
+                    iterator.__anext__(),
+                    timeout=_first_chunk_timeout(self.timeout),
+                )
             except StopAsyncIteration:
                 self.last_model_id = model_id
+                _record(model_id=model_id)
                 return
             except asyncio.TimeoutError as e:
                 last_exc = e
@@ -443,7 +522,7 @@ class GeminiRoutingChain:
                 logger.warning(
                     'gemini stream first_chunk_timeout model=%s remaining_attempts=%s',
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(
@@ -453,7 +532,7 @@ class GeminiRoutingChain:
                     raise
                 fire_alert(
                     'chat_primary_timeout',
-                    f'{model_id} stalled past first-chunk budget; switching to {self.fallback_id}',
+                    f'{model_id} stalled past first-chunk budget; switching to {pending[0]}',
                 )
                 continue
             except Exception as e:
@@ -465,26 +544,39 @@ class GeminiRoutingChain:
                         detail=str(e)[:300],
                     )
                     raise
-                if model_id == self.primary_id and is_upstream_rate_limit(e):
+                rate_limited = is_upstream_rate_limit(e)
+                if model_id == self.primary_id and rate_limited:
                     note_primary_rate_limited()
+                kind, what = _retryable_alert(rate_limited)
+                if (
+                    model_id == self.primary_id
+                    and not primary_retried
+                    and is_upstream_unavailable(e)
+                ):
+                    # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
+                    primary_retried = True
+                    _record(primary_retried=True)
+                    fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
+                    pending.insert(0, model_id)
+                    await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
+                    continue
                 logger.warning(
-                    'gemini stream rate_limited model=%s remaining_attempts=%s',
+                    'gemini stream %s model=%s remaining_attempts=%s',
+                    what,
                     model_id,
-                    len(order) - idx - 1,
+                    len(pending),
                 )
                 if is_last:
                     fire_alert(
                         'chat_upstream_unavailable',
-                        f'all chat models failed (last={model_id}: rate-limited)',
+                        f'all chat models failed (last={model_id}: {what})',
                     )
                     raise
-                fire_alert(
-                    'chat_primary_rate_limit',
-                    f'{model_id} rate-limited; switching to {self.fallback_id}',
-                )
+                fire_alert(kind, f'{model_id} {what}; switching to {pending[0]}')
                 continue
 
             self.last_model_id = model_id
+            _record(model_id=model_id)
             yield first_chunk
             async for chunk in iterator:
                 yield chunk

@@ -6,6 +6,45 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ---
 
+## 2026-10-24 — barge-in + chat latency (TOP PRIORITY)
+
+> Source: `docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md`. Scope decided (RCA §4
+> "Chosen"). **Full acceptance bullets live in `design-notes.md` → "2026-10-24 — barge-in + chat
+> latency"** — the bar is there; these items are the ordered roadmap. Labels: `[app]` node:test ·
+> `[chat]` pytest · `[qa]` stage probe/journey · `[ops]` deploy workflow. Navigator decisions
+> N1–N5 are listed in design-notes; N1 blocks G1.
+
+1. **G1 — a first-time visitor can talk over the greeting** — `[app]` — _owner-visible regression,
+   live on prod since 2026-10-23._ Cold path (permission prompt/unknown) requests the mic at once,
+   not after the greeting's `turnComplete`; `interrupted` during the greeting stops audio and drops
+   the rest of that turn. Granted and denied paths unchanged. Supersedes M4's "greeting is not cut
+   off by the mic prompt" (pending N1). **Ship together with G3.**
+2. **G3 — the stage voice probe holds barge-in on the cold path** — `[qa]` — _the old probe
+   asserted the regression as a pass._ WAV during the greeting → `interrupted` + audio stops; the
+   "mic only after greeting" and "greeting not interrupted" claims removed; silent-mic control run;
+   red-proven against the 2026-10-23 build. `[human-staging GATED]` owner first-visit check gates
+   G1 to prod.
+3. **L1 — routing stops amplifying Gemini stalls** — `[chat]` — _biggest latency cause._ 5 s
+   first-chunk default; every attempt capped incl. the last; primary 503 retried once on primary;
+   fallback preference expires in minutes, not the UTC day; alert names the right models;
+   invariant #9 holds; warm worst case ≤ 15 s to first token or error (was ~28 s).
+4. **L3 — warm after deploy + a cacheable stream image** — `[ops]` `[qa]` — _removes the 9–10 s
+   first cold start after every deploy._ Post-deploy warm per env, fails the job loudly; stream
+   image base pinned by digest; routine deploys push no new base/pip layers.
+5. **L2 — prewarm on chat intent** — `[app]` `[chat]` `[qa]` — _cold starts hit ~60% of real turns._
+   One digest-valid warm per page load on chat open/launcher intent; no Gemini call, no transcript
+   turn, not counted as a chat turn in admin/daily report.
+6. **G2 — explicit actions cut the assistant off locally** — `[app]` — chip-to-call, text send, and
+   mic tap stop playback at once without waiting for the server, greeting or any turn, cold and
+   warm; plain site navigation does not.
+
+**Owner actions (out of agent scope — not slices):**
+- [ ] **O1.** Verify, and enable if needed, billing on the prod Gemini key (RCA infers free tier).
+- [ ] **O2.** Choose a replacement fallback model verified on the prod key (gemma-4-26b-a4b-it is
+      effectively dead there). L1 bounds the damage until then.
+
+---
+
 ## MILESTONE — Work-showcase reframe + agent guide (PARTLY SHIPPED; IA merge REVERTED)
 
 > **Resolved 2026-10-14.** The IA half of this milestone — merging Portfolio+Labs into one
@@ -111,13 +150,15 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ### Track C — guided-tour agent + navigation parity + stop defaulting to résumé
 
+_Built and VERIFIED ON STAGE 2026-10-23: `scripts/qa/chat-guide-journeys.mjs` 12/12 at 1280 and at 390 against the real model; app 538 · chat 319 green; tdd-critic PASS (round 3). Prod promotion pending the owner's go-ahead (the merge to `main` was refused by the session's permission classifier)._
+
 5. **Text agent has navigation parity with voice** — `[chat pytest]` `[frontend-manual]` —
    _owner #3: the text agent can move the visitor around the site like voice already can._
    - [x] ~~The text-chat tool surface includes a navigation tool (parity with voice's
          `navigate_to_section`)~~ — **SHIPPED**; `providers.chat_tools()` declares it. The
          "Work / Experience / Home destinations" wording is moot: the IA merge was reverted,
          so the shipped enum is `home | portfolio | labs`.
-   - [ ] When the visitor asks to "go to / show me your work / experience / projects," the text agent
+   - [x] When the visitor asks to "go to / show me your work / experience / projects," the text agent
          navigates the page to that section (the page actually moves), not just describes it in text.
    - [x] ~~A chat pytest pins that the text tool surface now declares the navigation tool~~ —
          the `providers.chat_tools()` gap is ALREADY closed. Still OPEN and worth a slice: the
@@ -125,7 +166,7 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
          `['home','portfolio','playground']` while `providers.py` says
          `['home','portfolio','labs']`, so the voice model cannot emit `labs` at all and only
          works via the legacy alias. Pin enum EQUALITY, not presence.
-   - [ ] qa-verifier confirms in a browser that a text request to navigate actually scrolls/switches
+   - [x] qa-verifier confirms in a browser that a text request to navigate actually scrolls/switches
          the page.
    - _Decision (design-notes): the navigation enum must be updated to the new section ids (work /
      experience / home), and the legacy `portfolio`/`playground` enum values kept as aliases so older
@@ -133,14 +174,14 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 6. **"Show me around" triggers a guided tour that scrolls with narration** — `[chat pytest]`
    `[frontend-manual]` — _owner #3: the headline new behavior — a narrated tour._
-   - [ ] When the visitor asks for a tour ("show me around," "give me a tour," "walk me through the
+   - [x] When the visitor asks for a tour ("show me around," "give me a tour," "walk me through the
          site"), the agent runs a guided tour: it moves the page through the sections in order and
          narrates each stop (a line or two per section), rather than dumping one wall of text.
-   - [ ] The tour ends in a clear, non-dead-end state (e.g. back at the work/contact area with an
+   - [x] The tour ends in a clear, non-dead-end state (e.g. back at the work/contact area with an
          offer to go deeper or get in touch).
-   - [ ] The tour works from the text agent (parity is the point); if voice also supports it, that's a
+   - [x] The tour works from the text agent (parity is the point); if voice also supports it, that's a
          bonus, not required for this item.
-   - [ ] A test pins the tour contract (the agent emits an ordered sequence of navigate-and-narrate
+   - [x] A test pins the tour contract (the agent emits an ordered sequence of navigate-and-narrate
          steps for a tour request), and qa-verifier confirms the scroll-through-with-narration UX in a
          browser.
    - _Decision (design-notes): tour step ORDER and the per-stop narration lines are copy the owner
@@ -148,17 +189,24 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
      Experience → Contact. Escalation: is the tour auto-paced (timed scroll) or step-on-confirm
      ("ready for the next one?"). Default: step-on-confirm (less jarring, accessible)._
 
+   - _Accepted residual (2026-10-23, Track C build): the text path enforces this on the SERVER
+     (`docker/chat/app/main.py` `resume_was_requested` / `_guard_turn`: the PDF reaches the
+     visitor only when their own last message asked for it, in any of several languages, or is
+     a plain yes to a résumé offer). VOICE has no such guard: `open_resume` on voice only
+     reveals a button the visitor must tap, and is steered by the tool description and prompt
+     1.7.0. Gating it would mean reading the live input transcription client-side; revisit only
+     if voice traffic shows unprompted résumé buttons._
 7. **Agent leads with the work and never defaults to dumping the résumé PDF** — `[chat pytest]`
    `[frontend-manual]` — _owner #3: the agent is a guide who shows the work; the PDF is mentioned only
    when explicitly asked._
-   - [ ] When asked an open question about Marwan's background/experience (not specifically "the
+   - [x] When asked an open question about Marwan's background/experience (not specifically "the
          resume PDF"), the agent answers with the work and offers to scroll to the on-page Experience
          section or a relevant project — it does NOT open/recommend the PDF as the default.
-   - [ ] `open_resume` (the PDF) only fires when the visitor explicitly asks for the resume/CV file or
+   - [x] `open_resume` (the PDF) only fires when the visitor explicitly asks for the resume/CV file or
          a download — not for general "tell me about your experience" asks.
-   - [ ] When asked about a specific piece of work, the agent navigates to that specific project/
+   - [x] When asked about a specific piece of work, the agent navigates to that specific project/
          experience entry (item 5's navigation), leading with what it demonstrates.
-   - [ ] qa-verifier confirms in a browser: "tell me about your experience" scrolls to / surfaces the
+   - [x] qa-verifier confirms in a browser: "tell me about your experience" scrolls to / surfaces the
          on-page Experience, not a new PDF tab; "open your resume PDF" still works.
    - _This is the agent-posture change. The system-instruction copy (the guide posture) is in
      design-notes; the owner should bless the agent's new voice. Decision: keep the PDF tool, just
@@ -546,7 +594,9 @@ _**Depends on M2.** Five distinct symptoms with five distinct causes; the plan t
       knowledge-pack summary. A generic answer fails the bullet.
 - [ ] **Open and close projects on request, on both modalities.** "Open the Monday Rover project", a
       fuzzy or partial title, and "close that" all work from **text and voice** (prompt 1.7.0).
-- [ ] **The greeting is not cut off by the mic prompt.** On a cold session where the assistant speaks
+- [ ] **SUPERSEDED 2026-10-24 (RCA barge-in; item G1 above, pending navigator N1) — this trade-off
+      cancelled barge-in for every first-time visitor. Do not build or re-assert it.**
+      ~~**The greeting is not cut off by the mic prompt.**~~ On a cold session where the assistant speaks
       first, the mic permission prompt appears **after the first turn completes** (15 s fallback); a
       warm session prompts immediately.
 - [ ] **No dead top-bar input.** With a chat active, the launcher shows an "Assistant active" /

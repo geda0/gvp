@@ -40,6 +40,7 @@ _PRIORITY: dict[str, str] = {
     # served. If the fallback also fails, chat_upstream_unavailable (P1) follows.
     'chat_primary_timeout': 'P2',
     'chat_primary_rate_limit': 'P2',
+    'chat_primary_unavailable': 'P2',
     'chat_upstream_unavailable': 'P1',
     'chat_model_error': 'P1',
 }

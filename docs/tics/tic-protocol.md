@@ -12,7 +12,7 @@ One JSON object per line in `.claude/state/tics.jsonl` (transient — gitignored
 | field | filled by | meaning |
 |-------|-----------|---------|
 | `ts` | auto | UTC ISO-8601 |
-| `seq` | auto | monotonic per-file counter |
+| `seq` | auto | advisory counter: the store's line count + 1 at emit, so not unique across hosts (identity is the filename, ADR 0026) |
 | `kind` | caller | one of the kinds below |
 | `from` / `to` | caller | emitter role / addressee role (`*` = broadcast) |
 | `phase` / `layer` | auto | from `.claude/state/{phase,layer}` |
@@ -65,7 +65,7 @@ Use the installed reader `.claude/hooks/tics <cmd>` (agents) or `npx team-tactic
 - `tics conductor` — the cross-pair coupling tics only (claim/release/contract/need/msg).
 - `tics claims` — active file/module claims (claim minus release), by scope.
 - `tics cycle` — inner-loop dashboard: phase/layer/scope + last suite signal + cycles since the last tdd-critic verdict (nudges a critic pass when overdue) + a one-line fleet-health summary (STUCK/collision counts + a live/idle/stale/unknown liveness tally).
-- `tics board` — the fleet board (ADR 0008): one row per session/member grouped by held scope (an `unscoped` bucket for the rest), each with a locally-computed **liveness** tier (`live`/`idle`/`stale`/`unknown` from last-tic age vs `LIVENESS_IDLE_SEC`/`LIVENESS_STALE_SEC`), plus loud call-outs — **STUCK** (holds a scope yet is stale) and **collisions** (a scope touched by ≥2 distinct sessions). A pure read-side fold over the bus; degrade-safe (never invents a tier, never false-alarms).
+- `tics board` — the fleet board (ADR 0008): one row per session/member grouped by held scope. A tic with no session id (empty or `*`) counts toward its role, shown as `<role> (no session)`, so a role that never sets `TICS_SESSION` is still on the board; the four hook identities `tic.sh` reserves (`subagent`, `run-suite`, `guard`, `witness`) are never members (ADR 0027). Members holding no scope go in an `unscoped` bucket. Each row has a locally-computed **liveness** tier (`live`/`idle`/`stale`/`unknown` from last-tic age vs `LIVENESS_IDLE_SEC`/`LIVENESS_STALE_SEC`), plus loud call-outs — **STUCK** (holds a scope yet is stale) and **collisions** (a scope touched by ≥2 distinct sessions). A pure read-side fold over the bus; degrade-safe (never invents a tier, never false-alarms).
 - `tics gate` — release gate: exits non-zero unless the required outer-loop verdicts (product-owner accept + tdd-critic PASS) are on the bus; the project-manager runs it before tagging. It also surfaces **attestation** (ADR 0009): if greens exist but NONE is hook-signed (all self-reported — the honest non-CC degradation), the gate prints a loud "no hook-signed green evidence" line. By default that is flag-only (the verdict gate's exit code is unchanged); set `ATTEST_ENFORCE=1` in `tdd.config` to make that case a hard block. An empty/old bus, or a bus with ≥1 hook-signed green, adds no new block and no false alarm.
 - `tics review` — the **answerable-asks** queue (ADR 0012): the OPEN `need` tics — questions awaiting an answer — each with a handle (the need's `ref`, else `n<seq>`), the asker, the scope, and the question; ref-less needs are grouped "unaddressable (no ref)". Without it a `need` dies in the inbox; this is the navigator's queue. A pure read-side fold; empty bus → "no open needs", exit 0.
 - `tics answer <handle> <text> [--from <role>]` — answer an open need (the one `tics` command that WRITES): emits a directed `msg` to the asker carrying the need's token with `result=answered` — which both lands in the asker's inbox AND settles the need (it leaves `tics review`). Keying on `result=answered` (not bare ref) means an ordinary `msg` can never false-settle a need. `from` defaults to `navigator`. An unknown/closed handle exits non-zero and emits nothing (idempotent). A convention/queue, not a hook gate — nothing blocks on an open need.
@@ -98,7 +98,12 @@ live activity (tics, open claims, contracts, needs). Sections coordinate across 
 For parallel writers sharing one log, set `TIC_STORE=spool` in `.claude/tdd.config`: each tic
 becomes its own file under `.claude/state/tics.d/` — concurrency-safe (no shared-file append or
 seq race). Default `TIC_STORE=jsonl` (one append-only file) suits a single session; the views
-merge either store transparently. SQLite is intentionally avoided — it would break the zero-dep
+merge either store transparently. For several hosts and sessions, `TIC_STORE=git` (ADR 0026) commits one file per
+tic to a bus branch of `TICS_REMOTE`: emits commit locally first and push under a watchdog, readers show the union
+of local and fetched tics (`bus as of <time>` on `log`/`board`, `log --fetch` to refresh now), and `tics sync`
+publishes anything unpushed. A moved bus (configured `TICS_REMOTE` differs from the recorded one) prints a mismatch line; `tics rebind` moves it and keeps the old checkout as `tics.git.old-*`, excluded from the project. Hook telemetry (tics from `subagent`, `run-suite`, `guard`, `witness`) stays in the
+local `tics.jsonl` and is never published; agent tics are. Spool and git files are created exclusively and never appended to; a reader keeps
+every valid line of a file and `tics log` reports `N unparsable tic line(s) skipped`. SQLite is intentionally avoided — it would break the zero-dep
 / Node>=16 / bash-hook portability invariants for wins not needed at session scale.
 
 ## Parallel work — one git worktree per track (ADR 0015, supersedes 0002/0003/0004)

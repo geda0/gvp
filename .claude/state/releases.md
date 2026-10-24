@@ -11,6 +11,16 @@ verified. Never release on a red bar or unaccepted work._
 | **PRODUCTION deploy** (contact refactor → prod) | `fda626f` (main) · deploy run `26938125929` | — | **prod** | **GREEN** (test ✅ + deploy ✅, 1m23s). New `deploy-prod.yml` (push→main, test-gated) ran `integrate-and-deploy.sh prod` via OIDC role `gvp-prod-ci-deploy` (main-only, page-scoped). QA-gated by a staging E2E contact submission (qa-verifier PASS). `page` UPDATE_COMPLETE; contact `lwi0vmdpb5…` OPTIONS 204 (matches FE prod meta); `www.marwanelgendy.link` 200; prod chat ECS `chat-api.marwanelgendy.link` 200 (untouched). Frontend unchanged (Amplify rebuild of `main`). | 2026-06-04 |
 
 
+## 2026-10-23 — PROMOTED TO PROD: star pacing (GREEN, verified live)
+- `main` `5aa075d`: merged agent into main (no fast-forward). Prod hosts kept; prod guard 3/3;
+  suite 524/0; both CI runs on main GREEN.
+- Change: the sky draws at most 60fps, slower frames step by real elapsed time (cap 3x),
+  stars move at 0.8x, and density uses a fixed 4-core reference (no longer tracks the CPU).
+- Prod served the new build about 2.75 min after the push, with the prod API hosts in the
+  meta tags. The night frame measured 493 lit / 21 bright (4-core density on an 8-core
+  capture machine).
+- `agent` took main back in; stage hosts re-pinned in `2f8475e`.
+
 ## 2026-10-23 — PROMOTED TO PROD: original starfield restored (GREEN, verified live)
 - `main` `fa6cf19`: merged agent into main (no fast-forward). Prod hosts were kept in
   `index.html` and `admin/index.html`; the prod guard passed 3/3 and the suite 518/0.

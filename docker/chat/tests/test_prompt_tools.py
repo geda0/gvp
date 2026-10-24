@@ -18,8 +18,8 @@ PROMPT = (Path(__file__).resolve().parents[1] / 'prompts' / 'system-prompt.md').
 DECLARED = [d.name for d in chat_tools()[0].function_declarations]
 
 
-def test_prompt_version_is_1_6_0():
-    assert parse_prompt_version(PROMPT) == '1.6.0'
+def test_prompt_version_is_1_7_0():
+    assert parse_prompt_version(PROMPT) == '1.7.0'
 
 
 def test_the_prompt_guides_every_declared_tool():
