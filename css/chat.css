@@ -2484,6 +2484,51 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     background: var(--surface-hover, rgba(255, 255, 255, 0.08));
 }
 
+/* ADR-0027 §4.1 — the wide <-> compact toggle. Docked card only (like minimise), and the
+   [hidden] rule matches the docked rule's specificity so toggleHidden (below 840px, beside
+   a dialog with no room for wide) actually hides it. The glyph swaps; the name never does. */
+.chat-dialog__size {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__size {
+    display: inline-flex;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__size[hidden] {
+    display: none;
+}
+
+.chat-dialog__size:hover,
+.chat-dialog__size:focus-visible {
+    background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.chat-dialog__size:focus-visible {
+    outline: 2px solid var(--chat-launcher-ring, #6f8fd8);
+    outline-offset: 2px;
+}
+
+/* Contract when wide (pressed), expand when compact. */
+.chat-dialog__size-glyph::before {
+    content: '\2922';
+}
+
+.chat-dialog__size[aria-pressed="true"] .chat-dialog__size-glyph::before {
+    content: '\2921';
+}
+
 .agent-node__active-chip {
     margin-top: 0.5rem;
     padding: 0.3rem 0.8rem;

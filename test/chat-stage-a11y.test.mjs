@@ -255,3 +255,19 @@ test('ADR-0027 §4 / W7: the size transition exists only under prefers-reduced-m
     'a docked-panel transition outside no-preference applies under reduced motion too'
   )
 })
+
+test('ADR-0027 §4.1: the size toggle renders only on the docked card, and [hidden] wins', () => {
+  const css = read('css', 'chat.css')
+  assert.match(css, /\.chat-dialog__size\s*\{[^}]*display:\s*none/, 'hidden by default')
+  assert.match(
+    css, /\[data-chat-stage=["']docked["']\][^{]*\.chat-dialog__size\s*\{[^}]*display:\s*inline-flex/,
+    'shown on the docked card, exactly like minimise'
+  )
+  // toggleHidden (below 840px, beside a dialog with no room for wide) must beat the docked
+  // rule's display - a bare [hidden] loses to any author `display`.
+  assert.match(
+    css, /\[data-chat-stage=["']docked["']\][^{]*\.chat-dialog__size\[hidden\]\s*\{[^}]*display:\s*none/,
+    'the [hidden] rule must be at least as specific as the docked display rule'
+  )
+  assert.match(css, /\.chat-dialog__size:focus-visible\s*\{[^}]*outline/, 'a visible focus ring (W2)')
+})
