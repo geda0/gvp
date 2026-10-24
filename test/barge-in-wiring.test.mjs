@@ -304,3 +304,31 @@ test('a chip sent mid-greeting drops the rest of the greeting, audio and transcr
     'the cut-off greeting plays or is appended), and the gate re-opens for the chip\'s own reply'
   )
 })
+
+test('a chip that cuts off a greeting already fully delivered still gets its reply played', async () => {
+  // Arrange — Live delivers audio faster than real time: the greeting's turnComplete has
+  // arrived while its audio is still queued and playing. No server turn is in flight.
+  const v = await bootVoice({ permission: 'prompt', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+
+    // Act — the chip cuts the queued audio; the server answers with NO turnComplete in between.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    const playingAfterChip = v.audio.playing()
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is cost software.' } } })
+
+    observed = { playingAfterChip, playingReply: v.audio.playing() }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { playingAfterChip: 0, playingReply: 1 },
+    'a local cut on an idle gate must leave it OPEN (ADR-0026 §3.2): nothing re-opens a ' +
+    'cancelled gate until the next turnComplete, which belongs to the chip\'s own reply — so a ' +
+    'naive cancel here drops every chunk of the answer the visitor just asked for'
+  )
+})
