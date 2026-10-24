@@ -206,18 +206,32 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
     getSessionId: () => 'barge-in', isTextPending: () => false, openPanel () {}, isPanelOpen: () => true,
     patchLiveUi: (patch) => { patches.push(patch) }
   })
-  void live.startVoice({ intent: 'auto' })
-  await settle()
-  const socket = sockets[0]
-  socket.onopen(); await settle()
-  socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) }); await settle()
+  // A session = startVoice + a socket that opens and completes setup. `restart` brings up a
+  // second session in the same binding (hang up, then Start again) and `send` follows it.
+  let socket = null
+  const connect = async () => {
+    void live.startVoice({ intent: 'auto' })
+    await settle()
+    socket = sockets[sockets.length - 1]
+    socket.onopen(); await settle()
+    socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) }); await settle()
+  }
+  await connect()
 
   const sentOfKind = (key) => socket.sent.map((p) => JSON.parse(p)).filter((m) => key in m)
   return {
     live,
     audio,
     gum,
-    socket,
+    get socket () { return socket },
+    restart: connect,
+    // The visitor's microphone: one capture frame at a constant level through the CURRENT
+    // mic graph (the newest ScriptProcessor). 0 = silence; ~0.1 = speech.
+    mic: async (level) => {
+      const p = audio.processors[audio.processors.length - 1]
+      p?.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(4096).fill(level) } })
+      await settle()
+    },
     patches,
     statuses,
     fetches,
@@ -571,14 +585,18 @@ for (const [pathName, permission] of [['cold', 'prompt'], ['warm', 'granted']]) 
 
 // #25 BY VOICE over an already-delivered tail: Live sends audio faster than real time, so its
 // turnComplete often lands while the player still has seconds queued. The server then has no
-// turn to interrupt, and speaking over the tail used to change nothing. The visitor's
-// transcribed speech while the player is still sounding and no server turn is in flight cuts
-// playback locally ('voice_local'); the gate stays idle so the answer plays.
+// turn to interrupt, and speaking over the tail used to change nothing. 'voice_local' cuts it
+// (ADR-0026 addendum, rev. 2): an input-transcript fragment CONFIRMS the cut, but WHEN the
+// visitor started speaking comes from the LOCAL MIC - a voice onset is a frame at or above
+// VOICE_ONSET_RMS after >= VOICE_ONSET_SILENCE_MS of quieter frames. Transcript arrival time
+// measures transcription lag, not speech (critic re-review 2), so it decides nothing.
+// Cut iff a fragment arrives AND the last onset is after the playing turn's first output AND the
+// gate is idle AND the player still sounds. `v.mic(level)` pushes one capture frame.
 const SPEECH_SHAPES = {
-  'serverContent.inputTranscription': { serverContent: { inputTranscription: { text: 'Wait, show me Apptio.' } } },
-  'root inputTranscription': { inputTranscription: { text: 'Wait, show me Apptio.' } }
+  'serverContent.inputTranscription': (text) => ({ serverContent: { inputTranscription: { text } } }),
+  'root inputTranscription': (text) => ({ inputTranscription: { text } })
 }
-for (const [shape, speech] of Object.entries(SPEECH_SHAPES)) {
+for (const [shape, said] of Object.entries(SPEECH_SHAPES)) {
   test(`speaking over a fully-delivered greeting tail stops it locally, and the answer plays (${shape})`, async () => {
     // Arrange — the greeting is fully delivered (turnComplete) but two chunks still sound.
     const v = await bootVoice({ permission: 'granted', mic: 'allow' })
@@ -588,9 +606,10 @@ for (const [shape, speech] of Object.entries(SPEECH_SHAPES)) {
       await v.send({ serverContent: { turnComplete: true } })
       const playingBefore = v.audio.playing()
 
-      // Act — the visitor speaks; Live transcribes it, then answers (no `interrupted`: there
-      // was no server turn to interrupt).
-      await v.send(speech)
+      // Act — the visitor starts speaking (mic onset), Live transcribes it, then answers (no
+      // `interrupted`: there was no server turn to interrupt).
+      await v.mic(0.1)
+      await v.send(said('Wait, show me Apptio.'))
       const playingAfterSpeech = v.audio.playing()
       await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
 
@@ -607,77 +626,123 @@ for (const [shape, speech] of Object.entries(SPEECH_SHAPES)) {
   })
 }
 
-// The critic's false positive (ADR-0026 addendum): Live's input transcription LAGS. The last
-// fragment of the visitor's question can land after the answer has been fully sent (its
-// turnComplete) while the answer is still sounding here — cutting there silences the very
-// answer the visitor asked for. A fragment may cut a sounding tail only if it belongs to an
-// utterance that STARTED after that turn's first output; an utterance starts at the first
-// fragment ever, or one arriving more than VOICE_UTTERANCE_GAP_MS (1500) after the previous one.
-const LATE_TAIL_SHAPES = {
-  'serverContent.inputTranscription': { serverContent: { inputTranscription: { text: ' build?' } } },
-  'root inputTranscription': { inputTranscription: { text: ' build?' } }
+// The critic's false positive, at the lags it measured: the visitor's question starts BEFORE
+// the answer's first output; its last transcript fragment lands after the answer's
+// turnComplete - 0.5, 2.5 or 4 s after the previous fragment - while the answer still sounds.
+for (const lagMs of [500, 2500, 4000]) {
+  for (const [shape, said] of Object.entries(SPEECH_SHAPES)) {
+    test(`a late fragment (${lagMs} ms) of a question spoken before the answer began does not cut the answer (${shape})`, async () => {
+      // Arrange — greeting done; the visitor speaks (onset) and the first fragment lands; the
+      // answer streams fast and completes.
+      const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+      let observed = null
+      try {
+        await v.send({ serverContent: { outputTranscription: { text: 'Hi!' } } })
+        await v.send({ serverContent: { turnComplete: true } })
+        v.advance(4000)
+        await v.mic(0.1)
+        await v.send(said('What does he'))
+        v.advance(800)
+        await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart(), audioPart()] }, outputTranscription: { text: 'He builds agents.' } } })
+        await v.send({ serverContent: { turnComplete: true } })
+        const playingBefore = v.audio.playing()
+
+        // Act — the lagging tail of the same question.
+        v.advance(lagMs)
+        await v.send(said(' build?'))
+
+        observed = { playingBefore, playingAfter: v.audio.playing() }
+      } finally { v.live.dispose() }
+
+      // Assert
+      assert.deepEqual(
+        observed,
+        { playingBefore: 3, playingAfter: 3 },
+        'speech that began before the playing turn\'s first output is the question, not a ' +
+        'barge-in - however late its transcript lands'
+      )
+    })
+  }
 }
-for (const [shape, lateFragment] of Object.entries(LATE_TAIL_SHAPES)) {
-  test(`a late fragment of the visitor's question after the answer's turnComplete does not cut the answer (${shape})`, async () => {
-    // Arrange — greeting done; the visitor starts asking; the answer streams fast and completes.
-    const v = await bootVoice({ permission: 'granted', mic: 'allow' })
-    let observed = null
-    try {
-      await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
-      await v.send({ serverContent: { turnComplete: true } })
-      await v.send({ serverContent: { inputTranscription: { text: 'What does he' } } })
-      await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart(), audioPart()] }, outputTranscription: { text: 'He builds agents.' } } })
-      await v.send({ serverContent: { turnComplete: true } })
-      const playingBefore = v.audio.playing()
 
-      // Act — the lagging tail of the SAME utterance (well inside the 1.5 s gap).
-      await v.send(lateFragment)
-
-      observed = { playingBefore, playingAfter: v.audio.playing() }
-    } finally { v.live.dispose() }
-
-    // Assert — the question's first fragment rightly cut the greeting's tail; the answer's
-    // three chunks are what sounds now, and must keep sounding.
-    assert.deepEqual(
-      observed,
-      { playingBefore: 3, playingAfter: 3 },
-      'a fragment of an utterance that began BEFORE the playing turn\'s first output is the ' +
-      'question, not a barge-in: cutting here silences the visitor\'s own answer'
-    )
-  })
-}
-
-test('a fragment after a >1.5 s silence is a NEW utterance and does cut a newer turn\'s sounding tail', async () => {
-  // Arrange — greeting done; a question; its answer completes; then a further turn (e.g. the
-  // follow-up nudge) streams and completes, its tail still sounding.
+test('continuous speech that began before the answer is one onset: still talking over its start is not a new barge-in', async () => {
+  // Arrange — the visitor starts asking and keeps talking (frames < 400 ms apart) across the
+  // moment the answer's first output arrives; the answer completes and still sounds.
   const v = await bootVoice({ permission: 'granted', mic: 'allow' })
   let observed = null
   try {
-    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { outputTranscription: { text: 'Hi!' } } })
     await v.send({ serverContent: { turnComplete: true } })
+    await v.mic(0.1)
     await v.send({ serverContent: { inputTranscription: { text: 'What does he' } } })
-    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    v.advance(200)
+    await v.mic(0.1)
+    v.advance(50)
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart(), audioPart()] } } })
     await v.send({ serverContent: { turnComplete: true } })
-    v.advance(1600)
-    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+    v.advance(200)
+    await v.mic(0.1)
+    const playingBefore = v.audio.playing()
+
+    // Act — the rest of the same sentence is transcribed.
+    await v.send({ serverContent: { inputTranscription: { text: ' build, and for whom?' } } })
+
+    observed = { playingBefore, playingAfter: v.audio.playing() }
+  } finally { v.live.dispose() }
+
+  // Assert — an onset needs VOICE_ONSET_SILENCE_MS of quiet before it; every loud frame is not one.
+  assert.deepEqual(observed, { playingBefore: 3, playingAfter: 3 }, 'one continuous utterance that began before the answer is the question')
+})
+
+test('a voice onset after the answer began, confirmed by a fragment, cuts the answer\'s sounding tail', async () => {
+  // Arrange — the question, its answer streamed and completed, still sounding.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { outputTranscription: { text: 'Hi!' } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.mic(0.1)
+    await v.send({ serverContent: { inputTranscription: { text: 'What does he build?' } } })
+    v.advance(800)
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart(), audioPart()] } } })
     await v.send({ serverContent: { turnComplete: true } })
     const playingBefore = v.audio.playing()
 
-    // Act — the visitor speaks again: > 1.5 s after their previous fragment.
-    await v.send({ serverContent: { inputTranscription: { text: ' build?' } } })
+    // Act — after a pause the visitor speaks again over the answer.
+    v.advance(1000)
+    await v.mic(0.1)
+    await v.send({ serverContent: { inputTranscription: { text: 'Wait,' } } })
 
     observed = { playingBefore, playingAfter: v.audio.playing() }
   } finally { v.live.dispose() }
 
   // Assert
-  // (The first question fragment cut the greeting tail; 1 answer chunk + 2 of the newer turn sound.)
-  assert.deepEqual(observed, { playingBefore: 3, playingAfter: 0 }, 'a new utterance over a sounding tail is a barge-in (#25 by voice)')
+  assert.deepEqual(observed, { playingBefore: 3, playingAfter: 0 }, 'a new voice onset over a sounding tail is a barge-in (#25 by voice)')
 })
 
-test('a turn\'s first output counts from its root-level transcript: speech begun after it is a barge-in on that turn\'s tail', async () => {
+test('a transcript fragment with no local voice onset (echo or noise) does not cut', async () => {
+  // Arrange — the greeting is fully delivered, two chunks still sounding; the mic hears nothing.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.mic(0.001)
+
+    // Act — Live transcribes something anyway (its own echo leaking through, room noise).
+    await v.send({ serverContent: { inputTranscription: { text: 'what would you' } } })
+
+    observed = v.audio.playing()
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.equal(observed, 2, 'the transcript only confirms a cut; the onset must come from the local mic')
+})
+
+test('a turn\'s first output counts from its root-level transcript: an onset after it is a barge-in on that turn\'s tail', async () => {
   // Arrange — greeting done. The answer's FIRST output is a root-level transcript; the visitor
-  // starts talking over it (the turn is in flight, so that is the server's to handle); the
-  // audio and turnComplete follow; the visitor's utterance continues over the sounding tail.
+  // starts talking over it (in flight: the server's to handle); audio and turnComplete follow;
+  // the visitor's speech is confirmed again over the sounding tail.
   const v = await bootVoice({ permission: 'granted', mic: 'allow' })
   let observed = null
   try {
@@ -685,19 +750,22 @@ test('a turn\'s first output counts from its root-level transcript: speech begun
     await v.send({ serverContent: { turnComplete: true } })
     v.advance(2000)
     await v.send({ outputTranscription: { text: 'He builds' } })
+    v.advance(500)
+    await v.mic(0.1)
     await v.send({ serverContent: { inputTranscription: { text: 'Wait,' } } })
+    v.advance(500)
     await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
     await v.send({ serverContent: { turnComplete: true } })
     const playingBefore = v.audio.playing()
 
-    // Act — the same utterance continues (inside the 1.5 s gap) over the sounding tail.
+    // Act
     await v.send({ serverContent: { inputTranscription: { text: ' show me Apptio.' } } })
 
     observed = { playingBefore, playingAfter: v.audio.playing() }
   } finally { v.live.dispose() }
 
   // Assert
-  assert.deepEqual(observed, { playingBefore: 2, playingAfter: 0 }, 'the utterance began after the turn\'s first output: it is the visitor talking over it')
+  assert.deepEqual(observed, { playingBefore: 2, playingAfter: 0 }, 'the onset came after the turn\'s first output: it is the visitor talking over it')
 })
 
 test('speaking with nothing queued is not an interruption: the persisted voice turn carries no interrupted flag', async () => {
@@ -708,7 +776,8 @@ test('speaking with nothing queued is not an interruption: the persisted voice t
     await v.send({ serverContent: { outputTranscription: { text: 'Hi! I am the greeting.' } } })
     await v.send({ serverContent: { turnComplete: true } })
 
-    // Act — the visitor speaks, the model answers, the turn completes and is persisted.
+    // Act — the visitor speaks (onset + fragment), the model answers, the turn is persisted.
+    await v.mic(0.1)
     await v.send({ serverContent: { inputTranscription: { text: 'Tell me more.' } } })
     await v.send({ serverContent: { outputTranscription: { text: 'Sure.' } } })
     await v.send({ serverContent: { turnComplete: true } })
@@ -721,9 +790,8 @@ test('speaking with nothing queued is not an interruption: the persisted voice t
   assert.equal(observed.interrupted, undefined, 'no audio was sounding, so nothing was cut off: telemetry must not count an interruption')
 })
 
-test('a late transcript of the visitor\'s question arriving while the answer streams does not cut the answer', async () => {
-  // Arrange — Live's inputTranscription lags: the answer is already streaming (a server turn
-  // in flight) when the last fragment of the question that prompted it lands.
+test('speech over an answer that is still streaming is the server\'s to interrupt, not the client\'s', async () => {
+  // Arrange — the answer is streaming (a server turn in flight) and sounding.
   const v = await bootVoice({ permission: 'granted', mic: 'allow' })
   let observed = null
   try {
@@ -731,14 +799,52 @@ test('a late transcript of the visitor\'s question arriving while the answer str
     await v.send({ serverContent: { turnComplete: true } })
     await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
 
-    // Act
-    await v.send({ serverContent: { inputTranscription: { text: ' about his work?' } } })
+    // Act — the visitor starts speaking and Live transcribes it before its own `interrupted`.
+    v.advance(500)
+    await v.mic(0.1)
+    await v.send({ serverContent: { inputTranscription: { text: 'Wait,' } } })
 
     observed = v.audio.playing()
   } finally { v.live.dispose() }
 
   // Assert — only an idle gate is the client's to cut; a turn in flight is the server's.
   assert.equal(observed, 3, 'the voice_local cut must not fire while a server turn is in flight')
+})
+
+test('a call ended mid-answer leaves no state that cuts the next call\'s answer on a late fragment', async () => {
+  // Arrange — call 1: greeting, the visitor asks, the answer starts, the visitor hangs up
+  // mid-answer (no turnComplete for it).
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { outputTranscription: { text: 'Hi!' } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.mic(0.1)
+    await v.send({ serverContent: { inputTranscription: { text: 'What' } } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    v.live.stopVoice()
+    await settle()
+
+    // Call 2 (same conversation, so no greeting): a question spoken BEFORE the answer begins,
+    // the answer, its turnComplete, then the question's late fragment.
+    v.advance(1000)
+    await v.restart()
+    await v.mic(0.1)
+    await v.send({ serverContent: { inputTranscription: { text: 'What does he' } } })
+    v.advance(800)
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart(), audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    const playingBefore = v.audio.playing()
+    v.advance(500)
+
+    // Act
+    await v.send({ serverContent: { inputTranscription: { text: ' build?' } } })
+
+    observed = { playingBefore, playingAfter: v.audio.playing() }
+  } finally { v.live.dispose() }
+
+  // Assert — call 1's half-finished answer must not stand in for call 2's first output.
+  assert.deepEqual(observed, { playingBefore: 3, playingAfter: 3 }, 'hang-up resets the voice_local state')
 })
 
 test('two chips tapped in quick succession mid-greeting: the second chip\'s reply is not swallowed', async () => {

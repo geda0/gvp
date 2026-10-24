@@ -31,8 +31,13 @@ const VOICE_SESSION_IDLE_NO_MIC_MS = 60 * 1000
 /** After the warm greeting finishes, wait this long for user audio before
  *  prompting the model to continue with what the visitor can ask. */
 const VOICE_WARM_FOLLOWUP_MS = 7 * 1000
-/** Silence between input-transcript fragments that starts a NEW utterance (ADR-0026 addendum). */
-const VOICE_UTTERANCE_GAP_MS = 1500
+/** Local voice onset (ADR-0026 addendum): a mic frame at or above this RMS (float samples,
+ *  full scale 1.0; 0.02 ≈ -34 dBFS) after at least VOICE_ONSET_SILENCE_MS of quieter frames.
+ *  getUserMedia runs with echoCancellation + noiseSuppression, so room noise and most of the
+ *  assistant's own playback sit well below it, while normal speech runs ~0.03-0.2. A transcript
+ *  fragment must still confirm the onset before anything is cut. */
+const VOICE_ONSET_RMS = 0.02
+const VOICE_ONSET_SILENCE_MS = 400
 /** Hard cap on continuous voice session length (ms). */
 const VOICE_MAX_SESSION_MS = 25 * 60 * 1000
 /** Per-attempt POST /api/live/session budget (ms). Sized > backend mint timeout
@@ -712,25 +717,29 @@ export function bindChatLiveVoice(opts) {
   // turn in flight there is nothing for Live to interrupt. The visitor's transcribed speech
   // then cuts playback locally. Only while NO turn is in flight (an idle gate); a turn in
   // flight is the server's to interrupt, and its own `interrupted` follows.
-  // ADR-0026 addendum: Live's input transcription LAGS, so the last fragment of the question
-  // can land after its answer was fully sent, while that answer still sounds. A fragment cuts
-  // only if its UTTERANCE started after the playing turn's first output. An utterance starts at
-  // the first fragment ever, or one arriving > VOICE_UTTERANCE_GAP_MS after the previous one.
-  let lastInputFragmentAt = null
-  let utteranceStartedAt = null
+  // ADR-0026 addendum: Live's input transcription LAGS - the last fragment of the question can
+  // land seconds after its answer was fully sent, while that answer still sounds - so WHEN the
+  // visitor started speaking comes from the local mic, not from transcript arrival. A fragment
+  // (the confirmation: it guards echo and noise) cuts only if the last voice ONSET came after
+  // the playing turn's first output.
+  let lastLoudFrameAt = null
+  let lastVoiceOnsetAt = null
   let playingTurnFirstOutputAt = null
   let turnHasOutput = false
+  const noteMicLevel = (rms) => {
+    if (rms < VOICE_ONSET_RMS) return
+    const now = Date.now()
+    if (lastLoudFrameAt === null || now - lastLoudFrameAt >= VOICE_ONSET_SILENCE_MS) lastVoiceOnsetAt = now
+    lastLoudFrameAt = now
+  }
   const noteModelOutput = () => {
     if (turnHasOutput) return
     turnHasOutput = true
     playingTurnFirstOutputAt = Date.now()
   }
   const cutSoundingTailOnSpeech = () => {
-    const now = Date.now()
-    if (lastInputFragmentAt === null || now - lastInputFragmentAt > VOICE_UTTERANCE_GAP_MS) utteranceStartedAt = now
-    lastInputFragmentAt = now
-    const newUtterance = playingTurnFirstOutputAt !== null && utteranceStartedAt > playingTurnFirstOutputAt
-    if (newUtterance && isIdleGate(turnGate) && player?.isPlaying()) interruptAssistant('voice_local')
+    const spokeOverIt = lastVoiceOnsetAt !== null && playingTurnFirstOutputAt !== null && lastVoiceOnsetAt > playingTurnFirstOutputAt
+    if (spokeOverIt && isIdleGate(turnGate) && player?.isPlaying()) interruptAssistant('voice_local')
   }
 
   /** A canned text turn (a project chip's prompt) into the live call: stop the assistant
@@ -898,8 +907,10 @@ export function bindChatLiveVoice(opts) {
     // audio and transcript, in silence. (Not in resetDraftState: finalizeTurn runs that at
     // every turnComplete, and a second re-open there masked the gate's own transition.)
     turnGate = freshTurnGate()
-    lastInputFragmentAt = null
-    utteranceStartedAt = null
+    // voice_local state is per call: a call ended mid-answer must not leave its half-finished
+    // turn standing in for the next call's first output.
+    lastLoudFrameAt = null
+    lastVoiceOnsetAt = null
     playingTurnFirstOutputAt = null
     turnHasOutput = false
   }
@@ -1310,6 +1321,7 @@ export function bindChatLiveVoice(opts) {
 
     const sendMicFrame = (floatChannelData) => {
       if (!active || !setupDone || !ws || ws.readyState !== WebSocket.OPEN) return
+      noteMicLevel(pcmFrameRms(floatChannelData))
       const pcmInput = downsampleFloat32(floatChannelData, inRate, INPUT_RATE)
       const bytes = floatTo16BitPCM(pcmInput)
       try {
