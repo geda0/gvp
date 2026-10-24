@@ -44,3 +44,24 @@ async def test_warm_request_returns_204_and_warms_the_chain_without_a_model_call
     assert resp.content == b""
     assert chain.warm_calls == 1
     assert chain.model_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_warm_with_messages_is_rejected_and_neither_warms_nor_answers(
+    client, stub_store, monkeypatch
+) -> None:
+    """ADR-0026 §5.1: `warm: true` AND a non-empty `messages` is a contradiction —
+    400 `warm_with_messages`, not silently a warm and not silently a turn."""
+    chain = _WarmableChain()
+    monkeypatch.setattr(app.state, "chain", chain)
+
+    resp = await client.post(
+        "/api/chat",
+        json={"warm": True, "messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "warm_with_messages"
+    assert chain.warm_calls == 0
+    assert chain.model_calls == 0
+    assert stub_store.calls == []

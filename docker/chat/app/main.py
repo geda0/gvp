@@ -1051,6 +1051,14 @@ async def chat(payload: ChatRequest) -> Any:
         )
 
     if payload.warm:
+        if payload.messages:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "A warm request carries no `messages`",
+                    "code": "warm_with_messages",
+                },
+            )
         warm = getattr(app.state.chain, 'warm', None)
         if callable(warm):
             warm()
