@@ -215,6 +215,51 @@ export function dockedCardWidth ({ viewportWidth, size } = {}) {
   return wide < DOCK_WIDE_MIN_WIDTH ? compact : wide
 }
 
+// ---------------------------------------------------------------- beside a dialog (ADR-0029 §2)
+//
+// Measured once (ADR-0017 §2.4, browser): .project-dialog__panel content-bound width at a 16 px
+// root = 42rem (672) + padding-inline 1.35rem (21.6) + 2.75rem (44) + 2 x 1px border = 739.6.
+// test/chat-stage-layering.test.mjs recomputes it from css/styles.css, so the two cannot drift.
+export const PROJECT_PANEL_MAX = 739.6
+// Below this the panel is too narrow to read beside the chat (owner/RCA call).
+export const PROJECT_PANEL_MIN = 560
+// .project-dialog's `padding: 1rem`, per side.
+export const PROJECT_DIALOG_PADDING = 16
+
+/**
+ * Does a project dialog leave room for the chat's column, and at which size? A function of the
+ * viewport alone: the panel no longer has a fixed width beside the chat (it shrinks into the
+ * space the reserve leaves), so there is nothing stable to measure.
+ *
+ * `size` is the EFFECTIVE size only - it never overwrites the stored preference. `reserve` is
+ * the inline-end px the dialog gives up (0 = no room: nothing reserved). An unmeasured viewport
+ * is not room.
+ *
+ * @param {{ viewportWidth: number, preferred: string }} m
+ * @returns {{ size: 'wide'|'compact', reserve: number, panelMax: number }}
+ */
+export function besideLayout ({ viewportWidth, preferred } = {}) {
+  const want = parseChatSize(preferred)
+  const valid = typeof viewportWidth === 'number' && Number.isFinite(viewportWidth) && viewportWidth >= 0
+  const vw = valid ? viewportWidth : 0
+  const reserveFor = (size) => dockedCardWidth({ viewportWidth: vw, size }) + 2 * DOCK_GUTTER
+  const panelFor = (size) => Math.min(PROJECT_PANEL_MAX, vw - reserveFor(size) - 2 * PROJECT_DIALOG_PADDING)
+  if (valid) {
+    for (const size of want === 'wide' ? ['wide', 'compact'] : ['compact']) {
+      // A wide that falls back to compact width (dockedCardWidth's own floor) is not wide.
+      if (size === 'wide' && !isWideAvailable(vw)) continue
+      if (panelFor(size) >= PROJECT_PANEL_MIN) {
+        return { size, reserve: reserveFor(size), panelMax: panelFor(size) }
+      }
+    }
+  }
+  return {
+    size: want,
+    reserve: 0,
+    panelMax: Math.max(0, Math.min(PROJECT_PANEL_MAX, vw - 2 * PROJECT_DIALOG_PADDING))
+  }
+}
+
 /** Can a wide card render at all at this viewport width? (>= 840px with today's numbers.) */
 export function isWideAvailable (viewportWidth) {
   if (typeof viewportWidth !== 'number' || !Number.isFinite(viewportWidth)) return false

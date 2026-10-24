@@ -510,3 +510,43 @@ test('minimising a focused card hands focus to the resume chip, and only then', 
   assert.equal(stageChrome('docked', { requested: true, focusInside: true }).moveFocus, 'composer')
   assert.equal(stageChrome('docked', { focusInside: true }).moveFocus, 'none')
 })
+
+// ---------------------------------------------------------------- ADR-0029 §2 (besideLayout)
+
+test('ADR-0029: besideLayout reserves the chat column only where the panel still reads (>= 560)', async () => {
+  const mod = await import('../js/chat-stage.js')
+  assert.equal(typeof mod.besideLayout, 'function', 'besideLayout must be exported (ADR-0029 §2)')
+  const { besideLayout } = mod
+  // [viewportWidth, preferred, expected]
+  const rows = [
+    // < 1016: no room for either size beside a >= 560 panel - nothing is reserved.
+    [1015, 'wide', { size: 'wide', reserve: 0, panelMax: 739.6 }],
+    [1015, 'compact', { size: 'compact', reserve: 0, panelMax: 739.6 }],
+    [1016, 'wide', { size: 'compact', reserve: 424, panelMax: 560 }],
+    [1016, 'compact', { size: 'compact', reserve: 424, panelMax: 560 }],
+    [1195, 'compact', { size: 'compact', reserve: 424, panelMax: 739 }],
+    [1196, 'compact', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    [1351, 'wide', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    [1352, 'wide', { size: 'wide', reserve: 760, panelMax: 560 }],
+    // The stored preference is an input, never an output: compact never comes back wide.
+    [1352, 'compact', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    [1531, 'wide', { size: 'wide', reserve: 760, panelMax: 739 }],
+    [1532, 'wide', { size: 'wide', reserve: 760, panelMax: 739.6 }],
+    [1920, 'compact', { size: 'compact', reserve: 424, panelMax: 739.6 }],
+    // Junk preference reads as the wide default, like every other stored size.
+    [1440, 'nonsense', { size: 'wide', reserve: 760, panelMax: 648 }]
+  ]
+  const wrong = []
+  for (const [vw, preferred, expected] of rows) {
+    const got = besideLayout({ viewportWidth: vw, preferred })
+    try { assert.deepEqual(got, expected) } catch (_) {
+      wrong.push(`${vw}/${preferred}: got ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`)
+    }
+  }
+  // An unmeasured viewport is not room - the rule hasRoomBesideDialog had.
+  for (const bad of [NaN, -1, Infinity, undefined]) {
+    const got = besideLayout({ viewportWidth: bad, preferred: 'wide' })
+    if (got.reserve !== 0) wrong.push(`viewport ${bad}: reserve ${got.reserve}, expected 0`)
+  }
+  assert.deepEqual(wrong, [], 'besideLayout rows (ADR-0029 §7.1):\n  ' + wrong.join('\n  '))
+})
