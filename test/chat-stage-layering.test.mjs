@@ -209,3 +209,20 @@ test('ADR-0029 addendum: a pill minimised beside a reserved dialog sits above it
   assert.ok(pill < zIndexOf(chatCss, '.chat-dialog'), 'and below a modal chat')
   assert.ok(pill < zIndexOf(chatCss, '.tour-card'), 'and below the tour card')
 })
+
+test('critic: the tour card centres in the space LEFT of the docked card, and the selection offer sits above the project scrim', () => {
+  // tdd-critic, measured at 1440: the bottom-centred tour card covered the wide docked card's
+  // composer. It reads the chat's column (--chat-dock-column, written by js/chat.js only) so it
+  // centres in what is left and never overlaps the card.
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const tour = /(^|\})\s*\.tour-card\s*\{([^}]*)\}/m.exec(chatCss)
+  assert.ok(tour, 'the .tour-card rule is gone or was renamed')
+  assert.match(tour[2], /left:\s*calc\(\(100vw - var\(--chat-dock-column, 0px\)\) \/ 2\)/)
+  assert.match(tour[2], /width:\s*min\(26rem, calc\(100vw - 2rem - var\(--chat-dock-column, 0px\)\)\)/)
+  // The selection offer may be raised inside the project dialog's description (an allowed
+  // region): under the 1100 scrim it was invisible and, while reserved, inert.
+  const offer = zIndexOf(chatCss, '.selection-offer')
+  assert.ok(offer > zIndexOf(siteCss, '.project-dialog'), `selection offer (${offer}) must sit above the project scrim`)
+  assert.ok(offer < zIndexOf(chatCss, '.chat-dialog'), 'and below a modal chat')
+})

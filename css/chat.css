@@ -2563,10 +2563,12 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 }
 
 
-/* M4 slice 16 — the "Ask about this" offer under a content selection. */
+/* M4 slice 16 — the "Ask about this" offer under a content selection. Above the project
+ * dialog (1100): its description is an allowed region, and under the scrim the offer was
+ * invisible (ADR-0029: it is also exempt from the reserve's inert sweep). Below a modal chat. */
 .selection-offer {
     position: fixed;
-    z-index: 1090;
+    z-index: 1101;
     transform: translateX(-50%);
     padding: 0.3rem 0.75rem;
     border: 1px solid var(--accent, currentColor);
@@ -2587,11 +2589,14 @@ body.content-open .agent-slot--navbar .agent-node__submit {
    that a stop may open, so it is visible and tappable at every width and every chat stage. */
 .tour-card {
     position: fixed;
-    left: 50%;
+    /* Centred in the space LEFT of the docked chat's column (js/chat.js publishes it as
+     * --chat-dock-column; 0 when nothing is docked), so it never covers the card's composer
+     * (tdd-critic, measured at 1440). */
+    left: calc((100vw - var(--chat-dock-column, 0px)) / 2);
     bottom: max(1rem, env(safe-area-inset-bottom));
     transform: translateX(-50%);
     z-index: 1150;
-    width: min(26rem, calc(100vw - 2rem));
+    width: min(26rem, calc(100vw - 2rem - var(--chat-dock-column, 0px)));
     box-sizing: border-box;
     padding: 0.85rem 1rem;
     border-radius: 14px;

@@ -18,7 +18,8 @@ import {
   stageChrome,
   besideLayout,
   parseChatSize,
-  dockedSizeChrome
+  dockedSizeChrome,
+  DOCK_GUTTER
 } from './chat-stage.js'
 import { projectChipPrompt } from './project-chips.js'
 import { bindChatLiveVoice } from './chat-live.js'
@@ -960,7 +961,13 @@ export function initChat() {
   // the one it had before any of this existed.
   const RESERVE_PROP = '--overlay-reserve-inline-end'
   const OVERLAY_INERT_ATTR = 'data-overlay-inert'
-  const OVERLAY_DIALOG_IDS = ['projectDialog', 'chatDialog']
+  // The two interactive dialogs, plus what is DESIGNED to sit above dialogs (the tour card,
+  // z 1150; the selection offer) - inerting those made a Next stop click fall through to the
+  // scrim and close the project dialog (tdd-critic, measured).
+  const OVERLAY_DIALOG_IDS = ['projectDialog', 'chatDialog', 'tourCard']
+  const OVERLAY_KEEP_CLASSES = ['selection-offer']
+  const keepsAboveOverlay = (el) => OVERLAY_DIALOG_IDS.includes(el.id) ||
+    OVERLAY_KEEP_CLASSES.some((c) => el.classList?.contains?.(c))
   let overlayReserved = false
   const applyOverlayReserve = (reserve) => {
     const on = reserve > 0
@@ -979,7 +986,7 @@ export function initChat() {
     document.querySelector('#projectDialog .project-dialog__panel')
       ?.setAttribute('aria-modal', on ? 'false' : 'true')
     for (const el of Array.from(document.body?.children || [])) {
-      if (OVERLAY_DIALOG_IDS.includes(el.id)) continue
+      if (keepsAboveOverlay(el)) continue
       if (on && !el.inert) {
         el.inert = true
         el.setAttribute(OVERLAY_INERT_ATTR, 'true')
@@ -1008,6 +1015,13 @@ export function initChat() {
     })
     dialog.dataset.chatSize = chrome.size
     applyOverlayReserve(reserved ? layout.reserve : 0)
+    // The docked card's column, for overlays that must never cover it (the tour card). A pill
+    // keeping a reserved column owns it too; a plain pill owns none.
+    const column = reserved
+      ? layout.reserve
+      : (chatStage === 'docked' && chrome.width > 0 ? chrome.width + 2 * DOCK_GUTTER : 0)
+    if (column > 0) document.documentElement?.style?.setProperty('--chat-dock-column', `${column}px`)
+    else document.documentElement?.style?.removeProperty('--chat-dock-column')
     // 0 = unmeasurable: drop the property so the CSS fallback (the shipped compact rule) holds.
     if (chrome.width > 0) dialog.style.setProperty('--chat-dock-width', `${chrome.width}px`)
     else dialog.style.removeProperty('--chat-dock-width')
@@ -1325,6 +1339,10 @@ export function initChat() {
     // the panel synchronously, which is what dropped the tool response for the assistant's
     // own open_contact_form call: stopVoice nulled chat-live's `ws` before the send-guard
     // ran, so the model waited forever on a function response (ADR-0015 ss9.3 c1).
+    // A project dialog beside the chat closes FIRST (what js/projects.js does for its own
+    // contact link): otherwise the reserve kept the page inert and the contact form (z 1090)
+    // opened under the project scrim (1100) - unreachable (tdd-critic, measured).
+    if (getSiteState().project != null) requestProjectClose({ origin: (opts && opts.origin) || 'visitor' })
     openContactDialog(undefined, opts)
     if (!prefill || typeof prefill !== 'object') return
 

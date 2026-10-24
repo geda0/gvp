@@ -1067,6 +1067,133 @@ async function journeyTuckBelow1016 (page) {
   return out
 }
 
+// ---------------------------------------------------------------- tdd-critic (ADR-0029)
+
+/** Answer the next /api/chat turns with `body` (JSON), so a journey can drive the text path. */
+const mockChatReply = (page, body) => evaluate(page, (b) => {
+  if (!window.__origFetch) window.__origFetch = window.fetch
+  window.fetch = async (url, opts) => {
+    if (/\/api\/chat(\?|$)/.test(String(url)) && opts && opts.method === 'POST') {
+      return new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    return window.__origFetch(url, opts)
+  }
+}, body)
+
+const sendComposer = async (page, text) => {
+  await evaluate(page, (t) => {
+    document.getElementById('chatComposerInput').value = t
+    document.getElementById('chatComposer').requestSubmit()
+  }, text)
+  await sleep(900)
+}
+
+const rectOf = (page, sel) => evaluate(page, (s) => {
+  const el = document.querySelector(s)
+  if (!el) return null
+  const r = el.getBoundingClientRect()
+  return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }
+}, sel)
+const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+
+async function journeyTourBesideReserved (page) {
+  // tdd-critic: #tourCard was inert while reserved, so a real click on Next stop fell through
+  // to the scrim and closed the project dialog; and the bottom-centred card covered the wide
+  // docked card's composer at 1440.
+  const out = []
+  await setViewport(page, 1440, 900)
+  await goto(page, `${ORIGIN}/`)
+  await clearSizePref(page)
+  await goto(page, `${ORIGIN}/`)
+  await openChat(page)
+  await waitChatIdle(page)
+  await mockChatReply(page, { reply: 'Happy to - starting the tour.', actions: [{ id: 'start-tour', label: 'Start the tour' }] })
+  await sendComposer(page, 'show me around')
+  const text0 = await evaluate(page, () => document.getElementById('tourCardText').textContent)
+  const tour0 = await rectOf(page, '#tourCard')
+  const card0 = await rectOf(page, '#chatDialog .chat-dialog__panel')
+  out.push({
+    claim: '1440 docked wide: the tour card is shown and does not overlap the docked card',
+    ok: Boolean(tour0 && card0) && Boolean(text0) && !overlaps(tour0, card0),
+    detail: JSON.stringify({ tour0, card0 })
+  })
+
+  // Next stop -> stop 2 opens a project card: the column is reserved.
+  let next = await rectOf(page, '#tourCardNext')
+  await clickAt(page, next.cx, next.cy)
+  await sleep(900)
+  await waitChatIdle(page)
+  const s1 = await evaluate(page, () => ({
+    project: !document.getElementById('projectDialog').hidden,
+    beside: document.getElementById('chatDialog').dataset.chatBeside,
+    tourInert: Boolean(document.getElementById('tourCard').closest('[inert]')),
+    text: document.getElementById('tourCardText').textContent
+  }))
+  const tour1 = await rectOf(page, '#tourCard')
+  const card1 = await rectOf(page, '#chatDialog .chat-dialog__panel')
+  out.push({
+    claim: 'the tour stop opens a project beside the chat: reserved, tour card NOT inert and not over the card',
+    ok: s1.project && s1.beside === 'true' && !s1.tourInert && !overlaps(tour1, card1),
+    detail: JSON.stringify({ ...s1, tour1, card1 })
+  })
+
+  next = await rectOf(page, '#tourCardNext')
+  const hit = await evaluate(page, (x, y) => Boolean(document.elementFromPoint(x, y)?.closest('#tourCard')), next.cx, next.cy)
+  await clickAt(page, next.cx, next.cy)
+  await sleep(900)
+  const s2 = await evaluate(page, () => ({
+    text: document.getElementById('tourCardText').textContent,
+    project: !document.getElementById('projectDialog').hidden,
+    stage: document.getElementById('chatDialog').dataset.chatStage
+  }))
+  out.push({
+    claim: 'while reserved, a REAL click on Next stop reaches the tour card and advances the tour',
+    ok: hit && s2.text !== s1.text && s2.stage === 'docked',
+    detail: JSON.stringify({ hit, from: s1.text.slice(0, 40), to: s2.text.slice(0, 40), stage: s2.stage })
+  })
+  await evaluate(page, () => document.getElementById('tourCardEnd')?.click())
+  await setViewport(page, 1280, 900)
+  return out
+}
+
+async function journeyContactFromChatWhileReserved (page) {
+  // tdd-critic: the contact form opened from the chat while reserved was inert and under the
+  // project scrim. The chat now closes the project dialog first.
+  const out = []
+  await setViewport(page, 1440, 900)
+  await goto(page, `${ORIGIN}/#portfolio`)
+  await clearSizePref(page)
+  await goto(page, `${ORIGIN}/#portfolio`)
+  await openChat(page)
+  await waitChatIdle(page)
+  await openProjectFromPage(page)
+  await mockChatReply(page, { reply: 'Sure - here is the form.', actions: [{ id: 'open-contact', label: 'Get in touch' }] })
+  await sendComposer(page, 'how do I reach him')
+  const btn = await rectOf(page, '#chatMessages [data-action="open-contact"]')
+  const before = await evaluate(page, () => document.getElementById('chatDialog').dataset.chatBeside)
+  if (btn) await clickAt(page, btn.cx, btn.cy)
+  await sleep(800)
+  const s = await evaluate(page, () => {
+    const form = document.querySelector('#contactDialog .contact-dialog__panel, #contactForm')
+    const r = form.getBoundingClientRect()
+    const el = document.elementFromPoint(r.left + r.width / 2, r.top + 40)
+    return {
+      contactOpen: !document.getElementById('contactDialog').hidden,
+      project: !document.getElementById('projectDialog').hidden,
+      hit: el && el.closest('#contactDialog') ? 'contact-dialog' : el && el.closest('#projectDialog') ? 'project-dialog' : 'other',
+      inert: Boolean(document.getElementById('contactDialog').closest('[inert]')),
+      reserve: document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')
+    }
+  })
+  out.push({
+    claim: '1440 reserved: the chat\'s Get in touch closes the project dialog and the contact form is on top, not inert',
+    ok: Boolean(btn) && before === 'true' && s.contactOpen && !s.project && s.hit === 'contact-dialog' && !s.inert && s.reserve === '',
+    detail: btn ? JSON.stringify({ before, ...s }) : 'no Get in touch button'
+  })
+  await setViewport(page, 1280, 900)
+  return out
+}
+
 // ---------------------------------------------------------------- runner
 
 const JOURNEYS = [
@@ -1084,7 +1211,9 @@ const JOURNEYS = [
   ['W7 motion', journeyTransitionMotion],
   ['W6 beside a project dialog (z-index drift)', journeyBesideProjectDialog],
   ['ADR-0029 a dialog reserves the chat column', journeyReservedColumn],
-  ['ADR-0029 below 1016 the card tucks; the chip stays modal', journeyTuckBelow1016]
+  ['ADR-0029 below 1016 the card tucks; the chip stays modal', journeyTuckBelow1016],
+  ['critic: the tour beside a reserved dialog', journeyTourBesideReserved],
+  ['critic: contact from the chat while reserved', journeyContactFromChatWhileReserved]
 ]
 
 async function main () {
@@ -1118,6 +1247,10 @@ async function main () {
   }
 
   const page = await launch({ width: 1280, height: 900 })
+  // WARM-UP: the first load of a fresh profile compiles every module cold, and has been seen to
+  // miss goto's readiness window ("page never became ready") while every later load passes.
+  // One throwaway load keeps that flake out of the first journey's verdict.
+  await goto(page, `${ORIGIN}/`).catch(() => {})
   const results = []
   try {
     for (const [name, journey] of JOURNEYS) {
