@@ -18,7 +18,8 @@ import {
   stageChrome,
   besideLayout,
   parseChatSize,
-  dockedSizeChrome
+  dockedSizeChrome,
+  DOCK_GUTTER
 } from './chat-stage.js'
 import { projectChipPrompt } from './project-chips.js'
 import { bindChatLiveVoice } from './chat-live.js'
@@ -1014,6 +1015,13 @@ export function initChat() {
     })
     dialog.dataset.chatSize = chrome.size
     applyOverlayReserve(reserved ? layout.reserve : 0)
+    // The docked card's column, for overlays that must never cover it (the tour card). A pill
+    // keeping a reserved column owns it too; a plain pill owns none.
+    const column = reserved
+      ? layout.reserve
+      : (chatStage === 'docked' && chrome.width > 0 ? chrome.width + 2 * DOCK_GUTTER : 0)
+    if (column > 0) document.documentElement?.style?.setProperty('--chat-dock-column', `${column}px`)
+    else document.documentElement?.style?.removeProperty('--chat-dock-column')
     // 0 = unmeasurable: drop the property so the CSS fallback (the shipped compact rule) holds.
     if (chrome.width > 0) dialog.style.setProperty('--chat-dock-width', `${chrome.width}px`)
     else dialog.style.removeProperty('--chat-dock-width')
