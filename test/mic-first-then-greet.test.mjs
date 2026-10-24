@@ -943,3 +943,51 @@ test('End while the socket is CONNECTING leaves no 20 s open-timeout armed for t
     )
   } finally { v.live.dispose() }
 })
+
+test('a stale start whose mint keeps failing retryably never touches the next call: socket 2 stays open, greets after Allow, no "Reconnecting"', async () => {
+  // Arrange — call 1's mint hangs; the visitor hangs up and starts call 2, which comes up.
+  const v = await bootChat({ permission: 'prompt' })
+  const okFetch = globalThis.fetch
+  let mints = 0
+  let failFirst = null
+  globalThis.fetch = (...args) => {
+    mints += 1
+    if (mints === 1) return new Promise((_resolve, reject) => { failFirst = reject })
+    if (mints === 2) return okFetch(...args)
+    return Promise.reject(new TypeError('network down'))
+  }
+  try {
+    await v.start()
+    v.live.stopVoice()
+    await settle()
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+    const statusesAt = v.statuses.length
+
+    // Act — call 1's mint fails now, and keeps failing through its retries (~4.8 s backoff);
+    // then the visitor allows call 2's mic.
+    failFirst(new TypeError('network down'))
+    await new Promise((resolve) => realSetTimeout(resolve, 6000))
+    await settle()
+    v.gum.allow()
+    await settle()
+
+    // Assert
+    const second = v.sockets[0]
+    assert.deepEqual(
+      {
+        sockets: v.sockets.length,
+        secondOpen: second.readyState === 1 && v.live.isSessionOpen(),
+        secondGreeted: second.sent.filter((p) => JSON.parse(p).clientContent).length,
+        staleCopy: v.statuses.slice(statusesAt).filter((s) => /Reconnecting|retry/i.test(s.text)).map((s) => s.text)
+      },
+      { sockets: 1, secondOpen: true, secondGreeted: 1, staleCopy: [] },
+      'critic (re-review): an ended start\'s connect loop may not retry, report, or stop `ws` — ' +
+      'by then it belongs to the next call'
+    )
+  } finally {
+    globalThis.fetch = okFetch
+    v.live.dispose()
+  }
+})
