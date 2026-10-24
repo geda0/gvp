@@ -1686,8 +1686,10 @@ export function initChat() {
       gutter: DOCK_GUTTER
     })
     // Set BEFORE the stage applies, so the first frame beside the dialog is already the
-    // right size. Cleared when the dialog closes (project -> null) or the chat closes.
-    besideDialogWidth = dialogWidth
+    // right size. Cleared when the dialog closes (project -> null) or the chat closes. Only
+    // when there IS room: a no-room modal that later yields to docked overlaps the panel,
+    // and must stay a plain yield below the dialog rather than be lifted above it.
+    besideDialogWidth = roomBeside ? dialogWidth : null
     trackEvent('project_assistant_chip', { chip: chip.dataset.projectChip, beside: roomBeside })
     // Opening is more than chrome, so a closed chat opens through openPanel first; open-beside
     // then docks it beside the card when there is room.

@@ -798,3 +798,30 @@ test('ADR-0027 §9 drift: a card docked BESIDE a project dialog is marked, so it
   assert.equal(h.siteState.getSiteState().chatStage, 'docked')
   assert.equal(dialog.dataset.chatBeside, 'false', 'a yielded card stays below the dialog')
 })
+
+test('a chip with NO room goes modal, and a later yield from it is not marked beside', async (t) => {
+  // The raise above the scrim is safe ONLY because a beside card was measured not to overlap
+  // the dialog panel. At 1280 there is no such room: the chip goes modal, and if a site event
+  // then yields that modal to docked while the dialog is still open, the card OVERLAPS the
+  // panel - marking it beside would lift it on top of the dialog the visitor is reading.
+  const h = await boot('beside-no-room', 1280, { startClosed: true, voice: false })
+  t.after(() => h.api.disposeChatLiveVoice())
+  const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: 739.59, height: 500 }
+  document.querySelector = (sel) => (
+    sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => panelRect } : null
+  )
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  h.docEvents.fire('click', {
+    target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
+  })
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'modal', 'harness: no room -> modal')
+
+  h.siteState.setSection('labs', { origin: 'agent' })
+  await settle()
+  const dialog = h.getEl('chatDialog')
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked', 'harness: the modal yielded')
+  assert.equal(dialog.dataset.chatBeside, 'false', 'an overlapping yield must stay under the dialog')
+  assert.equal(dialog.dataset.chatSize, 'wide', 'and it is not sized as if it were beside')
+})
