@@ -287,4 +287,26 @@ test('cold path, grant before setupComplete: the greeting waits for setup, then 
     )
   } finally { v.live.dispose() }
 })
+test('cold path, bubble dismissed (state still prompt): the call closes, no greeting, and the copy says "not yet", not "denied"', async () => {
+  // Arrange — the session is ready and waiting on the bubble.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+
+    // Act — the visitor closes the bubble with ✕: Chrome rejects exactly like a block, but the
+    // permission is still 'prompt'.
+    v.gum.reject('NotAllowedError')
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { socketOpen: v.socket().readyState === 1, sessionOpen: v.live.isSessionOpen(), greetingsSent: v.greetingsSent(), status: v.status() },
+      { socketOpen: false, sessionOpen: false, greetingsSent: 0, status: { text: MIC_DISMISSED_MSG, kind: 'error' } },
+      'ADR-0028 §3.2 / P1: a dismissal is not a denial — sending the visitor to browser settings ' +
+      'for a setting they never changed is false; and no Live session stays open, billed and silent'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END

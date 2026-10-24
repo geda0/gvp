@@ -297,6 +297,10 @@ function voiceCaptureGateMessage() {
 const MIC_PERMISSION_HINT =
   'Your browser is asking for the microphone — choose “Allow while visiting the site” so we don\'t ask again.'
 
+/** A dismissed bubble — and, by the same "no answer yet", the permission-wait timeout. */
+const MIC_DISMISSED_MSG =
+  'No microphone access yet — tap Start voice chat to be asked again.'
+
 /** The one getUserMedia request, identical on every call (a changing constraint must never be
  *  why a browser asks again — design-notes P1). Frozen so nothing can drift it at runtime. */
 const MIC_CONSTRAINTS = Object.freeze({
@@ -1236,6 +1240,9 @@ export function bindChatLiveVoice(opts) {
             rejectPendingSetupLatch(liveSetupErr(liveSetupTimeoutMessage(isRelayWsPath)))
           }, LIVE_SETUP_WAIT_MS)
         })
+        // A stop while the socket is still opening rejects this latch before it is awaited
+        // (ADR-0028: the cold path can close during the connect); it is awaited below.
+        setupReadyPromise.catch(() => {})
 
         const wsOpenPromise = new Promise((resolve, reject) => {
           const openTimer = setTimeout(() => {
@@ -1536,6 +1543,16 @@ export function bindChatLiveVoice(opts) {
         acquired = await micP
       } catch (micErr) {
         if (epoch !== startEpoch) return
+        const blocked = micErr?.name === 'NotAllowedError' || micErr?.name === 'SecurityError'
+        // A dismissed bubble rejects exactly like a block; only the browser's own state tells
+        // them apart. 'unknown' (no Permissions API) is not a claim of dismissal.
+        const after = blocked ? await detectMicPermissionState() : ''
+        if (epoch !== startEpoch) return
+        if (after === 'prompt') {
+          stopVoiceInternal({ silent: true })
+          setStatus(MIC_DISMISSED_MSG, 'error')
+          return
+        }
         await sessionP
         if (epoch !== startEpoch) return
         patchLiveUi({ active: false, connecting: false, sessionOpen: true })
