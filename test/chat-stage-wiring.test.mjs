@@ -591,3 +591,40 @@ test('ADR-0027: the first open on a wide viewport is the docked card at WIDE siz
   assert.equal(dialog.dataset.chatSize, 'wide')
   assert.equal(dialog.style.getPropertyValue('--chat-dock-width'), '720px')
 })
+
+test('ADR-0027 §6: a stored compact is honoured on first open; throwing storage still opens wide', async (t) => {
+  // The preference is read ONCE at initChat, so storage has to exist before the boot.
+  const withStorage = async (tag, storage) => {
+    Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true, writable: true })
+    try {
+      const h = await boot(tag, WIDE, { voice: false })
+      t.after(() => h.api.disposeChatLiveVoice())
+      h.api.openPanel()
+      await settle()
+      const dialog = h.getEl('chatDialog')
+      return [dialog.dataset.chatSize, dialog.style.getPropertyValue('--chat-dock-width')]
+    } finally {
+      delete globalThis.localStorage
+    }
+  }
+
+  const reads = []
+  assert.deepEqual(
+    await withStorage('size-stored-compact', {
+      getItem (k) { reads.push(k); return k === 'gvp-chat-size' ? 'compact' : null },
+      setItem () {}
+    }),
+    ['compact', '384px'],
+    'a visitor who chose compact gets compact next visit (N-W1: localStorage, per browser)'
+  )
+  assert.ok(reads.includes('gvp-chat-size'), 'the key is gvp-chat-size (ADR-0027 §6)')
+
+  assert.deepEqual(
+    await withStorage('size-storage-throws', {
+      getItem () { throw new Error('SecurityError: storage blocked') },
+      setItem () { throw new Error('SecurityError: storage blocked') }
+    }),
+    ['wide', '720px'],
+    'blocked storage must not stop the chat opening, and falls back to the wide default'
+  )
+})
