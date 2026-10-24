@@ -1208,6 +1208,15 @@ export function initChat() {
         panelAnim.raf = null
         panel.style.transition = `transform ${PANEL_ANIM_MS}ms ${PANEL_ANIM_EASE}`
         panel.style.transform = 'none'
+        // Hand the panel back to the stylesheet once the seed animation is over. Left in
+        // place, this INLINE transition overrides css/chat.css's docked size transition for
+        // the life of the panel, so every wide <-> compact toggle snapped (ADR-0027 W7,
+        // found by the browser journey). A timeout, like closePanel's fallback, rather than
+        // transitionend alone, which does not fire if the transform never actually changed.
+        panelAnim.timeout = setTimeout(() => {
+          panelAnim.timeout = null
+          clearPanelAnimation()
+        }, PANEL_ANIM_MS + 80)
       })
     }
 

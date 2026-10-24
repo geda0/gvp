@@ -81,7 +81,11 @@ function makeEl(tag = 'div') {
     style: {
       props: {},
       setProperty(name, value) { this.props[name] = String(value) },
-      removeProperty(name) { delete this.props[name] },
+      // Like a real CSSStyleDeclaration: removing `transition` also clears `style.transition`.
+      removeProperty(name) {
+        delete this.props[name]
+        delete this[name.replace(/-([a-z])/g, (_m, c) => c.toUpperCase())]
+      },
       getPropertyValue(name) { return name in this.props ? this.props[name] : '' }
     },
     setAttribute(name, value) { el.attrs[name] = String(value) },

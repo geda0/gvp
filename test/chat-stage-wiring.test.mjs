@@ -739,3 +739,27 @@ test('ADR-0027 §3.2: beside a project dialog the card is wide only if wide fits
   const modal = await tapAt('beside-1280', 1280)
   assert.equal(modal.read()[0], 'modal', '1280: no room even for compact -> modal (ADR-0017 rule)')
 })
+
+test('ADR-0027 W7: the open animation hands the panel back to CSS, so a size toggle can animate', async (t) => {
+  // FOUND BY THE BROWSER JOURNEY, not reasoned about: openPanel's seed animation sets an
+  // INLINE `transition: transform 280ms` on the panel and never removes it. Inline beats the
+  // stylesheet, so css/chat.css's docked `transition: width 200ms ...` never applied - every
+  // toggle after an animated open snapped instead of growing from its corner (W7), with
+  // getAnimations() empty. Harmless while the panel was a modal that never resized; not now.
+  const { api, getEl } = await boot('size-open-anim', WIDE, { voice: false })
+  t.after(() => api.disposeChatLiveVoice())
+  // A launcher with a real rect, so the open animates (the path a visitor actually takes).
+  getEl('agentNode').getBoundingClientRect = () => ({ top: 300, left: 400, right: 800, bottom: 340, width: 400, height: 40 })
+  const panel = getEl('chatDialog').querySelector('.chat-dialog__panel')
+
+  api.openPanel()
+  await settle()
+  assert.match(String(panel.style.transition || ''), /transform/, 'harness: the open must have animated')
+
+  await new Promise((resolve) => setTimeout(resolve, 280 + 150))
+  await settle()
+  assert.equal(panel.style.transition || '', '',
+    'once the open animation is over, the inline transition must be gone, or it overrides the ' +
+    'stylesheet\'s size transition for the life of the panel')
+  assert.equal(panel.style.transform || 'none', 'none')
+})
