@@ -31,6 +31,8 @@ const VOICE_SESSION_IDLE_NO_MIC_MS = 60 * 1000
 /** After the warm greeting finishes, wait this long for user audio before
  *  prompting the model to continue with what the visitor can ask. */
 const VOICE_WARM_FOLLOWUP_MS = 7 * 1000
+/** Silence between input-transcript fragments that starts a NEW utterance (ADR-0026 addendum). */
+const VOICE_UTTERANCE_GAP_MS = 1500
 /** Hard cap on continuous voice session length (ms). */
 const VOICE_MAX_SESSION_MS = 25 * 60 * 1000
 /** Per-attempt POST /api/live/session budget (ms). Sized > backend mint timeout
@@ -710,8 +712,25 @@ export function bindChatLiveVoice(opts) {
   // turn in flight there is nothing for Live to interrupt. The visitor's transcribed speech
   // then cuts playback locally. Only while NO turn is in flight (an idle gate); a turn in
   // flight is the server's to interrupt, and its own `interrupted` follows.
+  // ADR-0026 addendum: Live's input transcription LAGS, so the last fragment of the question
+  // can land after its answer was fully sent, while that answer still sounds. A fragment cuts
+  // only if its UTTERANCE started after the playing turn's first output. An utterance starts at
+  // the first fragment ever, or one arriving > VOICE_UTTERANCE_GAP_MS after the previous one.
+  let lastInputFragmentAt = null
+  let utteranceStartedAt = null
+  let playingTurnFirstOutputAt = null
+  let turnHasOutput = false
+  const noteModelOutput = () => {
+    if (turnHasOutput) return
+    turnHasOutput = true
+    playingTurnFirstOutputAt = Date.now()
+  }
   const cutSoundingTailOnSpeech = () => {
-    if (isIdleGate(turnGate) && player?.isPlaying()) interruptAssistant('voice_local')
+    const now = Date.now()
+    if (lastInputFragmentAt === null || now - lastInputFragmentAt > VOICE_UTTERANCE_GAP_MS) utteranceStartedAt = now
+    lastInputFragmentAt = now
+    const newUtterance = playingTurnFirstOutputAt !== null && utteranceStartedAt > playingTurnFirstOutputAt
+    if (newUtterance && isIdleGate(turnGate) && player?.isPlaying()) interruptAssistant('voice_local')
   }
 
   /** A canned text turn (a project chip's prompt) into the live call: stop the assistant
@@ -879,6 +898,10 @@ export function bindChatLiveVoice(opts) {
     // audio and transcript, in silence. (Not in resetDraftState: finalizeTurn runs that at
     // every turnComplete, and a second re-open there masked the gate's own transition.)
     turnGate = freshTurnGate()
+    lastInputFragmentAt = null
+    utteranceStartedAt = null
+    playingTurnFirstOutputAt = null
+    turnHasOutput = false
   }
 
   const ensureAssistantBubble = () => {
@@ -1004,7 +1027,10 @@ export function bindChatLiveVoice(opts) {
     // Model output means a server turn is in flight (ADR-0026 §3.2), so a local act now cancels
     // it. turnStarted never re-opens a cancelled gate; only turnComplete does.
     if (rootOut) turnGate = nextTurnGate(turnGate, 'turnStarted')
-    if (rootOut && acceptsTurnOutput(turnGate)) patchAssistantText(rootOut)
+    if (rootOut && acceptsTurnOutput(turnGate)) {
+      noteModelOutput()
+      patchAssistantText(rootOut)
+    }
 
     const sc = msg.serverContent || msg.server_content
     if (sc) {
@@ -1012,6 +1038,8 @@ export function bindChatLiveVoice(opts) {
       const modelParts = sc.modelTurn?.parts
       if (sc.outputTranscription?.text || (Array.isArray(modelParts) && modelParts.length)) {
         turnGate = nextTurnGate(turnGate, 'turnStarted')
+        // Output of a cancelled turn never plays, so it does not count as the playing turn.
+        if (acceptsTurnOutput(turnGate)) noteModelOutput()
       }
 
       if (sc.inputTranscription?.text) {
@@ -1041,6 +1069,7 @@ export function bindChatLiveVoice(opts) {
 
       if (sc.turnComplete || sc.turn_complete) {
         turnGate = nextTurnGate(turnGate, 'turnComplete')
+        turnHasOutput = false
         finalizeTurn()
         // First turnComplete after the greeting = the greeting finished playing.
         // For warm sessions where the visitor hasn't spoken yet, schedule the
