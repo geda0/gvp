@@ -35,6 +35,10 @@ AWS_DIR="${ROOT}/aws"
 # inlined so a test can drive resolve_gemini_key without executing a deploy.
 # shellcheck source=scripts/lib/gemini-key.sh
 . "${ROOT}/scripts/lib/gemini-key.sh"
+# Post-deploy chat warm through the browser's front door (ADR-0026 §5.4); fails the deploy on a
+# non-204 or a timeout. Sourced so test/chat-post-deploy-warm.test.mjs can drive it.
+# shellcheck source=scripts/lib/chat-warm.sh
+. "${ROOT}/scripts/lib/chat-warm.sh"
 CHAT_DIR="${ROOT}/docker/chat"
 SECRETS_DIR="${SECRETS_DIR:-$ROOT/.secrets}"
 
@@ -901,6 +905,17 @@ if [[ "${CHAT_DEPLOY_TARGET}" == "stream" ]]; then
       echo "warning: chat stream /health returned ${CHAT_STREAM_HEALTH} (000 = no response at all). A fresh CloudFront distribution needs several minutes to propagate; re-check before sending traffic." >&2
     fi
   fi
+  # Post-deploy warm (ADR-0026 §5.4): ONE POST /api/chat {"warm":true} through the front door the
+  # BROWSER uses — the committed gvp:chat-api-url, which this target never repoints and which the
+  # workflow guards pin to this environment (agent → stage, main → prod). The echoed elapsed ms is
+  # the post-deploy cold-start measurement. A non-204 or timeout FAILS the deploy (PO acceptance,
+  # stricter than the ADR's "warning only").
+  CHAT_WARM_URL="$(chat_front_door_url "${ROOT}/index.html")"
+  CHAT_WARM_HOST="$(url_host "${CHAT_WARM_URL:-}")"
+  if [[ -n "${CHAT_WARM_HOST}" && -n "${CHAT_STREAM_CDN_DOMAIN}" && "${CHAT_WARM_HOST}" != "${CHAT_STREAM_CDN_DOMAIN}" ]]; then
+    echo "note: gvp:chat-api-url host ${CHAT_WARM_HOST} is not this run's DistributionDomainName ${CHAT_STREAM_CDN_DOMAIN} (an alias, or the meta points elsewhere) — warming the meta host, which is what visitors hit." >&2
+  fi
+  chat_post_deploy_warm "${DEPLOY_ENV}" "${CHAT_WARM_URL}" || exit 1
   echo "note: gvp:chat-api-url in index.html / admin/index.html is NOT repointed by this target. Invariant 11 pins those hosts and test/frontend-api-url-env-guard.test.mjs enforces them — repointing is a separate, deliberate commit."
   # Liveness of the alert gate is NOT provable from here (presence of the keys is pinned by
   # test/chat-alert-gate-env.test.mjs; the VALUES are deploy-time). Verify on the deployed
