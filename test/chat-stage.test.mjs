@@ -459,3 +459,37 @@ test('invariant #27: at every docked width, either size leaves 320px of the site
     'constraint on the new default window (#27)'
   )
 })
+
+test('dockedSizeChrome: the effective size is the preference only where wide can render', async () => {
+  const { dockedSizeChrome } = await sizeApi()
+  assert.equal(typeof dockedSizeChrome, 'function', 'dockedSizeChrome must be exported (ADR-0027 §3.3)')
+  const P = 739.59 // the browser-measured project panel (ADR-0017 §2.4)
+  const at = (viewportWidth, besideDialogWidth, preferred = 'wide', stage = 'docked') =>
+    dockedSizeChrome({ stage, viewportWidth, preferred, besideDialogWidth })
+
+  // Not beside a dialog (null): wide where wide exists.
+  assert.deepEqual(at(1280, null),
+    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
+  assert.deepEqual(at(1280, null, 'compact'),
+    { size: 'compact', width: 384, toggleHidden: false, togglePressed: 'false' })
+  // Below 840 wide cannot render: compact, and the toggle is HIDDEN, not disabled. The
+  // preference is not overwritten - only the toggle writes it (that is the caller's half).
+  assert.deepEqual(at(800, null),
+    { size: 'compact', width: 384, toggleHidden: true, togglePressed: 'false' })
+
+  // Beside a dialog: null and 0 are DIFFERENT. 0 is "beside a dialog nobody measured",
+  // which is no room - the same rule as hasRoomBesideDialog.
+  assert.equal(at(2560, 0).size, 'compact', 'an unmeasured dialog is not room for wide')
+  assert.equal(at(2560, 0).toggleHidden, true)
+  // (1920 - 739.59)/2 = 590.2 < 720 + 20 -> compact. Crossover 739.59 + 2*740 = 2219.59.
+  assert.equal(at(1280, P).size, 'compact')
+  assert.equal(at(1920, P).size, 'compact')
+  assert.equal(at(2219, P).size, 'compact')
+  assert.deepEqual(at(2220, P),
+    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
+
+  // The toggle exists only on the docked card.
+  for (const stage of ['closed', 'modal', 'minimized']) {
+    assert.equal(at(1280, null, 'wide', stage).toggleHidden, true, `toggle hidden in ${stage}`)
+  }
+})
