@@ -147,34 +147,6 @@ export function nextChatStage (stage, event, ctx) {
   }
 }
 
-/**
- * Is there room for the docked card beside an open dialog, without overlapping it?
- *
- * A FUNCTION OF MEASURED WIDTHS, NOT A BREAKPOINT. The dialog's width has two regimes -
- * viewport-bound below ~704px, content-bound above - and the content-bound one is expressed
- * in `rem`. The root font-size is 16px today, but this site already drives other sizes off
- * viewport-relative clamps, so a future `html { font-size: clamp(...) }` would move the real
- * threshold while a hard-coded media query kept passing, silently, with a green suite.
- *
- * The MEASUREMENT lives in js/chat.js (one getBoundingClientRect on the dialog panel); the
- * DECISION lives here. Same split as the stage reducer and the precipitation leaf, for the
- * same reason: the half that needs a compositor should be the half with no logic in it.
- *
- * @param {{viewportWidth: number, dialogWidth: number, cardWidth: number, gutter: number}} m
- */
-export function hasRoomBesideDialog (m) {
-  if (!m) return false
-  const { viewportWidth, dialogWidth, cardWidth, gutter } = m
-  // A measurement that did not happen must not read as room. The caller measures a live
-  // element, and before the dialog exists that rect is all zeros - a predicate that said
-  // `true` on zeros would dock the chat beside a dialog that is not there.
-  for (const v of [viewportWidth, dialogWidth, cardWidth, gutter]) {
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) return false
-  }
-  if (viewportWidth <= 0 || dialogWidth <= 0 || cardWidth <= 0) return false
-  return (viewportWidth - dialogWidth) / 2 >= cardWidth + gutter
-}
-
 // ---------------------------------------------------------------- size (ADR-0027 §3)
 //
 // SIZE IS ORTHOGONAL TO STAGE. `docked` at wide and `docked` at compact have identical chrome
@@ -198,7 +170,7 @@ export function parseChatSize (raw) {
 export const DOCK_COMPACT_WIDTH = 384
 // The `- 2rem` in that rule, per side.
 export const DOCK_EDGE_INSET = 16
-// The docked shell's padding at >= 1000px, and the gutter hasRoomBesideDialog is fed.
+// The docked shell's padding at >= 1000px, and the gutter besideLayout reserves per side.
 export const DOCK_GUTTER = 20
 export const DOCK_WIDE_MAX_WIDTH = 720
 // Below this "wide" is not meaningfully wider than compact, so it falls back instead.
@@ -211,7 +183,7 @@ export const DOCK_MIN_UNCOVERED = 320
 
 /**
  * The docked card's width in px - the ONE source of truth for it. CSS reads it back as
- * --chat-dock-width; hasRoomBesideDialog is fed the same number.
+ * --chat-dock-width; besideLayout reserves the same number (plus its gutters).
  *
  * `0` means "not measurable": the caller removes the custom property and the CSS fallback
  * (the shipped compact rule) applies.

@@ -251,52 +251,13 @@ test('stageChrome refuses an unknown stage rather than inventing chrome', () => 
 
 // ---------------------------------------------------------------- M4 (ADR-0017 §2.4-2.6)
 
-test('hasRoomBesideDialog is a function of measured widths, not a breakpoint', async () => {
-  const { hasRoomBesideDialog } = await import('../js/chat-stage.js')
-
-  // THE THREE BROWSER-MEASURED GEOMETRIES. The project panel is 739.59px wide and the
-  // docked card 384px, both measured rather than computed from the CSS, because
-  // `min(42rem, …)` plus padding-inline-end is not something to derive by hand.
-  //
-  // The plan said "≥1100px the dialog shifts left beside the docked card". Both halves are
-  // wrong: centred, no-overlap needs W ≥ ~1547, and at 1512 — a common laptop — the two
-  // still overlap by ~18px. 1100 is not close.
-  const P = 739.59
-  const C = 384
-  const g = 20
-  assert.equal(
-    hasRoomBesideDialog({ viewportWidth: 1280, dialogWidth: P, cardWidth: C, gutter: g }), false,
-    'at 1280 browser-measurement puts 134 of the card\'s 384px behind the dialog panel'
-  )
-  assert.equal(
-    hasRoomBesideDialog({ viewportWidth: 1512, dialogWidth: P, cardWidth: C, gutter: g }), false,
-    'at 1512 they still overlap by ~18px — this is the row that makes the plan\'s 1100 ' +
-    'obviously wrong rather than arguably wrong'
-  )
-  assert.equal(
-    hasRoomBesideDialog({ viewportWidth: 1600, dialogWidth: P, cardWidth: C, gutter: g }), true
-  )
-
-  // The boundary is arithmetic, not a constant: (W - dialog) / 2 >= card + gutter.
-  const exact = P + 2 * (C + g)
-  assert.equal(hasRoomBesideDialog({ viewportWidth: exact, dialogWidth: P, cardWidth: C, gutter: g }), true)
-  assert.equal(hasRoomBesideDialog({ viewportWidth: exact - 1, dialogWidth: P, cardWidth: C, gutter: g }), false)
-
-  // A MEASUREMENT THAT DID NOT HAPPEN MUST NOT READ AS ROOM. The caller measures a live
-  // element; before the dialog exists that rect is 0, and a predicate that answered `true`
-  // on zeros would dock the chat beside a dialog that is not there.
-  for (const bad of [
-    { viewportWidth: 0, dialogWidth: 0, cardWidth: 0, gutter: 0 },
-    { viewportWidth: NaN, dialogWidth: P, cardWidth: C, gutter: g },
-    { viewportWidth: 1600, dialogWidth: NaN, cardWidth: C, gutter: g },
-    {},
-    null
-  ]) {
-    assert.equal(
-      hasRoomBesideDialog(bad), false,
-      `${JSON.stringify(bad)} must answer false — an unmeasured geometry is not room`
-    )
-  }
+test('ADR-0029 §2.1: hasRoomBesideDialog is gone - its centred-dialog geometry describes no layout the site renders', async () => {
+  // Deliberate test-writer change: this row used to pin the predicate's measured-width table
+  // (no room below ~1547). ADR-0029 deletes it, as ADR-0026 deleted micAttachPlan: a pure
+  // function nothing should call is a seam a future edit quietly re-opens. besideLayout's rows
+  // (below) replace it; the 'an unmeasured geometry is not room' rule lives on there.
+  const mod = await import('../js/chat-stage.js')
+  assert.equal('hasRoomBesideDialog' in mod, false, 'hasRoomBesideDialog must no longer be exported')
 })
 
 test('open-beside docks when there is room and goes modal when there is not', async () => {
@@ -376,7 +337,7 @@ test('stageChrome moves focus when the stage was REQUESTED, not when it was yiel
 // ---------------------------------------------------------------- ADR-0027: wide + compact
 
 // The size dimension is ORTHOGONAL to the stage (ADR-0027 §2): a pure geometry seam in
-// js/chat-stage.js, beside hasRoomBesideDialog, taking plain numbers and never `window`.
+// js/chat-stage.js, beside besideLayout, taking plain numbers and never `window`.
 // Imported per test so a missing export fails as an assertion, not as an import error.
 const sizeApi = () => import('../js/chat-stage.js')
 

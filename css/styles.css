@@ -626,6 +626,10 @@ body.project-dialog-open {
     align-items: center;
     justify-content: center;
     padding: 1rem;
+    /* ADR-0029: one generic page-level inset (default 0, so unset is today's geometry). An
+     * overlay that needs the inline-end column sets it; the panel centres in what is left,
+     * and the full-bleed backdrop below is unaffected by padding. */
+    padding-inline-end: calc(1rem + var(--overlay-reserve-inline-end, 0px));
     box-sizing: border-box;
 }
 
@@ -651,7 +655,7 @@ body.project-dialog-open {
 .project-dialog__panel {
     position: relative;
     z-index: 1;
-    max-width: min(42rem, calc(100vw - 2rem));
+    max-width: min(42rem, calc(100vw - 2rem - var(--overlay-reserve-inline-end, 0px)));
     width: 100%;
     max-height: min(90vh, 44rem);
     overflow: auto;

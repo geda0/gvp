@@ -16,12 +16,9 @@ import {
 import {
   nextChatStage,
   stageChrome,
-  hasRoomBesideDialog,
   besideLayout,
   parseChatSize,
-  dockedSizeChrome,
-  dockedCardWidth,
-  DOCK_GUTTER
+  dockedSizeChrome
 } from './chat-stage.js'
 import { projectChipPrompt } from './project-chips.js'
 import { bindChatLiveVoice } from './chat-live.js'
