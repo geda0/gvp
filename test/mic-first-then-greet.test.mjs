@@ -489,4 +489,98 @@ test('telemetry: a cold start records ONE chat_voice_start with the permission b
     )
   } finally { v.live.dispose() }
 })
+// Each non-granted outcome: how the test makes it happen, and what both events must say.
+const OUTCOMES = {
+  dismissed: async (v) => { v.gum.reject('NotAllowedError') },
+  denied: async (v) => { v.perm.state = 'denied'; v.gum.reject('NotAllowedError') },
+  timeout: async (v) => { v.advance(PERMISSION_WAIT_MS); await v.fireWaitTimeout() },
+  error: async (v) => { v.gum.reject('NotReadableError') }
+}
+for (const [outcome, happen] of Object.entries(OUTCOMES)) {
+  test(`telemetry: a ${outcome} bubble is one chat_voice_start and one chat_live_stop {reason: 'mic_permission'}, exactly these keys`, async () => {
+    // Arrange
+    const v = await bootChat({ permission: 'prompt' })
+    try {
+      await v.start()
+      await v.open()
+      await v.setupComplete()
+      v.advance(800)
+
+      // Act
+      await happen(v)
+      await settle()
+
+      // Assert
+      assert.deepEqual(
+        {
+          starts: voiceStarts(v),
+          stops: v.events.filter((e) => e.name === 'chat_live_stop').map((e) => e.params)
+        },
+        {
+          starts: [{ permissionBefore: 'prompt', outcome, waitMs: outcome === 'timeout' ? 800 + PERMISSION_WAIT_MS : 800 }],
+          stops: [{ reason: 'mic_permission', permissionBefore: 'prompt', outcome }]
+        },
+        'ADR-0028 addendum §3: the outcome is what the funnel needs to tell a dismissal from a ' +
+        'block from a visitor who never answered'
+      )
+    } finally { v.live.dispose() }
+  })
+}
+
+test('telemetry: hanging up during the bubble is outcome "hangup", with the c841477 stop reason and no mic_permission stop', async () => {
+  // Arrange
+  const v = await bootChat({ permission: undefined })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+    v.advance(1000)
+
+    // Act — the mic tap is the visitor's "End" while the bubble is up.
+    await v.tapMic()
+
+    // Assert
+    assert.deepEqual(
+      {
+        starts: voiceStarts(v),
+        stops: v.events.filter((e) => e.name === 'chat_live_stop').map((e) => e.params)
+      },
+      {
+        starts: [{ permissionBefore: 'unknown', outcome: 'hangup', waitMs: 1000 }],
+        stops: [{ reason: 'abort_mic_prompt' }]
+      },
+      'the visitor ended it; the browser did not answer — so no mic_permission outcome is claimed'
+    )
+  } finally { v.live.dispose() }
+})
+
+test('telemetry: a warm start (already granted) waits 0 ms, and chat_live_start says how the mic came to be live', async () => {
+  // Arrange
+  const v = await bootChat({ permission: 'granted' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+    v.advance(300)
+
+    // Act — getUserMedia resolves without a bubble.
+    v.gum.allow()
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      {
+        starts: voiceStarts(v),
+        liveStarts: v.events.filter((e) => e.name === 'chat_live_start').map((e) => e.params),
+        hintShown: v.statuses.some((s) => s.text === MIC_PERMISSION_HINT)
+      },
+      {
+        starts: [{ permissionBefore: 'granted', outcome: 'granted', waitMs: 0 }],
+        liveStarts: [{ permissionBefore: 'granted', outcome: 'granted' }],
+        hintShown: false
+      },
+      'design-notes P1: no bubble, no hint, no wait; the warm path is otherwise unchanged'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END

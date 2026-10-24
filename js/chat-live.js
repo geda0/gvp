@@ -1472,7 +1472,7 @@ export function bindChatLiveVoice(opts) {
     clearNoMicIdleTimer()
     syncMicChrome()
     patchLiveUi({ active: true, connecting: false, sessionOpen: true })
-    trackEvent('chat_live_start', {})
+    trackEvent('chat_live_start', { permissionBefore: startPermission, outcome: 'granted' })
 
     bumpVoiceWsIdleTimer()
     if (!voiceMaxSessionTimer) {
