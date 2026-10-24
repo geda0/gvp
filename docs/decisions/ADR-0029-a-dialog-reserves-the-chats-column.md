@@ -278,3 +278,16 @@ stored size, both orders (chat-then-project, project-then-chat):
   dialog returns it `docked` at the stored size (`project-close`).
 - Below 1016 the tucked pill is not lifted (no reserved column to sit in; it would cover the
   panel). Per N-P3 a restore there stays a pill; the chip is the way to talk (modal).
+
+### Addendum 3 (2026-10-24, tdd-critic findings)
+
+- The inert sweep (§6.1) exempts what is designed to sit above dialogs: `#tourCard` (z 1150)
+  and `.selection-offer` (now z 1101, above the project scrim). Inerting the tour card made a
+  real click on Next stop fall through to the scrim and close the project dialog.
+- Opening the contact form **from the chat** (the agent's `open_contact_form`, or the
+  transcript's Get in touch) first closes a showing project dialog — what `js/projects.js` already
+  does for its own contact link — so the reserve and the inert page clear and the form (z 1090)
+  is not left under the project scrim.
+- `js/chat.js` publishes `--chat-dock-column` on `<html>` (the docked card plus its gutters, or
+  the reserved column a pill keeps; removed otherwise). `.tour-card` centres in, and fits, the
+  space left of it, so it never covers the docked card.
