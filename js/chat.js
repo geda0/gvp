@@ -18,7 +18,9 @@ import {
   stageChrome,
   hasRoomBesideDialog,
   parseChatSize,
-  dockedSizeChrome
+  dockedSizeChrome,
+  dockedCardWidth,
+  DOCK_GUTTER
 } from './chat-stage.js'
 import { projectChipPrompt } from './project-chips.js'
 import { bindChatLiveVoice } from './chat-live.js'
@@ -1071,6 +1073,12 @@ export function initChat() {
   subscribeSiteState((snapshot, change) => {
     syncActiveChip(snapshot)
     if (!change) return
+    // The project dialog closed: the card is no longer beside anything, so a temporary
+    // compact gives way to the visitor's stored size (ADR-0027 §7).
+    if (change.field === 'project' && !change.to && besideDialogWidth !== null) {
+      besideDialogWidth = null
+      applyChatSize()
+    }
     const event = stageEventForChange(change)
     if (!event) return
     // 'system': a layout-driven stage change is neither the visitor moving the chat nor the
@@ -1115,6 +1123,7 @@ export function initChat() {
     }
     clearVoiceAwaitingStart()
     dockMode = 'voice'
+    besideDialogWidth = null
     applyStage('closed', 'visitor')
     state.agentNodeApi?.setState?.('bubble')
     agentInput.readOnly = launcherReadOnlyForDevice()
@@ -1635,11 +1644,11 @@ export function initChat() {
 
   // M4 slice 13 (ADR-0017 §2.5, §7.5): the project chips are open-beside's caller. The
   // MEASUREMENT is here (one rect on the live project panel); the DECISION is
-  // hasRoomBesideDialog. 384 / 20 are the browser-measured docked card and gutter
-  // (test/chat-stage.test.mjs). No room -> modal, never the pill (untappable under the
-  // project backdrop). The prompt is canned + the store's title, never visitor text.
-  const DOCKED_CARD_WIDTH = 384
-  const DOCK_GUTTER = 20
+  // hasRoomBesideDialog. The STAGE is decided with the COMPACT width, exactly today's rule
+  // (ADR-0027 §3.2); the SIZE beside the dialog is dockedSizeChrome's, fed the same measured
+  // width - so wide beside -> compact beside -> modal. No room -> modal, never the pill
+  // (untappable under the project backdrop). The prompt is canned + the store's title,
+  // never visitor text.
   document.addEventListener('click', (event) => {
     const chip = event.target.closest('#projectDialog [data-project-chip]')
     if (!chip) return
@@ -1648,17 +1657,23 @@ export function initChat() {
     if (!prompt) return
     const panelEl = document.querySelector('#projectDialog .project-dialog__panel')
     const rect = panelEl ? panelEl.getBoundingClientRect() : null
+    const dialogWidth = rect ? rect.width : 0
     const roomBeside = hasRoomBesideDialog({
       viewportWidth: window.innerWidth,
-      dialogWidth: rect ? rect.width : 0,
-      cardWidth: DOCKED_CARD_WIDTH,
+      dialogWidth,
+      cardWidth: dockedCardWidth({ viewportWidth: window.innerWidth, size: 'compact' }),
       gutter: DOCK_GUTTER
     })
+    // Set BEFORE the stage applies, so the first frame beside the dialog is already the
+    // right size. Cleared when the dialog closes (project -> null) or the chat closes.
+    besideDialogWidth = dialogWidth
     trackEvent('project_assistant_chip', { chip: chip.dataset.projectChip, beside: roomBeside })
     // Opening is more than chrome, so a closed chat opens through openPanel first; open-beside
     // then docks it beside the card when there is room.
     if (chatStage === 'closed') openPanel()
     dispatchStage('open-beside', 'visitor', { roomBeside })
+    // Docked -> docked is a same-stage no-op in dispatchStage, so re-resolve the size here.
+    applyChatSize()
     // A REQUESTED dock moves focus to the composer (stageChrome(..., { requested: true })) -
     // once the reply settles, because the composer is disabled while it is pending and a
     // disabled input cannot take focus (measured: focus stayed on the project dialog's X).

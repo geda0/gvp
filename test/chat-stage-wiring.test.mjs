@@ -701,3 +701,41 @@ test('ADR-0027 §7: a resize across 840px flips the effective size, never the pr
   assert.deepEqual(size(), ['wide', '664px'],
     'widening brings wide back with no visitor act: the fallback never overwrote the preference')
 })
+
+test('ADR-0027 §3.2: beside a project dialog the card is wide only if wide fits, else compact, else modal', async (t) => {
+  // Three outcomes, in order: wide beside -> compact beside -> modal. Never the pill (it
+  // would sit under the project backdrop). The dialog width is the browser-measured 739.59.
+  const tapAt = async (tag, vw) => {
+    const h = await boot(tag, vw, { startClosed: true, voice: false })
+    t.after(() => h.api.disposeChatLiveVoice())
+    const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: 739.59, height: 500 }
+    document.querySelector = (sel) => (
+      sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => panelRect } : null
+    )
+    h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+    await settle()
+    h.docEvents.fire('click', {
+      target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
+    })
+    await settle()
+    const dialog = h.getEl('chatDialog')
+    const toggle = dialog.querySelector('[data-chat-size-toggle]')
+    return { h, dialog, toggle, read: () => [h.siteState.getSiteState().chatStage, dialog.dataset.chatSize, dialog.style.getPropertyValue('--chat-dock-width'), Boolean(toggle.hidden)] }
+  }
+
+  const wide = await tapAt('beside-2560', 2560)
+  assert.deepEqual(wide.read(), ['docked', 'wide', '720px', false], '2560: (2560 - 739.59)/2 >= 740')
+
+  const compact = await tapAt('beside-1920', 1920)
+  assert.deepEqual(compact.read(), ['docked', 'compact', '384px', true],
+    '1920: room for compact (590 >= 404) but not wide (590 < 740); the toggle hides - a wide ' +
+    'card there would overlap the dialog')
+  // The dialog closes: the temporary compact was never written to the preference.
+  compact.h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.deepEqual(compact.read(), ['docked', 'wide', '720px', false],
+    'closing the dialog brings the stored (wide) size back')
+
+  const modal = await tapAt('beside-1280', 1280)
+  assert.equal(modal.read()[0], 'modal', '1280: no room even for compact -> modal (ADR-0017 rule)')
+})
