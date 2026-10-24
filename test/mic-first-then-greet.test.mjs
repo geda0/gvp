@@ -600,4 +600,45 @@ test('telemetry: chat_voice_start is emitted by startVoice only — the Start ta
     'carries no permissionBefore / outcome'
   )
 })
+test('getUserMedia asks with the same constraints on the first start, after a dismissal, and after a hang-up', async () => {
+  // Arrange
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    // Act — start / dismiss; start again / hang up; start a third time.
+    await v.start()
+    v.gum.reject('NotAllowedError')
+    await settle()
+    await v.start()
+    await v.tapMic()
+    await v.start()
+
+    // Assert
+    const audio = { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
+    assert.deepEqual(
+      v.gum.constraints,
+      [{ audio, video: false }, { audio, video: false }, { audio, video: false }],
+      'design-notes P1: a constraint that changed between calls could be read by the browser as a ' +
+      'new request — pinned so it can never be why the visitor is asked again'
+    )
+  } finally { v.live.dispose() }
+})
+test('the hint leaves with the bubble: a grant while the session is still connecting shows "Connecting voice…"', async () => {
+  // Arrange — the bubble is up before the mint has returned.
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    const whileOpen = v.status().text
+
+    // Act — Allow, with the socket not yet open.
+    v.gum.allow()
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { whileOpen, afterGrant: v.status().text },
+      { whileOpen: MIC_PERMISSION_HINT, afterGrant: 'Connecting voice…' },
+      'design-notes P1: the hint disappears as soon as the request settles, whatever the session is doing'
+    )
+  } finally { v.live.dispose() }
+})
 //@@END
