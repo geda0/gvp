@@ -2449,6 +2449,14 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     }
 }
 
+/* ADR-0027: the wide <-> compact change grows the card from its corner. Declared ONLY here,
+ * so the reduce rule above can never be out-specified by it (invariant #22, W7). */
+@media (prefers-reduced-motion: no-preference) {
+    #chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
+        transition: width 200ms ease, max-width 200ms ease, height 200ms ease, max-height 200ms ease;
+    }
+}
+
 
 /* M4 slice 15 (ADR-0017 §6) — minimise lives on the docked card only; the launcher chip is the
    way back from minimised. */

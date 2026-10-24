@@ -237,3 +237,21 @@ test('ADR-0027 §5.2: minimising the focused main window hands focus to the resu
   await settle()
   assert.deepEqual(focused, ['chip', 'chip'], 'focus outside the card is not ours to move')
 })
+
+test('ADR-0027 §4 / W7: the size transition exists only under prefers-reduced-motion: no-preference', () => {
+  // Declared ONLY inside no-preference, so the reduce rule above (transition: none) can never
+  // be out-specified by it - #22's "transitions honour reduced motion" covers size by
+  // construction rather than by a specificity race.
+  const css = read('css', 'chat.css')
+  const np = /@media \(prefers-reduced-motion: no-preference\) \{\s*#chatDialog\[data-chat-stage='docked'\] \.chat-dialog__panel \{([^}]*)\}/
+    .exec(css)
+  assert.ok(np, 'no size transition for the docked card under no-preference')
+  assert.match(np[1], /transition:[^;]*width 200ms[^;]*max-width 200ms/)
+  // And nowhere else: a docked-panel transition declared outside the media query would apply
+  // under reduce too.
+  const outside = css.replace(np[0], '')
+  assert.doesNotMatch(
+    outside, /#chatDialog\[data-chat-stage='docked'\][^{]*\.chat-dialog__panel \{[^}]*transition:/,
+    'a docked-panel transition outside no-preference applies under reduced motion too'
+  )
+})
