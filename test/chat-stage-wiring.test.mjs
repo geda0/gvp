@@ -816,22 +816,19 @@ test('N-P3: a chip with NO room (1000) goes modal, and a later yield from it is 
     'and nothing is reserved at 1000')
 })
 
-// Shared by the critic-pass rows below: boot at a width, stub the live project panel, open a
-// project dialog in the store, and tap a chip the way a visitor does.
-async function bootBeside (t, tag, vw, { panelWidth = 739.59, startClosed = true } = {}) {
+// Shared by the critic-pass rows below: boot at a width and tap a chip the way a visitor
+// does. (ADR-0029 removed the live project-panel measurement, so the rect stub that lived
+// here is gone - a deliberate test-writer change; nothing reads the panel's width now.)
+async function bootBeside (t, tag, vw, { startClosed = true } = {}) {
   const h = await boot(tag, vw, { startClosed, voice: false })
   t.after(() => h.api.disposeChatLiveVoice())
-  const panelRect = { top: 0, left: 0, right: 0, bottom: 0, width: panelWidth, height: 500 }
-  document.querySelector = (sel) => (
-    sel === '#projectDialog .project-dialog__panel' ? { getBoundingClientRect: () => ({ ...panelRect }) } : null
-  )
   const tapChip = async () => {
     h.docEvents.fire('click', {
       target: { closest: (sel) => (sel.includes('[data-project-chip]') ? { dataset: { projectChip: 'summarize' } } : null) }
     })
     await settle()
   }
-  return { ...h, panelRect, tapChip, dialog: h.getEl('chatDialog') }
+  return { ...h, tapChip, dialog: h.getEl('chatDialog') }
 }
 
 test('ADR-0029 §3: the reserve is re-decided on resize - below 1016 it clears, widening reserves again', async (t) => {
@@ -982,4 +979,51 @@ test('ADR-0029 §4: at 1000 a page-opened project tucks the docked card, and clo
     ['docked', 'wide'], 'project-close is the return path, at the stored size')
   assert.deepEqual(h.stops, [], 'invariant #20: neither move ends the call')
   assert.equal(h.api.liveVoice.isSessionOpen(), true)
+})
+
+test('ADR-0029 §6.1: while reserved two dialogs are interactive - the panel is not aria-modal and the rest of the page is inert', async (t) => {
+  const { makeEl } = await import('./fixtures/chat-harness.mjs')
+  const h = await bootDocked(t, 'reserve-a11y', 1440)
+  // The body's element children, as index.html has them (abridged).
+  const named = (id) => { const el = makeEl('div'); el.id = id; return el }
+  const header = named('siteHeader')
+  const main = named('main')
+  const already = named('somethingElseMadeInert')
+  already.inert = true
+  const projectDialog = named('projectDialog')
+  const chatDialog = h.dialog
+  chatDialog.id = 'chatDialog'
+  const footer = named('footer')
+  document.body.children.push(header, main, already, projectDialog, chatDialog, footer)
+  const projectPanel = makeEl('div')
+  projectPanel.setAttribute('aria-modal', 'true')
+  document.querySelector = (sel) => (sel === '#projectDialog .project-dialog__panel' ? projectPanel : null)
+  const inertMap = () => Object.fromEntries(
+    document.body.children.map((el) => [el.id, [Boolean(el.inert), el.getAttribute('data-overlay-inert')]])
+  )
+
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  assert.equal(projectPanel.getAttribute('aria-modal'), 'false',
+    'two dialogs are interactive: neither may tell AT the rest of the page does not exist')
+  assert.deepEqual(inertMap(), {
+    siteHeader: [true, 'true'],
+    main: [true, 'true'],
+    somethingElseMadeInert: [true, null],
+    projectDialog: [false, null],
+    chatDialog: [false, null],
+    footer: [true, 'true']
+  }, 'every body child but the two dialogs is inert, and only what the reserve set is marked')
+
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  assert.equal(projectPanel.getAttribute('aria-modal'), 'true', 'cleared: the project panel is modal again')
+  assert.deepEqual(inertMap(), {
+    siteHeader: [false, null],
+    main: [false, null],
+    somethingElseMadeInert: [true, null],
+    projectDialog: [false, null],
+    chatDialog: [false, null],
+    footer: [false, null]
+  }, 'only what the reserve made inert is released - an element something else made inert stays')
 })

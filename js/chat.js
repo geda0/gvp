@@ -961,13 +961,36 @@ export function initChat() {
   // 0 = not reserved: the property is REMOVED, so the dialog's geometry is byte-identical to
   // the one it had before any of this existed.
   const RESERVE_PROP = '--overlay-reserve-inline-end'
+  const OVERLAY_INERT_ATTR = 'data-overlay-inert'
+  const OVERLAY_DIALOG_IDS = ['projectDialog', 'chatDialog']
+  let overlayReserved = false
   const applyOverlayReserve = (reserve) => {
+    const on = reserve > 0
     const root = document.documentElement
-    if (reserve > 0) root?.style?.setProperty(RESERVE_PROP, `${reserve}px`)
+    if (on) root?.style?.setProperty(RESERVE_PROP, `${reserve}px`)
     else root?.style?.removeProperty(RESERVE_PROP)
     // css/chat.css lifts exactly this card above the dialog's inset:0 scrim (z 1100) - safe
     // because the dialog has moved out of the reserved column, so it covers scrim, never panel.
-    dialog.dataset.chatBeside = reserve > 0 ? 'true' : 'false'
+    dialog.dataset.chatBeside = on ? 'true' : 'false'
+    // ADR-0029 §6.1, the modality swap - applied and removed HERE only, and only on a change,
+    // so a page that never reserves is never touched. Two dialogs are interactive: the project
+    // panel stops claiming aria-modal, and the page behind both goes inert instead (the scrim
+    // already made it unclickable; inert takes it out of Tab order and the a11y tree too).
+    if (on === overlayReserved) return
+    overlayReserved = on
+    document.querySelector('#projectDialog .project-dialog__panel')
+      ?.setAttribute('aria-modal', on ? 'false' : 'true')
+    for (const el of Array.from(document.body?.children || [])) {
+      if (OVERLAY_DIALOG_IDS.includes(el.id)) continue
+      if (on && !el.inert) {
+        el.inert = true
+        el.setAttribute(OVERLAY_INERT_ATTR, 'true')
+      } else if (!on && el.getAttribute(OVERLAY_INERT_ATTR) === 'true') {
+        // Only what the reserve made inert: never an element something else made inert.
+        el.inert = false
+        el.removeAttribute(OVERLAY_INERT_ATTR)
+      }
+    }
   }
 
   // The ONLY writer of data-chat-size / --chat-dock-width (from dockedSizeChrome alone) and of
