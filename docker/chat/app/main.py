@@ -949,6 +949,7 @@ async def _persist_text_turn(
     first_token_ms: int | None = None,
     chunk_count: int | None = None,
     fallback_used: bool = False,
+    primary_retried: bool = False,
     status: str = 'ok',
     error_code: str | None = None,
     error_message: str | None = None,
@@ -960,6 +961,8 @@ async def _persist_text_turn(
       first_token_ms    - wall-clock until first non-empty delta (None if none)
       chunk_count       - number of chunks observed (None for non-stream)
       fallback_used     - True when GeminiRoutingChain swapped to the secondary
+      primary_retried   - True when the primary was retried once after a 503
+                          (ADR-0026 §4.3) — distinct from a fallback
       status            - 'ok' | 'error' | 'timeout'
       error_code/_msg   - populated on non-'ok' paths so failed attempts show up
                           in the admin panel instead of vanishing.
@@ -987,6 +990,7 @@ async def _persist_text_turn(
         'status': status,
         'outputCharCount': len(reply_text or ''),
         'fallbackUsed': bool(fallback_used),
+        'primaryRetried': bool(primary_retried),
     }
     # ss6.4: the MODEL's dump, never `payload` raw - the precedent is `requestMessages`
     # above. Useful (the admin panel can see what the visitor was looking at when a turn
@@ -1021,6 +1025,11 @@ def _fallback_used(chain: Any) -> bool:
     if not primary or not last:
         return False
     return primary != last
+
+
+def _primary_retried(chain: Any) -> bool:
+    """True when the routing chain's last turn retried the primary after a 503."""
+    return bool(getattr(chain, 'last_primary_retried', False))
 
 
 def _sse_frame(event: str, data: Any) -> bytes:
@@ -1085,6 +1094,7 @@ async def chat(payload: ChatRequest) -> Any:
                 elapsed_ms,
                 stream=False,
                 fallback_used=_fallback_used(app.state.chain),
+                primary_retried=_primary_retried(app.state.chain),
                 status='timeout',
                 error_code='upstream_timeout',
                 error_message=f'ainvoke exceeded {app.state.provider_timeout_seconds}s',
@@ -1109,6 +1119,7 @@ async def chat(payload: ChatRequest) -> Any:
                 elapsed_ms,
                 stream=False,
                 fallback_used=_fallback_used(app.state.chain),
+                primary_retried=_primary_retried(app.state.chain),
                 status='error',
                 error_code=str(content.get('code') or 'model_error'),
                 error_message=str(content.get('error') or type(exc).__name__),
@@ -1126,6 +1137,7 @@ async def chat(payload: ChatRequest) -> Any:
         payload, lc_messages, reply_text, actions, tool_calls, model_used, elapsed_ms,
         stream=False,
         fallback_used=_fallback_used(app.state.chain),
+        primary_retried=_primary_retried(app.state.chain),
         status='ok',
     )
 
@@ -1229,6 +1241,7 @@ async def _chat_stream(
             first_token_ms=first_token_ms,
             chunk_count=chunk_count,
             fallback_used=_fallback_used(chain),
+            primary_retried=_primary_retried(chain),
             status=stream_status,
             error_code=error_code,
             error_message=error_message,

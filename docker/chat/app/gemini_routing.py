@@ -299,6 +299,7 @@ class GeminiRoutingChain:
         'key',
         'timeout',
         'last_model_id',
+        'last_primary_retried',
         'tools',
     )
 
@@ -319,6 +320,7 @@ class GeminiRoutingChain:
         self.key = key
         self.timeout = timeout
         self.last_model_id = primary_id
+        self.last_primary_retried = False
         self.tools = list(tools or [])
 
     def _model_order(self) -> list[str]:
@@ -352,6 +354,7 @@ class GeminiRoutingChain:
 
         pending = self._model_order()
         primary_retried = False
+        self.last_primary_retried = False
         last_exc: BaseException | None = None
         while pending:
             model_id = pending.pop(0)
@@ -404,6 +407,7 @@ class GeminiRoutingChain:
                 ):
                     # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
                     primary_retried = True
+                    self.last_primary_retried = True
                     fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
                     pending.insert(0, model_id)
                     await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
@@ -446,6 +450,7 @@ class GeminiRoutingChain:
 
         pending = self._model_order()
         primary_retried = False
+        self.last_primary_retried = False
         last_exc: BaseException | None = None
         while pending:
             model_id = pending.pop(0)
@@ -504,6 +509,7 @@ class GeminiRoutingChain:
                 ):
                     # ADR-0026 §4.3: one same-model retry, 503 only, sets no preference.
                     primary_retried = True
+                    self.last_primary_retried = True
                     fire_alert(kind, f'{model_id} {what}; retrying {model_id}')
                     pending.insert(0, model_id)
                     await asyncio.sleep(PRIMARY_503_RETRY_DELAY_SECONDS)
