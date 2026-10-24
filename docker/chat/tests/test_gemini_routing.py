@@ -96,8 +96,8 @@ class _HangFirstChunk:
 
 class _SlowOkStream:
     """Fallback whose first chunk arrives only AFTER a delay longer than the
-    per-attempt first-chunk budget — valid output the UNCAPPED final attempt must
-    still wait for (proves the last model is not time-boxed)."""
+    per-attempt first-chunk budget — output the final attempt must NOT wait for
+    (ADR-0026 §4.2: the last model is time-boxed like every other)."""
 
     def __init__(self, delay: float) -> None:
         self._delay = delay
@@ -530,12 +530,14 @@ async def test_primary_stream_timeout_flips_prefer_fallback(
 
 
 @pytest.mark.asyncio
-async def test_final_attempt_first_chunk_is_uncapped(
+async def test_final_attempt_first_chunk_is_capped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The LAST model must run without the per-attempt first-chunk cap, so a
-    slow-but-valid fallback still answers (the overall request deadline governs).
-    Guards against a regression that time-boxes the final attempt too."""
+    """INVERTED by ADR-0026 §4.2 (was test_final_attempt_first_chunk_is_uncapped,
+    invariant #13 as amended by #26): the LAST model is capped like every other.
+    A fallback whose first chunk would arrive after the per-attempt budget ends
+    the turn with asyncio.TimeoutError — which _chat_stream maps to the honest
+    `upstream_timeout` — instead of an uncapped 19 s wait."""
     from app import gemini_limit_state
 
     gemini_limit_state.reset_for_tests()
@@ -545,18 +547,21 @@ async def test_final_attempt_first_chunk_is_uncapped(
         primary_id="m-primary",
         fallback_id="m-fallback",
         key="k",
-        timeout=0.3,  # first-chunk budget = min(12, 0.18) = 0.18s
+        timeout=1.5,  # first-chunk budget = max(0.1, min(5, 0.6*1.5/3 = 0.3)) = 0.3s
     )
-    # Primary stalls -> fall back; fallback's first chunk is later than 0.18s but
-    # must NOT be capped (the final attempt is uncapped).
-    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": _SlowOkStream(0.4)}
+    # Primary stalls -> fall back; the fallback's first chunk would land at 2 s,
+    # well past its own 0.3 s budget, so the final attempt times out too.
+    fakes = {"m-primary": _HangFirstChunk(), "m-fallback": _SlowOkStream(2.0)}
     monkeypatch.setattr(
         GeminiRoutingChain, "_build_chain", lambda self, model_id: fakes[model_id]
     )
 
-    chunks = [c async for c in chain.astream({"messages": []})]
+    seen: list[str] = []
+    with pytest.raises(asyncio.TimeoutError):
+        async for chunk in chain.astream({"messages": []}):
+            seen.append(chunk.text)
 
-    assert "".join(c.text for c in chunks) == "from-fallback"
+    assert seen == []
 
 
 @pytest.mark.asyncio

@@ -430,13 +430,11 @@ class GeminiRoutingChain:
             iterator = stream.__aiter__()
             first_chunk: Any = None
             try:
-                if is_last:
-                    first_chunk = await iterator.__anext__()
-                else:
-                    first_chunk = await asyncio.wait_for(
-                        iterator.__anext__(),
-                        timeout=_first_chunk_timeout(self.timeout),
-                    )
+                # ADR-0026 §4.2: EVERY attempt is capped, the last one included.
+                first_chunk = await asyncio.wait_for(
+                    iterator.__anext__(),
+                    timeout=_first_chunk_timeout(self.timeout),
+                )
             except StopAsyncIteration:
                 self.last_model_id = model_id
                 return
