@@ -245,3 +245,17 @@ stored size, both orders (chat-then-project, project-then-chat):
   ADR-0027 §9 lift rule is restated as "lifted exactly while reserved".
 - Escape on a docked card with focus outside it is no longer a minimize.
 - No store field, wire, backend or voice change.
+
+---
+
+## Addendum (2026-10-24, orchestrator override — PO N-P3)
+
+- A project **chip** ("talk about this") below 1016 px keeps today's behaviour: `open-beside`
+  with `roomBeside: false` → `modal`, over the dialog (z 1105). Unchanged from §4.
+- Only a project dialog opened **from the page** (`project-open`, §4), or **the chat opening or
+  restoring while a project dialog shows**, tucks the chat into the minimized pill below 1016 px.
+  The second clause is one reducer row family: on a wide viewport `open-text` / `open-voice` /
+  `restore` read a second injected flag, `ctx.projectShowing`, and land `minimized` when it is
+  true and `ctx.reserveRoom` is not (else `docked`, as today). Narrow (< 768) is unchanged (modal).
+- Where the PO geometry (centred dialog area, 552 px minimum) and this ADR differ, **this ADR
+  wins** (`besideLayout`, `PROJECT_PANEL_MIN` 560, the panel shifted by the inset).
