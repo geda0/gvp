@@ -7,7 +7,7 @@ import { chatBus } from './chat-bus.js'
 import { chatApiUrl } from './site-config.js'
 import { shouldRevealResumeButton } from './voice-resume-button.js'
 import { hasNavPromiseGap } from './nav-promise-gap.js'
-import { freshTurnGate, nextTurnGate, acceptsTurnOutput } from './voice-turn-gate.js'
+import { freshTurnGate, nextTurnGate, acceptsTurnOutput, isIdleGate } from './voice-turn-gate.js'
 import { subscribe as subscribeSiteState, getSiteStateForWire, siteStateWireIfNotable } from './site-state.js'
 import { createSiteStateNotifier } from './site-state-notes.js'
 
@@ -471,6 +471,11 @@ class PcmJitterPlayer {
     this.scheduledEnd = startAt + buffer.duration
   }
 
+  /** True while any chunk is queued or sounding. */
+  isPlaying() {
+    return this.sources.length > 0
+  }
+
   close() {
     this.interrupt()
     if (this.ctx) this.ctx.close().catch(() => {})
@@ -689,7 +694,8 @@ export function bindChatLiveVoice(opts) {
 
   // ADR-0026 §3 / invariant #25 — the ONLY place playback is cut and the turn gate cancelled.
   // reason: 'server' (Live's own `interrupted`) | 'user_text' (a chip or text turn into the
-  // call) | 'mic_tap' (mic tap on an open session whose mic is not live). A server interrupt
+  // call) | 'mic_tap' (mic tap on an open session whose mic is not live) | 'voice_local' (the
+  // visitor speaks over a tail the server already finished sending). A server interrupt
   // is unconditional; a local one cancels the gate only while a server turn is in flight, so
   // the reply to the act that cut the assistant off is never dropped. A second door (another
   // player.interrupt() or 'interrupted' gate event in this file) fails a source test.
@@ -697,6 +703,15 @@ export function bindChatLiveVoice(opts) {
     turnGate = nextTurnGate(turnGate, reason === 'server' ? 'interrupted' : 'localInterrupt')
     player?.interrupt()
     turnInterrupted = true
+  }
+
+  // #25 by voice over a fully-delivered tail: Live sends audio faster than real time, so its
+  // turnComplete often lands while the player still has seconds queued, and with no server
+  // turn in flight there is nothing for Live to interrupt. The visitor's transcribed speech
+  // then cuts playback locally. Only while NO turn is in flight (an idle gate); a turn in
+  // flight is the server's to interrupt, and its own `interrupted` follows.
+  const cutSoundingTailOnSpeech = () => {
+    if (isIdleGate(turnGate) && player?.isPlaying()) interruptAssistant('voice_local')
   }
 
   /** A canned text turn (a project chip's prompt) into the live call: stop the assistant
@@ -724,11 +739,6 @@ export function bindChatLiveVoice(opts) {
     turnAudioInBytes = 0
     turnAudioOutBytes = 0
     turnInterrupted = false
-    // The gate re-opens here too, not just at turnComplete. stopVoiceInternal is the
-    // one place a session can end with a turn still cancelled, and this closure
-    // outlives the session — so without this the NEXT session starts gated shut and
-    // drops its first model turn, audio and transcript, in silence.
-    turnGate = freshTurnGate()
   }
 
   const persistVoiceTurn = (userText, assistantText, toolCalls, telemetry = {}) => {
@@ -863,6 +873,12 @@ export function bindChatLiveVoice(opts) {
     }
 
     resetDraftState()
+    // The gate re-opens at session end too, not just at turnComplete. This is the one place
+    // a session can end with a turn still cancelled, and this closure outlives the session —
+    // so without this the NEXT session starts gated shut and drops its first model turn,
+    // audio and transcript, in silence. (Not in resetDraftState: finalizeTurn runs that at
+    // every turnComplete, and a second re-open there masked the gate's own transition.)
+    turnGate = freshTurnGate()
   }
 
   const ensureAssistantBubble = () => {
@@ -980,6 +996,7 @@ export function bindChatLiveVoice(opts) {
     const rootIn = msg.inputTranscription?.text
     const rootOut = msg.outputTranscription?.text
     if (rootIn) {
+      cutSoundingTailOnSpeech()
       patchUserText(rootIn)
       userSpokeAfterGreeting = true
       clearWarmFollowupTimer()
@@ -998,6 +1015,7 @@ export function bindChatLiveVoice(opts) {
       }
 
       if (sc.inputTranscription?.text) {
+        cutSoundingTailOnSpeech()
         patchUserText(sc.inputTranscription.text)
         userSpokeAfterGreeting = true
         clearWarmFollowupTimer()
@@ -1413,6 +1431,9 @@ export function bindChatLiveVoice(opts) {
           await attachMicrophoneInternal()
           setStatus('Listening… speak about Marwan\'s work.')
         } catch (micErr) {
+          // The visitor hung up while getUserMedia was pending: the call is over, so the late
+          // answer must not re-open the UI, report an error, or arm the no-mic sweep.
+          if (!voiceSessionOpen) return
           // Permission "granted" but stream acquisition failed (mic busy, denied,
           // etc.). Fall back to the cold path: session stays open for the
           // greeting; visitor can retry by tapping the big mic.
@@ -1427,6 +1448,8 @@ export function bindChatLiveVoice(opts) {
           await attachMicrophoneInternal()
           setStatus('Listening… speak about Marwan\'s work.')
         } catch (micErr) {
+          // Hung up while the permission sheet was open (see the warm branch).
+          if (!voiceSessionOpen) return
           patchLiveUi({ active: false, connecting: false, sessionOpen: true })
           setStatus(micAccessUserMessage(micErr), 'error')
           scheduleNoMicIdleClose()
@@ -1477,6 +1500,17 @@ export function bindChatLiveVoice(opts) {
 
     if (active) {
       trackEvent('chat_live_stop', {})
+      stopVoiceInternal({ silent: false })
+      setStatus('')
+      return
+    }
+
+    // The permission sheet is still open (an attach is pending): the tap is the visitor's
+    // "End". startVoice is still awaiting that attach, so without this the tap could only cut
+    // playback. stopVoiceInternal ends the call; attachMicrophoneOnce releases a mic the
+    // visitor allows afterwards.
+    if (attachInFlight) {
+      trackEvent('chat_live_stop', { reason: 'abort_mic_prompt' })
       stopVoiceInternal({ silent: false })
       setStatus('')
       return

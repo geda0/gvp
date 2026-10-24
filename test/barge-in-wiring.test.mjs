@@ -154,7 +154,20 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
   micButton.disabled = false
   micButton.addEventListener = (type, fn) => { if (type === 'click') clicks.push(fn) }
   micButton.removeEventListener = () => {}
-  const gum = { calls: 0 }
+  // Every stream handed out is kept so a test can ask whether its tracks were stopped; a
+  // 'pending' mic is the browser's permission sheet, settled by the test (allow / deny).
+  const gum = { calls: 0, tracks: [], pending: [] }
+  const makeStream = () => {
+    const tracks = [{ stopped: false, stop () { this.stopped = true } }]
+    gum.tracks.push(...tracks)
+    return { getTracks: () => tracks }
+  }
+  gum.allow = () => { for (const p of gum.pending.splice(0)) p.resolve(makeStream()) }
+  gum.deny = () => {
+    for (const p of gum.pending.splice(0)) { const err = new Error('harness mic'); err.name = 'NotAllowedError'; p.reject(err) }
+  }
+  const patches = []
+  const statuses = []
 
   defineGlobal('document', { querySelector: () => null, querySelectorAll: () => [], createElement: (t) => makeEl(t), addEventListener () {} })
   defineGlobal('window', {
@@ -169,8 +182,8 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
       getUserMedia: async () => {
         gum.calls += 1
         if (mic === 'deny') { const err = new Error('harness mic'); err.name = 'NotAllowedError'; throw err }
-        const tracks = [{ stop () {} }]
-        return { getTracks: () => tracks }
+        if (mic === 'pending') return new Promise((resolve, reject) => gum.pending.push({ resolve, reject }))
+        return makeStream()
       }
     }
   })
@@ -180,7 +193,9 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
   const { bindChatLiveVoice } = await import('../js/chat-live.js?bargein=' + Math.random())
   const live = bindChatLiveVoice({
     messagesEl, statusEl: makeEl('p'), micButtons: [micButton], syncEmptyState () {}, scrollMessagesToBottom () {},
-    setStatus () {}, getSessionId: () => 'barge-in', isTextPending: () => false, openPanel () {}, isPanelOpen: () => true, patchLiveUi () {}
+    setStatus: (text, kind) => { statuses.push({ text, kind }) },
+    getSessionId: () => 'barge-in', isTextPending: () => false, openPanel () {}, isPanelOpen: () => true,
+    patchLiveUi: (patch) => { patches.push(patch) }
   })
   void live.startVoice({ intent: 'auto' })
   await settle()
@@ -194,6 +209,8 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
     audio,
     gum,
     socket,
+    patches,
+    statuses,
     sentOfKind,
     tapMic: async () => { for (const fn of clicks) fn({ currentTarget: micButton }); await settle() },
     send: async (payload) => { socket.onmessage({ data: JSON.stringify(payload) }); await settle() },
@@ -270,14 +287,41 @@ const PATHS = {
   cold: { permission: 'prompt' },
   granted: { permission: 'granted' }
 }
+// `call` is what each act must do to the CALL besides silencing it. A mic tap on a LIVE mic
+// must still hang up (the explicit act of #20) — silencing alone would also pass the playback
+// assertion, which is exactly the mutant (`if (active)` never taken) the critic found alive.
+const stillOpen = (v) => ({ sessionOpen: v.live.isSessionOpen() })
 const ACTS = {
-  chip: { mic: () => 'allow', act: (v) => v.live.sendUserText('Summarize Apptio (an IBM company) for me.') },
-  text: { mic: () => 'allow', act: (v) => v.live.sendUserText('What does he actually build?') },
-  'mic tap': { mic: (path) => (path === 'cold' ? 'deny' : 'allow'), act: (v) => v.tapMic() }
+  chip: {
+    mic: () => 'allow',
+    act: (v) => v.live.sendUserText('Summarize Apptio (an IBM company) for me.'),
+    call: stillOpen,
+    expect: () => ({ sessionOpen: true })
+  },
+  text: {
+    mic: () => 'allow',
+    act: (v) => v.live.sendUserText('What does he actually build?'),
+    call: stillOpen,
+    expect: () => ({ sessionOpen: true })
+  },
+  'mic tap': {
+    mic: (path) => (path === 'cold' ? 'deny' : 'allow'),
+    act: (v) => v.tapMic(),
+    call: (v) => ({
+      sessionOpen: v.live.isSessionOpen(),
+      micRequests: v.gum.calls,
+      micTracksStopped: v.gum.tracks.every((t) => t.stopped)
+    }),
+    // cold: mic not live -> the tap cuts playback, keeps the call and raises the sheet again.
+    // granted: mic live -> the tap ends the call and releases the mic.
+    expect: (path) => (path === 'cold'
+      ? { sessionOpen: true, micRequests: 2, micTracksStopped: true }
+      : { sessionOpen: false, micRequests: 1, micTracksStopped: true })
+  }
 }
 
 for (const [pathName, path] of Object.entries(PATHS)) {
-  for (const [actName, { mic, act }] of Object.entries(ACTS)) {
+  for (const [actName, { mic, act, call, expect }] of Object.entries(ACTS)) {
     test(`${pathName} path: a ${actName} while the assistant is speaking stops playback locally, before any server frame`, async () => {
       // Arrange — the greeting is speaking: two chunks queued and playing.
       const v = await bootVoice({ ...path, mic: mic(pathName) })
@@ -290,8 +334,8 @@ for (const [pathName, path] of Object.entries(PATHS)) {
 
         // Assert
         assert.deepEqual(
-          { playingBefore, playingAfter: v.audio.playing() },
-          { playingBefore: 2, playingAfter: 0 },
+          { playingBefore, playingAfter: v.audio.playing(), call: call(v) },
+          { playingBefore: 2, playingAfter: 0, call: expect(pathName) },
           `a ${actName} must cut the assistant off at once (invariant #25) — the server's ` +
           '`interrupted` may never come for a clientContent turn, and a visitor who acted ' +
           'should not have to sit through the rest of the sentence'
@@ -336,6 +380,266 @@ test('a chip sent mid-greeting drops the rest of the greeting, audio and transcr
     },
     'a local act on a turn IN FLIGHT cancels that turn until its turnComplete (nothing more of ' +
     'the cut-off greeting plays or is appended), and the gate re-opens for the chip\'s own reply'
+  )
+})
+
+// The two turnStarted triggers (ADR-0026 §3.2), each pinned by a path where it is the ONLY way
+// the gate learns a turn is in flight. Without the trigger the gate is idle at the chip, a
+// local cut leaves it open, and the cut-off turn's later frames play over the chip's reply.
+
+test('a chip that cuts a reply to the visitor\'s VOICE drops the rest of that reply (turn seen only via model output)', async () => {
+  // Arrange — greeting done; the visitor spoke; the model's reply to it is streaming. No
+  // clientContent started this turn: only its model output says it is in flight.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { inputTranscription: { text: 'What does he build?' } } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'He builds' } } })
+
+    // Act — the chip; Live flushes more of the reply it abandoned, ends it, answers the chip.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    const startedAtChip = v.audio.started()
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: ' AI agents.' } } })
+    const abandonedTailStarted = v.audio.started() - startedAtChip
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is cost software.' } } })
+
+    observed = { abandonedTailStarted, chipReplyPlaying: v.audio.playing() }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { abandonedTailStarted: 0, chipReplyPlaying: 1 },
+    'model output must mark the turn in flight (turnStarted), or a chip cannot cut a reply to the visitor\'s voice'
+  )
+})
+
+test('the root-level transcript shape marks a turn in flight too: a chip stops its later fragments appending', async () => {
+  // Arrange — greeting done; the reply to the visitor's voice is arriving ONLY as root-level
+  // outputTranscription (one of the wire shapes the handler accepts).
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ outputTranscription: { text: 'He builds' } })
+
+    // Act
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    await v.send({ outputTranscription: { text: ' AI agents.' } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ outputTranscription: { text: 'Apptio is cost software.' } })
+    await v.send({ serverContent: { turnComplete: true } })
+
+    observed = v.bubbleTexts('assistant')
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(observed, ['He builds', 'Apptio is cost software.'])
+})
+
+test('a chip sent after the greeting request but before any greeting output drops the greeting (turn seen only via the send)', async () => {
+  // Arrange — the greeting clientContent is out; nothing of it has arrived yet.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    // Act — the chip, then the greeting Live already started, its end, the chip's reply.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    await settle()
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Hi! I am the greeting.' } } })
+    const greetingStarted = v.audio.started()
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is cost software.' } } })
+    await v.send({ serverContent: { turnComplete: true } })
+
+    observed = { greetingStarted, chipReplyStarted: v.audio.started() - greetingStarted, assistantBubbles: v.bubbleTexts('assistant') }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { greetingStarted: 0, chipReplyStarted: 1, assistantBubbles: ['Apptio is cost software.'] },
+    'sending a clientContent turn must mark it in flight (turnStarted) — a turn requested but not ' +
+    'yet answered is still one a chip has to cut'
+  )
+})
+
+test('a server `interrupted` with no turn in flight still cancels: the server reason is not a local one', async () => {
+  // Arrange — the greeting has completed (gate idle, nothing in flight).
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    const startedBefore = v.audio.started()
+
+    // Act — Live cuts a turn the client has not seen any output of yet; a stale frame follows.
+    await v.send({ serverContent: { interrupted: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+    observed = v.audio.started() - startedBefore
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.equal(
+    observed, 0,
+    'ADR-0026 §3.1: the server\'s `interrupted` is unconditional (idle -> cancelled); only the ' +
+    'LOCAL reasons spare an idle gate'
+  )
+})
+
+// The permission sheet is now open OVER the greeting on every first visit (ADR-0026 §2), so
+// "hang up, then answer the sheet" is a common path. Whatever the answer, the dead call must
+// not come back to life in the UI: no sessionOpen:true patch, no error status, no no-mic sweep.
+for (const [pathName, permission, answer] of [['cold', 'prompt', 'allow'], ['cold', 'prompt', 'deny'], ['warm', 'granted', 'deny']]) {
+  test(`${pathName} path: hanging up while the permission sheet is open, then ${answer === 'allow' ? 'Allow' : 'Deny'}, leaves the call ended and silent`, async () => {
+    // Arrange — the call is up and getUserMedia is waiting on the sheet.
+    const v = await bootVoice({ permission, mic: 'pending' })
+    let observed = null
+    try {
+      // Act — hang up, then the visitor answers the sheet.
+      v.live.stopVoice()
+      await settle()
+      const patchesAt = v.patches.length
+      const statusesAt = v.statuses.length
+      v.gum[answer]()
+      await settle()
+
+      observed = {
+        sessionOpen: v.live.isSessionOpen(),
+        reopenedInUi: v.patches.slice(patchesAt).some((p) => p.sessionOpen === true),
+        errorStatuses: v.statuses.slice(statusesAt).filter((s) => s.kind === 'error').map((s) => s.text)
+      }
+    } finally { v.live.dispose() }
+
+    // Assert
+    assert.deepEqual(
+      observed,
+      { sessionOpen: false, reopenedInUi: false, errorStatuses: [] },
+      'a mic answer that arrives after the call ended must not re-patch the UI open or report an error'
+    )
+  })
+}
+
+// While the sheet is pending the mic button is the visitor's only "End": startVoice is still
+// awaiting the attach, so before this fix the tap only cut playback locally and the call could
+// not be ended from the mic at all until the sheet was answered.
+for (const [pathName, permission] of [['cold', 'prompt'], ['warm', 'granted']]) {
+  test(`${pathName} path: tapping the mic while the permission sheet is open hangs up, and a later Allow is released`, async () => {
+    // Arrange — the call is up, the sheet is open, the greeting is playing.
+    const v = await bootVoice({ permission, mic: 'pending' })
+    let observed = null
+    try {
+      await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+      // Act — the tap, then the visitor clicks Allow on the sheet anyway.
+      await v.tapMic()
+      const afterTap = { sessionOpen: v.live.isSessionOpen(), playing: v.audio.playing() }
+      v.gum.allow()
+      await settle()
+
+      observed = { afterTap, micTracksStopped: v.gum.tracks.length > 0 && v.gum.tracks.every((t) => t.stopped) }
+    } finally { v.live.dispose() }
+
+    // Assert
+    assert.deepEqual(
+      observed,
+      { afterTap: { sessionOpen: false, playing: 0 }, micTracksStopped: true },
+      'a mic tap during a pending attach ends the call (#20\'s explicit act); the mic allowed afterwards is released'
+    )
+  })
+}
+
+// #25 BY VOICE over an already-delivered tail: Live sends audio faster than real time, so its
+// turnComplete often lands while the player still has seconds queued. The server then has no
+// turn to interrupt, and speaking over the tail used to change nothing. The visitor's
+// transcribed speech while the player is still sounding and no server turn is in flight cuts
+// playback locally ('voice_local'); the gate stays idle so the answer plays.
+const SPEECH_SHAPES = {
+  'serverContent.inputTranscription': { serverContent: { inputTranscription: { text: 'Wait, show me Apptio.' } } },
+  'root inputTranscription': { inputTranscription: { text: 'Wait, show me Apptio.' } }
+}
+for (const [shape, speech] of Object.entries(SPEECH_SHAPES)) {
+  test(`speaking over a fully-delivered greeting tail stops it locally, and the answer plays (${shape})`, async () => {
+    // Arrange — the greeting is fully delivered (turnComplete) but two chunks still sound.
+    const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+    let observed = null
+    try {
+      await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+      await v.send({ serverContent: { turnComplete: true } })
+      const playingBefore = v.audio.playing()
+
+      // Act — the visitor speaks; Live transcribes it, then answers (no `interrupted`: there
+      // was no server turn to interrupt).
+      await v.send(speech)
+      const playingAfterSpeech = v.audio.playing()
+      await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+      observed = { playingBefore, playingAfterSpeech, answerPlaying: v.audio.playing() }
+    } finally { v.live.dispose() }
+
+    // Assert
+    assert.deepEqual(
+      observed,
+      { playingBefore: 2, playingAfterSpeech: 0, answerPlaying: 1 },
+      'the visitor\'s voice must cut the sounding tail even after the server\'s turnComplete ' +
+      '(invariant #25 by voice), without shutting the gate on the answer'
+    )
+  })
+}
+
+test('a late transcript of the visitor\'s question arriving while the answer streams does not cut the answer', async () => {
+  // Arrange — Live's inputTranscription lags: the answer is already streaming (a server turn
+  // in flight) when the last fragment of the question that prompted it lands.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart(), audioPart()] } } })
+
+    // Act
+    await v.send({ serverContent: { inputTranscription: { text: ' about his work?' } } })
+
+    observed = v.audio.playing()
+  } finally { v.live.dispose() }
+
+  // Assert — only an idle gate is the client's to cut; a turn in flight is the server's.
+  assert.equal(observed, 3, 'the voice_local cut must not fire while a server turn is in flight')
+})
+
+test('two chips tapped in quick succession mid-greeting: the second chip\'s reply is not swallowed', async () => {
+  // Arrange — the greeting is streaming.
+  const v = await bootVoice({ permission: 'granted', mic: 'allow' })
+  let observed = null
+  try {
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] } } })
+
+    // Act — chip 1, chip 2 at once. Live ends the greeting (interrupted + turnComplete), starts
+    // on chip 1, cuts that for chip 2 (interrupted + turnComplete), then answers chip 2.
+    v.live.sendUserText('Summarize Apptio (an IBM company) for me.')
+    v.live.sendUserText('What was hard about Apptio (an IBM company)?')
+    await settle()
+    await v.send({ serverContent: { interrupted: true } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'Apptio is' } } })
+    await v.send({ serverContent: { interrupted: true } })
+    await v.send({ serverContent: { turnComplete: true } })
+    await v.send({ serverContent: { modelTurn: { parts: [audioPart()] }, outputTranscription: { text: 'The hard part was scale.' } } })
+
+    observed = { chip2ReplyPlaying: v.audio.playing(), lastBubble: v.bubbleTexts('assistant').at(-1) }
+  } finally { v.live.dispose() }
+
+  // Assert
+  assert.deepEqual(
+    observed,
+    { chip2ReplyPlaying: 1, lastBubble: 'The hard part was scale.' },
+    'every abandoned turn ends at its own turnComplete; the gate must be open again for the last chip\'s reply'
   )
 })
 
