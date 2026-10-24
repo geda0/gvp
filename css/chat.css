@@ -2377,6 +2377,13 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     z-index: 1102;
 }
 
+/* ADR-0029 addendum: the PILL minimised beside a reserved dialog keeps the column and is lifted
+ * the same way - under the scrim it was a conversation with no way back until the dialog
+ * closed. It sits in the reserved (empty) column, so it covers scrim, never panel. */
+#chatDialog[data-chat-stage='minimized'][data-chat-beside='true'] {
+    z-index: 1102;
+}
+
 /* The panel takes its own pointer events back — the shell's `none` is what frees the page. */
 #chatDialog[data-chat-stage='docked'] .chat-dialog__panel,
 #chatDialog[data-chat-stage='minimized'] .chat-dialog__panel {

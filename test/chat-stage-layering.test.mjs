@@ -200,3 +200,12 @@ test('ADR-0029 §5: the project dialog consumes ONE generic inset and knows noth
   const border = Number(/border:\s*(\d+)px/.exec(panel[1])[1])
   assert.equal(Math.round((content + start + end + 2 * border) * 100) / 100, PROJECT_PANEL_MAX)
 })
+
+test('ADR-0029 addendum: a pill minimised beside a reserved dialog sits above its scrim, below the modal chat', () => {
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const pill = zIndexOf(chatCss, "#chatDialog[data-chat-stage='minimized'][data-chat-beside='true']")
+  assert.ok(pill > zIndexOf(siteCss, '.project-dialog'), `the pill (${pill}) must be restorable above the scrim`)
+  assert.ok(pill < zIndexOf(chatCss, '.chat-dialog'), 'and below a modal chat')
+  assert.ok(pill < zIndexOf(chatCss, '.tour-card'), 'and below the tour card')
+})

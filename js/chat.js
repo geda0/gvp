@@ -996,7 +996,9 @@ export function initChat() {
   const applyChatSize = () => {
     const projectShowing = getSiteState().project != null
     const layout = besideLayout({ viewportWidth: window.innerWidth, preferred: chatSize })
-    const reserved = chatStage === 'docked' && projectShowing && layout.reserve > 0
+    // A pill minimised beside the dialog KEEPS the column (ADR-0029 addendum): it is lifted
+    // above the scrim in that empty column, so the visitor can always restore the chat.
+    const reserved = (chatStage === 'docked' || chatStage === 'minimized') && projectShowing && layout.reserve > 0
     const chrome = dockedSizeChrome({
       stage: chatStage,
       viewportWidth: window.innerWidth,

@@ -938,7 +938,7 @@ test('ADR-0029 §3: a project opening beside a docked card reserves its column, 
   assert.deepEqual(h.stops, [], 'invariant #20: a layout change never ends the call')
 })
 
-test('ADR-0029 §3: project-close, minimise and close each clear the reserve, and the size returns to the preference', async (t) => {
+test('ADR-0029 §3: project-close and close clear the reserve, minimise keeps it for the pill, and the size returns to the preference', async (t) => {
   const h = await bootDocked(t, 'reserve-clear', 1280)
   const read = () => [h.siteState.getSiteState().chatStage, reserveOf(), h.dialog.dataset.chatBeside, h.dialog.dataset.chatSize]
   h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
@@ -953,7 +953,11 @@ test('ADR-0029 §3: project-close, minimise and close each clear the reserve, an
   await settle()
   h.getEl('chatDialog').querySelector('.chat-dialog__minimize').events.fire('click', { stopPropagation () {} })
   await settle()
-  assert.deepEqual(read().slice(0, 3), ['minimized', '', 'false'], 'a minimised chat reserves nothing')
+  // ADR-0029 addendum (coordinator, deliberate test-writer change): the minimised pill keeps the
+  // column and is lifted above the scrim, so the visitor can always restore it - it used to drop
+  // under the scrim, unreachable until the dialog closed.
+  assert.deepEqual(read().slice(0, 3), ['minimized', '424px', 'true'],
+    'a pill minimised beside the dialog keeps the column and is lifted above the scrim')
 
   h.getEl('agentActiveChip').events.fire('click', {})
   await settle()
