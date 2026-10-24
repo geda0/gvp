@@ -279,6 +279,12 @@ test('the stage is written by chat.js with an honest origin', async (t) => {
     if (change && change.field === 'chatStage') stageWrites.push([change.to, change.origin])
   })
 
+  // NARROW for this row, deliberately (test-writer decision with ADR-0027): on a wide
+  // viewport the open now lands `docked` and the navigation is an idempotent no-op, so the
+  // yield write this row exists to label would never happen. Narrow keeps open -> modal and
+  // navigate -> a yield, which is the labelling under test.
+  window.innerWidth = NARROW
+  window.matchMedia = () => ({ matches: false, addEventListener () {}, removeEventListener () {} })
   api.openPanel()
   await settle()
   siteState.setSection('portfolio', { origin: 'visitor' })
@@ -288,7 +294,7 @@ test('the stage is written by chat.js with an honest origin', async (t) => {
 
   assert.deepEqual(
     stageWrites,
-    [['modal', 'visitor'], ['docked', 'system'], ['closed', 'visitor']],
+    [['modal', 'visitor'], ['minimized', 'system'], ['closed', 'visitor']],
     "opening and closing are the VISITOR; yielding to a site change is 'system' (§3.3 " +
     'reserves it for boot and layout-driven changes). Labelling the yield as the visitor ' +
     'would tell §7\'s live note the person had just moved the chat themselves, which they ' +
@@ -475,7 +481,9 @@ test('every event in the reducer table has a caller, or it is not a feature', as
   //     affordance: the X closes, and the launcher restores. It is wired in M4 with the
   //     launcher work. Listed here so the gap is a decision on the record rather than an
   //     oversight that looks identical.
-  const BYPASSED = { 'open-text': 'modal', 'open-voice': 'modal', close: 'closed' }
+  // ADR-0027 §2.5: open-text / open-voice now go THROUGH the reducer (openPanel dispatches
+  // them), so only `close` is still satisfied by its applyStage call.
+  const BYPASSED = { close: 'closed' }
   //   open-beside — the reducer row and the geometry predicate land in ADR-0017's slices 7-9;
   //     its caller is the project chip in slice 13. Listed here for the same reason as
   //     minimize: an event with no caller is either a missing feature or a row that should
@@ -561,4 +569,25 @@ test('a viewport that narrows under a docked card minimises it', async (t) => {
     'narrowing under a docked card must yield further (§4.3). Left docked it covers the ' +
     'content it exists to make room for'
   )
+})
+
+test('ADR-0027: the first open on a wide viewport is the docked card at WIDE size', async (t) => {
+  // No stored preference (the harness defines no localStorage at all, so reading it throws -
+  // which is also the "blocked storage still opens wide" case). The card is the main window:
+  // docked, wide, 720px at >= 1080, from the first frame - so the toggle is right from there.
+  const { api, getEl, siteState } = await boot('size-first-open', WIDE, { voice: false })
+  t.after(() => api.disposeChatLiveVoice())
+
+  api.openPanel()
+  await settle()
+
+  const dialog = getEl('chatDialog')
+  assert.equal(
+    siteState.getSiteState().chatStage, 'docked',
+    'openPanel must go through the reducer (ADR-0027 §2.5): a literal applyStage(\'modal\') ' +
+    'is exactly the one-line regression invariant #27 names'
+  )
+  assert.deepEqual(readChrome(getEl), expectedChrome('docked'), 'docked chrome, no backdrop')
+  assert.equal(dialog.dataset.chatSize, 'wide')
+  assert.equal(dialog.style.getPropertyValue('--chat-dock-width'), '720px')
 })

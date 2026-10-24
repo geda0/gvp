@@ -13,7 +13,13 @@ import {
   setChatStage,
   setVoiceActive
 } from './site-state.js'
-import { nextChatStage, stageChrome, hasRoomBesideDialog } from './chat-stage.js'
+import {
+  nextChatStage,
+  stageChrome,
+  hasRoomBesideDialog,
+  parseChatSize,
+  dockedSizeChrome
+} from './chat-stage.js'
 import { projectChipPrompt } from './project-chips.js'
 import { bindChatLiveVoice } from './chat-live.js'
 import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
@@ -925,6 +931,35 @@ export function initChat() {
       : true
   )
 
+  // ---------------------------------------------------------------- size (ADR-0027)
+  //
+  // The docked card's SIZE is chat-local and orthogonal to the stage: never a reducer input,
+  // never a store field. `chatSize` is the visitor's PREFERENCE; what renders is
+  // dockedSizeChrome's effective size, which falls back to compact (beside a dialog, on a
+  // narrow window) without ever overwriting the preference. Read once, here, from
+  // localStorage - blocked or junk storage reads as the wide default.
+  const CHAT_SIZE_STORAGE_KEY = 'gvp-chat-size'
+  let chatSize = 'wide'
+  try {
+    chatSize = parseChatSize(localStorage.getItem(CHAT_SIZE_STORAGE_KEY))
+  } catch (_) { /* storage blocked - the default stands */ }
+  // null = not beside a project dialog; a number = beside one, at that measured width.
+  let besideDialogWidth = null
+
+  // The ONLY writer of data-chat-size / --chat-dock-width, from dockedSizeChrome alone.
+  const applyChatSize = () => {
+    const chrome = dockedSizeChrome({
+      stage: chatStage,
+      viewportWidth: window.innerWidth,
+      preferred: chatSize,
+      besideDialogWidth
+    })
+    dialog.dataset.chatSize = chrome.size
+    // 0 = unmeasurable: drop the property so the CSS fallback (the shipped compact rule) holds.
+    if (chrome.width > 0) dialog.style.setProperty('--chat-dock-width', `${chrome.width}px`)
+    else dialog.style.removeProperty('--chat-dock-width')
+  }
+
   // stageChrome returns the accessibility contract as DATA; this is the only place that
   // turns it into attributes. Each field is a defect that shipped or nearly did:
   //  - backdropHidden: the backdrop is a real inset:0 element with backdrop-filter
@@ -950,6 +985,7 @@ export function initChat() {
   const applyStage = (stage, origin) => {
     chatStage = stage
     applyStageChrome(stage)
+    applyChatSize()
     setChatStage(stage, { origin })
   }
 
@@ -1088,7 +1124,10 @@ export function initChat() {
       // asking for the chat has to PROMOTE it, or tapping a launcher while it sits
       // minimised would set the dock mode and return with nothing moving on screen, and on
       // a narrow viewport that is a conversation with no way back to it.
-      if (chatStage !== 'modal') applyStage('modal', 'visitor')
+      const promoted = nextChatStage(chatStage, wantVoice ? 'open-voice' : 'open-text', {
+        wide: isWideViewport()
+      })
+      if (promoted !== chatStage) applyStage(promoted, 'visitor')
       setDockMode(wantVoice ? 'voice' : 'text', {
         awaitingVoice: wantVoice
       })
@@ -1107,7 +1146,13 @@ export function initChat() {
     state.lastFocus = document.activeElement
     clearPanelAnimation()
     state.agentNodeApi?.setState?.('modal')
-    applyStage('modal', 'visitor')
+    // THROUGH THE REDUCER (ADR-0027 §2.5): on a wide viewport an open lands the docked card -
+    // the main window - and only a narrow one takes the screen. A literal 'modal' here is the
+    // one-line regression invariant #27 names.
+    applyStage(
+      nextChatStage(chatStage, wantVoice ? 'open-voice' : 'open-text', { wide: isWideViewport() }),
+      'visitor'
+    )
     agentInput.readOnly = true
     agentInput.blur()
 
