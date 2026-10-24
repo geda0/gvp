@@ -1028,7 +1028,7 @@ test('ADR-0029 §6.1: while reserved two dialogs are interactive - the panel is 
   }, 'only what the reserve made inert is released - an element something else made inert stays')
 })
 
-test('ADR-0029 §6.2: Escape minimises a docked card only when focus is inside the chat', async (t) => {
+test('ADR-0029 §6.2: Escape minimises a docked card only when focus is inside the chat, and never while reserved', async (t) => {
   // Two dialogs are interactive while reserved, and both bound Escape at the document: one
   // keystroke in the project dialog minimised the chat too. Escape is routed by focus now -
   // with focus on the page (or in the project dialog), it is not the chat's key.
@@ -1049,11 +1049,23 @@ test('ADR-0029 §6.2: Escape minimises a docked card only when focus is inside t
     'focus in the project dialog: Escape is the dialog\'s, the chat stays docked')
   assert.equal(prevented, false, 'and the chat must not swallow it')
 
+  // ADR-0029 addendum (coordinator, deliberate test-writer change): while the column is
+  // reserved, Escape in the chat is a NO-OP for the chat. Minimising there used to leave the
+  // pill under the scrim - a conversation with no way back until the dialog closed.
   document.activeElement = composer
   esc()
   await settle()
-  assert.equal(h.siteState.getSiteState().chatStage, 'minimized', 'focus in the composer: Escape minimises the chat')
-  assert.deepEqual(h.stops, [], 'invariant #20: neither keystroke ends the call')
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked',
+    'focus in the composer while reserved: Escape neither minimises the chat nor closes the dialog')
+  assert.equal(h.dialog.dataset.chatBeside, 'true', 'and the column stays reserved')
+
+  // With no dialog showing, Escape in the composer still minimises (ADR-0027 N-W3).
+  h.siteState.setProject(null, { origin: 'visitor' })
+  await settle()
+  esc()
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'minimized', 'no dialog: Escape in the composer minimises')
+  assert.deepEqual(h.stops, [], 'invariant #20: no keystroke ends the call')
 })
 
 function makeElLike () {

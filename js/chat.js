@@ -1843,7 +1843,10 @@ export function initChat() {
       // chat. With focus outside the chat, Escape is the page's (or the dialog's) key.
       const active = document.activeElement
       const focusInChat = Boolean(active && (dialog.contains(active) || panel?.contains(active)))
-      if (focusInChat) dispatchStage('escape', 'visitor')
+      // ADR-0029 addendum: and while a dialog reserves the column, Escape is a no-op for the
+      // chat - a pill tucked away by a keystroke was a conversation with no way back. The
+      // dialog's x and the grey area close the dialog; the minimise button still minimises.
+      if (focusInChat && !overlayReserved) dispatchStage('escape', 'visitor')
       return
     }
     event.preventDefault()
