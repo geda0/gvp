@@ -259,3 +259,22 @@ stored size, both orders (chat-then-project, project-then-chat):
   true and `ctx.reserveRoom` is not (else `docked`, as today). Narrow (< 768) is unchanged (modal).
 - Where the PO geometry (centred dialog area, 552 px minimum) and this ADR differ, **this ADR
   wins** (`besideLayout`, `PROJECT_PANEL_MIN` 560, the panel shifted by the inset).
+
+### Addendum 2 (2026-10-24, coordinator — found by the journeys: the chat must never become unreachable)
+
+- **Escape inside the chat while reserved is a no-op** for the chat and for the dialog (amends
+  §6.2's "Escape from inside the card still minimizes"): it neither minimizes the chat nor closes
+  the project dialog — the dialog's × and the grey area close it. With no dialog showing,
+  Escape in the card still minimizes.
+- **The minimise button still minimises, and the pill keeps the column** (amends §3's "chat
+  minimize clears"): `reserved = (docked | minimized) && projectShowing && reserve > 0`. The pill
+  sits in the empty reserved column, is lifted above the scrim
+  (`#chatDialog[data-chat-stage='minimized'][data-chat-beside='true']`, z 1102) and is never
+  inert, so a click on it restores the docked card, reserved again. `#agentActiveChip` lives in
+  the inert header under the scrim and is NOT lifted — the pill itself is the restore control.
+- **A resize below 1016 with a dialog open tucks a docked card** (amends §3's "a resize below
+  1016 clears"): the resize handler re-runs `project-open` for a docked card (never a modal),
+  so it lands `minimized`; widening never promotes the pill (`viewport-wide` rule); closing the
+  dialog returns it `docked` at the stored size (`project-close`).
+- Below 1016 the tucked pill is not lifted (no reserved column to sit in; it would cover the
+  panel). Per N-P3 a restore there stays a pill; the chip is the way to talk (modal).

@@ -32,11 +32,24 @@
  */
 
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
+import { readFileSync } from 'node:fs'
 import { launch, goto, evaluate, clickAt, pressKey, sleep, findChrome } from './cdp.mjs'
 
-const PORT = 8771
-const ORIGIN = process.argv[2] || `http://127.0.0.1:${PORT}`
+// A FREE port, never a fixed one: with a fixed 8771 a second run (another worktree, another
+// agent) failed to bind, and this harness then silently tested the OTHER tree's server.
+const freePort = () => new Promise((resolve, reject) => {
+  const srv = createServer()
+  srv.unref()
+  srv.on('error', reject)
+  srv.listen(0, '127.0.0.1', () => {
+    const { port } = srv.address()
+    srv.close(() => resolve(port))
+  })
+})
 const OWN_SERVER = !process.argv[2]
+const PORT = OWN_SERVER ? await freePort() : null
+const ORIGIN = process.argv[2] || `http://127.0.0.1:${PORT}`
 
 // ---------------------------------------------------------------- page helpers
 
@@ -745,17 +758,23 @@ async function journeyBesideProjectDialog (page) {
       reserve
     }
   })
+  const tucked = await stage(page)
   out.push({
-    claim: '1920 -> 1000 with the dialog open: the reserve clears and over any overlap the PROJECT DIALOG wins',
-    ok: overlap.beside === 'false' && overlap.reserve === '' && (overlap.none || overlap.top === 'project-dialog'),
-    detail: JSON.stringify(overlap)
+    claim: '1920 -> 1000 with the dialog open: the card TUCKS into the pill, the reserve clears, and over any overlap the PROJECT DIALOG wins',
+    ok: tucked === 'minimized' && overlap.beside === 'false' && overlap.reserve === '' && (overlap.none || overlap.top === 'project-dialog'),
+    detail: JSON.stringify({ stage: tucked, ...overlap })
   })
   await setViewport(page, 1920, 1080)
   await evaluate(page, () => { window.dispatchEvent(new Event('resize')) })
   await sleep(500)
+  const widened = await evaluate(page, () => ({
+    stage: document.getElementById('chatDialog').dataset.chatStage,
+    beside: document.getElementById('chatDialog').dataset.chatBeside
+  }))
   out.push({
-    claim: 'and widening back with the dialog still open reserves and lifts it again',
-    ok: (await evaluate(page, () => document.getElementById('chatDialog').dataset.chatBeside)) === 'true'
+    claim: 'and widening back does not promote the pill, but reserves its column and lifts it again',
+    ok: widened.stage === 'minimized' && widened.beside === 'true',
+    detail: JSON.stringify(widened)
   })
 
   await evaluate(page, () => document.querySelector('#projectDialog .project-dialog__close').focus())
@@ -763,7 +782,7 @@ async function journeyBesideProjectDialog (page) {
   await sleep(600)
   const after = await card(page)
   out.push({
-    claim: 'closing the dialog returns the card to the stored size (wide) and drops it back under dialogs',
+    claim: 'closing the dialog returns the card docked at the stored size (wide) and drops it back under dialogs',
     ok: after.stage === 'docked' && after.size === 'wide' &&
       (await evaluate(page, () => getComputedStyle(document.getElementById('chatDialog')).zIndex)) === '1085',
     detail: fmt(after)
@@ -897,7 +916,8 @@ async function journeyReservedColumn (page) {
         const afterChatClick = await evaluate(page, () => !document.getElementById('projectDialog').hidden)
         out.push({ claim: `${tag}: clicking inside the chat never closes the project dialog`, ok: afterChatClick })
 
-        // Escape with focus in the composer: the chat's key, not the dialog's.
+        // Escape with focus in the composer while reserved: a no-op for the chat AND the dialog
+        // (ADR-0029 addendum) - minimising there used to strand the pill under the scrim.
         await evaluate(page, () => document.getElementById('chatComposerInput').focus())
         await pressKey(page, 'Escape')
         await sleep(400)
@@ -906,19 +926,45 @@ async function journeyReservedColumn (page) {
           stage: document.getElementById('chatDialog').dataset.chatStage
         }))
         out.push({
-          claim: `${tag}: Escape in the composer leaves the project dialog open (and minimises the chat)`,
-          ok: esc.project && esc.stage === 'minimized',
+          claim: `${tag}: Escape in the composer while reserved leaves the chat docked and the dialog open`,
+          ok: esc.project && esc.stage === 'docked',
           detail: JSON.stringify(esc)
         })
-        // Restore: the chat comes back reserved beside the still-open dialog.
-        await evaluate(page, () => document.getElementById('agentActiveChip')?.click())
-        await sleep(400)
-        const back = await evaluate(page, () => document.getElementById('chatDialog').dataset.chatBeside)
-        out.push({
-          claim: `${tag}: restoring over the open dialog reserves again (programmatic chip click - the chip itself is inert behind the scrim)`,
-          ok: back === 'true',
-          detail: back
+        // The minimise button still minimises; the pill stays above the scrim and restores.
+        const minBox = await box(page, '#chatDialog .chat-dialog__minimize')
+        if (minBox) await clickAt(page, minBox.cx, minBox.cy)
+        await sleep(500)
+        const pill = await evaluate(page, () => {
+          const d = document.getElementById('chatDialog')
+          const r = d.querySelector('.chat-dialog__panel').getBoundingClientRect()
+          const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          return {
+            stage: d.dataset.chatStage,
+            project: !document.getElementById('projectDialog').hidden,
+            hit: el && el.closest('#chatDialog') ? 'chat' : el && el.closest('#projectDialog') ? 'project-dialog' : 'page',
+            inert: Boolean(d.closest('[inert]')),
+            cx: r.left + r.width / 2,
+            cy: r.top + r.height / 2
+          }
         })
+        out.push({
+          claim: `${tag}: the minimise button gives a pill that is hit-testable above the scrim (not inert), dialog still open`,
+          ok: Boolean(minBox) && pill.stage === 'minimized' && pill.project && pill.hit === 'chat' && !pill.inert,
+          detail: JSON.stringify(pill)
+        })
+        await clickAt(page, pill.cx, pill.cy)
+        await sleep(500)
+        const back = await evaluate(page, () => ({
+          stage: document.getElementById('chatDialog').dataset.chatStage,
+          beside: document.getElementById('chatDialog').dataset.chatBeside,
+          reserve: document.documentElement.style.getPropertyValue('--overlay-reserve-inline-end')
+        }))
+        out.push({
+          claim: `${tag}: a real click on the pill restores the card, reserved beside the still-open dialog`,
+          ok: back.stage === 'docked' && back.beside === 'true' && back.reserve !== '',
+          detail: JSON.stringify(back)
+        })
+        await waitChatIdle(page)
 
         // Tab only cycles between the project dialog and the chat.
         await evaluate(page, () => document.querySelector('#projectDialog .project-dialog__close').focus())
@@ -1060,6 +1106,14 @@ async function main () {
       const up = await fetch(`${ORIGIN}/index.html`).then((r) => r.ok, () => false)
       if (up) break
       await sleep(150)
+    }
+    // FAIL, don't test someone else's tree: the server must serve THIS checkout's code.
+    const local = readFileSync(new URL('../../js/chat.js', import.meta.url), 'utf8')
+    const served = await fetch(`${ORIGIN}/js/chat.js`).then((r) => r.text(), () => '')
+    if (served !== local) {
+      console.error(`${ORIGIN} is not serving this checkout (js/chat.js differs) - refusing to run.`)
+      server.kill()
+      process.exit(2)
     }
   }
 
