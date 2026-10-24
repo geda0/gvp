@@ -4,6 +4,187 @@
 > between cycles lives here. Copy/brand direction for the active milestone is below —
 > read it before building any copy or IA slice.
 
+## 2026-10-24 — wide docked assistant window
+
+**Source:** owner request 2026-10-24, verbatim: *"I like the style of the window that gives space in
+the screen, merge the original style into it with a bigger window and the ability to switch between
+both even when we start in the very beginning. [keep] the usable website on all times even with the
+bigger window, so the bigger window would be anchored by default to the same where the current window
+is, but wider. respecting the screen size of course."* Backlog item: `backlog.md` → "2026-10-24 —
+wide docked assistant window". Architect owns the ADR (`docs/decisions/`) and any invariant edits
+(#20 voice survives, #22 yielded ⇒ site operable — this feature makes #22 cover the **default open**
+state, not only a yield); these bullets are the acceptance bar.
+
+**Owner decisions already taken (not open):** (O1) the size on first open is **WIDE**; (O2) the wide
+window **floats** over the page — no backdrop, page stays clickable / scrollable / keyboard-reachable
+around it, it may cover part of the content — it is **not** a page reflow.
+
+**What this supersedes.** D3's "first open = a focused *modal* panel" — on viewports with room, first
+open is now the **docked** card at **wide** size (D3's reason, "a small corner card would undersell
+the assistant", is answered by the width, not by a backdrop). D3's yield ladder, "never close, only
+demote", and voice-survives stay binding. Existing tests that assert `open-text|open-voice → modal`
+at ≥ 768 px are **deliberately** updated by this feature, not regressions.
+
+**Vocabulary.** *Stage* stays `closed | modal | docked | minimized`. *Size* is a second, independent
+dimension of the docked card: `wide | compact`. *Compact* = today's docked card (384 px wide, 20 px
+gutter, bottom-right). *Wide* = the same card, same corner, wider. *Room for a docked card* = the
+existing ≥ 768 px `ctx.wide` breakpoint (`js/chat.js` `isWideViewport`) unless the architect moves it.
+Geometry rule (architect fixes the numbers; the PO fixes the rule):
+`compactWidth = min(384, vw − 2×gutter)`, `wideWidth = min(WIDE_MAX ≈ 720, vw − 2×gutter)`,
+gutter = 20 px; wide height ≥ compact height and ≤ `vh − 2×gutter` (minus the fixed site header if
+the card would otherwise sit under it). Note: with a 768 px breakpoint and a 720 px cap, wide is the
+full 720 px at every docked width (768 − 40 = 728 > 720); the clamp only bites if the cap or the
+breakpoint moves — it must be a rule in code, not an assumption.
+
+**Layer labels:** `[app]` = js/ `node --test` on the reducer / geometry / chrome data ·
+`[qa]` = browser journey (`scripts/qa/chat-stage-journeys.mjs` or the CDP harness) at desktop
+**1440×900** and **1024×768**, tablet edge **768×1024**, phone **375×812** · `[human]` = owner look.
+
+### W1 — opening lands in the docked style at WIDE size
+- [ ] `[app]` `nextChatStage(s, 'open-text'|'open-voice', { wide: true })` returns `'docked'` from
+      every stage (`closed`, `modal`, `docked`, `minimized`); with `{ wide: false }` it returns
+      `'modal'` (unchanged narrow behaviour, see W5).
+- [ ] `[app]` With no stored preference, the size of the first docked open is `'wide'` (O1) — a pure
+      function / initial-state value asserted as data, not read from the DOM.
+- [ ] `[app]` `stageChrome('docked', { requested: true })` for an open is the yielded chrome:
+      `backdrop` hidden, `ariaModal: 'false'`, no scroll lock, no focus trap, `moveFocus: 'composer'`
+      (an open is a visitor request, so the composer gets focus — but nothing traps it there).
+      `stageChrome('docked', …)` is **identical at both sizes** (size never changes chrome).
+- [ ] `[qa]` At 1440×900 and 1024×768, each opener lands in `data-chat-stage="docked"` at wide size
+      with the card's measured width = `wideWidth` (±1 px): (a) text launcher / composer bar,
+      (b) voice / mic launcher, (c) hero CTA, (d) a project-dialog chip **when there is room for
+      wide beside the dialog** (otherwise W6), (e) the "Assistant active" restore chip returns to the
+      visitor's **last** size, not to wide by default.
+- [ ] `[qa]` The wide card is anchored to the **same corner as the compact card** (bottom-right):
+      its right edge and bottom edge sit exactly where the compact card's do (same gutter, ±1 px);
+      only its left edge (and height, if taller) differs.
+- [ ] `[human]` Owner looks at the first open at 1440×900: it reads as "the original window, bigger,
+      sitting where the small one sits" — header, transcript, chips, composer / voice dock all
+      present, with the page visible and usable beside and above it.
+
+### W2 — the size toggle (wide ⇄ compact), available from the very first open
+- [ ] `[app]` A pure size reducer (or equivalent data function): `toggle` flips `wide ⇄ compact`;
+      it never changes the stage, never emits a stage event, and is inert in `closed`, `modal` and
+      `minimized`.
+- [ ] `[qa]` The docked card's header shows a visible toggle control at both sizes, at ≥ 768 px. It is
+      a `<button>` reachable by Tab, operable with Enter and Space, with an accessible name that
+      states the action ("Make assistant window smaller" / "…larger", or `aria-pressed` with a stable
+      name — architect picks one) and a visible focus ring. It is **not** shown in the minimized pill,
+      in the modal, or below the docked breakpoint.
+- [ ] `[qa]` Activating it **immediately after the very first open** (before any message is sent and
+      while the greeting is still arriving/playing) switches size; activating again switches back.
+      Measured card width after each press = `compactWidth` / `wideWidth` (±1 px), anchor corner
+      unchanged.
+- [ ] `[qa]` After a toggle, keyboard focus is **still on the toggle** (not moved to the composer,
+      not lost to `body`), the transcript scroll position keeps the latest message visible, and any
+      unsent composer draft is preserved.
+- [ ] `[app]` **Voice survives a size change (invariant #20).** In the wiring test, toggling size
+      during a live voice session leaves the `stopVoice` spy at **0**, the WebSocket open, and the
+      mic attached — with the live-session precondition asserted in the same snapshot so a dead
+      probe cannot pass.
+- [ ] `[qa]` During a live voice call (voice-probe / CDP with fed WAV), toggling wide → compact →
+      wide keeps the session live: no close frame on the socket, assistant audio keeps playing, and
+      the voice pane (mute / end) stays visible and operable at both sizes.
+
+### W3 — the chosen size persists
+- [ ] `[app]` The size the visitor last chose is what every later docked entry uses within the page
+      session: `restore`, `project-close` / `contact-close` back from the pill, `navigate` /
+      `project-open` yield from modal, and a re-open after `close`. Only the toggle changes it —
+      no resize, stage change or dialog changes the **stored** preference (W6's temporary compact
+      does not overwrite it).
+- [ ] `[app]` The preference is read/written through a guarded storage helper: a throwing or empty
+      `localStorage` falls back to `'wide'` and the chat still opens (unit-tested with a throwing
+      stub). The stored value is exactly `'wide'` or `'compact'`; anything else reads as `'wide'`.
+- [ ] `[qa]` **Pending N-W1** (recommend: persists across reloads): choose compact, reload, open →
+      lands compact. Clear storage, reload, open → lands wide.
+
+### W4 — the site stays usable around the card, at both sizes (O2, invariant #22)
+- [ ] `[qa]` At 1440×900 with the card open at **wide** and again at **compact**, without closing or
+      minimizing it: (a) clicking a nav link outside the card navigates (hash/section changes);
+      (b) wheel-scrolling over page content scrolls the page; (c) clicking a project card opens the
+      project dialog; (d) a browser hit-test (`elementFromPoint`) at a point over site content
+      returns site content and at a point over the card returns the card.
+- [ ] `[qa]` At both sizes: no backdrop element is visible or hit-testable, `#chatDialog` has
+      `aria-modal="false"`, `body` has no scroll lock (`overflow` unchanged from closed), and Tab
+      from the last control in the card moves on into the page (no focus trap); Shift+Tab from the
+      page reaches the card.
+- [ ] `[qa]` Focus is not stolen: while the card is open and the assistant is replying / speaking,
+      a visitor typing in a page field (e.g. after opening the contact dialog, then closing it and
+      focusing a page input) keeps focus there — no assistant event moves focus into the card.
+      The transcript keeps its `aria-live` region at both sizes.
+- [ ] `[qa]` **No layout overflow at any width:** at 320, 375, 640, 767, 768, 1024, 1280, 1440 and
+      1920 px wide (and at 1280×600 for a short screen), with the chat open in its default state and
+      after toggling (where the toggle exists): `document.scrollingElement.scrollWidth ≤ clientWidth`
+      (no horizontal scroll), and the card's bounding rect lies within
+      `[gutter, vw − gutter] × [gutter-or-header, vh − gutter]`.
+
+### W5 — narrow viewports fall back sensibly (pending N-W2)
+- [ ] `[app]` Below the docked breakpoint (`ctx.wide === false`) open-* behaves exactly as today
+      (`'modal'`, which renders full-screen at ≤ 640 px and as the centred dialog 641–767 px); no
+      size toggle exists there; the stored size preference is untouched.
+- [ ] `[qa]` At 375×812: open text and open voice → the existing full-screen chat, no toggle,
+      Escape / close / minimize behave as today; no horizontal scroll.
+- [ ] `[app]` Crossing the breakpoint while docked (either size) → `viewport-narrow` → `minimized`
+      (existing reducer rule) with voice live (stopVoice spy 0); widening back does **not**
+      auto-promote the pill; the visitor's restore returns to their stored size.
+- [ ] `[qa]` Resizing a docked-wide window from 1440 down to 800 px keeps the card inside the
+      viewport at every step (clamped by the rule, never overflowing) until the breakpoint is crossed.
+
+### W6 — transitions keep working; dialog "room beside" accounts for wide
+- [ ] `[app]` Reducer table (asserted as data, both sizes): from `docked`, `escape → minimized`,
+      `minimize → minimized`, `close → closed`, `navigate | project-open → docked` (idempotent),
+      `contact-open → minimized`; from `minimized`, `restore | project-close | contact-close →
+      docked` when `wide`; `escape` from `minimized` is a no-op. Size is carried through every
+      transition unchanged.
+- [ ] `[qa]` Journey at 1440×900: open (wide) → minimize → restore lands **wide**; toggle compact →
+      minimize → restore lands **compact**; Escape from docked → pill; restore → same size; open
+      contact form → pill; close it → docked at the last size; navigate via the assistant's
+      `navigate_to_section` during a live call → still docked, same size, call live.
+- [ ] `[app]` `open-beside` (project chip) measures room with the **current preferred size**:
+      `hasRoomBesideDialog({ cardWidth: wideWidth, … })` true → docked wide; else, if it holds for
+      `compactWidth` → docked **compact for that dialog's lifetime** (stored preference unchanged);
+      else → `modal` (today's rule — never the pill under the project backdrop). Unit-tested with
+      all three outcomes using the rule `(vw − dialogWidth)/2 ≥ cardWidth + gutter`: wide needs
+      ≥ 740 px of side room, compact ≥ 404 px. Cases use the browser-measured project-dialog
+      widths (architect supplies them), plus a synthetic case per outcome, e.g. vw 2560 /
+      dialog 1000 → wide; vw 1920 / dialog 1000 → compact; vw 1440 / dialog 720 → modal.
+- [ ] `[qa]` After a project dialog that forced the temporary compact closes, the card returns to the
+      visitor's stored size (wide if they never toggled).
+- [ ] `[qa]` Voice-survives sweep: every transition above, run during a live call, ends with the
+      session live (extends the existing chat-stage journeys; no new stopVoice path).
+
+### W7 — motion
+- [ ] `[app]` The size change animates width (and height, if it changes) only via a CSS transition
+      that is `none` under `@media (prefers-reduced-motion: reduce)` (source assertion on the CSS
+      rule, the same way the existing stage transitions are pinned).
+- [ ] `[qa]` With reduced motion emulated, a toggle reaches its final width in the first frame after
+      the click (no intermediate widths sampled); without it, the transition completes in ≤ 250 ms
+      and the anchor corner never moves during it.
+- [ ] `[human]` Owner toggles a few times at 1440×900 and on his own laptop: it feels like the same
+      window growing from its corner, not a jump to a different window.
+
+### Navigator decisions (flagged; PO recommendation in bold, build may start on the recommendation)
+- **N-W1 — persist across reloads?** **Recommend yes: `localStorage`, one key, per browser**, so a
+  visitor who prefers compact is not re-widened on every page load. Alternative: page-session only
+  (`sessionStorage` / memory) — first open of every visit is wide.
+- **N-W2 — narrow fallback.** **Recommend: below the 768 px docked breakpoint keep today's behaviour
+  (full-screen ≤ 640, centred modal 641–767), no toggle.** A docked card on a phone leaves no usable
+  page, so "usable site" is served there by minimize/close as today. Alternative: compact docked card
+  at 641–767 px.
+- **N-W3 — Escape on a freshly opened card.** Today Escape on a fresh open (modal) **closes**; with
+  open → docked it will **minimize** (existing docked rule). **Recommend accept** (never destroy a
+  conversation on a keystroke; the pill is one click from restore). Alternative: Escape closes when
+  the docked card was entered by `open-*` and has had no site interaction.
+- **N-W4 — is the modal still reachable at ≥ 768 px by choice?** The request says "switch between
+  both" sizes; the orchestrator reading is wide ⇄ compact. **Recommend: no "modal" option on desktop;
+  modal survives only as the narrow fallback and the no-room-beside-a-dialog fallback.** If the owner
+  meant "switch between the old centred dialog and the docked card", this becomes a three-way toggle
+  and W2 changes.
+- **N-W5 — wide cap.** Architect fixes `WIDE_MAX` (≈ 720 px) and wide height; PO asks only that wide
+  is visibly "the original window" in width (≥ ~640 px) and never wider than `vw − 2×gutter`.
+- **N-W6 — project chip with no room for wide.** **Recommend: temporary compact beside the dialog,
+  then modal if compact also does not fit** (W6). Alternative: always minimize behind the dialog.
+
 ## 2026-10-24 — barge-in + chat latency
 
 **Source:** `docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md` (RCA + retro). Scope is

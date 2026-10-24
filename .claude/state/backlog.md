@@ -6,6 +6,29 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ---
 
+## 2026-10-24 — wide docked assistant window
+
+> Source: owner request 2026-10-24 (verbatim in design-notes). Owner decisions taken: first open =
+> **WIDE**; the wide window **floats** (no backdrop, page usable around it, may cover content; no
+> reflow). **Full acceptance bullets live in `design-notes.md` → "2026-10-24 — wide docked assistant
+> window" (W1–W7)**. Supersedes D3's "first open = modal" at ≥ 768 px. Architect owns the ADR and
+> invariants (#20, #22). Navigator decisions N-W1…N-W6 in design-notes; none blocks the build
+> (build on the PO recommendation; N-W4 could change W2's scope if the owner meant a 3-way switch).
+
+1. **W1 + W2 — open lands docked-wide; header toggle wide ⇄ compact** — `[app]` `[qa]` — reducer:
+   open-* → docked when `wide`; size as a separate dimension; toggle from the very first open, voice
+   survives (inv #20). Same bottom-right anchor; `wideWidth = min(WIDE_MAX≈720, vw − 2×20)`.
+2. **W4 — site usable around the card at both sizes** — `[qa]` — nav click, scroll, project dialog,
+   hit-test, no backdrop / aria-modal / focus trap / focus theft; no horizontal scroll 320–1920 px.
+3. **W3 — size preference persists** — `[app]` `[qa]` — guarded storage helper; across reloads
+   pending N-W1 (recommend localStorage).
+4. **W6 — transitions + room-beside for wide** — `[app]` `[qa]` — restore returns to the last chosen
+   size; project chip: wide → temporary compact → modal by measured room.
+5. **W5 — narrow fallback** — `[app]` `[qa]` — < 768 px unchanged (full-screen / centred modal, no
+   toggle), pending N-W2.
+6. **W7 — reduced-motion resize** — `[app]` `[qa]` `[human]` — then owner look at 1440×900 (gates
+   prod).
+
 ## 2026-10-24 — barge-in + chat latency (TOP PRIORITY)
 
 > Source: `docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md`. Scope decided (RCA §4

@@ -1313,6 +1313,26 @@ proves it comes FIRST.
     clamp, extend; `test_turn_persistence.py` — `primaryRetried` per turn, including two
     overlapping turns on one chain.
 
+27. **On a wide viewport the chat opens as a non-modal docked card, and at every size it leaves a
+    usable strip of the site uncovered.** `[app]` Recorded 2026-10-24 by **ADR-0027**. With
+    `ctx.wide` (≥ 768 px) every visitor open (`open-text` / `open-voice` / `restore`) lands
+    `docked` — `modal` is reserved for narrow viewports and `open-beside` with no room. The docked
+    card, wide or compact, carries `stageChrome('docked')` unchanged (no backdrop, no scroll lock,
+    `aria-modal="false"`, no focus trap), and its width comes only from `dockedCardWidth`, which
+    for every viewport ≥ 768 px leaves at least `DOCK_MIN_UNCOVERED` (320 px) of page beside it.
+    Size is never a reducer input and the size toggle never dispatches a stage event or touches
+    voice (#20).
+    **WHY THIS IS AN INVARIANT:** "the site stays usable" is the owner's constraint on the new
+    default window, and every way to break it is one line — a literal `'modal'` back in `openPanel`,
+    a CSS width that restates 720 without the floor, a transition that out-specifies the
+    reduced-motion rule — each invisible in a diff and green in a suite that only checks the stage.
+    *Pin:* `test/chat-stage.test.mjs` (the wide-column open/restore rows; `dockedCardWidth` swept
+    768…2560 against the 320 px floor for both sizes; `dockedSizeChrome`), `test/chat-stage-wiring.test.mjs`
+    (`openPanel` lands `docked` with `data-chat-size` / `--chat-dock-width`; the toggle makes no
+    store write and no `stopVoice` call), and a CSS source assertion that the docked width reads
+    `var(--chat-dock-width` and the size transition lives only under
+    `prefers-reduced-motion: no-preference`.
+
 ## Out of scope / explicitly allowed
 
 - **"Single origin" is not literal in production.** The shipped meta tags point chat
