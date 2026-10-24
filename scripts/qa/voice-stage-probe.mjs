@@ -10,9 +10,13 @@
  *     node scripts/qa/voice-stage-probe.mjs https://chat.marwanelgendy.link <speech.wav>
  *
  * The microphone is a FILE: Chrome's fake capture device plays <speech.wav> as the visitor's
- * voice from the moment getUserMedia runs (which, since ADR-0026 §2, is right after the
- * greeting is sent), and the permission prompt is auto-accepted. The instrument below DELAYS
- * the mic so the WAV's t=0 is the greeting's first audio frame: its leading silence is then
+ * voice, and the permission prompt is auto-accepted. The page asks for the mic right after the
+ * greeting is sent (ADR-0026 §2); the instrument hands it a stream that stays silent until the
+ * greeting's first audio frame and then opens a fresh capture of the WAV (the file starts over
+ * per capture - ASSUMED from Chrome's fake device; the "speech goes out while the greeting is
+ * PLAYING" precondition claim catches it if not). So the WAV's t=0 is the greeting's first
+ * audio frame, at the source, and the page's own voice-onset rule hears what the model hears.
+ * Its leading silence is then
  * the offset into the greeting where the speech lands. Keep it short enough that the speech
  * goes out before the SERVER finishes sending the greeting (Live sends faster than real time),
  * or the server-side claims report INCONCLUSIVE and fail; ~1 s works for a several-second
@@ -74,7 +78,14 @@ const INSTRUMENT = `(() => {
       if (m.setupComplete) log('setupComplete')
       const sc = m.serverContent
       if (sc) {
-        if (sc.modelTurn) { window.__vpGreetingAudioSeen = true; log('model-audio') }
+        if (sc.modelTurn) {
+          window.__vpGreetingAudioSeen = true
+          log('model-audio')
+          // First greeting audio: start the WAV now (see the getUserMedia wrapper below).
+          const connect = window.__vpConnectWav
+          window.__vpConnectWav = null
+          if (connect) void connect()
+        }
         if (sc.interrupted) log('interrupted')
         if (sc.turnComplete) log('turnComplete')
         if (sc.inputTranscription && sc.inputTranscription.text) log('heard', sc.inputTranscription.text)
@@ -90,41 +101,32 @@ const INSTRUMENT = `(() => {
           window.__vpAudioFrames = (window.__vpAudioFrames || 0) + 1
           if (window.__vpAudioFrames === 1) log('first-audio-frame', JSON.stringify(Object.keys(m.realtimeInput)))
           const chunk = m.realtimeInput.audio || (m.realtimeInput.mediaChunks || [])[0]
-          const zeros = (b64) => btoa('\\0'.repeat(atob(b64).length))
-          // The mic is live from the start (ADR-0026 §2), but the WAV's t=0 should be the
-          // greeting's FIRST AUDIO FRAME, so its leading silence decides where in the greeting
-          // the speech lands. A delay line: until that frame, every real frame is queued and
-          // silence is sent; after it, each send carries the oldest queued frame. A silent-mic
-          // journey (the control) zeroes every frame instead.
-          if (chunk && chunk.data) {
-            const q = (window.__vpMicQueue = window.__vpMicQueue || [])
-            if (window.__VP_SILENT_MIC__ === true) chunk.data = zeros(chunk.data)
-            else {
-              q.push(chunk.data)
-              chunk.data = window.__vpGreetingAudioSeen ? q.shift() : zeros(chunk.data)
-            }
-            data = JSON.stringify(m)
-          }
-          // Loudness of what is actually sent: a stream of zeros is "audio" to a frame counter.
+          // What is sent IS what the page's mic graph heard: the WAV is aligned and silenced at
+          // the SOURCE (the getUserMedia wrapper below), so the page's own voice-onset rule and
+          // the model see the same audio. Here it is only measured.
           if (chunk && chunk.data) {
             const bin = atob(chunk.data)
             let peak = 0
+            let sumSq = 0
+            let n = 0
             for (let i = 0; i + 1 < bin.length; i += 2) {
-              const v = Math.abs(((bin.charCodeAt(i + 1) << 8) | bin.charCodeAt(i)) << 16 >> 16)
-              if (v > peak) peak = v
+              const v = ((bin.charCodeAt(i + 1) << 8) | bin.charCodeAt(i)) << 16 >> 16
+              if (Math.abs(v) > peak) peak = Math.abs(v)
+              sumSq += (v / 32768) * (v / 32768)
+              n += 1
             }
+            // Loudness of what is actually sent: a stream of zeros is "audio" to a frame counter.
             window.__vpPeak = Math.max(window.__vpPeak || 0, peak)
-            if (peak > 1000 && !window.__vpVoiced) {
-              window.__vpVoiced = true
-              // Detail = how much assistant audio was queued/sounding when the voice went out.
-              log('first-voiced-frame', String(window.__vpPlaying || 0))
-            }
-            // Every voice ONSET (a voiced frame after >= 1.5 s without one) - the start of an
-            // utterance, as the page's own rule counts it (ADR-0026 addendum).
-            if (peak > 1000) {
+            // Voice ONSET by the page's own rule (ADR-0026 addendum rev. 2): frame RMS >= 0.02
+            // after >= 400 ms of quieter frames. Detail = assistant sources queued/sounding then.
+            const rms = n ? Math.sqrt(sumSq / n) : 0
+            if (rms >= 0.02) {
               const nowT = performance.now()
-              if (window.__vpLastVoicedAt === undefined || nowT - window.__vpLastVoicedAt >= 1500) log('voice-onset')
-              window.__vpLastVoicedAt = nowT
+              if (window.__vpLastLoudAt === undefined || nowT - window.__vpLastLoudAt >= 400) {
+                if (!window.__vpVoiced) { window.__vpVoiced = true; log('first-voiced-frame', String(window.__vpPlaying || 0)) }
+                log('voice-onset', String(window.__vpPlaying || 0))
+              }
+              window.__vpLastLoudAt = nowT
             }
           }
         }
@@ -177,8 +179,32 @@ const INSTRUMENT = `(() => {
       ? Promise.resolve({ state: 'prompt', onchange: null, addEventListener () {}, removeEventListener () {} })
       : q(d))
   }
+  // The MIC, aligned at the source. The page's getUserMedia still goes through the real one
+  // (the permission flow and its errors are real), but the page is handed a stream from a
+  // WebAudio graph that stays SILENT until the greeting's first audio frame. At that moment a
+  // NEW fake capture is opened - Chrome's file-backed fake device starts the WAV from its
+  // beginning for each capture - and connected. So the WAV's t=0 is the greeting's first audio
+  // and the page's own voice-onset rule (ADR-0026 addendum rev. 2) hears exactly what the model
+  // hears. A silent-mic journey (the control) never connects it.
   const gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
-  if (gum) navigator.mediaDevices.getUserMedia = (c) => { log('getUserMedia'); return gum(c) }
+  if (gum) {
+    navigator.mediaDevices.getUserMedia = async (c) => {
+      log('getUserMedia')
+      const permissionCheck = await gum(c)
+      permissionCheck.getTracks().forEach((t) => t.stop())
+      const ctx = new AudioContext()
+      const dest = ctx.createMediaStreamDestination()
+      const connectWav = async () => {
+        if (window.__VP_SILENT_MIC__ === true) return
+        const wav = await gum(c)
+        ctx.createMediaStreamSource(wav).connect(dest)
+        log('mic-source-connected')
+      }
+      if (window.__vpGreetingAudioSeen) void connectWav()
+      else window.__vpConnectWav = connectWav
+      return dest.stream
+    }
+  }
 })()`
 
 const timeline = (page) => evaluate(page, () => window.__vp || [])
