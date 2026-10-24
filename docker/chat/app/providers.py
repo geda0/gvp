@@ -100,8 +100,8 @@ def classify_upstream_exception(exc: BaseException) -> tuple[int, str, str]:
 def chat_tools() -> list[Any]:
     """Function-call declarations for the Gemini text path: open_resume,
     open_contact_form, navigate_to_section and the project tools - the same set Live
-    declares - plus start_tour, which is text-only (Track C item 6: the page runs the
-    tour; voice parity is a bonus, not required). The enum must stay equal to
+    declares, including start_tour (Track C item 6). On both paths the PAGE runs the tour;
+    the model only starts it. The enum must stay equal to
     live_gemini.py's; see docker/chat/tests/test_guide_tool_contract.py.
     Returned as a list of ``types.Tool`` for ``GenerateContentConfig.tools``.
     Imported lazily so importing providers in the mock path never requires

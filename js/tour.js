@@ -7,6 +7,11 @@
  * scroll, and nobody gets moved while reading. The order leads with the work and ends back at
  * it with a way to get in touch, never at a dead end.
  *
+ * The Next stop / End tour controls are NOT per-message buttons: they live in one tour bar in
+ * the chat header (js/chat.js), which stays visible when the chat yields to the page as a
+ * pill on narrow screens and cannot be re-tapped from a stale message. A step says which stop
+ * comes next; only the last stop carries buttons of its own, the way out.
+ *
  * The narration is the agent's voice and is the owner's to bless; every claim in it is taken
  * from data/projects.json. Wiring (that a stop really moves the page) is pinned by
  * test/agent-guide.test.mjs, which boots the real chat.js.
@@ -39,7 +44,8 @@ export const TOUR_LENGTH = STOPS.length
  * @param {number} index
  * @returns {null | {index: number, say: string,
  *   moves: Array<{kind: 'close-project'} | {kind: 'navigate', section: string} | {kind: 'open-project', project: string}>,
- *   actions: Array<{id: string, label: string, step?: number, section?: string}>}}
+ *   next: number | null,
+ *   actions: Array<{id: string, label: string, section?: string}>}}
  */
 export function tourStep(index) {
   if (!Number.isInteger(index) || index < 0 || index >= STOPS.length) return null
@@ -53,9 +59,6 @@ export function tourStep(index) {
         { id: 'open-contact', label: 'Get in touch' },
         { id: 'navigate', section: 'portfolio', label: 'Back to the work' }
       ]
-    : [
-        { id: 'tour-next', step: index + 1, label: 'Next stop' },
-        { id: 'tour-end', label: 'End tour' }
-      ]
-  return { index, say: stop.say, moves, actions }
+    : []
+  return { index, say: stop.say, moves, next: stop.end ? null : index + 1, actions }
 }

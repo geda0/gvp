@@ -974,6 +974,19 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     gap: 0.45rem;
 }
 
+/* Track C guided tour: Next stop / End tour live in the header, so they stay reachable when the
+   chat yields to the page as a pill (minimized shows the header alone). */
+.chat-tour-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.chat-tour-bar[hidden] {
+    display: none;
+}
+
 /* Empty transcript: Start live chat CTA above hint copy */
 .chat-empty-entry {
     display: flex;

@@ -333,27 +333,59 @@ def _normalize_tool_args(args: Any) -> dict[str, Any]:
 
 
 # Track C item 7: the visitor's own words are the gate for the PDF, not the model's tool choice.
-_RESUME_ASK = re.compile(r'\b(r[eé]sum[eé]s?|cv|curriculum vitae|pdf)\b', re.IGNORECASE)
+# Multilingual, because the prompt answers in the visitor's language. A false positive only
+# ALLOWS a résumé the model already chose to offer; it never forces one.
+_RESUME_ASK = re.compile(
+    r'(\br[eé]sum[eé]s?\b|\bcv\b|\bc\.v\.|\bcurr[ií]cul(?:um|o)\b|\bcurriculum vitae\b|\blebenslauf\b'
+    r'|\bpdf\b|السيرة الذاتية|简历|履歴書)',
+    re.IGNORECASE,
+)
+# A short yes, accepted only when the turn before it offered the résumé.
+_AFFIRMATIVE = re.compile(
+    r'^\W*(yes|yeah|yep|sure|ok|okay|please|go ahead|send it|s[ií]|oui|ja|da|نعم|好的?|はい)\b',
+    re.IGNORECASE,
+)
+_NO_RESUME_REPLY = (
+    "His work is laid out right here on the site - I can walk you through the portfolio "
+    "or open any project. If you'd like the resume file itself, just ask."
+)
+
+
+def _row(row: Any) -> tuple[Any, str]:
+    if isinstance(row, dict):
+        return row.get('role'), str(row.get('content') or '')
+    return getattr(row, 'role', None), str(getattr(row, 'content', '') or '')
 
 
 def resume_was_requested(messages: list[Any]) -> bool:
-    """True when the LAST user message asks for the résumé/CV file itself. Reads the visitor,
-    never the model's prose (ADR-0015 §5.2), and only the latest ask: an old request does not
-    license a PDF on a later, different question."""
-    for row in reversed(messages or []):
-        role = row.get('role') if isinstance(row, dict) else getattr(row, 'role', None)
+    """True when the LAST user message asks for the résumé/CV file itself, or is a short yes to
+    a résumé offer in the turn just before it. Reads the visitor (ADR-0015 §5.2 rejects acting
+    on the model's prose; the offer only qualifies the visitor's yes), and only the latest ask:
+    an old request does not license a PDF on a later, different question."""
+    rows = [_row(r) for r in (messages or [])]
+    for i in range(len(rows) - 1, -1, -1):
+        role, content = rows[i]
         if role != 'user':
             continue
-        content = row.get('content') if isinstance(row, dict) else getattr(row, 'content', '')
-        return bool(_RESUME_ASK.search(content or ''))
+        if _RESUME_ASK.search(content):
+            return True
+        if len(content.split()) <= 6 and _AFFIRMATIVE.search(content):
+            prev = next((c for r, c in reversed(rows[:i]) if r == 'assistant'), '')
+            return bool(_RESUME_ASK.search(prev))
+        return False
     return False
 
 
-def _turn_actions(result: Any, messages: list[Any]) -> list[dict[str, Any]]:
+def _guard_turn(result: Any, messages: list[Any], reply_text: str) -> tuple[list[dict[str, Any]], str]:
+    """The turn's actions with an unrequested résumé removed, and a reply that is never empty
+    because of that removal (an empty reply renders as "try again" on the page)."""
     actions = _actions_from_result(result)
     if resume_was_requested(messages):
-        return actions
-    return [a for a in actions if a.get('id') != 'open-resume']
+        return actions, reply_text
+    kept = [a for a in actions if a.get('id') != 'open-resume']
+    if len(kept) < len(actions) and not (reply_text or '').strip() and not kept:
+        reply_text = _NO_RESUME_REPLY
+    return kept, reply_text
 
 
 def _actions_from_result(result: Any) -> list[dict[str, Any]]:
@@ -1063,7 +1095,7 @@ async def chat(payload: ChatRequest) -> Any:
         return JSONResponse(status_code=status, content=content)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     reply_text = _reply_text_from_result(result)
-    actions = _turn_actions(result, payload.messages)
+    actions, reply_text = _guard_turn(result, payload.messages, reply_text)
     tool_calls = _tool_calls_from_result(result)
     model_used = getattr(app.state.chain, "last_model_id", None) or app.state.model_id
 
@@ -1157,7 +1189,9 @@ async def _chat_stream(
         aggregated = acc.finalize()
 
     reply_text = _reply_text_from_result(aggregated) if aggregated is not None else ''
-    actions = _turn_actions(aggregated, payload.messages) if stream_status == 'ok' and aggregated is not None else []
+    actions: list[dict[str, Any]] = []
+    if stream_status == 'ok' and aggregated is not None:
+        actions, reply_text = _guard_turn(aggregated, payload.messages, reply_text)
     tool_calls = _tool_calls_from_result(aggregated) if aggregated is not None else []
     model_used = getattr(chain, "last_model_id", None) or app.state.model_id
     elapsed_ms = int((time.perf_counter() - t0) * 1000)

@@ -149,3 +149,65 @@ def test_voice_declares_start_tour_too():
 
     names = [d.name for d in _LIVE_TOOLS.function_declarations]
     assert 'start_tour' in names
+
+
+@pytest.mark.parametrize('text', [
+    'Do you have a résumé?',
+    '¿Me puedes mandar tu currículum?',
+    'Pode me enviar o currículo?',
+    'Lebenslauf bitte',
+    'أرسل لي السيرة الذاتية',
+    '可以发一下简历吗',
+    'his c.v. please',
+])
+def test_resume_asks_in_other_languages_count(text):
+    """The prompt replies in the visitor's language, so the gate has to read it too."""
+    assert resume_was_requested([{'role': 'user', 'content': text}]), text
+
+
+@pytest.mark.parametrize('yes', ['yes please', 'Sure, send it', 'ok', 'sí', 'oui'])
+def test_a_yes_to_a_resume_offer_counts(yes):
+    history = [
+        {'role': 'user', 'content': 'what is his background?'},
+        {'role': 'assistant', 'content': 'He led data platforms at Apptio. Want his resume as well?'},
+        {'role': 'user', 'content': yes},
+    ]
+    assert resume_was_requested(history), yes
+
+
+def test_a_yes_to_something_else_does_not():
+    history = [
+        {'role': 'assistant', 'content': 'Want me to show you the Labs?'},
+        {'role': 'user', 'content': 'yes please'},
+    ]
+    assert not resume_was_requested(history)
+
+
+class _OnlyResumeChain:
+    async def ainvoke(self, _payload, config=None):
+        return Msg(role='ai', content='', tool_calls=[{'name': 'open_resume', 'args': {}, 'id': 'r'}])
+
+    async def astream(self, _payload, config=None):
+        yield await self.ainvoke(_payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('stream', [False, True])
+async def test_dropping_the_only_action_never_leaves_an_empty_reply(client: AsyncClient, stream):
+    """A turn whose only content was the dropped résumé would otherwise render "try again"."""
+    import json
+
+    before = (app.state.chain, app.state.model_id, app.state.provider_error)
+    app.state.chain, app.state.model_id, app.state.provider_error = _OnlyResumeChain(), 'mock', None
+    try:
+        r = await client.post('/api/chat', json={
+            'messages': [{'role': 'user', 'content': 'Tell me about your experience'}], 'stream': stream})
+    finally:
+        app.state.chain, app.state.model_id, app.state.provider_error = before
+    if stream:
+        body = next(json.loads(f.split('data: ', 1)[1]) for f in r.text.split('\n\n') if f.startswith('event: done'))
+    else:
+        body = r.json()
+    assert body['actions'] == []
+    assert body['reply'].strip(), 'an empty reply renders as "try again" on the page'
+    assert 'work' in body['reply'].lower(), 'and it leads with the work'
