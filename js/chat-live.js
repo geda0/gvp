@@ -1602,7 +1602,7 @@ export function bindChatLiveVoice(opts) {
       const closeWithoutGreeting = (outcome, copy) => {
         settleVoiceStart(outcome)
         trackEvent('chat_live_stop', { reason: 'mic_permission', permissionBefore: perm, outcome })
-        stopVoiceInternal({ silent: true })
+        stopVoiceInternal({ silent: false }) // not silent: the lifecycle (aura) returns to idle
         setStatus(copy, 'error')
       }
       // Whatever settles first: the visitor's answer, VOICE_PERMISSION_WAIT_MS, or a stop. The

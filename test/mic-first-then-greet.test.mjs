@@ -659,6 +659,30 @@ test('the hint leaves with the bubble: a grant while the session is still connec
     )
   } finally { v.live.dispose() }
 })
+test('cold path: a call closed without a greeting puts the chat lifecycle back to idle (no aura stuck "thinking")', async () => {
+  // Arrange — the lifecycle bus the agent node and the spaceman render from.
+  const { chatBus } = await import('../js/chat-bus.js')
+  const v = await bootChat({ permission: 'prompt' })
+  try {
+    await v.start()
+    await v.open()
+    await v.setupComplete()
+    const busyWhileWaiting = chatBus.getState().state !== 'idle'
+
+    // Act — the bubble is dismissed.
+    v.gum.reject('NotAllowedError')
+    await settle()
+
+    // Assert
+    assert.deepEqual(
+      { busyWhileWaiting, afterClose: chatBus.getState().state },
+      { busyWhileWaiting: true, afterClose: 'idle' },
+      'the start (and setupComplete) put the lifecycle to work; a close that never greets must ' +
+      'say the chat is idle again'
+    )
+  } finally { v.live.dispose() }
+})
+
 test('cold path: a session that fails after the grant releases the granted mic and shows the connect error', async () => {
   // Arrange — the visitor allows while the socket is still opening.
   const v = await bootChat({ permission: 'prompt' })
