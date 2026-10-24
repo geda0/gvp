@@ -19,7 +19,7 @@ const INPUT_RATE = 16000
  *  backpressure (see PcmJitterPlayer.enqueue). The old behavior flushed the
  *  *queue* mid-reply, which audibly cut the agent off ("…and then we…" stops,
  *  next chunk starts a new sentence) — strictly worse than dropping incoming.
- *  Real barge-in still goes through `serverContent.interrupted` → interrupt(). */
+ *  Real barge-in goes through interruptAssistant() → interrupt() (ADR-0026 §3). */
 const PCM_JITTER_MAX_QUEUED_CHUNKS = 1024
 /** Close voice if the WebSocket sends nothing for this long (ms). */
 const VOICE_WS_IDLE_MS = 3 * 60 * 1000
@@ -479,9 +479,8 @@ class PcmJitterPlayer {
 }
 
 /** Best-effort mic permission state — 'granted' | 'denied' | 'prompt' | 'unknown'.
- *  'granted' is the only state where we auto-attach the mic on session open
- *  (warm path); everything else lands in the cold path so the visitor explicitly
- *  consents via the big-mic tap. */
+ *  'granted' picks the warm path; everything else is cold. Both request the mic at
+ *  session open (ADR-0026 §2) - on cold, the browser's permission sheet is the consent. */
 async function detectMicPermissionState() {
   try {
     if (typeof navigator === 'undefined' || !navigator.permissions || typeof navigator.permissions.query !== 'function') {
@@ -1028,7 +1027,8 @@ export function bindChatLiveVoice(opts) {
         // First turnComplete after the greeting = the greeting finished playing.
         // For warm sessions where the visitor hasn't spoken yet, schedule the
         // follow-up nudge ("you can ask me about…"). Cold sessions don't
-        // auto-follow-up because the visitor still needs to grant mic permission.
+        // auto-follow-up: the visitor has just been shown the permission sheet
+        // (widening the nudge is out of scope, ADR-0026 §2).
         if (!greetingTurnComplete) {
           greetingTurnComplete = true
           if (sessionIntent === 'warm' && active && !userSpokeAfterGreeting) {
@@ -1338,10 +1338,10 @@ export function bindChatLiveVoice(opts) {
     mediaSource.connect(processor)
   }
 
-  /** Public: open session and greet. `intent` decides whether the mic is
-   *  attached automatically (warm — permission already granted) or whether the
-   *  greeting plays first and the visitor has to tap the big mic to attach
-   *  (cold — permission not yet granted, or unknown). 'auto' detects via the
+  /** Public: open session and greet. The mic is requested right after the greeting
+   *  is sent on every path (ADR-0026 §2), so the visitor can talk over it. `intent`
+   *  picks the greeting text and the follow-up nudge: warm = permission already
+   *  granted, cold = not yet granted or unknown. 'auto' detects via the
    *  Permissions API. */
   const startVoice = async ({ intent = 'auto' } = {}) => {
     if (isTextPending()) {
