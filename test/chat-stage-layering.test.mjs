@@ -136,3 +136,35 @@ test('the yielded panel takes its own pointer events back', () => {
     'so the site stays usable, and nothing else turns them back on for the card itself'
   )
 })
+
+test('ADR-0027 §4: the docked width has ONE source of truth, --chat-dock-width from dockedCardWidth', () => {
+  // CSS must not restate 720 / 320: hasRoomBesideDialog needs the same number in JS, and two
+  // copies of one formula is the drift ADR-0017 §2.4 warned about. The var() fallback is the
+  // shipped compact rule, so JS failing to run degrades to today's card.
+  const css = read('css', 'chat.css')
+  const block = /#chatDialog\[data-chat-stage='docked'\] \.chat-dialog__panel \{([^}]*)\}/.exec(css)
+  assert.ok(block, 'the docked panel rule is gone or was renamed')
+  assert.match(block[1], /(^|\s)width:\s*var\(--chat-dock-width,\s*min\(24rem, calc\(100vw - 2rem\)\)\)/)
+  assert.match(block[1], /max-width:\s*var\(--chat-dock-width,\s*min\(24rem, calc\(100vw - 2rem\)\)\)/)
+  const stageBlock = css.slice(css.indexOf('the stage (ADR-0015 §4)'))
+  assert.doesNotMatch(stageBlock, /(?<![\d.])(720px|45rem|320px)/,
+    'the wide cap and the uncovered floor live in js/chat-stage.js only')
+})
+
+test('a card docked BESIDE a project dialog sits above its scrim, below the modal chat and the tour', () => {
+  // MEASURED (scripts/qa/chat-stage-journeys.mjs, "W6 beside a project dialog"): at
+  // 1920x1080 elementFromPoint over the beside card returned the PROJECT DIALOG, because the
+  // card was at the yielded 1085 under .project-dialog's inset:0 1100 scrim. ADR-0027 §9 filed
+  // it; this is the fix. ONLY the beside case moves (js/chat.js marks it data-chat-beside
+  // only when the card was measured to fit without overlapping the panel); the yielded rule
+  // above is untouched, so a card the visitor stepped away from still sits under the dialog.
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const beside = zIndexOf(chatCss, "#chatDialog[data-chat-stage='docked'][data-chat-beside='true']")
+  const project = zIndexOf(siteCss, '.project-dialog')
+  const modal = zIndexOf(chatCss, '.chat-dialog')
+  const tour = zIndexOf(chatCss, '.tour-card')
+  assert.ok(beside > project, `beside card (${beside}) must sit above the project dialog scrim (${project})`)
+  assert.ok(beside < modal, `and below a modal chat (${modal})`)
+  assert.ok(beside < tour, `and below the tour card (${tour}), which must stay on top at every stage`)
+})

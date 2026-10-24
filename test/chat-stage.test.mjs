@@ -30,14 +30,27 @@ const W = (wide) => (wide ? 'docked' : 'minimized')
 
 // [event, from, expectedWide, expectedNarrow, note]
 const TABLE = [
-  ['open-text', 'closed', 'modal', 'modal'],
-  ['open-voice', 'closed', 'modal', 'modal'],
-  ['open-text', 'minimized', 'modal', 'modal'],
+  // ADR-0027 §2.4 SUPERSEDES the wide column of these rows (deliberate test-writer change,
+  // not a regression): on a wide viewport the docked card IS the main window, so every
+  // visitor open lands `docked`. The narrow column is unchanged — a phone still gets modal.
+  ['open-text', 'closed', 'docked', 'modal', 'ADR-0027'],
+  ['open-voice', 'closed', 'docked', 'modal', 'ADR-0027'],
+  ['open-text', 'minimized', 'docked', 'modal', 'ADR-0027'],
+  ['open-voice', 'minimized', 'docked', 'modal', 'ADR-0027'],
+  ['open-text', 'docked', 'docked', 'modal', 'ADR-0027'],
+  // From modal on a wide viewport (open-beside with no room, or a viewport that widened
+  // under a modal) a re-open docks: re-opening is a visitor act (ADR-0027 §2.4 note 1).
+  ['open-text', 'modal', 'docked', 'modal', 'ADR-0027'],
+  ['open-voice', 'modal', 'docked', 'modal', 'ADR-0027'],
 
   // restore cannot resurrect a closed conversation — opening is open-*. Keeping them
   // distinct is what lets M4's "Assistant active" chip restore without a cold open.
   ['restore', 'closed', 'closed', 'closed', 'PLAN-SILENT'],
-  ['restore', 'minimized', 'modal', 'modal', 'PLAN-SILENT'],
+  // ADR-0027 §2.4: restore on wide comes back to the main window (docked), not a modal.
+  // Deliberate test-writer change; narrow column unchanged.
+  ['restore', 'minimized', 'docked', 'modal', 'ADR-0027'],
+  ['restore', 'modal', 'docked', 'modal', 'ADR-0027'],
+  ['restore', 'docked', 'docked', 'modal', 'ADR-0027'],
 
   // `closed` is ABSORBING for every site event. A visitor who never opened the chat must not
   // acquire a dock on their first nav click — the single most likely way to turn "the
@@ -101,7 +114,8 @@ test('the transition table matches ADR-0015 §4.3 exactly', () => {
       if (got !== expected) {
         wrong.push(
           `${event} from ${from} (wide=${wide}): got ${got}, expected ${expected}` +
-          (note ? `  [${note}: stated in the ADR, NOT in the plan]` : '')
+          (note === 'PLAN-SILENT' ? `  [${note}: stated in the ADR, NOT in the plan]` : '') +
+          (note && note !== 'PLAN-SILENT' ? `  [${note}]` : '')
         )
       }
     }
@@ -352,4 +366,147 @@ test('stageChrome moves focus when the stage was REQUESTED, not when it was yiel
     stageChrome('minimized', { requested: true }).moveFocus, 'none',
     'a minimised pill has no composer to focus, so requested changes nothing there'
   )
+})
+
+// ---------------------------------------------------------------- ADR-0027: wide + compact
+
+// The size dimension is ORTHOGONAL to the stage (ADR-0027 §2): a pure geometry seam in
+// js/chat-stage.js, beside hasRoomBesideDialog, taking plain numbers and never `window`.
+// Imported per test so a missing export fails as an assertion, not as an import error.
+const sizeApi = () => import('../js/chat-stage.js')
+
+test('parseChatSize reads only the two sizes, and anything else is the WIDE default', async () => {
+  const { parseChatSize, CHAT_SIZES, DEFAULT_CHAT_SIZE } = await sizeApi()
+  assert.equal(typeof parseChatSize, 'function', 'parseChatSize must be exported (ADR-0027 §3)')
+  assert.deepEqual([...CHAT_SIZES], ['wide', 'compact'])
+  assert.equal(DEFAULT_CHAT_SIZE, 'wide', 'owner decision O1: the first open is WIDE')
+  // A stored value is visitor-controlled data: case is NOT folded, so 'WIDE' is junk, and
+  // junk reads as the default rather than as whatever it happens to resemble.
+  for (const raw of [null, undefined, '', 'WIDE', 'huge', 42]) {
+    assert.equal(parseChatSize(raw), 'wide', `${JSON.stringify(raw)} must read as 'wide'`)
+  }
+  assert.equal(parseChatSize('wide'), 'wide')
+  assert.equal(parseChatSize('compact'), 'compact')
+})
+
+test('the compact card is byte-identical to the shipped min(24rem, 100vw - 2rem)', async () => {
+  const { dockedCardWidth, DOCK_COMPACT_WIDTH, DOCK_EDGE_INSET } = await sizeApi()
+  assert.equal(typeof dockedCardWidth, 'function', 'dockedCardWidth must be exported (ADR-0027 §3)')
+  assert.equal(DOCK_COMPACT_WIDTH, 384, 'browser-measured docked card (ADR-0017 §2.4)')
+  assert.equal(DOCK_EDGE_INSET, 16)
+  // Compact must not move by a pixel: 384 at every docked width, the CSS clamp below it.
+  for (const vw of [767, 768, 839, 840, 1024, 1080, 1280, 1920]) {
+    assert.equal(dockedCardWidth({ viewportWidth: vw, size: 'compact' }), 384, `compact at ${vw}`)
+  }
+  assert.equal(dockedCardWidth({ viewportWidth: 400, size: 'compact' }), 368, '400 - 2*16')
+  // An unknown size is compact - never a surprise wide card.
+  assert.equal(dockedCardWidth({ viewportWidth: 1280, size: 'huge' }), 384)
+})
+
+test('the wide card leaves 320px of page and falls back to compact rather than a sliver', async () => {
+  const { dockedCardWidth, DOCK_WIDE_MAX_WIDTH, DOCK_WIDE_MIN_WIDTH, DOCK_MIN_UNCOVERED, DOCK_GUTTER } = await sizeApi()
+  assert.deepEqual(
+    [DOCK_WIDE_MAX_WIDTH, DOCK_WIDE_MIN_WIDTH, DOCK_MIN_UNCOVERED, DOCK_GUTTER], [720, 480, 320, 20],
+    'ADR-0027 §3 constants'
+  )
+  // wide = min(720, vw - 2*20 - 320), compact (384) when that is < 480. The derived numbers
+  // in ADR-0027 §3.1: available from 840, capped at 720 from 1080.
+  const wide = (vw) => dockedCardWidth({ viewportWidth: vw, size: 'wide' })
+  assert.equal(wide(767), 384, '767: wide is not available, fallback to compact')
+  assert.equal(wide(768), 384)
+  assert.equal(wide(839), 384, '839 - 360 = 479 < 480 - a sliver is not wide')
+  assert.equal(wide(840), 480, 'the first width at which wide exists')
+  assert.equal(wide(1024), 664)
+  assert.equal(wide(1080), 720, 'the cap is reached')
+  assert.equal(wide(1280), 720)
+  assert.equal(wide(1920), 720)
+  // An unmeasured viewport is 0 - the caller then drops the custom property and the CSS
+  // fallback (the shipped compact rule) applies.
+  for (const size of ['wide', 'compact']) {
+    assert.equal(dockedCardWidth({ viewportWidth: NaN, size }), 0, `NaN, ${size}`)
+    assert.equal(dockedCardWidth({ viewportWidth: -5, size }), 0, `negative, ${size}`)
+  }
+})
+
+test('isWideAvailable flips exactly at 840px', async () => {
+  const { isWideAvailable } = await sizeApi()
+  assert.equal(typeof isWideAvailable, 'function', 'isWideAvailable must be exported (ADR-0027 §3)')
+  assert.equal(isWideAvailable(839), false)
+  assert.equal(isWideAvailable(840), true)
+  assert.equal(isWideAvailable(1920), true)
+  assert.equal(isWideAvailable(NaN), false, 'an unmeasured viewport offers no wide card')
+})
+
+test('invariant #27: at every docked width, either size leaves 320px of the site uncovered', async () => {
+  const { dockedCardWidth, DOCK_GUTTER, DOCK_EDGE_INSET, DOCK_MIN_UNCOVERED } = await sizeApi()
+  // The breakpoint the reducer docks at (768, js/chat.js isWideViewport) is CONSISTENT with
+  // the floor, not a second number: 768 - 384 - 2*16 = 352 >= 320. Changing either so that
+  // this breaks has to go red here rather than quietly shipping a card that eats the page.
+  assert.ok(
+    768 - dockedCardWidth({ viewportWidth: 768, size: 'compact' }) - 2 * DOCK_EDGE_INSET >= DOCK_MIN_UNCOVERED,
+    'the 768px docking breakpoint no longer clears the 320px usability floor'
+  )
+  const covered = []
+  for (let vw = 768; vw <= 2560; vw++) {
+    for (const size of ['wide', 'compact']) {
+      const left = vw - dockedCardWidth({ viewportWidth: vw, size }) - 2 * DOCK_GUTTER
+      if (left < DOCK_MIN_UNCOVERED) covered.push(`${size}@${vw}: ${left}px left`)
+    }
+  }
+  assert.deepEqual(
+    covered.slice(0, 5), [],
+    'the docked card covers too much of the site - "the site stays usable" is the owner\'s ' +
+    'constraint on the new default window (#27)'
+  )
+})
+
+test('dockedSizeChrome: the effective size is the preference only where wide can render', async () => {
+  const { dockedSizeChrome } = await sizeApi()
+  assert.equal(typeof dockedSizeChrome, 'function', 'dockedSizeChrome must be exported (ADR-0027 §3.3)')
+  const P = 739.59 // the browser-measured project panel (ADR-0017 §2.4)
+  const at = (viewportWidth, besideDialogWidth, preferred = 'wide', stage = 'docked') =>
+    dockedSizeChrome({ stage, viewportWidth, preferred, besideDialogWidth })
+
+  // Not beside a dialog (null): wide where wide exists.
+  assert.deepEqual(at(1280, null),
+    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
+  assert.deepEqual(at(1280, null, 'compact'),
+    { size: 'compact', width: 384, toggleHidden: false, togglePressed: 'false' })
+  // Below 840 wide cannot render: compact, and the toggle is HIDDEN, not disabled. The
+  // preference is not overwritten - only the toggle writes it (that is the caller's half).
+  assert.deepEqual(at(800, null),
+    { size: 'compact', width: 384, toggleHidden: true, togglePressed: 'false' })
+
+  // Beside a dialog: null and 0 are DIFFERENT. 0 is "beside a dialog nobody measured",
+  // which is no room - the same rule as hasRoomBesideDialog.
+  assert.equal(at(2560, 0).size, 'compact', 'an unmeasured dialog is not room for wide')
+  assert.equal(at(2560, 0).toggleHidden, true)
+  // (1920 - 739.59)/2 = 590.2 < 720 + 20 -> compact. Crossover 739.59 + 2*740 = 2219.59.
+  assert.equal(at(1280, P).size, 'compact')
+  assert.equal(at(1920, P).size, 'compact')
+  assert.equal(at(2219, P).size, 'compact')
+  assert.deepEqual(at(2220, P),
+    { size: 'wide', width: 720, toggleHidden: false, togglePressed: 'true' })
+
+  // The toggle exists only on the docked card.
+  for (const stage of ['closed', 'modal', 'minimized']) {
+    assert.equal(at(1280, null, 'wide', stage).toggleHidden, true, `toggle hidden in ${stage}`)
+  }
+})
+
+test('minimising a focused card hands focus to the resume chip, and only then', () => {
+  // ADR-0027 §5.2. Now that docked is the MAIN window, Escape / the minimise button hide the
+  // composer that holds focus, which drops focus to <body>. A visitor request that leaves a
+  // focused card goes to the "Assistant active" chip - whose click is `restore`.
+  assert.equal(
+    stageChrome('minimized', { requested: true, focusInside: true }).moveFocus, 'resume-chip'
+  )
+  // Every other combination keeps today's 'none': a SYSTEM minimise (contact-open) never
+  // moves focus - the contact dialog is taking it - and focus elsewhere is not ours to move.
+  assert.equal(stageChrome('minimized', { requested: false, focusInside: true }).moveFocus, 'none')
+  assert.equal(stageChrome('minimized', { requested: true, focusInside: false }).moveFocus, 'none')
+  assert.equal(stageChrome('minimized', { focusInside: true }).moveFocus, 'none')
+  // And focusInside means nothing to the other stages.
+  assert.equal(stageChrome('docked', { requested: true, focusInside: true }).moveFocus, 'composer')
+  assert.equal(stageChrome('docked', { focusInside: true }).moveFocus, 'none')
 })

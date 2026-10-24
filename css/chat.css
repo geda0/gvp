@@ -2367,6 +2367,16 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     z-index: 1085;
 }
 
+/* ...EXCEPT a card docked BESIDE a project dialog by request (the project chips, ADR-0017
+ * §2.5). At 1085 it sat under .project-dialog's inset:0 scrim (1100) - MEASURED in the
+ * journey: elementFromPoint over it returned the dialog, a blurred card the visitor asked for
+ * and could not type into (ADR-0027 §9). js/chat.js marks it only when it was measured to
+ * fit WITHOUT overlapping the panel, so lifting it covers scrim, never the dialog. Still
+ * below a modal chat (1105) and the tour card (1150). */
+#chatDialog[data-chat-stage='docked'][data-chat-beside='true'] {
+    z-index: 1102;
+}
+
 /* The panel takes its own pointer events back — the shell's `none` is what frees the page. */
 #chatDialog[data-chat-stage='docked'] .chat-dialog__panel,
 #chatDialog[data-chat-stage='minimized'] .chat-dialog__panel {
@@ -2385,16 +2395,26 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     border-style: solid;
 }
 
-/* ---- docked: a real, usable card beside the content ---- */
+/* ---- docked: a real, usable card beside the content ----
+ * ADR-0027: the MAIN window, at two sizes. The width has ONE source of truth -
+ * dockedCardWidth in js/chat-stage.js, written as --chat-dock-width by js/chat.js - and is
+ * never restated here; the var() fallback is the shipped compact rule, so a page whose JS
+ * did not run still gets today's card. Both sizes share the bottom-right anchor (the shell's
+ * flex-end), so wide grows leftward and upward from the same corner. */
 #chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
-    width: min(24rem, calc(100vw - 2rem));
-    max-width: min(24rem, calc(100vw - 2rem));
+    width: var(--chat-dock-width, min(24rem, calc(100vw - 2rem)));
+    max-width: var(--chat-dock-width, min(24rem, calc(100vw - 2rem)));
     height: min(60vh, 34rem);
     max-height: min(60vh, 34rem);
     border-radius: 18px;
     box-shadow:
         0 10px 32px rgba(0, 0, 0, 0.42),
         0 0 0 1px color-mix(in srgb, var(--chat-launcher-glow-chrome) 12%, transparent);
+}
+
+#chatDialog[data-chat-stage='docked'][data-chat-size='wide'] .chat-dialog__panel {
+    height: min(72vh, 44rem);
+    max-height: min(72vh, 44rem);
 }
 
 /* ---- minimized: the header alone, as a pill ---- */
@@ -2439,6 +2459,14 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     }
 }
 
+/* ADR-0027: the wide <-> compact change grows the card from its corner. Declared ONLY here,
+ * so the reduce rule above can never be out-specified by it (invariant #22, W7). */
+@media (prefers-reduced-motion: no-preference) {
+    #chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
+        transition: width 200ms ease, max-width 200ms ease, height 200ms ease, max-height 200ms ease;
+    }
+}
+
 
 /* M4 slice 15 (ADR-0017 §6) — minimise lives on the docked card only; the launcher chip is the
    way back from minimised. */
@@ -2464,6 +2492,51 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 .chat-dialog__minimize:hover,
 .chat-dialog__minimize:focus-visible {
     background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+/* ADR-0027 §4.1 — the wide <-> compact toggle. Docked card only (like minimise), and the
+   [hidden] rule matches the docked rule's specificity so toggleHidden (below 840px, beside
+   a dialog with no room for wide) actually hides it. The glyph swaps; the name never does. */
+.chat-dialog__size {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__size {
+    display: inline-flex;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__size[hidden] {
+    display: none;
+}
+
+.chat-dialog__size:hover,
+.chat-dialog__size:focus-visible {
+    background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.chat-dialog__size:focus-visible {
+    outline: 2px solid var(--chat-launcher-ring, #6f8fd8);
+    outline-offset: 2px;
+}
+
+/* Contract when wide (pressed), expand when compact. */
+.chat-dialog__size-glyph::before {
+    content: '\2922';
+}
+
+.chat-dialog__size[aria-pressed="true"] .chat-dialog__size-glyph::before {
+    content: '\2921';
 }
 
 .agent-node__active-chip {
