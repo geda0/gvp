@@ -148,3 +148,43 @@ test('stage transitions honour prefers-reduced-motion', () => {
   )
   assert.match(block[1], /transition:\s*none/)
 })
+
+test('ADR-0027 §4.1: the size toggle is a pressed-state button with a fixed name that keeps focus', async (t) => {
+  // aria-pressed, NOT aria-expanded: it changes the size of the region it lives in, it does
+  // not show other content. The NAME never swaps - a pressed button whose label also flips
+  // reads as a double negative. And it is HIDDEN wherever wide cannot render or the card is
+  // not docked, because a control that does nothing is noise to a screen reader.
+  const { api, getEl, siteState } = await boot('a11y-size-toggle')
+  t.after(() => api.disposeChatLiveVoice())
+  const toggle = getEl('chatDialog').querySelector('[data-chat-size-toggle]')
+  toggle.setAttribute('aria-label', 'Wide chat window') // as the markup ships it
+  const focused = []
+  toggle.focus = () => focused.push('toggle')
+  getEl('chatComposerInput').focus = () => focused.push('composer')
+
+  const read = () => ({
+    hidden: Boolean(toggle.hidden),
+    pressed: toggle.getAttribute('aria-pressed'),
+    label: toggle.getAttribute('aria-label')
+  })
+  const seen = { modal: read() }
+  siteState.setSection('portfolio', { origin: 'visitor' })
+  await settle()
+  seen.docked = read()
+  toggle.events.fire('click', { stopPropagation () {}, target: toggle })
+  await settle()
+  seen.toggled = read()
+  siteState.setContactOpen(true, { origin: 'visitor' })
+  await settle()
+  seen.minimized = read()
+
+  assert.deepEqual(seen, {
+    modal: { hidden: true, pressed: 'true', label: 'Wide chat window' },
+    docked: { hidden: false, pressed: 'true', label: 'Wide chat window' },
+    toggled: { hidden: false, pressed: 'false', label: 'Wide chat window' },
+    minimized: { hidden: true, pressed: 'false', label: 'Wide chat window' }
+  })
+  assert.deepEqual(focused, [], 'a toggle press must not move focus anywhere - it stays on the toggle')
+  assert.equal(getEl('chatDialog').querySelector('.chat-dialog__panel').getAttribute('aria-modal'), 'false',
+    'docked at both sizes is non-modal')
+})

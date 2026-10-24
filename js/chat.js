@@ -945,6 +945,7 @@ export function initChat() {
   } catch (_) { /* storage blocked - the default stands */ }
   // null = not beside a project dialog; a number = beside one, at that measured width.
   let besideDialogWidth = null
+  const sizeToggle = dialog?.querySelector('[data-chat-size-toggle]') || null
 
   // The ONLY writer of data-chat-size / --chat-dock-width, from dockedSizeChrome alone.
   const applyChatSize = () => {
@@ -958,6 +959,12 @@ export function initChat() {
     // 0 = unmeasurable: drop the property so the CSS fallback (the shipped compact rule) holds.
     if (chrome.width > 0) dialog.style.setProperty('--chat-dock-width', `${chrome.width}px`)
     else dialog.style.removeProperty('--chat-dock-width')
+    // Attributes only - the button is never re-rendered or moved, so focus stays on it. Its
+    // aria-label is FIXED in the markup and never written here.
+    if (sizeToggle) {
+      sizeToggle.hidden = chrome.toggleHidden
+      sizeToggle.setAttribute('aria-pressed', chrome.togglePressed)
+    }
   }
 
   // stageChrome returns the accessibility contract as DATA; this is the only place that
@@ -1049,7 +1056,7 @@ export function initChat() {
   // and nothing else: no dispatchStage (size is not a stage), no focus() (the button is not
   // re-rendered, so focus stays on it), nothing voice (invariant #20). stopPropagation, like
   // minimise, so the dialog's own click handler never sees it.
-  dialog?.querySelector('[data-chat-size-toggle]')?.addEventListener('click', (event) => {
+  sizeToggle?.addEventListener('click', (event) => {
     event.stopPropagation()
     chatSize = chatSize === 'wide' ? 'compact' : 'wide'
     try { localStorage.setItem(CHAT_SIZE_STORAGE_KEY, chatSize) } catch (_) { /* lives for the page */ }
