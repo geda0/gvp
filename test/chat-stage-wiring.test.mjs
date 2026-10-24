@@ -1027,3 +1027,35 @@ test('ADR-0029 §6.1: while reserved two dialogs are interactive - the panel is 
     footer: [false, null]
   }, 'only what the reserve made inert is released - an element something else made inert stays')
 })
+
+test('ADR-0029 §6.2: Escape minimises a docked card only when focus is inside the chat', async (t) => {
+  // Two dialogs are interactive while reserved, and both bound Escape at the document: one
+  // keystroke in the project dialog minimised the chat too. Escape is routed by focus now -
+  // with focus on the page (or in the project dialog), it is not the chat's key.
+  const h = await bootDocked(t, 'escape-focus', 1440)
+  h.siteState.setProject({ id: 'team-tactics', title: 'Team Tactics' }, { origin: 'visitor' })
+  await settle()
+  const panel = h.dialog.querySelector('.chat-dialog__panel')
+  const composer = h.getEl('chatComposerInput')
+  const projectClose = makeElLike()
+  panel.contains = (el) => el === composer
+  let prevented = false
+  const esc = () => h.docEvents.fire('keydown', { key: 'Escape', preventDefault () { prevented = true } })
+
+  document.activeElement = projectClose
+  esc()
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'docked',
+    'focus in the project dialog: Escape is the dialog\'s, the chat stays docked')
+  assert.equal(prevented, false, 'and the chat must not swallow it')
+
+  document.activeElement = composer
+  esc()
+  await settle()
+  assert.equal(h.siteState.getSiteState().chatStage, 'minimized', 'focus in the composer: Escape minimises the chat')
+  assert.deepEqual(h.stops, [], 'invariant #20: neither keystroke ends the call')
+})
+
+function makeElLike () {
+  return { closest: () => null, focus () {}, blur () {} }
+}

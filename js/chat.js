@@ -1840,7 +1840,13 @@ export function initChat() {
       // handler still has to run, so no preventDefault. `minimize` -> `minimized` is a
       // no-op in the reducer, which is the point (ss4.3: a pill has nothing to dismiss, and
       // destroying the conversation on a stray keystroke would discard the transcript).
-      dispatchStage('escape', 'visitor')
+      //
+      // ADR-0029 §6.2: ROUTED BY FOCUS. Beside a reserved project dialog two dialogs are
+      // interactive, and one Escape in either used to close the project AND minimise the
+      // chat. With focus outside the chat, Escape is the page's (or the dialog's) key.
+      const active = document.activeElement
+      const focusInChat = Boolean(active && (dialog.contains(active) || panel?.contains(active)))
+      if (focusInChat) dispatchStage('escape', 'visitor')
       return
     }
     event.preventDefault()
