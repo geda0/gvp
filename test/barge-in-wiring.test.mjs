@@ -154,7 +154,20 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
   micButton.disabled = false
   micButton.addEventListener = (type, fn) => { if (type === 'click') clicks.push(fn) }
   micButton.removeEventListener = () => {}
-  const gum = { calls: 0 }
+  // Every stream handed out is kept so a test can ask whether its tracks were stopped; a
+  // 'pending' mic is the browser's permission sheet, settled by the test (allow / deny).
+  const gum = { calls: 0, tracks: [], pending: [] }
+  const makeStream = () => {
+    const tracks = [{ stopped: false, stop () { this.stopped = true } }]
+    gum.tracks.push(...tracks)
+    return { getTracks: () => tracks }
+  }
+  gum.allow = () => { for (const p of gum.pending.splice(0)) p.resolve(makeStream()) }
+  gum.deny = () => {
+    for (const p of gum.pending.splice(0)) { const err = new Error('harness mic'); err.name = 'NotAllowedError'; p.reject(err) }
+  }
+  const patches = []
+  const statuses = []
 
   defineGlobal('document', { querySelector: () => null, querySelectorAll: () => [], createElement: (t) => makeEl(t), addEventListener () {} })
   defineGlobal('window', {
@@ -169,8 +182,8 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
       getUserMedia: async () => {
         gum.calls += 1
         if (mic === 'deny') { const err = new Error('harness mic'); err.name = 'NotAllowedError'; throw err }
-        const tracks = [{ stop () {} }]
-        return { getTracks: () => tracks }
+        if (mic === 'pending') return new Promise((resolve, reject) => gum.pending.push({ resolve, reject }))
+        return makeStream()
       }
     }
   })
@@ -180,7 +193,9 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
   const { bindChatLiveVoice } = await import('../js/chat-live.js?bargein=' + Math.random())
   const live = bindChatLiveVoice({
     messagesEl, statusEl: makeEl('p'), micButtons: [micButton], syncEmptyState () {}, scrollMessagesToBottom () {},
-    setStatus () {}, getSessionId: () => 'barge-in', isTextPending: () => false, openPanel () {}, isPanelOpen: () => true, patchLiveUi () {}
+    setStatus: (text, kind) => { statuses.push({ text, kind }) },
+    getSessionId: () => 'barge-in', isTextPending: () => false, openPanel () {}, isPanelOpen: () => true,
+    patchLiveUi: (patch) => { patches.push(patch) }
   })
   void live.startVoice({ intent: 'auto' })
   await settle()
@@ -194,6 +209,8 @@ async function bootVoice({ permission, mic = 'allow' } = {}) {
     audio,
     gum,
     socket,
+    patches,
+    statuses,
     sentOfKind,
     tapMic: async () => { for (const fn of clicks) fn({ currentTarget: micButton }); await settle() },
     send: async (payload) => { socket.onmessage({ data: JSON.stringify(payload) }); await settle() },
@@ -270,14 +287,41 @@ const PATHS = {
   cold: { permission: 'prompt' },
   granted: { permission: 'granted' }
 }
+// `call` is what each act must do to the CALL besides silencing it. A mic tap on a LIVE mic
+// must still hang up (the explicit act of #20) — silencing alone would also pass the playback
+// assertion, which is exactly the mutant (`if (active)` never taken) the critic found alive.
+const stillOpen = (v) => ({ sessionOpen: v.live.isSessionOpen() })
 const ACTS = {
-  chip: { mic: () => 'allow', act: (v) => v.live.sendUserText('Summarize Apptio (an IBM company) for me.') },
-  text: { mic: () => 'allow', act: (v) => v.live.sendUserText('What does he actually build?') },
-  'mic tap': { mic: (path) => (path === 'cold' ? 'deny' : 'allow'), act: (v) => v.tapMic() }
+  chip: {
+    mic: () => 'allow',
+    act: (v) => v.live.sendUserText('Summarize Apptio (an IBM company) for me.'),
+    call: stillOpen,
+    expect: () => ({ sessionOpen: true })
+  },
+  text: {
+    mic: () => 'allow',
+    act: (v) => v.live.sendUserText('What does he actually build?'),
+    call: stillOpen,
+    expect: () => ({ sessionOpen: true })
+  },
+  'mic tap': {
+    mic: (path) => (path === 'cold' ? 'deny' : 'allow'),
+    act: (v) => v.tapMic(),
+    call: (v) => ({
+      sessionOpen: v.live.isSessionOpen(),
+      micRequests: v.gum.calls,
+      micTracksStopped: v.gum.tracks.every((t) => t.stopped)
+    }),
+    // cold: mic not live -> the tap cuts playback, keeps the call and raises the sheet again.
+    // granted: mic live -> the tap ends the call and releases the mic.
+    expect: (path) => (path === 'cold'
+      ? { sessionOpen: true, micRequests: 2, micTracksStopped: true }
+      : { sessionOpen: false, micRequests: 1, micTracksStopped: true })
+  }
 }
 
 for (const [pathName, path] of Object.entries(PATHS)) {
-  for (const [actName, { mic, act }] of Object.entries(ACTS)) {
+  for (const [actName, { mic, act, call, expect }] of Object.entries(ACTS)) {
     test(`${pathName} path: a ${actName} while the assistant is speaking stops playback locally, before any server frame`, async () => {
       // Arrange — the greeting is speaking: two chunks queued and playing.
       const v = await bootVoice({ ...path, mic: mic(pathName) })
@@ -290,8 +334,8 @@ for (const [pathName, path] of Object.entries(PATHS)) {
 
         // Assert
         assert.deepEqual(
-          { playingBefore, playingAfter: v.audio.playing() },
-          { playingBefore: 2, playingAfter: 0 },
+          { playingBefore, playingAfter: v.audio.playing(), call: call(v) },
+          { playingBefore: 2, playingAfter: 0, call: expect(pathName) },
           `a ${actName} must cut the assistant off at once (invariant #25) — the server's ` +
           '`interrupted` may never come for a clientContent turn, and a visitor who acted ' +
           'should not have to sit through the rest of the sentence'
