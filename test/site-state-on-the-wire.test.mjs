@@ -84,7 +84,9 @@ test('the /api/chat body carries siteState, inside the bytes the digest covers',
   api.openPanelWithMessage('what is this project?')
   await settle(30)
 
-  const chatCall = calls.find((c) => c.url.includes('/api/chat'))
+  // The TURN, not the L2 prewarm (ADR-0026 §5.3) that opening the panel sends first to the
+  // same route with a `{"warm":true}` body.
+  const chatCall = calls.find((c) => c.url.includes('/api/chat') && !String(c.opts?.body).includes('"warm"'))
   assert.ok(chatCall, 'harness: no /api/chat request was made, so this proves nothing')
 
   const sent = JSON.parse(chatCall.opts.body)

@@ -20,6 +20,7 @@ import { PANEL_ANIM_MS, PANEL_ANIM_EASE } from './chat-panel-anim.js'
 import { deriveReplyText } from './chat-reply-text.js'
 import { hasNavPromiseGap } from './nav-promise-gap.js'
 import { buildChatRequest } from './chat-payload-hash.js'
+import { createChatPrewarm } from './chat-prewarm.js'
 import { tourStep } from './tour.js'
 
 const CHAT_DEFAULT_PATH = '/api/chat'
@@ -345,6 +346,14 @@ export function initChat() {
   }
 
   const endpoint = chatApiUrl || CHAT_DEFAULT_PATH
+  // L2 (ADR-0026 §5.3): one throwaway warm POST on the first chat-open intent (launcher hover
+  // or focus, or the panel opening), so the stream Lambda's cold start is paid before the
+  // visitor's first message. Same endpoint and same digest seam as a real turn; once per page.
+  const chatPrewarm = createChatPrewarm({
+    chatApiUrl: endpoint,
+    fetchImpl: (url, opts) => fetch(url, opts),
+    buildRequest: buildChatRequest
+  })
   const exposeModelInfo = window.__CHAT_DEBUG_MODEL__ === true
 
   // Language selector — value sent with every /api/chat request so the
@@ -1071,6 +1080,7 @@ export function initChat() {
   }
 
   const openPanel = ({ mode = 'text' } = {}) => {
+    chatPrewarm.trigger()
     const wantVoice = mode === 'voice'
     if (isOpen()) {
       // A yielded panel is still "open" — stageChrome keeps the dialog in the DOM for
@@ -1535,7 +1545,10 @@ export function initChat() {
     })
   }
 
+  agentNode?.addEventListener('pointerenter', () => chatPrewarm.trigger())
+  agentNodeMic?.addEventListener('focus', () => chatPrewarm.trigger())
   agentInput.addEventListener('focus', () => {
+    chatPrewarm.trigger()
     const source = resolveLauncherSource()
     if (source === 'header') {
       trackEvent('header_chat_focus', { surface: 'header' })
