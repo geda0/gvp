@@ -60,13 +60,18 @@ const TABLE = [
   ['contact-open', 'closed', 'closed', 'closed', 'PLAN-SILENT'],
 
   ['navigate', 'modal', 'docked', 'minimized'],
-  ['project-open', 'modal', 'docked', 'minimized'],
+  // ADR-0029 §4 (deliberate test-writer change): project-open no longer shares navigate's
+  // row. With no `reserveRoom` in ctx (this table injects only `wide`) there is no room, and a
+  // card must not stay under the dialog's scrim - it tucks into the pill at every width. The
+  // rows WITH room are in the ADR-0029 test below.
+  ['project-open', 'modal', 'minimized', 'minimized', 'ADR-0029'],
 
   // Site events are IDEMPOTENT in the yielded stages: a second navigation while docked does
   // not re-promote. Promotion is a visitor act only.
   ['navigate', 'docked', 'docked', 'docked', 'PLAN-SILENT'],
   ['navigate', 'minimized', 'minimized', 'minimized', 'PLAN-SILENT'],
-  ['project-open', 'docked', 'docked', 'docked', 'PLAN-SILENT'],
+  ['project-open', 'docked', 'minimized', 'minimized', 'ADR-0029'],
+  ['project-open', 'minimized', 'minimized', 'minimized', 'ADR-0029'],
 
   // contact-open → minimized at EVERY width. The contact dialog is itself aria-modal and
   // binds Escape; a docked card beside it competes for the same key and focus ring.
@@ -551,4 +556,29 @@ test('ADR-0029: besideLayout reserves the chat column only where the panel still
     if (got.reserve !== 0) wrong.push(`viewport ${bad}: reserve ${got.reserve}, expected 0`)
   }
   assert.deepEqual(wrong, [], 'besideLayout rows (ADR-0029 §7.1):\n  ' + wrong.join('\n  '))
+})
+
+test('ADR-0029 §4: project-open keeps the card docked only where its column is reserved', () => {
+  const rows = [
+    // [from, ctx, expected]
+    ['docked', { wide: true, reserveRoom: true }, 'docked'],
+    ['docked', { wide: true, reserveRoom: false }, 'minimized'],
+    ['docked', { wide: true }, 'minimized'],
+    ['modal', { wide: true, reserveRoom: true }, 'docked'],
+    ['modal', { wide: true, reserveRoom: false }, 'minimized'],
+    ['modal', { wide: false }, 'minimized'],
+    // closed and minimized are absorbing: a site event never opens or promotes the chat.
+    ['closed', { wide: true, reserveRoom: true }, 'closed'],
+    ['minimized', { wide: true, reserveRoom: true }, 'minimized']
+  ]
+  const wrong = []
+  for (const [from, ctx, expected] of rows) {
+    const got = nextChatStage(from, 'project-open', ctx)
+    if (got !== expected) wrong.push(`project-open from ${from} ${JSON.stringify(ctx)}: got ${got}, expected ${expected}`)
+  }
+  // The return path and navigate are unchanged.
+  if (nextChatStage('minimized', 'project-close', { wide: true }) !== 'docked') wrong.push('project-close from minimized (wide) must be docked')
+  if (nextChatStage('modal', 'navigate', { wide: true }) !== 'docked') wrong.push('navigate from modal (wide) must stay docked')
+  if (nextChatStage('docked', 'navigate', { wide: true }) !== 'docked') wrong.push('navigate from docked must stay docked')
+  assert.deepEqual(wrong, [], wrong.join('\n'))
 })

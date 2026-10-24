@@ -17,6 +17,7 @@ import {
   nextChatStage,
   stageChrome,
   hasRoomBesideDialog,
+  besideLayout,
   parseChatSize,
   dockedSizeChrome,
   dockedCardWidth,
@@ -1033,7 +1034,11 @@ export function initChat() {
    * else is chrome only - which is the whole point: a yield must not touch the session.
    */
   const dispatchStage = (event, origin, extraCtx = {}) => {
-    const next = nextChatStage(chatStage, event, { wide: isWideViewport(), ...extraCtx })
+    const next = nextChatStage(chatStage, event, {
+      wide: isWideViewport(),
+      reserveRoom: besideLayout({ viewportWidth: window.innerWidth, preferred: chatSize }).reserve > 0,
+      ...extraCtx
+    })
     if (next === chatStage) return
     if (next === 'closed') {
       closePanel({ restoreFocus: origin === 'visitor', immediate: true })

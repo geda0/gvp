@@ -78,10 +78,17 @@ export function nextChatStage (stage, event, ctx) {
     // They are also IDEMPOTENT in the yielded stages: a second navigation while docked does
     // not re-promote to modal. Promotion is a visitor act only.
     case 'navigate':
-    case 'project-open':
       if (stage === 'closed') return 'closed'
       if (stage === 'modal') return yielded
       return stage
+
+    // ADR-0029 §4: a project dialog keeps a visible card only where it reserves the card's
+    // column (`ctx.reserveRoom`, besideLayout's reserve > 0, injected like `wide`). Anywhere
+    // else the card would sit blurred under the dialog's inset:0 scrim, so it tucks into the
+    // pill. A MISSING flag is no room: an unmeasured layout must not leave a card under it.
+    case 'project-open':
+      if (stage === 'closed' || stage === 'minimized') return stage
+      return ctx && ctx.reserveRoom ? 'docked' : 'minimized'
 
     // contact-open → minimized at EVERY width, not just narrow. The contact dialog is itself
     // aria-modal and binds Escape; a docked card beside it competes for the same key and the
