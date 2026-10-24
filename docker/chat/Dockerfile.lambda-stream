@@ -10,10 +10,20 @@
 # OUR OWN web server as CMD, so this image starts from python:3.12-slim and runs
 # uvicorn; LWA is installed as an internal extension and proxies the invoke to
 # 127.0.0.1:8000, streaming the SSE body through as it arrives.
-FROM python:3.12-slim
+# PINNED BY DIGEST (ADR-0026 §6). A floating tag re-resolves on every build, so a routine deploy
+# could ship new base layers that the first cold start then pulls lazily (the 9-10 s post-deploy
+# cold start in the RCA). The tag is for humans; the @sha256 multi-arch index digest is what
+# resolves. test/chat-stream-image-pinned.test.mjs fails if either reference loses its digest.
+# Bumping is a deliberate commit (security patches are the reason), for each reference:
+#   docker buildx imagetools inspect python:3.12-slim
+#   docker buildx imagetools inspect public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0
+# take the top-level "Digest:" (the index, not a per-platform manifest), edit the line, deploy to
+# stage, read the post-deploy warm's elapsed ms in the deploy log, then promote to prod.
+# Pinned 2026-10-24.
+FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
 
 # AWS Lambda Web Adapter as a Lambda internal extension.
-COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 /lambda-adapter /opt/extensions/lambda-adapter
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0@sha256:17cfd08eff1dfea3f6a9a1e9c65fdac80aa4919b6085e746615530f43f57d2f1 /lambda-adapter /opt/extensions/lambda-adapter
 
 WORKDIR /var/task
 
