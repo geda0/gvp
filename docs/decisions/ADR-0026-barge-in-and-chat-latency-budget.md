@@ -340,3 +340,35 @@ COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0@sha256:<digest> /lam
 - Two drift items for the loop, not fixed here: invariant **#13**'s text and
   `test_final_attempt_first_chunk_is_uncapped` describe the old uncapped last attempt (marked
   amended in the invariants file); ADR-0017 §5 stays as written (shipped ADRs are not edited).
+
+## Addendum (2026-10-24, orchestrator) — barge-in by voice over a fully-delivered tail
+
+**Gap found by the tdd-critic.** Gemini Live sends audio faster than real time, so its
+`turnComplete` often lands while the player still has seconds queued. With no server turn in
+flight Live has nothing to interrupt, and speaking over that tail did not stop it, which breaks
+#25 by voice. A fourth `interruptAssistant` reason closes the gap:
+`'voice_local'`, raised from an input-transcript fragment.
+
+**The rule.** Live's input transcription lags. The last fragment of the visitor's question can
+arrive after its answer's `turnComplete`, while that answer is still sounding; cutting on every
+fragment silenced the visitor's own answer (critic repro). So a fragment cuts only when **all**
+of the following hold:
+
+- its **utterance started after the playing turn's first output** (`utteranceStartedAt >
+  playingTurnFirstOutputAt`). An utterance starts at the first fragment ever, or at a fragment
+  arriving more than `VOICE_UTTERANCE_GAP_MS = 1500` after the previous fragment.
+  `playingTurnFirstOutputAt` is set when a turn's first accepted model output arrives (audio,
+  text or transcript, in either wire shape). Output of a cancelled turn does not count;
+- the gate is idle (`isIdleGate`): a turn in flight is the server's to interrupt;
+- the player is still sounding (`isPlaying()`): with nothing queued, nothing is cut, and the
+  turn is not recorded as interrupted.
+
+The reason maps to `localInterrupt`, so an idle gate stays idle and the answer plays. Pinned in
+`test/barge-in-wiring.test.mjs`: the repro (both wire shapes), the greeting-tail cut, a new
+utterance after a >1.5 s gap, the root-transcript first output, and the nothing-queued
+telemetry.
+
+**Probe bound.** The time from the visitor's first voiced frame to playback silence has its own
+bound, `VOICE_CUT_BUDGET_MS = 1500` in `scripts/qa/voice-stage-probe.mjs`. It covers Live's
+speech detection or transcription latency. It is separate from `GRACE_MS`, which is counted from
+`interrupted`. The probe records the measured number on every run.
