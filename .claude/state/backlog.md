@@ -6,6 +6,51 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 
 ---
 
+## 2026-10-24 — mic permission + project dialog beside the chat
+
+> Source: owner report 2026-10-24 (Chrome desktop, live site; verbatim in design-notes). Scope decided
+> by RCA. **Full acceptance bullets live in `design-notes.md` → "2026-10-24 — mic permission +
+> project dialog beside the chat" (P1–P3)**. Architect owns two ADRs (mic-first-then-greet; a dialog
+> reserves the chat's column). Supersedes G1's "greeting plays while the mic is requested" ordering and
+> W6's `open-beside` ladder. Navigator decisions N-P1…N-P4 in design-notes; none blocks the build.
+
+1. **P2 — mic first, then greet** — `[app]` `[qa]` `[human]` — _owner-visible: greeting cut off by its
+   own echo at the grant._ Mic + session connect in parallel; greeting only after the grant
+   (≤ 1.5 s after Allow, measured ≈ 0.8 s) with the mic live so barge-in holds; deny → text fallback;
+   ignored bubble → clean close at the timeout (rec. 20 s); hang-up during the wait.
+2. **P3 — a project dialog reserves the chat's column** — `[app]` `[qa]` `[human]` — every open path
+   (page, chip, chat opened/restored over a project); wide ≥ 1352, compact ≥ 1016 (stored size
+   unchanged), tuck to pill < 1016; grey-left-of-dialog closes; rest of page inert; Escape scoped;
+   voice survives (#20).
+3. **P1 — permission hint, "dismissed" copy, permission telemetry** — `[app]` `[qa]` — hint while the
+   bubble is up; dismissed ≠ denied; `permissionBefore` + `outcome` + wait ms per voice start.
+4. **Owner check (gates prod)** — `[human]` — real Chrome first visit: one bubble, hint visible,
+   greeting after Allow plays uncut on laptop speakers, no re-prompt after reload; 1440 project +
+   chat side by side.
+
+## 2026-10-24 — wide docked assistant window
+
+> Source: owner request 2026-10-24 (verbatim in design-notes). Owner decisions taken: first open =
+> **WIDE**; the wide window **floats** (no backdrop, page usable around it, may cover content; no
+> reflow). **Full acceptance bullets live in `design-notes.md` → "2026-10-24 — wide docked assistant
+> window" (W1–W7)**. Supersedes D3's "first open = modal" at ≥ 768 px. Architect owns the ADR and
+> invariants (#20, #22). Navigator decisions N-W1…N-W6 in design-notes; none blocks the build
+> (build on the PO recommendation; N-W4 could change W2's scope if the owner meant a 3-way switch).
+
+1. **W1 + W2 — open lands docked-wide; header toggle wide ⇄ compact** — `[app]` `[qa]` — reducer:
+   open-* → docked when `wide`; size as a separate dimension; toggle from the very first open, voice
+   survives (inv #20). Same bottom-right anchor; `wideWidth = min(WIDE_MAX≈720, vw − 2×20)`.
+2. **W4 — site usable around the card at both sizes** — `[qa]` — nav click, scroll, project dialog,
+   hit-test, no backdrop / aria-modal / focus trap / focus theft; no horizontal scroll 320–1920 px.
+3. **W3 — size preference persists** — `[app]` `[qa]` — guarded storage helper; across reloads
+   pending N-W1 (recommend localStorage).
+4. **W6 — transitions + room-beside for wide** — `[app]` `[qa]` — restore returns to the last chosen
+   size; project chip: wide → temporary compact → modal by measured room.
+5. **W5 — narrow fallback** — `[app]` `[qa]` — < 768 px unchanged (full-screen / centred modal, no
+   toggle), pending N-W2.
+6. **W7 — reduced-motion resize** — `[app]` `[qa]` `[human]` — then owner look at 1440×900 (gates
+   prod).
+
 ## 2026-10-24 — barge-in + chat latency (TOP PRIORITY)
 
 > Source: `docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md`. Scope decided (RCA §4
@@ -37,6 +82,56 @@ behaviors — never "implement X"). Move accepted items down to "Shipped"._
 6. **G2 — explicit actions cut the assistant off locally** — `[app]` — chip-to-call, text send, and
    mic tap stop playback at once without waiting for the server, greeting or any turn, cold and
    warm; plain site navigation does not.
+
+### PO ruling 2026-10-24 (po-1024) — accept for PROD: **CONCERNS** (ship; follow-ups below)
+
+Evidence: qa-verifier `qa-1024` (stage `agent`@c37db15, real Chrome via CDP + WebAudio-fed WAV
+mic, curl, Logs Insights, ECR manifests); tdd-critic `critic-1024b4` PASS (G1/G2/L2-client/G3,
+after b/b2/b3 CONCERNS); L1/L2-server/L3 closed by the orchestrator's `critic-1024a2` pass
+(99b4d6d, mutants C2/C3/C6 red) after the critic's own a/a2 rulings were CONCERNS — the critic
+did not re-rule that track itself; noted, not blocking (each named gap has a mutation-red test).
+Release authority: the navigator's explicit session instruction "validate stage, then deploy
+prod" — it overrides the `[human-staging GATED]` bullet for this release; that check is **not**
+ticked and stays open below.
+
+- [x] **G1** accepted — stage: 15/15 barge-in claims at WAV lead 400/100 ms, voice→silence
+      283/174 ms (budget 1500), 0 late frames past the 500 ms grace, getUserMedia before
+      `turnComplete`; granted/denied paths held by unmodified tests.
+- [x] **G3** accepted (agent bullets) — probe inverted; silent-mic control PASS; red-proof: the
+      same claim FAILS on prod (gUM 1 ms after `turnComplete`, 3.7 s of greeting played past it).
+      Human first-visit check: **OPEN** (follow-up F1).
+- [x] **L1** accepted on `[chat]` tests (live stage saw no 503/fallback to observe). Pre-deploy logs
+      confirm the old bugs ("switching to gemma… to gemma", 503 alerted as rate-limit) were real.
+      Note: fallback-preference TTL ships at **10 min**, not the 5 min PO default — N2 open (F6).
+- [x] **L2** accepted — warm via CloudFront 204 in 0.28 s (log only `chat warm`), bad digest 403 at
+      edge, with messages 400; after 16 min idle, chat open absorbed the 2441 ms init and the first
+      message had no Init Duration (first token 536 ms).
+- [x] **G2** accepted — chip mid-greeting stops locally at once, no tail, call survives; two quick
+      chips 8/8; voice chips 5/5. (The 2/3 "reply heard" FAIL was the probe's window, reply ~17 s;
+      passes on rerun — defect F4, not a product defect.)
+- [~] **L3** PARTIAL — accepted: post-deploy warm per env fails the job on non-2xx; base pinned by
+      digest with a check. **Not accepted:** pip/adapter layers still rebuild every deploy;
+      post-deploy cold init 5.4 s (was 7.3–9.7 s, bar 2–3.5 s). Improvement ships; bar not met (F2, F3).
+- Latency on stage (8 turns): first token p50 ~1.16 s, max 4.58 s, all on primary.
+
+**Post-release follow-ups (open):**
+- [ ] **F1. Human first-visit check (owner, on prod or stage)** — fresh profile, permission not
+      granted: start voice, accept the prompt, speak over the greeting → greeting stops. Plus the
+      two never-verified human checks: **echo** (real speakers + laptop mic: the assistant must
+      not barge in on itself; agent control run used a silent mic, not acoustic echo) and how the
+      **real permission prompt over a playing greeting** looks/sounds (N1 trade-off).
+- [ ] **F2. L3 pip/adapter layer reuse** — two no-dep-change deploys must push only the app layer
+      (ECR digests). Needs the ADR-0026 §6 decision the architect left open (registry build cache).
+- [ ] **F3. Post-deploy cold init 5.4 s** vs the 2–3.5 s bar — re-measure after F2; if still high,
+      RCA it (image size / lazy layer pull).
+- [ ] **F4. Probe defect (low):** chip "reply heard" window too short (reply took ~17 s) — false FAIL.
+- [ ] **F5. Probe defect:** the official stage voice probe cannot run on this Mac (Chrome fake-device
+      getUserMedia hangs) — adopt the WebAudio-fed WAV source in `scripts/qa/` or document the macOS
+      mic-permission setup, so G3 is a repeatable regression net, not a one-off harness.
+- [ ] **F6. N2–N5 navigator confirmations** — N2 (TTL shipped 10 min vs 5), N3 (≤ 15 s bound),
+      N4 (mic tap cuts playback only), N5 (warm abuse bound in ADR-0026). N1 is de facto accepted by
+      the prod instruction; record it.
+- [ ] **O1 / O2** (owner, below) remain open — L1 only bounds the damage of a dead fallback.
 
 **Owner actions (out of agent scope — not slices):**
 - [ ] **O1.** Verify, and enable if needed, billing on the prod Gemini key (RCA infers free tier).

@@ -31,7 +31,9 @@ test('the chip renders from chatStage and voiceActive only, and restores', () =>
 
 test('restore from closed stays closed — the property that makes the chip safe', () => {
   assert.equal(nextChatStage('closed', 'restore', { wide: true }), 'closed')
-  assert.equal(nextChatStage('minimized', 'restore', { wide: true }), 'modal')
+  // ADR-0027 §2.4: on wide the chip restores the main docked card; narrow still restores modal.
+  assert.equal(nextChatStage('minimized', 'restore', { wide: true }), 'docked')
+  assert.equal(nextChatStage('minimized', 'restore', { wide: false }), 'modal')
 })
 
 test('the launcher click reads chatStage, not isOpen() (true while minimised, so the click did nothing)', () => {

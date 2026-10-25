@@ -136,3 +136,93 @@ test('the yielded panel takes its own pointer events back', () => {
     'so the site stays usable, and nothing else turns them back on for the card itself'
   )
 })
+
+test('ADR-0027 §4: the docked width has ONE source of truth, --chat-dock-width from dockedCardWidth', () => {
+  // CSS must not restate 720 / 320: besideLayout needs the same number in JS, and two
+  // copies of one formula is the drift ADR-0017 §2.4 warned about. The var() fallback is the
+  // shipped compact rule, so JS failing to run degrades to today's card.
+  const css = read('css', 'chat.css')
+  const block = /#chatDialog\[data-chat-stage='docked'\] \.chat-dialog__panel \{([^}]*)\}/.exec(css)
+  assert.ok(block, 'the docked panel rule is gone or was renamed')
+  assert.match(block[1], /(^|\s)width:\s*var\(--chat-dock-width,\s*min\(24rem, calc\(100vw - 2rem\)\)\)/)
+  assert.match(block[1], /max-width:\s*var\(--chat-dock-width,\s*min\(24rem, calc\(100vw - 2rem\)\)\)/)
+  const stageBlock = css.slice(css.indexOf('the stage (ADR-0015 §4)'))
+  assert.doesNotMatch(stageBlock, /(?<![\d.])(720px|45rem|320px)/,
+    'the wide cap and the uncovered floor live in js/chat-stage.js only')
+})
+
+test('a card docked BESIDE a project dialog sits above its scrim, below the modal chat and the tour', () => {
+  // MEASURED (scripts/qa/chat-stage-journeys.mjs, "W6 beside a project dialog"): at
+  // 1920x1080 elementFromPoint over the beside card returned the PROJECT DIALOG, because the
+  // card was at the yielded 1085 under .project-dialog's inset:0 1100 scrim. ADR-0027 §9 filed
+  // it; this is the fix. ONLY the beside case moves (js/chat.js marks it data-chat-beside
+  // only when the card was measured to fit without overlapping the panel); the yielded rule
+  // above is untouched, so a card the visitor stepped away from still sits under the dialog.
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const beside = zIndexOf(chatCss, "#chatDialog[data-chat-stage='docked'][data-chat-beside='true']")
+  const project = zIndexOf(siteCss, '.project-dialog')
+  const modal = zIndexOf(chatCss, '.chat-dialog')
+  const tour = zIndexOf(chatCss, '.tour-card')
+  assert.ok(beside > project, `beside card (${beside}) must sit above the project dialog scrim (${project})`)
+  assert.ok(beside < modal, `and below a modal chat (${modal})`)
+  assert.ok(beside < tour, `and below the tour card (${tour}), which must stay on top at every stage`)
+})
+
+// ---------------------------------------------------------------- ADR-0029 §5 / §7.7
+
+/** Every rule block whose selector list mentions `needle`, as [selector, body]. */
+function blocksMentioning (css, needle) {
+  return [...css.matchAll(/(^|\})\s*([^{}]+)\{([^}]*)\}/g)]
+    .map((m) => [m[2].trim(), m[3]])
+    .filter(([sel]) => sel.includes(needle))
+}
+
+test('ADR-0029 §5: the project dialog consumes ONE generic inset and knows nothing about the chat', async () => {
+  const css = read('css', 'styles.css')
+  const dialog = blocksMentioning(css, '.project-dialog').find(([sel]) => sel === '.project-dialog')
+  assert.ok(dialog, 'the .project-dialog rule is gone or was renamed')
+  assert.match(dialog[1], /padding-inline-end:\s*calc\(1rem \+ var\(--overlay-reserve-inline-end, 0px\)\)/,
+    'the dialog area ends where the reserved column starts')
+  const panel = blocksMentioning(css, '.project-dialog__panel').find(([sel]) => sel === '.project-dialog__panel')
+  assert.match(panel[1], /max-width:[^;]*var\(--overlay-reserve-inline-end, 0px\)/,
+    'the panel narrows into the space the inset leaves')
+  for (const [sel, body] of blocksMentioning(css, '.project-dialog')) {
+    assert.doesNotMatch(sel + body, /chat/i, `${sel} mentions the chat - the inset is the only seam`)
+  }
+
+  // PROJECT_PANEL_MAX is recomputed from the rule, so the CSS cannot change without the constant.
+  const { PROJECT_PANEL_MAX } = await import('../js/chat-stage.js')
+  const rem = (re) => Number(re.exec(panel[1])[1]) * 16
+  const content = rem(/max-width:\s*min\((\d+(?:\.\d+)?)rem/)
+  const start = rem(/padding:\s*[\d.]+rem\s+([\d.]+)rem/)
+  const end = rem(/padding-inline-end:\s*([\d.]+)rem/)
+  const border = Number(/border:\s*(\d+)px/.exec(panel[1])[1])
+  assert.equal(Math.round((content + start + end + 2 * border) * 100) / 100, PROJECT_PANEL_MAX)
+})
+
+test('ADR-0029 addendum: a pill minimised beside a reserved dialog sits above its scrim, below the modal chat', () => {
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const pill = zIndexOf(chatCss, "#chatDialog[data-chat-stage='minimized'][data-chat-beside='true']")
+  assert.ok(pill > zIndexOf(siteCss, '.project-dialog'), `the pill (${pill}) must be restorable above the scrim`)
+  assert.ok(pill < zIndexOf(chatCss, '.chat-dialog'), 'and below a modal chat')
+  assert.ok(pill < zIndexOf(chatCss, '.tour-card'), 'and below the tour card')
+})
+
+test('critic: the tour card centres in the space LEFT of the docked card, and the selection offer sits above the project scrim', () => {
+  // tdd-critic, measured at 1440: the bottom-centred tour card covered the wide docked card's
+  // composer. It reads the chat's column (--chat-dock-column, written by js/chat.js only) so it
+  // centres in what is left and never overlaps the card.
+  const chatCss = read('css', 'chat.css')
+  const siteCss = read('css', 'styles.css')
+  const tour = /(^|\})\s*\.tour-card\s*\{([^}]*)\}/m.exec(chatCss)
+  assert.ok(tour, 'the .tour-card rule is gone or was renamed')
+  assert.match(tour[2], /left:\s*calc\(\(100vw - var\(--chat-dock-column, 0px\)\) \/ 2\)/)
+  assert.match(tour[2], /width:\s*min\(26rem, calc\(100vw - 2rem - var\(--chat-dock-column, 0px\)\)\)/)
+  // The selection offer may be raised inside the project dialog's description (an allowed
+  // region): under the 1100 scrim it was invisible and, while reserved, inert.
+  const offer = zIndexOf(chatCss, '.selection-offer')
+  assert.ok(offer > zIndexOf(siteCss, '.project-dialog'), `selection offer (${offer}) must sit above the project scrim`)
+  assert.ok(offer < zIndexOf(chatCss, '.chat-dialog'), 'and below a modal chat')
+})

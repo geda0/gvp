@@ -2367,6 +2367,23 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     z-index: 1085;
 }
 
+/* ...EXCEPT a card docked BESIDE a project dialog (ADR-0029). At 1085 it sat under
+ * .project-dialog's inset:0 scrim (1100) - MEASURED: elementFromPoint over it returned the
+ * dialog, a blurred card the visitor could not type into (ADR-0027 §9). js/chat.js marks it
+ * exactly while it reserves the chat's column (--overlay-reserve-inline-end), and the dialog
+ * centres in the space left of that column, so lifting the card covers scrim, never panel.
+ * Still below a modal chat (1105) and the tour (1150). */
+#chatDialog[data-chat-stage='docked'][data-chat-beside='true'] {
+    z-index: 1102;
+}
+
+/* ADR-0029 addendum: the PILL minimised beside a reserved dialog keeps the column and is lifted
+ * the same way - under the scrim it was a conversation with no way back until the dialog
+ * closed. It sits in the reserved (empty) column, so it covers scrim, never panel. */
+#chatDialog[data-chat-stage='minimized'][data-chat-beside='true'] {
+    z-index: 1102;
+}
+
 /* The panel takes its own pointer events back — the shell's `none` is what frees the page. */
 #chatDialog[data-chat-stage='docked'] .chat-dialog__panel,
 #chatDialog[data-chat-stage='minimized'] .chat-dialog__panel {
@@ -2385,16 +2402,26 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     border-style: solid;
 }
 
-/* ---- docked: a real, usable card beside the content ---- */
+/* ---- docked: a real, usable card beside the content ----
+ * ADR-0027: the MAIN window, at two sizes. The width has ONE source of truth -
+ * dockedCardWidth in js/chat-stage.js, written as --chat-dock-width by js/chat.js - and is
+ * never restated here; the var() fallback is the shipped compact rule, so a page whose JS
+ * did not run still gets today's card. Both sizes share the bottom-right anchor (the shell's
+ * flex-end), so wide grows leftward and upward from the same corner. */
 #chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
-    width: min(24rem, calc(100vw - 2rem));
-    max-width: min(24rem, calc(100vw - 2rem));
+    width: var(--chat-dock-width, min(24rem, calc(100vw - 2rem)));
+    max-width: var(--chat-dock-width, min(24rem, calc(100vw - 2rem)));
     height: min(60vh, 34rem);
     max-height: min(60vh, 34rem);
     border-radius: 18px;
     box-shadow:
         0 10px 32px rgba(0, 0, 0, 0.42),
         0 0 0 1px color-mix(in srgb, var(--chat-launcher-glow-chrome) 12%, transparent);
+}
+
+#chatDialog[data-chat-stage='docked'][data-chat-size='wide'] .chat-dialog__panel {
+    height: min(72vh, 44rem);
+    max-height: min(72vh, 44rem);
 }
 
 /* ---- minimized: the header alone, as a pill ---- */
@@ -2439,6 +2466,14 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     }
 }
 
+/* ADR-0027: the wide <-> compact change grows the card from its corner. Declared ONLY here,
+ * so the reduce rule above can never be out-specified by it (invariant #22, W7). */
+@media (prefers-reduced-motion: no-preference) {
+    #chatDialog[data-chat-stage='docked'] .chat-dialog__panel {
+        transition: width 200ms ease, max-width 200ms ease, height 200ms ease, max-height 200ms ease;
+    }
+}
+
 
 /* M4 slice 15 (ADR-0017 §6) — minimise lives on the docked card only; the launcher chip is the
    way back from minimised. */
@@ -2466,6 +2501,51 @@ body.content-open .agent-slot--navbar .agent-node__submit {
     background: var(--surface-hover, rgba(255, 255, 255, 0.08));
 }
 
+/* ADR-0027 §4.1 — the wide <-> compact toggle. Docked card only (like minimise), and the
+   [hidden] rule matches the docked rule's specificity so toggleHidden (below 840px, beside
+   a dialog with no room for wide) actually hides it. The glyph swaps; the name never does. */
+.chat-dialog__size {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__size {
+    display: inline-flex;
+}
+
+.chat-dialog[data-chat-stage="docked"] .chat-dialog__size[hidden] {
+    display: none;
+}
+
+.chat-dialog__size:hover,
+.chat-dialog__size:focus-visible {
+    background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.chat-dialog__size:focus-visible {
+    outline: 2px solid var(--chat-launcher-ring, #6f8fd8);
+    outline-offset: 2px;
+}
+
+/* Contract when wide (pressed), expand when compact. */
+.chat-dialog__size-glyph::before {
+    content: '\2922';
+}
+
+.chat-dialog__size[aria-pressed="true"] .chat-dialog__size-glyph::before {
+    content: '\2921';
+}
+
 .agent-node__active-chip {
     margin-top: 0.5rem;
     padding: 0.3rem 0.8rem;
@@ -2483,10 +2563,12 @@ body.content-open .agent-slot--navbar .agent-node__submit {
 }
 
 
-/* M4 slice 16 — the "Ask about this" offer under a content selection. */
+/* M4 slice 16 — the "Ask about this" offer under a content selection. Above the project
+ * dialog (1100): its description is an allowed region, and under the scrim the offer was
+ * invisible (ADR-0029: it is also exempt from the reserve's inert sweep). Below a modal chat. */
 .selection-offer {
     position: fixed;
-    z-index: 1090;
+    z-index: 1101;
     transform: translateX(-50%);
     padding: 0.3rem 0.75rem;
     border: 1px solid var(--accent, currentColor);
@@ -2507,11 +2589,14 @@ body.content-open .agent-slot--navbar .agent-node__submit {
    that a stop may open, so it is visible and tappable at every width and every chat stage. */
 .tour-card {
     position: fixed;
-    left: 50%;
+    /* Centred in the space LEFT of the docked chat's column (js/chat.js publishes it as
+     * --chat-dock-column; 0 when nothing is docked), so it never covers the card's composer
+     * (tdd-critic, measured at 1440). */
+    left: calc((100vw - var(--chat-dock-column, 0px)) / 2);
     bottom: max(1rem, env(safe-area-inset-bottom));
     transform: translateX(-50%);
     z-index: 1150;
-    width: min(26rem, calc(100vw - 2rem));
+    width: min(26rem, calc(100vw - 2rem - var(--chat-dock-column, 0px)));
     box-sizing: border-box;
     padding: 0.85rem 1rem;
     border-radius: 14px;

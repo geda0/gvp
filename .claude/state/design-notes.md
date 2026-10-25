@@ -4,6 +4,331 @@
 > between cycles lives here. Copy/brand direction for the active milestone is below —
 > read it before building any copy or IA slice.
 
+## 2026-10-24 — mic permission + project dialog beside the chat
+
+**Source:** owner report 2026-10-24 (Chrome desktop, live site), verbatim: *"1. permissions are asked
+every time 2. permissions interfere with the greeting. 3. when we open any details of any project, it
+covers the chat even when the screen has space, it covers everything with the gray overlay."*
+Backlog item: `backlog.md` → "2026-10-24 — mic permission + project dialog beside the chat". Scope is
+**decided** (orchestrator RCA, summarised below) — do not relitigate inside a cycle. Architect owns two
+ADRs in `docs/decisions/` (**mic-first-then-greet**; **a dialog reserves the chat's column**) and any
+invariant edits; where an ADR fixes an exact number, the ADR wins and these bullets follow it.
+Invariant #20 (voice survives) binds every bullet below.
+
+**RCA in one line each.** (#1) Our code asks for the mic only on *Start voice chat*, with stable
+constraints; repeat prompts come from Chrome's one-time "Allow this time" grant (or different
+origins/profiles) — we cannot force persistence, so we **guide** and **measure**. (#2) Measured: the
+mic goes live mid-greeting at the grant and the greeting's own audio leaking into the mic triggers the
+server's barge-in, cutting the greeting (then the model answers its own echo) — fix: **mic first,
+greet after the grant**. (#3) Opening a project from the page never lifts the docked chat (only the
+chip path did), and a centred 740 px dialog leaves no room at 1280–1547 px — fix: **while the chat is
+docked, a project dialog centres in the space left of the chat's column and the chat stays usable
+above the grey overlay**.
+
+**What this supersedes.** G1's cold path ("mic requested immediately; frames sent while the greeting
+plays") keeps *mic immediately* and *barge-in works*, but the greeting now **starts after the grant**,
+not before it. W6's `open-beside` ladder (wide → temporary compact → `modal` by `(vw − dialogWidth)/2`
+side room) is replaced by the reserved-column rule in P3 for **every** dialog-open path, not only the
+chip. Tests that assert the old behaviour are deliberately updated by this feature, not regressions.
+
+**Layer labels:** `[app]` = js/ `node --test` (reducers, geometry, copy, telemetry payload, wiring) ·
+`[qa]` = real-browser journey (`scripts/qa/chat-stage-journeys.mjs` / CDP harness) and the stage voice
+probe · `[human]` = owner on his own Chrome.
+
+### P1 — the mic prompt is explained, and a dismissed prompt is not called "denied" (#1)
+- [ ] `[app]` While the microphone request is pending **and** the permission state before the request
+      was `prompt` or unknown, the voice panel shows exactly: *"Your browser is asking for the
+      microphone — choose “Allow while visiting the site” so we don't ask again."* It is not shown
+      when the state was already `granted` (no bubble) or `denied` (no request). It disappears as soon
+      as the request settles (granted, denied, dismissed, timed out or hung up).
+- [ ] `[app]` When the request is rejected and the permission state **afterwards is still `prompt`**
+      (bubble dismissed / closed with ✕), the panel shows exactly: *"No microphone access yet — tap
+      Start voice chat to be asked again."* — **not** the "denied" copy, and *Start voice chat*
+      remains enabled. When the state afterwards is `denied`, the existing denied copy is shown
+      (unchanged). Both asserted as data on the outcome → copy mapping.
+- [ ] `[app]` Every voice start records one telemetry event carrying `permissionBefore` ∈ {`granted`,
+      `prompt`, `denied`, `unknown`}, `outcome` ∈ {`granted`, `denied`, `dismissed`, `timeout`,
+      `hangup`, `error`}, and the wait in ms from request to settle (0 when no request was made). No
+      audio, transcript text or device ids in the payload. Asserted on the payload for each outcome.
+- [ ] `[app]` The `getUserMedia` constraints are identical on every call (same object shape and
+      values across first start, retry after dismiss, and restart after hang-up) — pinned so a
+      changing constraint can never be a cause of re-prompting.
+- [ ] `[qa]` Stage, Chrome with a fake device and permission state reset to `prompt`: start voice →
+      the hint is visible in the panel within 300 ms of the click; grant → the hint is gone within
+      300 ms of the grant; the telemetry event reaches the stage collector with
+      `permissionBefore: "prompt"`, `outcome: "granted"`.
+- [ ] `[qa]` Same setup, permission pre-granted: start voice → the hint never appears (sampled every
+      100 ms until the greeting starts), event has `permissionBefore: "granted"`, wait `0`.
+
+### P2 — mic first, then the greeting; barge-in still works (#2)
+- [ ] `[app]` Cold path (state `prompt`/unknown): starting voice requests the microphone **and**
+      connects the session **in parallel** (the connect is not deferred behind the grant), but **no
+      greeting audio is requested from or played by the model before the grant resolves**. A wiring
+      test fails if the greeting trigger can fire before the grant on this path.
+- [ ] `[app]` On grant, the mic stream is attached and sending upstream **before** the greeting is
+      triggered — the first greeting audio frame is never played while the mic is not live. An
+      `interrupted` during the greeting still stops playback at once and drops the rest of that turn
+      (G1's barge-in bullets stay green).
+- [ ] `[app]` Granted path (state already `granted`): unchanged — mic attached at session start, the
+      greeting plays, barge-in works (existing tests green unmodified).
+- [ ] `[app]` Denied (bubble denied, or state already `denied`): no voice greeting plays; the panel
+      falls back to text (composer focused, greeting delivered as text in the transcript), the denied
+      affordance is shown, and the voice session is closed (no open upstream socket). See N-P1.
+- [ ] `[app]` Ignored bubble: if the request has not settled after the mic-wait timeout (N-P2;
+      recommend **20 s**), the voice session closes cleanly — socket closed, no greeting played, no
+      orphan audio context running, panel back to a state where *Start voice chat* is enabled and the
+      P1 "no access yet" copy is shown; telemetry `outcome: "timeout"`.
+- [ ] `[app]` Hang-up while the bubble is up: the session closes at once, no greeting plays later, and
+      if a grant arrives after the hang-up its tracks are stopped immediately (no live mic indicator
+      left on); telemetry `outcome: "hangup"`.
+- [ ] `[qa]` Stage voice probe, cold path with an auto-grant delay of 2 s: the first greeting audio
+      frame arrives **≥ the grant time** and **≤ 1.5 s after the grant** (measured ≈ 0.8 s); the
+      greeting plays to its `turnComplete` with **no** `interrupted` when the probe's mic carries
+      only the greeting's own loopback at speaker level (echo control run); with a WAV of speech
+      injected 1 s into the greeting, `interrupted` arrives and playback stops (barge-in held).
+- [ ] `[qa]` Probe variants: deny → no greeting audio, text fallback visible within 1 s; never answer
+      the bubble → session closed by the timeout, no greeting audio ever received; hang up 1 s into
+      the wait → no greeting audio after the hang-up, mic indicator off.
+- [ ] `[human]` Owner, real Chrome, **first visit** (fresh profile or site permissions reset), laptop
+      speakers, no headphones: clicking *Start voice chat* shows **one** browser bubble, the hint is
+      visible in the panel while it is up; after **Allow while visiting the site** the greeting starts
+      within about a second and plays **uncut** to the end; speaking over it then cuts it off. A
+      reload and a second *Start voice chat* does **not** prompt again.
+
+### P3 — a project dialog reserves the chat's column (#3)
+Geometry (architect fixes exact numbers in the ADR): gutter = 20 px; the chat column = the docked
+card at its current size (wide 720 / compact 384) plus its gutters; the **dialog area** = the viewport
+left of that column, `vw − cardWidth − 2×gutter` wide. Wide fits beside a dialog from **≥ 1352 px**
+(1352 − 720 − 40 = 592), compact from **≥ 1016 px** (1016 − 384 − 40 = 592).
+- [ ] `[app]` A pure layout function, given `vw`, the visitor's stored size and the chat stage, returns
+      for a docked chat with a dialog open: `wide` at vw ≥ 1352; `compact` at 1016 ≤ vw < 1352 (even
+      if the stored size is wide); `tucked` (chat → minimized pill) at vw < 1016. Boundary cases
+      asserted as data: 1351/1352, 1015/1016, plus 1280, 1440, 1547, 1920. The stored size preference
+      is never written by this function (W3 preference unchanged after any dialog).
+- [ ] `[app]` The same function returns the dialog's box: horizontally centred (±1 px) in
+      the dialog area `[0, vw − cardWidth − 2×gutter]`, width = min(its normal width, area width −
+      2×gutter) (≥ 552 px at both boundaries), so its right edge is ≥ 20 px left of the card's left
+      edge. At vw 1440 / wide: card left edge 700, area [0, 680], dialog 640 px at x 20–660.
+- [ ] `[app]` Reducer: opening a project dialog from **the page**, from **a chip**, and **opening or
+      restoring the chat while a project dialog is showing** all go through the same rule (no path
+      leaves a docked chat under the overlay). Closing the dialog returns the chat to `docked` at the
+      stored size (and from `tucked`, back to `docked`), never to `closed`.
+- [ ] `[qa]` 1440×900, chat docked wide, open a project from the page's Work section: the chat is
+      still docked wide, **fully visible** (hit-test at its header, transcript, composer and size
+      toggle returns chat elements, not the overlay), the dialog sits entirely left of it with ≥ 20 px
+      gap, no horizontal scroll. Typing and sending a message works; the size toggle works.
+- [ ] `[qa]` Same at 1280×800 (chat shown **compact**, then back to **wide** after the dialog closes
+      when the stored size is wide) and 1547×900 (wide). At 1024×768 compact beside; at 1000×768 the
+      chat is the minimized pill while the dialog is open and returns docked after it closes.
+- [ ] `[qa]` Clicking the grey area **left of** the dialog closes the dialog (chat untouched). Clicking
+      inside the chat never closes the dialog.
+- [ ] `[qa]` While the dialog is open the rest of the page is non-interactive: page links/buttons are
+      not hit-testable, not reachable by Tab, and hidden from the accessibility tree (`inert` or
+      equivalent); Tab moves only between the dialog and the chat; screen-reader tree exposes only
+      those two.
+- [ ] `[qa]` Escape typed in the chat composer does **not** close the project dialog; Escape with
+      focus in the dialog closes the dialog and does **not** minimize the chat.
+- [ ] `[qa]` Voice-survives sweep (#20): with a live call, open a project from the page, from a chip,
+      toggle size, close by grey area, close by Escape, cross the 1016 tuck — the call stays live
+      through each.
+- [ ] `[human]` Owner at **1440** wide on his laptop: a project's details and the chat side by side,
+      grey only over the page left of the dialog, chat readable and usable while reading the project.
+
+### Navigator decisions (flagged; PO recommendation in bold, build may start on it)
+- **N-P1 — already-denied visitors and the greeting.** **Recommend: text fallback with the greeting
+  as text** (same as a bubble deny). Alternative: keep G1's "denied path unchanged" (voice greeting
+  plays, mic off) — but then a denied visitor hears a greeting they cannot answer by voice.
+- **N-P2 — mic-wait timeout for an ignored bubble.** **Recommend 20 s.** Shorter risks closing on a
+  visitor still reading the bubble; longer holds a billed Live session idle.
+- **N-P3 — project chip at < 1016 px.** Scope says the chat tucks into the pill. The chip is an
+  explicit "talk about this" request, so tucking hides what was just asked for. **Recommend: the chip
+  at < 1016 keeps today's modal (chat over the dialog); page-opened dialogs tuck.** Alternative:
+  tuck on every path (scope as written).
+- **N-P4 — persistent permission.** We cannot force "Allow while visiting the site"; if telemetry
+  shows real visitors re-prompting after a `granted` session, the owner may want a pre-prompt
+  explainer before the browser bubble. Not in this slice.
+
+## 2026-10-24 — wide docked assistant window
+
+**Source:** owner request 2026-10-24, verbatim: *"I like the style of the window that gives space in
+the screen, merge the original style into it with a bigger window and the ability to switch between
+both even when we start in the very beginning. [keep] the usable website on all times even with the
+bigger window, so the bigger window would be anchored by default to the same where the current window
+is, but wider. respecting the screen size of course."* Backlog item: `backlog.md` → "2026-10-24 —
+wide docked assistant window". Architect owns the ADR (`docs/decisions/`) and any invariant edits
+(#20 voice survives, #22 yielded ⇒ site operable — this feature makes #22 cover the **default open**
+state, not only a yield); these bullets are the acceptance bar.
+
+**Owner decisions already taken (not open):** (O1) the size on first open is **WIDE**; (O2) the wide
+window **floats** over the page — no backdrop, page stays clickable / scrollable / keyboard-reachable
+around it, it may cover part of the content — it is **not** a page reflow.
+
+**What this supersedes.** D3's "first open = a focused *modal* panel" — on viewports with room, first
+open is now the **docked** card at **wide** size (D3's reason, "a small corner card would undersell
+the assistant", is answered by the width, not by a backdrop). D3's yield ladder, "never close, only
+demote", and voice-survives stay binding. Existing tests that assert `open-text|open-voice → modal`
+at ≥ 768 px are **deliberately** updated by this feature, not regressions.
+
+**Vocabulary.** *Stage* stays `closed | modal | docked | minimized`. *Size* is a second, independent
+dimension of the docked card: `wide | compact`. *Compact* = today's docked card (384 px wide, 20 px
+gutter, bottom-right). *Wide* = the same card, same corner, wider. *Room for a docked card* = the
+existing ≥ 768 px `ctx.wide` breakpoint (`js/chat.js` `isWideViewport`) unless the architect moves it.
+Geometry rule (architect fixes the numbers; the PO fixes the rule):
+`compactWidth = min(384, vw − 2×gutter)`, `wideWidth = min(WIDE_MAX ≈ 720, vw − 2×gutter)`,
+gutter = 20 px; wide height ≥ compact height and ≤ `vh − 2×gutter` (minus the fixed site header if
+the card would otherwise sit under it). Note: with a 768 px breakpoint and a 720 px cap, wide is the
+full 720 px at every docked width (768 − 40 = 728 > 720); the clamp only bites if the cap or the
+breakpoint moves — it must be a rule in code, not an assumption.
+
+**Layer labels:** `[app]` = js/ `node --test` on the reducer / geometry / chrome data ·
+`[qa]` = browser journey (`scripts/qa/chat-stage-journeys.mjs` or the CDP harness) at desktop
+**1440×900** and **1024×768**, tablet edge **768×1024**, phone **375×812** · `[human]` = owner look.
+
+### W1 — opening lands in the docked style at WIDE size
+- [ ] `[app]` `nextChatStage(s, 'open-text'|'open-voice', { wide: true })` returns `'docked'` from
+      every stage (`closed`, `modal`, `docked`, `minimized`); with `{ wide: false }` it returns
+      `'modal'` (unchanged narrow behaviour, see W5).
+- [ ] `[app]` With no stored preference, the size of the first docked open is `'wide'` (O1) — a pure
+      function / initial-state value asserted as data, not read from the DOM.
+- [ ] `[app]` `stageChrome('docked', { requested: true })` for an open is the yielded chrome:
+      `backdrop` hidden, `ariaModal: 'false'`, no scroll lock, no focus trap, `moveFocus: 'composer'`
+      (an open is a visitor request, so the composer gets focus — but nothing traps it there).
+      `stageChrome('docked', …)` is **identical at both sizes** (size never changes chrome).
+- [ ] `[qa]` At 1440×900 and 1024×768, each opener lands in `data-chat-stage="docked"` at wide size
+      with the card's measured width = `wideWidth` (±1 px): (a) text launcher / composer bar,
+      (b) voice / mic launcher, (c) hero CTA, (d) a project-dialog chip **when there is room for
+      wide beside the dialog** (otherwise W6), (e) the "Assistant active" restore chip returns to the
+      visitor's **last** size, not to wide by default.
+- [ ] `[qa]` The wide card is anchored to the **same corner as the compact card** (bottom-right):
+      its right edge and bottom edge sit exactly where the compact card's do (same gutter, ±1 px);
+      only its left edge (and height, if taller) differs.
+- [ ] `[human]` Owner looks at the first open at 1440×900: it reads as "the original window, bigger,
+      sitting where the small one sits" — header, transcript, chips, composer / voice dock all
+      present, with the page visible and usable beside and above it.
+
+### W2 — the size toggle (wide ⇄ compact), available from the very first open
+- [ ] `[app]` A pure size reducer (or equivalent data function): `toggle` flips `wide ⇄ compact`;
+      it never changes the stage, never emits a stage event, and is inert in `closed`, `modal` and
+      `minimized`.
+- [ ] `[qa]` The docked card's header shows a visible toggle control at both sizes, at ≥ 768 px. It is
+      a `<button>` reachable by Tab, operable with Enter and Space, with an accessible name that
+      states the action ("Make assistant window smaller" / "…larger", or `aria-pressed` with a stable
+      name — architect picks one) and a visible focus ring. It is **not** shown in the minimized pill,
+      in the modal, or below the docked breakpoint.
+- [ ] `[qa]` Activating it **immediately after the very first open** (before any message is sent and
+      while the greeting is still arriving/playing) switches size; activating again switches back.
+      Measured card width after each press = `compactWidth` / `wideWidth` (±1 px), anchor corner
+      unchanged.
+- [ ] `[qa]` After a toggle, keyboard focus is **still on the toggle** (not moved to the composer,
+      not lost to `body`), the transcript scroll position keeps the latest message visible, and any
+      unsent composer draft is preserved.
+- [ ] `[app]` **Voice survives a size change (invariant #20).** In the wiring test, toggling size
+      during a live voice session leaves the `stopVoice` spy at **0**, the WebSocket open, and the
+      mic attached — with the live-session precondition asserted in the same snapshot so a dead
+      probe cannot pass.
+- [ ] `[qa]` During a live voice call (voice-probe / CDP with fed WAV), toggling wide → compact →
+      wide keeps the session live: no close frame on the socket, assistant audio keeps playing, and
+      the voice pane (mute / end) stays visible and operable at both sizes.
+
+### W3 — the chosen size persists
+- [ ] `[app]` The size the visitor last chose is what every later docked entry uses within the page
+      session: `restore`, `project-close` / `contact-close` back from the pill, `navigate` /
+      `project-open` yield from modal, and a re-open after `close`. Only the toggle changes it —
+      no resize, stage change or dialog changes the **stored** preference (W6's temporary compact
+      does not overwrite it).
+- [ ] `[app]` The preference is read/written through a guarded storage helper: a throwing or empty
+      `localStorage` falls back to `'wide'` and the chat still opens (unit-tested with a throwing
+      stub). The stored value is exactly `'wide'` or `'compact'`; anything else reads as `'wide'`.
+- [ ] `[qa]` **Pending N-W1** (recommend: persists across reloads): choose compact, reload, open →
+      lands compact. Clear storage, reload, open → lands wide.
+
+### W4 — the site stays usable around the card, at both sizes (O2, invariant #22)
+- [ ] `[qa]` At 1440×900 with the card open at **wide** and again at **compact**, without closing or
+      minimizing it: (a) clicking a nav link outside the card navigates (hash/section changes);
+      (b) wheel-scrolling over page content scrolls the page; (c) clicking a project card opens the
+      project dialog; (d) a browser hit-test (`elementFromPoint`) at a point over site content
+      returns site content and at a point over the card returns the card.
+- [ ] `[qa]` At both sizes: no backdrop element is visible or hit-testable, `#chatDialog` has
+      `aria-modal="false"`, `body` has no scroll lock (`overflow` unchanged from closed), and Tab
+      from the last control in the card moves on into the page (no focus trap); Shift+Tab from the
+      page reaches the card.
+- [ ] `[qa]` Focus is not stolen: while the card is open and the assistant is replying / speaking,
+      a visitor typing in a page field (e.g. after opening the contact dialog, then closing it and
+      focusing a page input) keeps focus there — no assistant event moves focus into the card.
+      The transcript keeps its `aria-live` region at both sizes.
+- [ ] `[qa]` **No layout overflow at any width:** at 320, 375, 640, 767, 768, 1024, 1280, 1440 and
+      1920 px wide (and at 1280×600 for a short screen), with the chat open in its default state and
+      after toggling (where the toggle exists): `document.scrollingElement.scrollWidth ≤ clientWidth`
+      (no horizontal scroll), and the card's bounding rect lies within
+      `[gutter, vw − gutter] × [gutter-or-header, vh − gutter]`.
+
+### W5 — narrow viewports fall back sensibly (pending N-W2)
+- [ ] `[app]` Below the docked breakpoint (`ctx.wide === false`) open-* behaves exactly as today
+      (`'modal'`, which renders full-screen at ≤ 640 px and as the centred dialog 641–767 px); no
+      size toggle exists there; the stored size preference is untouched.
+- [ ] `[qa]` At 375×812: open text and open voice → the existing full-screen chat, no toggle,
+      Escape / close / minimize behave as today; no horizontal scroll.
+- [ ] `[app]` Crossing the breakpoint while docked (either size) → `viewport-narrow` → `minimized`
+      (existing reducer rule) with voice live (stopVoice spy 0); widening back does **not**
+      auto-promote the pill; the visitor's restore returns to their stored size.
+- [ ] `[qa]` Resizing a docked-wide window from 1440 down to 800 px keeps the card inside the
+      viewport at every step (clamped by the rule, never overflowing) until the breakpoint is crossed.
+
+### W6 — transitions keep working; dialog "room beside" accounts for wide
+- [ ] `[app]` Reducer table (asserted as data, both sizes): from `docked`, `escape → minimized`,
+      `minimize → minimized`, `close → closed`, `navigate | project-open → docked` (idempotent),
+      `contact-open → minimized`; from `minimized`, `restore | project-close | contact-close →
+      docked` when `wide`; `escape` from `minimized` is a no-op. Size is carried through every
+      transition unchanged.
+- [ ] `[qa]` Journey at 1440×900: open (wide) → minimize → restore lands **wide**; toggle compact →
+      minimize → restore lands **compact**; Escape from docked → pill; restore → same size; open
+      contact form → pill; close it → docked at the last size; navigate via the assistant's
+      `navigate_to_section` during a live call → still docked, same size, call live.
+- [ ] `[app]` `open-beside` (project chip) measures room with the **current preferred size**:
+      `hasRoomBesideDialog({ cardWidth: wideWidth, … })` true → docked wide; else, if it holds for
+      `compactWidth` → docked **compact for that dialog's lifetime** (stored preference unchanged);
+      else → `modal` (today's rule — never the pill under the project backdrop). Unit-tested with
+      all three outcomes using the rule `(vw − dialogWidth)/2 ≥ cardWidth + gutter`: wide needs
+      ≥ 740 px of side room, compact ≥ 404 px. Cases use the browser-measured project-dialog
+      widths (architect supplies them), plus a synthetic case per outcome, e.g. vw 2560 /
+      dialog 1000 → wide; vw 1920 / dialog 1000 → compact; vw 1440 / dialog 720 → modal.
+- [ ] `[qa]` After a project dialog that forced the temporary compact closes, the card returns to the
+      visitor's stored size (wide if they never toggled).
+- [ ] `[qa]` Voice-survives sweep: every transition above, run during a live call, ends with the
+      session live (extends the existing chat-stage journeys; no new stopVoice path).
+
+### W7 — motion
+- [ ] `[app]` The size change animates width (and height, if it changes) only via a CSS transition
+      that is `none` under `@media (prefers-reduced-motion: reduce)` (source assertion on the CSS
+      rule, the same way the existing stage transitions are pinned).
+- [ ] `[qa]` With reduced motion emulated, a toggle reaches its final width in the first frame after
+      the click (no intermediate widths sampled); without it, the transition completes in ≤ 250 ms
+      and the anchor corner never moves during it.
+- [ ] `[human]` Owner toggles a few times at 1440×900 and on his own laptop: it feels like the same
+      window growing from its corner, not a jump to a different window.
+
+### Navigator decisions (flagged; PO recommendation in bold, build may start on the recommendation)
+- **N-W1 — persist across reloads?** **Recommend yes: `localStorage`, one key, per browser**, so a
+  visitor who prefers compact is not re-widened on every page load. Alternative: page-session only
+  (`sessionStorage` / memory) — first open of every visit is wide.
+- **N-W2 — narrow fallback.** **Recommend: below the 768 px docked breakpoint keep today's behaviour
+  (full-screen ≤ 640, centred modal 641–767), no toggle.** A docked card on a phone leaves no usable
+  page, so "usable site" is served there by minimize/close as today. Alternative: compact docked card
+  at 641–767 px.
+- **N-W3 — Escape on a freshly opened card.** Today Escape on a fresh open (modal) **closes**; with
+  open → docked it will **minimize** (existing docked rule). **Recommend accept** (never destroy a
+  conversation on a keystroke; the pill is one click from restore). Alternative: Escape closes when
+  the docked card was entered by `open-*` and has had no site interaction.
+- **N-W4 — is the modal still reachable at ≥ 768 px by choice?** The request says "switch between
+  both" sizes; the orchestrator reading is wide ⇄ compact. **Recommend: no "modal" option on desktop;
+  modal survives only as the narrow fallback and the no-room-beside-a-dialog fallback.** If the owner
+  meant "switch between the old centred dialog and the docked card", this becomes a three-way toggle
+  and W2 changes.
+- **N-W5 — wide cap.** Architect fixes `WIDE_MAX` (≈ 720 px) and wide height; PO asks only that wide
+  is visibly "the original window" in width (≥ ~640 px) and never wider than `vw − 2×gutter`.
+- **N-W6 — project chip with no room for wide.** **Recommend: temporary compact beside the dialog,
+  then modal if compact also does not fit** (W6). Alternative: always minimize behind the dialog.
+
 ## 2026-10-24 — barge-in + chat latency
 
 **Source:** `docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md` (RCA + retro). Scope is
@@ -21,111 +346,117 @@ prod since 2026-10-23, `6a1cb34` → `4118aa3`). **It supersedes** M4's bullet "
 cut off by the mic prompt" — that trade-off is reversed (navigator: see decision N1 below).
 
 ### G1 — cold-path barge-in (voice interrupts the greeting for a first-time visitor)
-- [ ] `[app]` With mic permission `prompt` or unknown and the assistant speaking first, starting
+- [x] `[app]` With mic permission `prompt` or unknown and the assistant speaking first, starting
       voice requests the microphone **immediately** — the request is not deferred to, or gated
       on, the greeting's `turnComplete` (nor on the 15 s fallback).
-- [ ] `[app]` On that cold path, once permission is granted, mic audio frames are sent upstream
+- [x] `[app]` On that cold path, once permission is granted, mic audio frames are sent upstream
       **while the greeting is still playing** (before its `turnComplete`).
-- [ ] `[app]` When `interrupted` arrives during the greeting, local playback stops at once, and
+- [x] `[app]` When `interrupted` arrives during the greeting, local playback stops at once, and
       every further audio frame and output-transcript fragment of **that** turn is dropped —
       nothing of the cut-off greeting plays or is appended after the interruption.
-- [ ] `[app]` The visitor's next turn after the interruption plays normally (the gate re-opens
+- [x] `[app]` The visitor's next turn after the interruption plays normally (the gate re-opens
       on the next turn; no stuck-muted assistant).
-- [ ] `[app]` **Granted path unchanged:** with permission already `granted`, the mic is attached
+- [x] `[app]` **Granted path unchanged:** with permission already `granted`, the mic is attached
       at session start exactly as before, and an `interrupted` during the greeting stops it
       (existing tests stay green unmodified).
-- [ ] `[app]` **Denied path unchanged:** with permission `denied`, no mic is requested, the
+- [x] `[app]` **Denied path unchanged:** with permission `denied`, no mic is requested, the
       greeting plays to completion, the existing denied affordance is shown, and text chat
       works.
-- [ ] `[app]` A wiring test fails if any code path re-introduces a deferral of the mic attach
+- [x] `[app]` A wiring test fails if any code path re-introduces a deferral of the mic attach
       behind the greeting's `turnComplete` on the cold path (the regression is pinned, not
       just the fix).
 
 ### G2 — local interruption by explicit visitor action (no server round-trip)
-- [ ] `[app]` While the assistant is speaking (greeting **or** any later turn), tapping a project
+- [x] `[app]` While the assistant is speaking (greeting **or** any later turn), tapping a project
       chip that sends to the call stops playback locally **before** any server frame is
       received; the remaining audio/transcript of that turn is dropped as in G1.
-- [ ] `[app]` While the assistant is speaking, sending text into the call stops playback locally
+- [x] `[app]` While the assistant is speaking, sending text into the call stops playback locally
       at once, the same way.
-- [ ] `[app]` While the assistant is speaking, tapping the mic control stops playback locally at
+- [x] `[app]` While the assistant is speaking, tapping the mic control stops playback locally at
       once — including on the cold path where the tap also raises the permission sheet (the
       sheet no longer appears over still-playing audio).
-- [ ] `[app]` Each of the three actions above works on **both** cold and warm paths (test matrix:
+- [x] `[app]` Each of the three actions above works on **both** cold and warm paths (test matrix:
       3 actions × {cold, granted}).
-- [ ] `[app]` **Negative:** site navigation that does not address the assistant (scrolling,
+- [x] `[app]` **Negative:** site navigation that does not address the assistant (scrolling,
       opening a section or project dialog, closing a dialog) does **not** stop playback — M2's
       "keeps talking while I navigate" is preserved.
-- [ ] `[app]` After a local stop, the assistant's answer to the visitor's action plays normally
+- [x] `[app]` After a local stop, the assistant's answer to the visitor's action plays normally
       (the local stop does not swallow the next turn's audio).
 
 ### G3 — the stage voice probe holds barge-in (regression net, not slice confirmation)
-- [ ] `[qa]` The stage voice probe runs the **cold** path (permission prompt/unknown) and asserts
+- [x] `[qa]` The stage voice probe runs the **cold** path (permission prompt/unknown) and asserts
       the mic is requested **before** the greeting's `turnComplete` — the old claim "mic is
       requested only AFTER the greeting turn completes" is removed/inverted.
-- [ ] `[qa]` The probe starts the speech WAV **during** the greeting (after the first greeting
+- [x] `[qa]` The probe starts the speech WAV **during** the greeting (after the first greeting
       audio frame, before `turnComplete`) and asserts `interrupted` arrives, and that model
       audio frames for that turn stop after it (a short stated grace, e.g. ≤ 500 ms, for frames
       already in flight).
-- [ ] `[qa]` The old claim "the greeting is not interrupted before it completes" is gone; no
+- [x] `[qa]` The old claim "the greeting is not interrupted before it completes" is gone; no
       remaining probe claim asserts a non-interruptible greeting.
-- [ ] `[qa]` Control run: with a **silent** mic during the greeting, the greeting completes
+- [x] `[qa]` Control run: with a **silent** mic during the greeting, the greeting completes
       (`turnComplete`, no `interrupted`) — the assistant does not barge in on itself through
       its own audio.
-- [ ] `[qa]` Red-proof: the new barge-in claim **fails** when the probe is pointed at the
+- [x] `[qa]` Red-proof: the new barge-in claim **fails** when the probe is pointed at the
       2026-10-23 build (or the current stage before the G1 fix) — recorded in the slice's
       evidence.
 - [ ] `[qa]` `[human-staging GATED]` _(PO-added)_ The owner, as a first-time visitor on stage
       (fresh profile, permission not yet granted), starts voice, accepts the prompt, speaks over
       the greeting, and the greeting stops. **Gates G1 to prod.** No agent ticks this.
+      _PO 2026-10-24 (po-1024): **still OPEN, not ticked.** The navigator's explicit instruction
+      ("validate stage, then deploy prod") overrides this gate for this release; the check moves to
+      the post-release follow-ups in backlog.md together with the echo/real-speaker checks._
 
 ### L1 — routing does not amplify stalls
-- [ ] `[chat]` With `GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS` unset, the per-attempt first-chunk budget
+- [x] `[chat]` With `GEMINI_FIRST_CHUNK_TIMEOUT_SECONDS` unset, the per-attempt first-chunk budget
       is **5 s** (env var still overrides; still capped under the total budget).
-- [ ] `[chat]` **Every** attempt is capped, including the last: a final attempt that yields no
+- [x] `[chat]` **Every** attempt is capped, including the last: a final attempt that yields no
       first chunk within the budget ends the turn with the existing honest upstream-unavailable
       error — no uncapped last attempt (today's 19 s stall).
-- [ ] `[chat]` A primary `503`/`UNAVAILABLE` on the first attempt is retried **once on the
+- [x] `[chat]` A primary `503`/`UNAVAILABLE` on the first attempt is retried **once on the
       primary**; if that retry also fails retryably, the turn falls back to the secondary. A
       primary `429` is not retried on the primary (goes straight to fallback, as today).
-- [ ] `[chat]` A primary first-chunk timeout or `429` makes the container prefer the fallback
+- [x] `[chat]` A primary first-chunk timeout or `429` makes the container prefer the fallback
       for a **bounded window of minutes** (default 5 min, configurable), not the rest of the UTC
       day; the first turn after the window tries the primary first again. A `503` still sets no
       preference.
-- [ ] `[chat]` Alert text names the model that **actually** failed and the model **actually**
+      _PO: accepted on behaviour (minutes-bounded, not UTC day). Shipped default is **10 min**
+      (ADR-0026 §4), not the 5 min written here — N2 is still unconfirmed by the navigator; it is
+      env-configurable (`GEMINI_FALLBACK_PREFERENCE_TTL_MINUTES`), so no code change either way._
+- [x] `[chat]` Alert text names the model that **actually** failed and the model **actually**
       tried next — including in fallback-first order (never "X stalled; switching to X").
-- [ ] `[chat]` Invariant #9 holds: once any chunk has been yielded, a later error propagates — no
+- [x] `[chat]` Invariant #9 holds: once any chunk has been yielded, a later error propagates — no
       retry, no second model call, no duplicated text; non-retryable errors (401/403/400/404/
       unknown) are still never retried on either model.
-- [ ] `[chat]` **Worst-case bound, warm container:** the visitor gets either a first token or the
+- [x] `[chat]` **Worst-case bound, warm container:** the visitor gets either a first token or the
       honest error within **≤ 15 s** (≤ 3 capped attempts × 5 s: primary, primary-retry on 503,
       fallback) — down from ~28 s today. A test drives the all-stall case with a fake clock and
       asserts the bound. (Cold adds init time — see L2/L3.)
-- [ ] `[chat]` Per-turn telemetry still records `firstTokenLatencyMs` and `fallbackUsed`, and
+- [x] `[chat]` Per-turn telemetry still records `firstTokenLatencyMs` and `fallbackUsed`, and
       now distinguishes a primary retry from a fallback.
 
 ### L2 — prewarm on chat intent
-- [ ] `[app]` Opening the chat (or the launcher intent the architect specifies) sends **one**
+- [x] `[app]` Opening the chat (or the launcher intent the architect specifies) sends **one**
       warm request; it carries a valid CloudFront payload digest (same digest rule as a chat
       turn — the warm path is not a digest bypass).
-- [ ] `[app]` At most one warm per page load: re-opening the chat, or opening it again within
+- [x] `[app]` At most one warm per page load: re-opening the chat, or opening it again within
       5 min of a warm, sends none. A warm that fails is silent to the visitor (no error UI, no
       retry storm) and does not delay or block the visitor's first real message.
-- [ ] `[chat]` A warm request starts the stream Lambda and builds the model client **without
+- [x] `[chat]` A warm request starts the stream Lambda and builds the model client **without
       any Gemini call** (fake client asserts zero generate/stream calls) and returns 2xx
       quickly (target < 1 s on a warm container).
-- [ ] `[chat]` A warm request writes **no transcript turn**, is not counted as a chat turn in the
+- [x] `[chat]` A warm request writes **no transcript turn**, is not counted as a chat turn in the
       admin Assistant tab or the daily report, and does not consume the chat-turn rate-limit
       window.
-- [ ] `[chat]` A warm request with a missing/invalid digest is rejected exactly like a chat turn
+- [x] `[chat]` A warm request with a missing/invalid digest is rejected exactly like a chat turn
       with one.
-- [ ] `[qa]` On stage, after the stream Lambda has gone cold, opening the chat and then sending
+- [x] `[qa]` On stage, after the stream Lambda has gone cold, opening the chat and then sending
       the first message shows no cold-start init in that message's REPORT (the warm absorbed it).
 
 ### L3 — warm after deploy, and a cacheable stream image
-- [ ] `[ops]` After each stage and each prod deploy, the workflow sends **one** warm request to
+- [x] `[ops]` After each stage and each prod deploy, the workflow sends **one** warm request to
       that environment; a non-2xx or timeout **fails the job** with a message naming the
       environment.
-- [ ] `[ops]` The stream image (`docker/chat/Dockerfile.lambda-stream`) pins its base image by
+- [x] `[ops]` The stream image (`docker/chat/Dockerfile.lambda-stream`) pins its base image by
       `@sha256:` digest; a check fails the build if the `FROM` is a floating tag.
 - [ ] `[ops]` Two consecutive deploys with no dependency change push **no new base or pip
       layers** — only the application layer changes (evidence: ECR layer digests or the push

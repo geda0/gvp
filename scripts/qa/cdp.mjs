@@ -99,6 +99,8 @@ export async function launch (opts = {}) {
 
   const page = {
     send: (method, params) => browser.send(method, params, sessionId),
+    /** Subscribe to this page's CDP events (e.g. 'Fetch.requestPaused'). */
+    on: (method, fn) => browser.on(method, (params, from) => { if (from === sessionId) fn(params) }),
     async close () {
       try { await browser.send('Browser.close') } catch (_) { /* already gone */ }
       browser.socket.close()
@@ -125,16 +127,28 @@ function connect (url) {
     let nextId = 1
 
     socket.onerror = (e) => reject(new Error(`CDP socket error: ${e.message || e.type}`))
+    const listeners = new Map()
     socket.onmessage = (ev) => {
       const msg = JSON.parse(ev.data)
+      // An event: delivered to whoever subscribed with `on` (most journeys never do).
+      if (msg.method && msg.id === undefined) {
+        for (const fn of listeners.get(msg.method) || []) {
+          try { fn(msg.params || {}, msg.sessionId) } catch (_) { /* a listener must not kill the client */ }
+        }
+        return
+      }
       const waiter = pending.get(msg.id)
-      if (!waiter) return // an event, not a reply — this client does not subscribe
+      if (!waiter) return
       pending.delete(msg.id)
       if (msg.error) waiter.reject(new Error(`${waiter.method}: ${msg.error.message}`))
       else waiter.resolve(msg.result)
     }
     socket.onopen = () => resolve({
       socket,
+      on (method, fn) {
+        if (!listeners.has(method)) listeners.set(method, [])
+        listeners.get(method).push(fn)
+      },
       send (method, params = {}, sessionId) {
         const id = nextId++
         const frame = { id, method, params }
@@ -193,16 +207,26 @@ export async function goto (page, url) {
   // stage from boot" is what makes this reliable). Waiting on a real readiness marker
   // instead of a longer sleep is the difference between a harness people run and one they
   // learn to ignore.
+  //
+  // NOT `readyState === 'complete'`: that also waits for third-party subresources (Google
+  // Fonts, gtag), which on a COLD throwaway profile could stall past the deadline - the first
+  // journey of a run failed "never became ready" while every later one (warm cache) passed.
+  // The app is wired at DOMContentLoaded; chatStage is the signal that matters.
   const deadline = Date.now() + 15000
   while (Date.now() < deadline) {
     const ready = await evaluate(page, () => (
-      document.readyState === 'complete'
+      document.readyState !== 'loading'
       && Boolean(document.getElementById('chatDialog')?.dataset.chatStage)
     )).catch(() => false)
     if (ready) return
     await sleep(80)
   }
-  throw new Error(`page never became ready: ${url}`)
+  const seen = await evaluate(page, () => JSON.stringify({
+    href: location.href,
+    readyState: document.readyState,
+    chatStage: document.getElementById('chatDialog')?.dataset.chatStage || null
+  })).catch((err) => `unreadable: ${err && err.message}`)
+  throw new Error(`page never became ready: ${url} (saw ${seen})`)
 }
 
 /** A REAL click at viewport coordinates — the thing a stub DOM cannot do. */

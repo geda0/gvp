@@ -76,7 +76,18 @@ function makeEl(tag = 'div') {
     scrollTop: 0,
     clientHeight: 0,
     offsetWidth: 0,
-    style: { setProperty() {}, removeProperty() {} },
+    // Custom properties are RECORDED (ADR-0027: --chat-dock-width is the card's width), so a
+    // test can read back what js/chat.js set rather than trusting a no-op stub.
+    style: {
+      props: {},
+      setProperty(name, value) { this.props[name] = String(value) },
+      // Like a real CSSStyleDeclaration: removing `transition` also clears `style.transition`.
+      removeProperty(name) {
+        delete this.props[name]
+        delete this[name.replace(/-([a-z])/g, (_m, c) => c.toUpperCase())]
+      },
+      getPropertyValue(name) { return name in this.props ? this.props[name] : '' }
+    },
     setAttribute(name, value) { el.attrs[name] = String(value) },
     getAttribute(name) { return name in el.attrs ? el.attrs[name] : null },
     removeAttribute(name) { delete el.attrs[name] },
@@ -251,6 +262,10 @@ async function bootChatWithLiveVoice({ tag = 'harness', voice = true, hash = '',
     }
   })
   defineGlobal('navigator', {
+    // A session that stays OPEN with no live mic. Since ADR-0028 a refused mic on the cold
+    // path (prompt / unknown / denied) closes the call, so that state is reached only when the
+    // permission reads 'granted' and getUserMedia still fails (the mic busy).
+    permissions: { query: async () => ({ state: 'granted' }) },
     mediaDevices: {
       getUserMedia: async () => {
         const err = new Error('mic not granted in harness')

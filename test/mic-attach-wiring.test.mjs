@@ -142,9 +142,13 @@ async function bootVoice({ permission }) {
   })
   void live.startVoice({ intent: 'auto' })
   await settle()
+  // ADR-0028: on the cold path a refused mic ends the start before the mint returns, so there
+  // may be no live socket at all — that is the point, not a harness failure.
   const socket = sockets[0]
-  socket.onopen(); await settle()
-  socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) }); await settle()
+  if (socket?.onopen) {
+    socket.onopen(); await settle()
+    socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) }); await settle()
+  }
   return { live, mic, send: async (p) => { socket.onmessage({ data: JSON.stringify(p) }); await settle() } }
 }
 
@@ -159,10 +163,12 @@ for (const permission of ['prompt', undefined]) {
     // Arrange + Act — start voice; the greeting is sent and is still speaking (no turnComplete).
     const v = await bootVoice({ permission })
     try {
-      // Assert — no deferral to the greeting's end, nor to any fallback timer.
+      // Assert — no deferral to the greeting's end, nor to any fallback timer. ADR-0028 made it
+      // stronger (the mic is asked at the tap, before the greeting is sent at all): see
+      // test/mic-first-then-greet.test.mjs.
       assert.equal(
         v.mic.calls, 1,
-        'the permission sheet over the speaking greeting is the accepted cost of barge-in (ADR-0026 §2)'
+        'the cold path must ask for the mic at once, never behind the greeting (#25, ADR-0028)'
       )
     } finally { v.live.stopVoice?.() }
   })

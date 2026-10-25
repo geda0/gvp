@@ -148,3 +148,126 @@ test('stage transitions honour prefers-reduced-motion', () => {
   )
   assert.match(block[1], /transition:\s*none/)
 })
+
+test('ADR-0027 §4.1: the size toggle is a pressed-state button with a fixed name that keeps focus', async (t) => {
+  // aria-pressed, NOT aria-expanded: it changes the size of the region it lives in, it does
+  // not show other content. The NAME never swaps - a pressed button whose label also flips
+  // reads as a double negative. And it is HIDDEN wherever wide cannot render or the card is
+  // not docked, because a control that does nothing is noise to a screen reader.
+  const { api, getEl, siteState } = await boot('a11y-size-toggle')
+  t.after(() => api.disposeChatLiveVoice())
+  const toggle = getEl('chatDialog').querySelector('[data-chat-size-toggle]')
+  toggle.setAttribute('aria-label', 'Wide chat window') // as the markup ships it
+  const focused = []
+  toggle.focus = () => focused.push('toggle')
+  getEl('chatComposerInput').focus = () => focused.push('composer')
+
+  const read = () => ({
+    hidden: Boolean(toggle.hidden),
+    pressed: toggle.getAttribute('aria-pressed'),
+    label: toggle.getAttribute('aria-label')
+  })
+  const seen = { modal: read() }
+  siteState.setSection('portfolio', { origin: 'visitor' })
+  await settle()
+  seen.docked = read()
+  toggle.events.fire('click', { stopPropagation () {}, target: toggle })
+  await settle()
+  seen.toggled = read()
+  siteState.setContactOpen(true, { origin: 'visitor' })
+  await settle()
+  seen.minimized = read()
+
+  assert.deepEqual(seen, {
+    modal: { hidden: true, pressed: 'true', label: 'Wide chat window' },
+    docked: { hidden: false, pressed: 'true', label: 'Wide chat window' },
+    toggled: { hidden: false, pressed: 'false', label: 'Wide chat window' },
+    minimized: { hidden: true, pressed: 'false', label: 'Wide chat window' }
+  })
+  assert.deepEqual(focused, [], 'a toggle press must not move focus anywhere - it stays on the toggle')
+  assert.equal(getEl('chatDialog').querySelector('.chat-dialog__panel').getAttribute('aria-modal'), 'false',
+    'docked at both sizes is non-modal')
+})
+
+test('ADR-0027 §5.2: minimising the focused main window hands focus to the resume chip', async (t) => {
+  // Docked is now the default window, so the composer usually HOLDS focus when the visitor
+  // presses minimise or Escape. Hiding it would drop focus to <body>; the "Assistant active"
+  // chip (whose click is restore) is where it goes instead. A SYSTEM minimise (the contact
+  // dialog opening) must not move it - that dialog is taking focus itself.
+  const { api, getEl, siteState, docEvents } = await boot('a11y-resume-chip')
+  t.after(() => api.disposeChatLiveVoice())
+  const dialog = getEl('chatDialog')
+  const panel = dialog.querySelector('.chat-dialog__panel')
+  const composer = getEl('chatComposerInput')
+  const chip = getEl('agentActiveChip')
+  panel.contains = (el) => el === composer
+  const focused = []
+  chip.focus = () => focused.push(chip.hidden ? 'hidden-chip' : 'chip')
+
+  const toDocked = async () => {
+    api.openPanel()
+    await settle()
+    assert.equal(siteState.getSiteState().chatStage, 'docked', 'harness: docked')
+    document.activeElement = composer
+  }
+
+  await toDocked()
+  dialog.querySelector('.chat-dialog__minimize').events.fire('click', { stopPropagation () {} })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized')
+  assert.deepEqual(focused, ['chip'], 'the minimise button must hand focus to the VISIBLE resume chip')
+
+  await toDocked()
+  docEvents.fire('keydown', { key: 'Escape', preventDefault () {} })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized', 'Escape on docked minimises (N-W3)')
+  assert.deepEqual(focused, ['chip', 'chip'], 'and so does Escape')
+
+  await toDocked()
+  siteState.setContactOpen(true, { origin: 'visitor' })
+  await settle()
+  assert.equal(siteState.getSiteState().chatStage, 'minimized')
+  assert.deepEqual(focused, ['chip', 'chip'], 'a system minimise never moves focus')
+
+  // Focus outside the card: a requested minimise leaves it where the visitor put it.
+  siteState.setContactOpen(false, { origin: 'visitor' })
+  await settle()
+  document.activeElement = getEl('somewhereOnThePage')
+  dialog.querySelector('.chat-dialog__minimize').events.fire('click', { stopPropagation () {} })
+  await settle()
+  assert.deepEqual(focused, ['chip', 'chip'], 'focus outside the card is not ours to move')
+})
+
+test('ADR-0027 §4 / W7: the size transition exists only under prefers-reduced-motion: no-preference', () => {
+  // Declared ONLY inside no-preference, so the reduce rule above (transition: none) can never
+  // be out-specified by it - #22's "transitions honour reduced motion" covers size by
+  // construction rather than by a specificity race.
+  const css = read('css', 'chat.css')
+  const np = /@media \(prefers-reduced-motion: no-preference\) \{\s*#chatDialog\[data-chat-stage='docked'\] \.chat-dialog__panel \{([^}]*)\}/
+    .exec(css)
+  assert.ok(np, 'no size transition for the docked card under no-preference')
+  assert.match(np[1], /transition:[^;]*width 200ms[^;]*max-width 200ms/)
+  // And nowhere else: a docked-panel transition declared outside the media query would apply
+  // under reduce too.
+  const outside = css.replace(np[0], '')
+  assert.doesNotMatch(
+    outside, /#chatDialog\[data-chat-stage='docked'\][^{]*\.chat-dialog__panel \{[^}]*transition:/,
+    'a docked-panel transition outside no-preference applies under reduced motion too'
+  )
+})
+
+test('ADR-0027 §4.1: the size toggle renders only on the docked card, and [hidden] wins', () => {
+  const css = read('css', 'chat.css')
+  assert.match(css, /\.chat-dialog__size\s*\{[^}]*display:\s*none/, 'hidden by default')
+  assert.match(
+    css, /\[data-chat-stage=["']docked["']\][^{]*\.chat-dialog__size\s*\{[^}]*display:\s*inline-flex/,
+    'shown on the docked card, exactly like minimise'
+  )
+  // toggleHidden (below 840px, beside a dialog with no room for wide) must beat the docked
+  // rule's display - a bare [hidden] loses to any author `display`.
+  assert.match(
+    css, /\[data-chat-stage=["']docked["']\][^{]*\.chat-dialog__size\[hidden\]\s*\{[^}]*display:\s*none/,
+    'the [hidden] rule must be at least as specific as the docked display rule'
+  )
+  assert.match(css, /\.chat-dialog__size:focus-visible\s*\{[^}]*outline/, 'a visible focus ring (W2)')
+})

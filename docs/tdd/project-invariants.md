@@ -1209,6 +1209,19 @@ proves it comes FIRST.
     *Pin:* `stageChrome` asserted per stage as DATA (`test/chat-stage.test.mjs`), the applied DOM
     compared against it (`test/chat-stage-wiring.test.mjs`), and a browser hit-test that a click
     over site content reaches the content while a click over the panel reaches the panel.
+    **Layering clause (ADR-0017 §9.1, AMENDED 2026-10-24 by ADR-0029):** *a yielded stage paints
+    below every dialog except in a column that dialog has reserved for it; only the `modal` stage
+    may paint above a dialog otherwise.* A dialog reserves the column only through the generic
+    page inset `--overlay-reserve-inline-end`, written solely by `applyChatSize` while the card is
+    `docked`, a project dialog is showing and `besideLayout(...).reserve > 0` (≥ 1016 px today);
+    the lifted card (`data-chat-beside="true"`, z 1102) then never overlaps the dialog's panel,
+    whose scrim stays full-bleed and click-to-close. While reserved, the page outside the two
+    dialogs is `inert` and the project panel is `aria-modal="false"` — the page was already behind
+    the dialog's scrim, so this makes keyboard/AT agree with the pointer, it does not take
+    operability away. Below the floor `project-open` minimizes a docked card instead.
+    *Pin (clause):* `test/chat-stage-layering.test.mjs` (as before), `besideLayout` rows and the
+    `project-open` reducer rows in `test/chat-stage.test.mjs`, reserve/inert/aria-modal wiring in
+    `test/chat-stage-wiring.test.mjs`, and the hit-test journeys at 1280/1440/1920 (ADR-0029 §7).
 
 23. **Text a visitor selects reaches the model only through the composer, only when they send
     it, and never reaches analytics.** `[app]` Recorded 2026-10-23 by **ADR-0017 §7** (M4
@@ -1257,10 +1270,15 @@ proves it comes FIRST.
 25. **The visitor can always cut the assistant off — by voice or by any explicit action — on every
     path, cold or warm.** `[app]` `[qa]` Recorded 2026-10-24 by **ADR-0026 §2–§3**, born from the
     greeting barge-in regression (`docs/rca/2026-10-24-chat-latency-and-greeting-barge-in.md`).
-    *Voice:* the microphone is attached right after the greeting is sent on **every** path,
-    including a first visit with permission `prompt`/`unknown` — never deferred behind the
-    greeting's `turnComplete` — so Gemini Live's activity detection can raise
-    `serverContent.interrupted`. The permission sheet over the greeting is the accepted cost.
+    *Voice:* the microphone is live **no later than** the greeting is sent on **every** path —
+    never deferred behind the greeting's `turnComplete` — so Gemini Live's activity detection can
+    raise `serverContent.interrupted`. Warm (`granted`) and `denied`: attached right after the
+    greeting is sent, as before. **Cold (`prompt`/`unknown`), AMENDED 2026-10-24 by ADR-0028:**
+    `getUserMedia` and the Live session open **in parallel** at the tap, and the greeting is sent
+    only after the grant resolves and the mic is wired — so no permission bubble overlaps the
+    greeting and the mic hears it from its first frame. A non-granted outcome (denied /
+    dismissed / `VOICE_PERMISSION_WAIT_MS` timeout / device error) closes the session and sends
+    no greeting. (The old "permission sheet over the greeting is the accepted cost" is superseded.)
     *Explicit acts:* a project chip or any text turn put into the call (`sendUserText`), and a mic
     tap on an open session whose mic is not live, stop playback **locally and at once**; a mic tap
     on a live mic ends the call (#20's explicit act), which also silences it.
@@ -1273,7 +1291,8 @@ proves it comes FIRST.
     slice (2026-10-23) because nothing wrote it down — and the stage probe asserted the regression
     as a pass. A path that cannot be interrupted reads to the owner as "the bot ignores me".
     *Pin* `[app]`: the turn-gate table (`test/voice-turn-gate.test.mjs`); wiring — the cold path
-    calls `getUserMedia` before the greeting's `turnComplete`, `sendUserText` and the open-session
+    calls `getUserMedia` before the greeting's `turnComplete` and sends no greeting before the
+    grant, then greets with the mic already active (ADR-0028 §6), `sendUserText` and the open-session
     mic tap stop playback, a source assertion that no second door exists, and the enqueue race
     (`test/voice-turn-gate-wiring.test.mjs` or `test/barge-in-wiring.test.mjs`).
     *Pin* `[qa]`: `scripts/qa/voice-stage-probe.mjs` asserts `interrupted` arrives **before** the
@@ -1312,6 +1331,26 @@ proves it comes FIRST.
     bound; `test_gemini_limit_state.py` — TTL expiry through `now=`, `0` disables, invalid,
     clamp, extend; `test_turn_persistence.py` — `primaryRetried` per turn, including two
     overlapping turns on one chain.
+
+27. **On a wide viewport the chat opens as a non-modal docked card, and at every size it leaves a
+    usable strip of the site uncovered.** `[app]` Recorded 2026-10-24 by **ADR-0027**. With
+    `ctx.wide` (≥ 768 px) every visitor open (`open-text` / `open-voice` / `restore`) lands
+    `docked` — `modal` is reserved for narrow viewports and `open-beside` with no room. The docked
+    card, wide or compact, carries `stageChrome('docked')` unchanged (no backdrop, no scroll lock,
+    `aria-modal="false"`, no focus trap), and its width comes only from `dockedCardWidth`, which
+    for every viewport ≥ 768 px leaves at least `DOCK_MIN_UNCOVERED` (320 px) of page beside it.
+    Size is never a reducer input and the size toggle never dispatches a stage event or touches
+    voice (#20).
+    **WHY THIS IS AN INVARIANT:** "the site stays usable" is the owner's constraint on the new
+    default window, and every way to break it is one line — a literal `'modal'` back in `openPanel`,
+    a CSS width that restates 720 without the floor, a transition that out-specifies the
+    reduced-motion rule — each invisible in a diff and green in a suite that only checks the stage.
+    *Pin:* `test/chat-stage.test.mjs` (the wide-column open/restore rows; `dockedCardWidth` swept
+    768…2560 against the 320 px floor for both sizes; `dockedSizeChrome`), `test/chat-stage-wiring.test.mjs`
+    (`openPanel` lands `docked` with `data-chat-size` / `--chat-dock-width`; the toggle makes no
+    store write and no `stopVoice` call), and a CSS source assertion that the docked width reads
+    `var(--chat-dock-width` and the size transition lives only under
+    `prefers-reduced-motion: no-preference`.
 
 ## Out of scope / explicitly allowed
 
