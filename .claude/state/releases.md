@@ -12,6 +12,17 @@ verified. Never release on a red bar or unaccepted work._
 
 
 
+
+## 2026-10-25 — PROMOTED TO PROD: wide docked window (ADR-0027), mic first then greet (ADR-0028), a dialog reserves the chat's column (ADR-0029)
+- `main` @ `049dc6e` (merge of `agent` @ `52fc8bd`, prod hosts kept), on the navigator's explicit go-ahead.
+- `deploy-prod` run 40231612528 GREEN; post-deploy warm `{"warm":true} -> 204 in 7862 ms`.
+- Verified live on www at 1440x900: chat opens docked WIDE (720 px, 700-1420); opening Apptio from the page
+  reserves the column — dialog 16-664, chat 700-1420, both hit-testable, page inert, no horizontal scroll.
+- Voice probe on www (WebAudio-fed WAV, real Live API): 61/61 — mic requested first, greeting only after the
+  grant, barge-in cuts it at the server, deny/ignore(20 s)/hang-up close cleanly.
+- Open: F1 owner first-visit check on real Chrome + laptop speakers (one prompt, hint visible, greeting uncut,
+  no re-prompt after "Allow while visiting the site"); low: open_contact_form's project-close origin label unpinned.
+
 ## 2026-10-24 — PROMOTED TO PROD: barge-in restored + chat latency budget (ADR-0026) + Track C
 - `main` @ `fc73871` (merge of `agent` @ `c37db15`, prod hosts kept). Released on the navigator's
   explicit override of `tics gate` (PO po-1024 and QA qa-1024 ruled concerns; follow-ups F1-F6).
